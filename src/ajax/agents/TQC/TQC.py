@@ -48,6 +48,7 @@ from ajax.agents.families import (
     RewardNormalization,
     TrainContext,
 )
+from ajax.agents.presets import Preset
 from ajax.agents.recurrent import (
     RecurrentCarries,
     ni_initialisation,
@@ -73,6 +74,23 @@ from ajax.extensions.base import merge_metrics
 from ajax.networks.utils import TORCH_LINEAR
 from ajax.state import LoadedTrainState, Transition
 from ajax.types import Architecture
+
+#: The quantiles each critic drops from the targets in the authors' runs of
+#: each task (bayesgroup/tqc_pytorch, swh:1:rev:65114eb, README.md:42-48;
+#: the paper's Table 6), whose main.py defaults to 2 (:93).
+PRESETS = {
+    task: Preset(
+        {"top_quantiles_to_drop_per_net": dropped},
+        "bayesgroup/tqc_pytorch@65114eb README.md:42-48",
+    )
+    for task, dropped in (
+        ("Hopper", 5),
+        ("HalfCheetah", 0),
+        ("Walker2d", 2),
+        ("Ant", 2),
+        ("Humanoid", 2),
+    )
+}
 
 
 @dataclass(kw_only=True, eq=False, repr=False)
@@ -103,7 +121,8 @@ class TQC(
         n_quantiles: The quantiles each critic predicts.
         top_quantiles_to_drop_per_net: The pooled target quantiles dropped
             per critic. The paper tunes it per task (Appendix B, Table 6: 5
-            on Hopper, 0 on HalfCheetah, 2 on Walker2d, Ant and Humanoid).
+            on Hopper, 0 on HalfCheetah, 2 on Walker2d, Ant and Humanoid:
+            PRESETS).
     """
 
     actor_learning_rate: float = 3e-4

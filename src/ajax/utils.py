@@ -4,6 +4,12 @@ import jax
 import jax.numpy as jnp
 from jax.tree_util import Partial as partial
 
+#: The bound on a normalised reward, as SB3's VecNormalize (clip_reward),
+#: openai/baselines' (cliprew) and CleanRL clip it. It also bounds the step
+#: where every env's return is the same and the spread still 0, where the
+#: division alone pays r / sqrt(1e-8).
+REWARD_CLIP = 10.0
+
 
 @partial(
     jax.jit,

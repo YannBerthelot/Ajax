@@ -35,7 +35,7 @@ import inspect
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import KW_ONLY, dataclass
 from functools import partial
-from typing import Any, ClassVar, Optional, Union
+from typing import Any, ClassVar, Optional, Self, Union
 
 import jax
 import jax.numpy as jnp
@@ -44,6 +44,7 @@ from gymnax import EnvParams
 from ajax.agents import update_steps
 from ajax.agents.base import ActorCritic, run_horizon, shared_counters
 from ajax.agents.loop import LOOP_PHASES, Evaluation, TrainLoop
+from ajax.agents.presets import presets_of
 from ajax.agents.recurrent import (
     NI_LAYOUT,
     NI_MEMORY_INITS,
@@ -57,6 +58,9 @@ from ajax.agents.recurrent import (
 
 # Imported under another name: ReplayAgent's own hook is make_replay_buffer.
 from ajax.agents.recurrent import make_replay_buffer as make_recurrent_replay_buffer
+from ajax.agents.sweep import Sweep
+from ajax.agents.sweep import check as check_sweep
+from ajax.agents.sweep import configurations as sweep_configurations
 from ajax.agents.update_steps import REPLAY_BATCH_KEYS, reached
 from ajax.buffers.ring import count_ring_rows, size_ring
 from ajax.buffers.utils import (
@@ -217,12 +221,13 @@ class RewardNormalization:
     """Rewards normalised before the agent learns from them.
 
     Args:
-        normalize_rewards: Divide the rewards learned from by a running
-            standard deviation (the logged returns stay in the env's units):
-            the single step's by default.
-        reward_normalization_gamma: With normalize_rewards, the discount
-            of the return whose running standard deviation divides instead
-            (SB3's VecNormalize).
+        normalize_rewards: Divide the rewards learned from by the running
+            standard deviation of the discounted return and clip them to
+            +-10, as SB3's VecNormalize does (the logged returns stay in the
+            env's units).
+        reward_normalization_gamma: With normalize_rewards, that return's
+            discount: the agent's gamma if None (0.99 for an agent without
+            one), 0 for the single-step reward's standard deviation.
     """
 
     normalize_rewards: bool = False
@@ -507,6 +512,24 @@ class DeclaredAgent(ActorCritic):
     @classmethod
     def field_names(cls) -> frozenset[str]:
         return frozenset(field.name for field in dataclasses.fields(cls))  # type: ignore[arg-type]
+
+    @classmethod
+    def preset(cls, name: str, env_id: Union[str, EnvType], **overrides: Any) -> Self:
+        """The agent with the settings its reference tunes for the task
+        ``name``, from its module's PRESETS table (ajax.agents.presets), the
+        ``overrides`` given winning over them. Its run config records the
+        name under "preset"."""
+        table = presets_of(cls)
+        if name not in table:
+            known = ", ".join(sorted(table)) or "none"
+            raise ValueError(
+                f"{cls.__name__} has no preset {name!r}; its presets: {known}."
+            )
+        arguments = dict(table[name].overrides)
+        arguments.update(overrides)
+        agent = cls(env_id, **arguments)
+        agent.config.update({"preset": name})
+        return agent
 
     def _build_family(self) -> None:
         """What the family builds from the fields, before the agent's
@@ -1618,6 +1641,7 @@ class OwnReplayAgent(DeclaredAgent):
         on_ids_ready: Optional[Callable] = None,
         initial_state: Any = None,
         total_timesteps: Optional[int] = None,
+        sweep: Optional[Sweep] = None,
         **kwargs: Any,
     ) -> tuple[Any, Any]:
         """ActorCritic.train on the call's replay (prepare_replay), which
@@ -1627,6 +1651,9 @@ class OwnReplayAgent(DeclaredAgent):
             state = state[0]
         # Refused before prepare_replay records the replay's sizes on the
         # agent: a refused call leaves the agent as it was.
+        found = sweep_configurations(sweep)
+        if found:
+            check_sweep(type(self).__name__, self.sweepable_fields(), list(found[0]))
         start = 0
         if state is not None:
             counters = shared_counters(state, self.per_seed_update_counts)
@@ -1643,6 +1670,7 @@ class OwnReplayAgent(DeclaredAgent):
             on_ids_ready=on_ids_ready,
             initial_state=state,
             total_timesteps=total_timesteps,
+            sweep=sweep,
             replay=replay,
             start_tick=start_tick,
             **kwargs,

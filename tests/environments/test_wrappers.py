@@ -554,8 +554,9 @@ def test_normaliser_presents_the_final_observation_normalised(env_id):
 
 @pytest.mark.parametrize("env_id", ["Pendulum-v1", "fast"])
 def test_reward_normaliser_keeps_the_raw_reward(env_id):
-    """The normaliser hands the reward divided by its running std and keeps
-    the env's own in info (a brax state carries it from the reset on, so its
+    """The normaliser hands the reward divided by its running std, clipped to
+    +-10 (Pendulum's three steps barely spread), and keeps the env's own in
+    info (a brax state carries it from the reset on, so its
     info keeps one structure through a scan)."""
     import numpy as np
 
@@ -580,15 +581,19 @@ def test_reward_normaliser_keeps_the_raw_reward(env_id):
         state.info["normalization_info"] if mode == "brax" else state.normalization_info
     )
     std = np.sqrt(np.asarray(norm.reward.var).mean() + 1e-8)
-    np.testing.assert_allclose(normed[-1], raw[-1] / std, rtol=1e-5)
+    want = np.clip(raw[-1] / std, -10.0, 10.0)
+    np.testing.assert_allclose(normed[-1], want, rtol=1e-5)
     assert not np.allclose(normed, raw)
 
 
-@pytest.mark.parametrize("gamma", [None, 0.9])
+@pytest.mark.parametrize("gamma", [None, 0.0, 0.9])
 def test_reward_normaliser_divides_by_the_chosen_statistics(gamma):
-    """By default the running std of the single-step reward; with ``gamma``,
-    of SB3's discounted return of the episode so far, restarted after the
-    episode's end. Replayed in numpy on CartPole under random actions."""
+    """Without ``gamma`` (or with 0) the running std of the single-step
+    reward; with ``gamma``, of SB3's discounted return of the episode so
+    far, restarted after the episode's end; clipped to +-10 as SB3's
+    VecNormalize clips it (CartPole's constant reward has a single-step
+    spread of 0, so it is 10). Replayed in numpy on CartPole under random
+    actions."""
     import numpy as np
 
     from ajax.environments.create import prepare_env
@@ -616,7 +621,8 @@ def test_reward_normaliser_divides_by_the_chosen_statistics(gamma):
         mean += delta / count
         m2 += delta * (ret - mean)
         std = np.clip(np.sqrt(m2 / count + 1e-8), 1e-6, 1e6)
-        np.testing.assert_allclose(normed[t, 0], raw[t, 0] / std, rtol=1e-4)
+        want = np.clip(raw[t, 0] / std, -10.0, 10.0)
+        np.testing.assert_allclose(normed[t, 0], want, rtol=1e-4)
         ret *= 1.0 - float(done[t, 0])
         if gamma is not None:
             np.testing.assert_allclose(kept[t, 0], ret, rtol=1e-5)

@@ -1,0 +1,7 @@
+{
+ "openai_baselines": "ea25b9e",
+ "python": "3.6.9",
+ "tensorflow": "1.15.5",
+ "numpy": "1.18.5",
+ "gym": "0.15.7"
+}

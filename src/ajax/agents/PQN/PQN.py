@@ -44,6 +44,7 @@ from ajax.agents.families import (
 from ajax.agents.loop import LOOP_PHASES
 from ajax.agents.minibatch import get_minibatches_from_batch
 from ajax.agents.PQN.networks import PQNNetwork
+from ajax.agents.presets import Preset
 from ajax.agents.update_steps import derive_extensions_key
 from ajax.environments.interaction import epsilon_greedy, explore_pipeline
 from ajax.environments.utils import get_action_dim
@@ -58,6 +59,44 @@ from ajax.networks.q_networks import (
 from ajax.schedule import linear
 from ajax.state import BaseAgentState, OptimizerConfig, Transition
 from ajax.types import Architecture
+
+#: The reference's CartPole and Atari configs (mttga/purejaxql@47af6d7,
+#: purejaxql/config/alg/pqn_*.yaml); its MinAtar config is the defaults.
+#: Atari's env settings (frame skip 4, life loss, rewards clipped to [-1, 1],
+#: :20-25) are the env's, not the agent's.
+PRESETS = {
+    "CartPole": Preset(
+        {
+            "n_envs": 32,
+            "n_steps": 64,
+            "epsilon_end": 0.2,
+            "epsilon_decay_frac": 0.2,
+            "num_minibatches": 16,
+            "n_epochs": 4,
+            "architecture": ("256", "relu", "256", "relu"),
+            "learning_rate": 1e-4,
+            "lr_linear_decay": True,
+            "reward_scale": 0.1,
+            "q_lambda": 0.95,
+        },
+        "mttga/purejaxql@47af6d7 purejaxql/config/alg/pqn_cartpole.yaml:4-20",
+    ),
+    "Atari": Preset(
+        {
+            "n_envs": 128,
+            "n_steps": 32,
+            "epsilon_end": 0.001,
+            "epsilon_decay_frac": 0.1,
+            "num_minibatches": 32,
+            "n_epochs": 2,
+            "learning_rate": 2.5e-4,
+            "lr_linear_decay": False,
+            "reward_scale": 1.0,
+            "q_lambda": 0.65,
+        },
+        "mttga/purejaxql@47af6d7 purejaxql/config/alg/pqn_atari.yaml:4-16",
+    ),
+}
 
 
 @dataclass(kw_only=True, eq=False, repr=False)

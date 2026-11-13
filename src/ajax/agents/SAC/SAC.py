@@ -25,7 +25,7 @@ makes the critics score the executed actions, from the expert's stored ones.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable, Optional, Union
+from typing import Any, Callable, ClassVar, Optional, Union
 
 import jax
 import jax.numpy as jnp
@@ -131,6 +131,20 @@ class SAC(
     batch_size: Optional[int] = None  # type: ignore[assignment]
     learning_starts: int = int(1e4)
 
+    #: The numbers a sweep may vary in one program (ActorCritic.train's sweep).
+    sweepable: ClassVar[frozenset[str]] = frozenset(
+        {
+            "actor_learning_rate",
+            "critic_learning_rate",
+            "alpha_learning_rate",
+            "alpha_init",
+            "target_entropy_per_dim",
+            "gamma",
+            "tau",
+            "reward_scale",
+        }
+    )
+
     def check(self) -> None:
         if self.n_step < 1:
             raise ValueError(f"SAC's n_step is at least 1, got {self.n_step}.")
@@ -139,6 +153,12 @@ class SAC(
                 "SAC's n_step folds windows of feedforward rows: a run with"
                 " memory replays windows of its own, so it takes n_step=1."
             )
+
+    def sweepable_fields(self) -> frozenset[str]:
+        # An n-step replay sums its rewards with the gamma it was built with.
+        if self.n_step > 1:
+            return self.sweepable.difference({"gamma"})
+        return self.sweepable
 
     def run_capabilities(self) -> frozenset[str]:
         capabilities = super().run_capabilities()

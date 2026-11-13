@@ -2206,17 +2206,30 @@ _GOLDEN.update(
     }
 )
 
-# Re-recorded on macOS ARM CPU once recurrent PPO's heads each read the
-# memory through a 128-unit ReLU layer of their own, as PureJaxRL's do
-# (ppo_rnn.py:59-75): new layers, so new numbers (actor +56%, critic +60%,
-# target +56%, about the new layers' squared norm).
+# Re-recorded on macOS ARM CPU once PPO stepped TensorFlow 1's Adam, ppo2's
+# (eps before the bias correction): PPO-mcc actor -0.11%, critic -0.02%;
+# PPO-flat actor -0.04%; PPO-discrete-nudge actor +2.8%, critic +0.07%.
+# Recurrent PPO and unroll_length keep optax's Adam, and their pins stay.
 _GOLDEN.update(
     {
-        "PPO-gru": {
-            "actor": 89.11834716796875,
-            "critic": 87.35801696777344,
-            "target": 88.98634338378906,
+        "PPO-mcc": {
+            "actor": 4.034129619598389,
+            "critic": 5.009683132171631,
+            "target": 4.000099182128906,
+            "n_updates": 2.0,
+        },
+        "PPO-flat": {
+            "actor": 6.001730442047119,
+            "critic": 7.137869834899902,
+            "target": 6.0001020431518555,
+            "n_updates": 2.0,
+        },
+        "PPO-discrete-nudge": {
+            "actor": 7.543189525604248,
+            "critic": 8.977977752685547,
+            "target": 8.000201225280762,
             "n_updates": 4.0,
+            "nudge": 0.8760150671005249,
         },
     }
 )
@@ -2241,6 +2254,21 @@ _GOLDEN.update(
             "target": 9.109661102294922,
             "n_updates": 11.0,
             "nudge": 0.8379592299461365,
+        },
+    }
+)
+
+# Re-recorded on macOS ARM CPU once recurrent PPO's heads each read the
+# memory through a 128-unit ReLU layer of their own, as PureJaxRL's do
+# (ppo_rnn.py:59-75): new layers, so new numbers (actor +56%, critic +60%,
+# target +56%, about the new layers' squared norm).
+_GOLDEN.update(
+    {
+        "PPO-gru": {
+            "actor": 89.11834716796875,
+            "critic": 87.35801696777344,
+            "target": 88.98634338378906,
+            "n_updates": 4.0,
         },
     }
 )

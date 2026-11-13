@@ -1,4 +1,5 @@
 from functools import partial
+from typing import Any
 
 import flax.linen as nn
 import jax
@@ -224,6 +225,37 @@ def test_centered_rmsprop_is_mnih_et_als_update():
         g, g2 = 0.95 * g + 0.05 * dw, 0.95 * g2 + 0.05 * dw**2
         w = w - lr * dw / np.sqrt(g2 - g**2 + 0.01)
     np.testing.assert_allclose(params["w"], w, rtol=1e-5)
+
+
+def test_tf1_adam_is_tensorflow_1s_update():
+    """tf.compat.v1.train.AdamOptimizer's update, from its docstring:
+    lr_t = lr sqrt(1 - b2^t) / (1 - b1^t), m = b1 m + (1 - b1) g,
+    v = b2 v + (1 - b2) g^2, w -= lr_t m / (sqrt(v) + eps), from zero moments.
+    eps 1e-2 against gradients of order 1e-2 makes it differ from optax's
+    Adam, whose eps joins the bias-corrected sqrt(v), by tens of percent."""
+    lr, b1, b2, eps = 1e-2, 0.9, 0.999, 1e-2
+    tx = get_adam_tx(lr, eps=eps, optimizer="tf1_adam")
+    params, state = {"w": jnp.zeros(3)}, tx.init({"w": jnp.zeros(3)})
+    m = v = w = np.zeros(3)
+    grads = (np.array([1e-2, -2e-2, 5e-3]), np.array([3e-3, 1e-2, -4e-2]))
+    for t, g in enumerate(grads, start=1):
+        step, state = tx.update({"w": jnp.asarray(g)}, state, params)
+        params = optax.apply_updates(params, step)
+        m, v = b1 * m + (1 - b1) * g, b2 * v + (1 - b2) * g**2
+        w = w - lr * np.sqrt(1 - b2**t) / (1 - b1**t) * m / (np.sqrt(v) + eps)
+    # float32's 1 - 0.999^t cancels: relative error up to 2^-24 / 0.001 ~ 6e-5 at
+    # t = 1 (TF 1 and optax round it so too), about half that through the root.
+    np.testing.assert_allclose(params["w"], w, rtol=1e-4)
+    optax_w = _steps_of(optax.adam(lr, eps=eps), grads)
+    assert np.max(np.abs(optax_w - w) / np.abs(w)) > 0.1
+
+
+def _steps_of(tx: Any, grads: tuple) -> np.ndarray:
+    params, state = {"w": jnp.zeros(3)}, tx.init({"w": jnp.zeros(3)})
+    for g in grads:
+        step, state = tx.update({"w": jnp.asarray(g)}, state, params)
+        params = optax.apply_updates(params, step)
+    return np.asarray(params["w"])
 
 
 def test_an_unknown_update_rule_is_refused():

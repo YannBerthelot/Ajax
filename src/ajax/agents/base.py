@@ -1,13 +1,17 @@
+import copy
 import inspect
 from collections.abc import Mapping, Sequence
 from functools import partial
-from typing import Any, Callable, Optional, Tuple, Union
+from typing import Any, Callable, ClassVar, Optional, Tuple, Union
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 from gymnax import EnvParams
 
+from ajax.agents.sweep import Sweep, member_row, member_values
+from ajax.agents.sweep import check as check_sweep
+from ajax.agents.sweep import configurations as sweep_configurations
 from ajax.controller import (
     observers_of,
     replay_action_choosers_of,
@@ -136,6 +140,12 @@ def with_shared_counters(state: Any, counters: dict[str, jax.Array]) -> Any:
     return state
 
 
+#: The discount of the return whose spread normalises the rewards of an
+#: agent without a discount of its own (the average-reward agents): SB3
+#: VecNormalize's default gamma.
+REWARD_NORMALIZATION_GAMMA = 0.99
+
+
 class ActorCritic:
     #: The agent's name, its run config's ``algo_name``.
     name: str
@@ -202,6 +212,14 @@ class ActorCritic:
     # Whether the agent can keep its last rollout on agent_state.last_rollout
     # (the on-policy and incremental families), for an extension reading it.
     keeps_last_rollout: bool = False
+    # The fields a sweep may vary inside one program (train's sweep,
+    # ajax.agents.sweep): numbers the training reads as numbers, which no
+    # construction check reads. Each is covered by a test that a sweep trains
+    # as separate runs of its configurations would.
+    sweepable: ClassVar[frozenset[str]] = frozenset()
+    #: Each leading row of the last train call's state: its seed and its
+    #: configuration's swept values, configuration-major.
+    members: list[dict[str, float]]
     # Set, before this initialiser, by the agents that take an expert.
     expert_policy: Any
     #: The agent's train module's ``make_train`` (:meth:`get_make_train`).
@@ -260,13 +278,13 @@ class ActorCritic:
             memory: Pluggable memory block (MemoryConfig or its dict form);
                 None keeps the networks feedforward.
             normalize_rewards (bool): divide the rewards the agent learns
-                from by a running standard deviation (logged returns stay
-                in the env's units). By default the single-step reward's.
+                from by the running standard deviation of the discounted
+                return and clip them to +-10, as SB3's ``VecNormalize``
+                does (logged returns stay in the env's units).
             reward_normalization_gamma (Optional[float]): with
-                ``normalize_rewards``, divide by the running standard
-                deviation of the discounted return with this discount
-                instead, as SB3's ``VecNormalize`` (``gamma``) and
-                gymnasium's ``NormalizeReward`` do.
+                ``normalize_rewards``, that return's discount: the agent's
+                ``gamma`` if None (0.99 for an agent without one), 0 for
+                the single-step reward's standard deviation.
             action_repeat (int): simulator steps per agent step on brax /
                 playground envs (``episode_length`` then counts simulator
                 steps); stored on ``env_args``. gymnax envs and prebuilt
@@ -356,6 +374,13 @@ class ActorCritic:
             raise ValueError(
                 "reward_normalization_gamma sets how normalize_rewards normalises"
                 " the rewards: pass normalize_rewards=True with it."
+            )
+        if normalize_rewards and reward_normalization_gamma is None:
+            # SB3's VecNormalize divides by the spread of the discounted
+            # return; RL Zoo, CleanRL and PureJaxRL give it the agent's
+            # discount. A constant reward's own spread is 0.
+            reward_normalization_gamma = getattr(
+                self, "gamma", REWARD_NORMALIZATION_GAMMA
             )
         env, env_params, env_id, continuous = prepare_env(
             env_id,
@@ -544,6 +569,35 @@ class ActorCritic:
         del n_timesteps, train_options
         return state
 
+    def sweepable_fields(self) -> frozenset[str]:
+        """The fields this agent's sweep may vary: :attr:`sweepable`, less
+        those this configuration captures when built."""
+        return self.sweepable
+
+    def member(self, values: Mapping[str, Any]) -> "ActorCritic":
+        """This agent as one member of a sweep: the fields named in values
+        set to them, traced numbers, and the optimiser configs construction
+        built from its learning rates rebuilt (ajax.agents.sweep).
+
+        The copy is not constructed again: a sweepable field is one no
+        construction check reads, and a traced value could not be checked.
+        Its fields are set past the rule that fixes them once built, which
+        keeps what trains what the run config logs: a sweep logs each
+        member's values in its own run config."""
+        member = copy.copy(self)
+        for name, value in values.items():
+            object.__setattr__(member, name, value)
+        for name, config in (
+            ("actor_learning_rate", "actor_optimizer_args"),
+            ("critic_learning_rate", "critic_optimizer_args"),
+        ):
+            if name in values:
+                rebuilt = getattr(self, config).replace(
+                    learning_rate=getattr(member, name)
+                )
+                object.__setattr__(member, config, rebuilt)
+        return member
+
     def get_make_train(self) -> Callable:
         """:attr:`make_train` with the agent's own arguments
         (:attr:`train_kwargs`) and its extensions; :meth:`train` passes the
@@ -563,6 +617,7 @@ class ActorCritic:
         on_ids_ready: Optional[Callable] = None,
         initial_state: Optional[BaseAgentState] = None,
         total_timesteps: Optional[int] = None,
+        sweep: Optional[Sweep] = None,
         **kwargs,
     ) -> tuple[BaseAgentState, Any]:
         """
@@ -583,8 +638,16 @@ class ActorCritic:
                 horizon to every call of a run split into calls of whole
                 iterations to follow the schedules of one call and end
                 where it ends.
+            sweep: hyperparameter configurations trained with every seed,
+                all in this one program (``ajax.agents.sweep``): a dict of
+                value lists, whose grid is trained, or a list of
+                configurations, over the agent's sweepable fields
+                (:meth:`sweepable_fields`). A sweep resumes with the same
+                seed and sweep.
 
-        Returns ``(state, out)``, each leaf with a leading seed axis. On the
+        Returns ``(state, out)``, each leaf with a leading axis over the
+        members: the seeds, or the sweep's configurations, each over the
+        seeds, as :attr:`members` lists them. On the
         shared loop (``ajax.agents.loop``) ``out`` is ``None`` without a
         logging config, else the evaluations.
         """
@@ -601,6 +664,37 @@ class ActorCritic:
                 " simulator's state lives in Python, outside the state, so the"
                 " episodes it was in cannot continue."
             )
+        found = sweep_configurations(sweep)
+        if found:
+            check_sweep(type(self).__name__, self.sweepable_fields(), list(found[0]))
+            if in_python:
+                raise ValueError(
+                    "A Gymnasium environment trains its seeds one after"
+                    " another: a sweep trains its members in one program."
+                )
+            if (
+                logging_config is not None
+                and logging_config.evaluation_device is not None
+            ):
+                raise ValueError(
+                    "A sweep's members evaluate between chunks of training: a"
+                    " sweep takes no evaluation_device."
+                )
+        # Configuration-major: each configuration over the seeds.
+        pairs = [
+            (configuration, run_seed)
+            for configuration in (found or [{}])
+            for run_seed in seed
+        ]
+        if initial_state is not None:
+            rows = int(jax.tree.leaves(initial_state)[0].shape[0])
+            if rows != len(pairs):
+                raise ValueError(
+                    f"The state holds {rows} members and this call's seeds and"
+                    f" sweep make {len(pairs)}: a run resumes with the same"
+                    " seed and sweep."
+                )
+        self.members = [member_row(configuration, s) for configuration, s in pairs]
         counters = (
             {}
             if initial_state is None
@@ -617,9 +711,16 @@ class ActorCritic:
 
         if logging_config is not None:
             logging_config = logging_config.with_agent_config(self.config)
-            self.run_ids = [new_run_id() for _ in range(len(seed))]
-            for run_id, run_seed in zip(self.run_ids, seed, strict=False):
-                init_logging(run_id, logging_config, run_seed=int(run_seed))
+            self.run_ids = [new_run_id() for _ in pairs]
+            for run_id, (configuration, run_seed) in zip(
+                self.run_ids, pairs, strict=False
+            ):
+                # Each member's run config holds its own values.
+                init_logging(
+                    run_id,
+                    logging_config.with_agent_config(configuration),
+                    run_seed=int(run_seed),
+                )
 
         else:
             self.run_ids = []
@@ -627,26 +728,43 @@ class ActorCritic:
         if on_ids_ready is not None:
             on_ids_ready(self.run_ids)
 
-        train_jit = self.get_make_train()(
-            env_args=self.env_args,
-            actor_optimizer_args=self.actor_optimizer_args,
-            critic_optimizer_args=self.critic_optimizer_args,
-            network_args=self.network_args,
-            total_timesteps=horizon,
-            num_episode_test=num_episode_test,
-            run_ids=self.run_ids,
-            logging_config=logging_config,
-            **({"start_timestep": start} if start else {}),
-            **({"end_timestep": end} if end != horizon else {}),
-            **kwargs,
-        )
+        def make_train(agent: ActorCritic) -> Callable:
+            return agent.get_make_train()(
+                env_args=agent.env_args,
+                actor_optimizer_args=agent.actor_optimizer_args,
+                critic_optimizer_args=agent.critic_optimizer_args,
+                network_args=agent.network_args,
+                total_timesteps=horizon,
+                num_episode_test=num_episode_test,
+                run_ids=self.run_ids,
+                logging_config=logging_config,
+                **({"start_timestep": start} if start else {}),
+                **({"end_timestep": end} if end != horizon else {}),
+                **kwargs,
+            )
 
-        index = jnp.arange(len(seed))
-        keys = jax.vmap(jax.random.PRNGKey)(jnp.array(seed))
+        # A sweep's members each build their train function while the vmap
+        # traces it, from their own values (member); without a sweep it is
+        # built once, here.
+        if found:
+
+            def run(key: Any, index: Any, values: dict, **options: Any) -> Any:
+                return make_train(self.member(values))(key, index, **options)
+
+        else:
+            train_jit = make_train(self)
+
+            def run(key: Any, index: Any, values: dict, **options: Any) -> Any:
+                del values  # none without a sweep
+                return train_jit(key, index, **options)
+
+        values = member_values([configuration for configuration, _ in pairs])
+        index = jnp.arange(len(pairs))
+        keys = jax.vmap(jax.random.PRNGKey)(jnp.array([s for _, s in pairs]))
         if in_python:
-            result = _seed_by_seed(train_jit, keys, index)
+            result = _seed_by_seed(partial(run, values={}), keys, index)
         elif initial_state is None:
-            result = jax.vmap(train_jit)(keys, index)
+            result = jax.vmap(run)(keys, index, values)
         else:
             # Only passed when non-zero: the default (0) keeps the call --
             # and the train functions that predate the offset -- unchanged.
@@ -657,11 +775,12 @@ class ActorCritic:
                 else {"iteration_offset": jnp.asarray(iteration_offset, jnp.int32)}
             )
 
-            def resume(key, index, state, counters, offset_kwargs):
+            def resume(key, index, values, state, counters, offset_kwargs):
                 state = with_shared_counters(state, counters)
-                return train_jit(
+                return run(
                     key,
                     index,
+                    values,
                     initial_state=state,
                     resume_from_state=True,
                     **offset_kwargs,
@@ -670,8 +789,8 @@ class ActorCritic:
             # The offset and the shared counters are unbatched (in_axes
             # None): every schedule and gate derived from them must stay
             # unbatched under the vmap.
-            result = jax.vmap(resume, in_axes=(0, 0, 0, None, None))(
-                keys, index, initial_state, counters, offset_kwargs
+            result = jax.vmap(resume, in_axes=(0, 0, 0, 0, None, None))(
+                keys, index, values, initial_state, counters, offset_kwargs
             )
         # Block until all XLA computation and debug.callbacks complete, then
         # drain and stop the logging worker.  Calling stop_async_logging()

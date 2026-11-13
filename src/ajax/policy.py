@@ -29,20 +29,21 @@ from ajax.networks.distributions import latent
 from ajax.networks.memory import tree_where_reset, zeros_carry_like
 from ajax.random_keys import derive_key, split_carry_first
 from ajax.schedule import progress
-from ajax.utils import online_normalize
+from ajax.utils import REWARD_CLIP, online_normalize
 
 
 def normalised_reward(x: jax.Array, norm_info: Optional[Any]) -> jax.Array:
-    """``x``, a reward or a sum of rewards in the env's units, in the
-    agent's: divided by the scale the training env's reward normaliser
-    holds (``norm_info.reward``, frozen), as collection divides each
-    reward; unchanged without one."""
+    """``x``, a reward in the env's units, in the agent's: divided by the
+    scale the training env's reward normaliser holds (``norm_info.reward``,
+    frozen) and clipped, as collection does each reward; unchanged without
+    one."""
     stats = getattr(norm_info, "reward", None)
     if stats is None:
         return x
-    return online_normalize(
+    normed = online_normalize(
         x, stats.count, stats.mean, stats.mean_2, train=False, shift=False
     )[0]
+    return jnp.clip(normed, -REWARD_CLIP, REWARD_CLIP)
 
 
 def frozen_progress(agent_state: Any) -> Any:

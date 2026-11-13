@@ -454,6 +454,7 @@
    "batch_size": 64,
    "bptt_length": null,
    "clip_range": 0.2,
+   "clip_value_loss": null,
    "cnn_extra_obs_dim": 0,
    "cnn_image_shape": null,
    "cnn_spec": null,

@@ -55,17 +55,15 @@ from typing import Any, Optional
 
 from wm_runs import SAVE_EVERY_S, RunSpec, load_reference, run_single_task
 
+from ajax.agents.DreamerV3.DreamerV3 import PRESETS as DREAMERV3_PRESETS
+
 DREAMERV3_REFERENCE = "dreamerv3_dmc_proprio"
 TDMPC2_REFERENCE = "tdmpc2_dmc"
 
-#: DreamerV3's paper protocol (module docstring).
-DREAMERV3_KWARGS: dict[str, Any] = {
-    "model_size": "12m",
-    "n_envs": 16,
-    "train_ratio": 512,
-    "action_repeat": 2,
-    "episode_length": 1000,
-}
+#: DreamerV3's paper protocol (module docstring): its DMC preset, whose
+#: table holds the reference's values, on 1000-step episodes.
+DREAMERV3_KWARGS: dict[str, Any] = dict(DREAMERV3_PRESETS["DMC"].overrides)
+DREAMERV3_KWARGS.update({"episode_length": 1000})
 DREAMERV3_ROWS = 250_000  # 500K env steps at action repeat 2
 DREAMERV3_CHUNK_ROWS = 10_000  # 20K env steps: 625 ticks of the 16 envs
 DREAMERV3_SEEDS = (0, 1, 2, 3, 4)

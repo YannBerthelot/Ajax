@@ -8,6 +8,23 @@ PyPI as `ajax-rl`.
 
 The next release is 0.6.0: the first item changes results.
 
+- **PPO clips its value loss, as ppo2 does.** Each squared value error is
+  the larger of its own and that of the value clipped to `clip_range`
+  around the value the rollout was collected with (Baselines' ppo2,
+  `model.py:66-75`; PureJaxRL's recurrent PPO does the same). The new
+  `clip_value_loss` turns it off; by default (`None`) PPO clips, except
+  with `unroll_length`, Brax's PPO, which does not. PPO's results change.
+  Upgrade: pass `clip_value_loss=False` for the old loss.
+
+- **PPO steps TensorFlow 1's Adam, as ppo2 does.** ppo2's
+  `tf.train.AdamOptimizer` adds epsilon to the square root of the second
+  moment before the bias correction; optax's Adam adds it after, an
+  epsilon 32 times smaller at the first step and about the same after a
+  few thousand. The new update rule `"tf1_adam"` (`OptimizerConfig`,
+  `ajax.networks.utils.scale_by_tf1_adam`) is PPO's; with `memory` or
+  `unroll_length` PPO keeps optax's Adam, as PureJaxRL and Brax use it.
+  PPO's results change.
+
 - **`PreviousAction()` appends the action executed before each
   observation** (`ajax.extensions.observe`): zero at an episode's first
   observation, in agent units, a discrete action one-hot, never
@@ -83,6 +100,17 @@ The next release is 0.6.0: the first item changes results.
     `beta_schedule=ExponentialBetaSchedule(d)`; the old default was
     `ExponentialBetaSchedule(0.0)`.
 
+- **`normalize_rewards` divides by the discounted return's spread and
+  clips, as SB3's `VecNormalize` does.** It divided each reward by the
+  running standard deviation of the single-step reward, which is 0 for a
+  constant reward (CartPole, MountainCar, Acrobot): every reward became
+  ±10,000, and recurrent PPO with normalised rewards failed masked
+  CartPole. `reward_normalization_gamma` now defaults to the agent's
+  `gamma` (0.99 for APO, ASAC and RVI-SAC), and normalised rewards are
+  clipped to ±10, at collection, at replay sampling and in evaluation.
+  This changes results for runs with `normalize_rewards=True`. Upgrade:
+  pass `reward_normalization_gamma=0` to divide by the single-step
+  reward's standard deviation again (now clipped).
 - **PPO's defaults are ppo2's MuJoCo run**: one env (was 4) and 64-64 tanh
   layers (was 128-128), so 2048 steps make ppo2's 32 minibatches of 64.
   This changes results. Upgrade: pass `n_envs=4, actor_architecture=("128",
@@ -132,6 +160,25 @@ The next release is 0.6.0: the first item changes results.
   num_minibatches=0, batch_size=64, normalize_advantage=True, nu=0.1`. The
   benchmark's APO entry runs 500 such rollouts, evaluated every 20,000
   steps, as the reference.
+- **Per-task presets.** `Agent.preset(name, env_id, **overrides)` builds an
+  agent with the values its reference code tunes for one task, named after
+  the task ("Hopper", "AntMaze", "Atari") rather than an env id; the
+  arguments given win, and the run config records the name under
+  `"preset"`. Each agent module keeps its presets, with their sources, in a
+  `PRESETS` table: ASAC's ten Gymnasium MuJoCo tasks, TQC's and REDQ's five
+  MuJoCo tasks, CrossQ's Swimmer, IQL's AntMaze, TD3's D4RL (TD3+BC), PPO's,
+  PQN's and DQN's Atari, PQN's CartPole, and DreamerV3's DMC, whose values the
+  world-model paper protocol now reads. No default changes.
+- **Hyperparameter sweeps in one program.** `agent.train(seed=...,
+  sweep={"actor_learning_rate": [1e-4, 3e-4]})` trains several
+  configurations, each with every seed, in one compiled program, as
+  PureJaxRL does by vmapping over hyperparameters. Each member trains as a
+  separate run of its configuration would, up to floating-point rounding,
+  and `agent.members` lists the seed and values of each leading row. SAC
+  and PPO declare which fields can vary (their learning rates, `gamma` and
+  the like); other agents, and settings that change shapes, are refused.
+  To allow it, PPO's GAE no longer takes `gamma` and `gae_lambda` as
+  static jit arguments; results are unchanged.
 - **DreamerV3 can keep its replay latents in host memory.** With
   `replay_on_host=True`, the posterior latents stored with each replay row
   (about 99% of the replay's bytes: 8 GB per seed for 2^20 rows at 12M) stay

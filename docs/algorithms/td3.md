@@ -61,7 +61,7 @@ updated in 2019, not the paper's: see [Notes](#notes).
 | `reward_scale` | `1.0` | multiplies the rewards in the target |
 | `max_grad_norm` | `None` | gradient clipping |
 | `normalize_observations`, `normalize_rewards` | `False` | running normalisation |
-| `reward_normalization_gamma` | `None` | with `normalize_rewards`, divide by the spread of the discounted return |
+| `reward_normalization_gamma` | `None` | with `normalize_rewards`, the discount of the return whose spread divides the rewards: `gamma` if None, 0 for the single reward's |
 | `memory`, `burn_in`, `sequence_length`, `stored_state` | `None`, `0`, `64`, `False` | recurrent memory (see [Memory](../guide/memory.md)) |
 | `expert_policy` | `None` | an expert whose return the evaluation reports next to the agent's (`Eval/expert bias`) |
 | `action_pipeline` | `None` | replaces the collection-time action choice (used by a downstream project) |
@@ -71,6 +71,13 @@ updated in 2019, not the paper's: see [Notes](#notes).
 Cloning an expert into the actor before training is the `CloningPretrain`
 extension; a cloning term during training, of the TD3+BC form, is `ImitationLoss`
 ([Expert guidance](../guide/expert-guidance.md)).
+
+## Presets
+
+`TD3.preset("D4RL", env_id)` is TD3+BC as its authors run it on the D4RL
+datasets (sfujim/TD3_BC@`8791ad7`, `main.py:56-57`; [Presets](../guide/training.md#presets)): `ImitationLoss`
+cloning the dataset's actions at `alpha=2.5`, and `normalize_observations=True`.
+Train it with `train_offline` ([TD3+BC](#td3bc-offline)).
 
 ## Notes
 
@@ -135,6 +142,9 @@ agent = TD3(
 )
 # state, evaluations = agent.train_offline(dataset, n_updates=1_000_000)
 ```
+
+`TD3.preset("D4RL", env_id)` builds it with the same extension and
+normalisation ([Presets](#presets)).
 
 The paper's actor loss is `-λ mean Q(s, π(s)) + mean((π(s) - a)²)`, with
 `λ = α / mean|Q(s, π(s))|` and α = 2.5 (`TD3_BC.py:141-143`), the actions

@@ -74,7 +74,7 @@ Defaults are read from `SAC.__init__`.
 | `reward_scale` | `1.0` | multiplies the rewards in the target |
 | `max_grad_norm` | `None` | gradient clipping of the actor and critics |
 | `normalize_observations`, `normalize_rewards` | `False` | running normalisation (see [Environments](../guide/environments.md)) |
-| `reward_normalization_gamma` | `None` | with `normalize_rewards`, divide by the spread of the discounted return instead of the single reward's |
+| `reward_normalization_gamma` | `None` | with `normalize_rewards`, the discount of the return whose spread divides the rewards: `gamma` if None, 0 for the single reward's |
 | `memory`, `burn_in`, `sequence_length`, `stored_state` | `None`, `0`, `64`, `False` | recurrent memory (see [Memory](../guide/memory.md)) |
 | `episode_length`, `action_repeat` | `None`, `1` | simulator steps per episode (1,000 when `None`) and per agent step, on Brax and Playground |
 | `extensions` | `()` | research features (see [Extensions](../guide/extensions.md)) |

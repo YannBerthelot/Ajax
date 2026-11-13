@@ -50,6 +50,7 @@ from ajax.agents.families import (
     RewardNormalization,
     TrainContext,
 )
+from ajax.agents.presets import Preset
 from ajax.agents.recurrent import (
     RecurrentCarries,
     ni_initialisation,
@@ -88,6 +89,23 @@ MBPO_TARGET_ENTROPY = {
     "walker2d": -3.0,
     "ant": -4.0,
     "humanoid": -2.0,
+}
+#: The same target entropies by task, for any of the task's env ids: the
+#: whole action's over the task's action dimensions (the same in gym, brax
+#: and gymnasium), as target_entropy_per_dim takes it.
+PRESETS = {
+    task: Preset(
+        {"target_entropy_per_dim": MBPO_TARGET_ENTROPY[brax_id] / action_dimensions},
+        "watchernyu/REDQ@7b5d1bf redq/algos/core.py:11-13,"
+        " redq/algos/redq_sac.py:33,55-58",
+    )
+    for task, brax_id, action_dimensions in (
+        ("Hopper", "hopper", 3),
+        ("HalfCheetah", "halfcheetah", 6),
+        ("Walker2d", "walker2d", 6),
+        ("Ant", "ant", 8),
+        ("Humanoid", "humanoid", 17),
+    )
 }
 #: The temperature REDQ's code reads until its first temperature step:
 #: __init__ sets self.alpha = exp(log_alpha), then self.alpha = alpha, the

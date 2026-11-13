@@ -70,7 +70,7 @@ training metrics of those iterations
 | `command_return_boost` | 1.0 | multiplies the top episodes' mean return |
 | `command_target_tau` | 1.0 | smoothing of the command (1: replaced every iteration) |
 | `command_scale_r`, `command_scale_h` | 0.02, 0.01 | scaling of the command before the network |
-| `normalize_observations`, `normalize_rewards`, `reward_normalization_gamma` | False, False, None | running normalisation |
+| `normalize_observations`, `normalize_rewards`, `reward_normalization_gamma` | False, False, None | running normalisation; the rewards' divisor is the spread of the return discounted by `reward_normalization_gamma`, `gamma` if None |
 | `cnn_image_shape`, `cnn_extra_obs_dim`, `cnn_spec` | None, 0, None | convolutional encoder for flat image observations, the features after the image, and the encoder's layers; the command joins the encoder's output |
 | `episode_length`, `action_repeat` | None, 1 | simulator steps per episode (1,000 when `None`) and per agent step, on Brax and Playground |
 | `expert_policy` | `None` | an expert the rollout runs alongside: a residual policy (`ResidualPolicy`) or gain mode (`ExpertGains`) acts through it and the observation features read it |

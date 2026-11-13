@@ -17,6 +17,7 @@ from flax.training.train_state import TrainState
 
 from ajax.agents import update_steps
 from ajax.agents.update_steps import compute_gradients
+from ajax.networks.utils import learning_rate_scale
 from ajax.state import BaseAgentState
 
 
@@ -61,7 +62,8 @@ def create_alpha_train_state(
     # Reference SAC uses unclipped Adam here. Nor does the agent's
     # weight_decay reach it: decaying log_alpha towards 0 would pull the
     # temperature towards 1, a bias no entropy target asks for.
-    tx = optax.adam(learning_rate)
+    # optax.adam's chain, its rate kept in the state when it is an array.
+    tx = optax.chain(optax.scale_by_adam(), learning_rate_scale(learning_rate))
     return TrainState.create(
         apply_fn=lambda params: jnp.exp(params["log_alpha"]),
         params=params,

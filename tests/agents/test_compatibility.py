@@ -83,7 +83,8 @@ WARMUP = (
 )
 OWN_STORE = "the agent's own collector does not run choose_replay_action yet"
 FEATURES = (
-    "ExpertActionInput ExpertStateInput TrainingProgressInput PIDTermsInput".split()
+    "ExpertActionInput ExpertStateInput TrainingProgressInput PIDTermsInput"
+    " PreviousAction".split()
 )
 # The expert features cannot reach a world model's imagined steps; the
 # training progress and PID terms join the observations it collects, and

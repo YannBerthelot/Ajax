@@ -17,6 +17,7 @@ from ajax.controller import (
     call_expert,
     init_observers,
     observe_features,
+    previous_action_input,
     restart_observers,
 )
 from ajax.environments.action_stage import choose_in_evaluation
@@ -188,6 +189,9 @@ class PolicyCarry(NamedTuple):
     expert_state: Any = None  # a stateful expert's
     observer_states: Any = None  # the observation features'
     command: Any = None  # a command-conditioned actor's (UDRL)
+    # The last executed action, as a feature reads it
+    # (ajax.controller.previous_action_input); None unless one does.
+    previous_action: Any = None
     first: Any = None  # True where the next observation starts an episode
     key: Any = None  # the stream act draws a step's key from when given none
 
@@ -314,6 +318,9 @@ def evaluation_policy(
             expert_state=expert.init_state(n_envs) if stateful else None,
             observer_states=init_observers(observers, n_envs) if observers else None,
             command=None if command is None else command.initial(agent_state, n_envs),
+            previous_action=previous_action_input(
+                observers, None, n_envs, env, env_params
+            ),
         )
 
     def step(obs, carry, starts, reward, key):
@@ -328,6 +335,7 @@ def evaluation_policy(
                 expert=expert,
                 expert_state=expert_state if stateful else None,
                 progress=progress_now,
+                previous_action=carry.previous_action,
             )
             obs, observer_states = observe_features(
                 obs, inputs, observers, observer_states
@@ -345,8 +353,15 @@ def evaluation_policy(
             )
         done = starts.astype(jnp.int8)  # as the evaluation's carry holds it
         acted = act(obs, done, raw_obs, expert_state, carry.memory, value, key)
+        previous_action = previous_action_input(
+            observers, acted.actions, n_envs, env, env_params
+        )
         carry = PolicyCarry(
-            acted.actor_hidden, acted.expert_state, observer_states, value
+            acted.actor_hidden,
+            acted.expert_state,
+            observer_states,
+            value,
+            previous_action,
         )
         return agent_action_to_env(acted.actions, env, env_params), carry
 
@@ -369,7 +384,14 @@ def row_collector_policy(
 
     def initial(n_envs: int) -> PolicyCarry:
         states = init_observers(observers, n_envs) if observers else None
-        return PolicyCarry(init_carry_fn(n_envs), observer_states=states)
+        previous_action = previous_action_input(
+            observers, None, n_envs, env, env_params
+        )
+        return PolicyCarry(
+            init_carry_fn(n_envs),
+            observer_states=states,
+            previous_action=previous_action,
+        )
 
     def step(obs, carry, starts, reward, key):
         del reward  # a world model reads its rewards in training only
@@ -377,12 +399,21 @@ def row_collector_policy(
         if observers:
             fresh = init_observers(observers, obs.shape[0])
             observer_states = tree_where_reset(starts, fresh, observer_states)
-            inputs = ObserveInputs(obs.astype(jnp.float32), progress=progress_now)
+            inputs = ObserveInputs(
+                obs.astype(jnp.float32),
+                progress=progress_now,
+                previous_action=carry.previous_action,
+            )
             obs, observer_states = observe_features(
                 obs, inputs, observers, observer_states
             )
         action, memory, _ = policy_fn(carry.memory, obs, starts, key)
+        previous_action = previous_action_input(
+            observers, action, obs.shape[0], env, env_params
+        )
         action = agent_action_to_env(action, env, env_params)
-        return action, PolicyCarry(memory, observer_states=observer_states)
+        return action, PolicyCarry(
+            memory, observer_states=observer_states, previous_action=previous_action
+        )
 
     return PolicyParts(initial, step)

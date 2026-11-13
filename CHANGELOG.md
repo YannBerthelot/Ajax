@@ -8,6 +8,23 @@ PyPI as `ajax-rl`.
 
 The next release is 0.6.0: the first item changes results.
 
+- **`PreviousAction()` appends the action executed before each
+  observation** (`ajax.extensions.observe`): zero at an episode's first
+  observation, in agent units, a discrete action one-hot, never
+  normalised. Collection stores it, and evaluation and `agent.policy`
+  append it as collection does, so an actor with memory can read its own
+  past actions, as Ni et al. (2022)'s recurrent actor does; a recurrent
+  Q-critic then reads it from the observation instead of appending its
+  own. It is opt-in: default runs do not change. Observation features
+  read the action through `ObserveInputs.previous_action`.
+- **SAC, TD3, REDQ, TQC, ASAC and RVI-SAC can share a memory.** With
+  `share_encoder=True`, `memory=` and `PreviousAction()`, the critic's
+  encoder and memory block read the observation and the previous action
+  for both networks, as Ni et al.'s shared recurrent network does; the
+  action the critic is asked about joins after the memory. The critic's
+  loss trains it and the actor reads it without a gradient. Without
+  `PreviousAction()` the agent refuses a shared memory.
+
 - **Three defaults now come from the agents' reference code.** An audit of
   every agent's defaults against its original code found these without a
   source:
@@ -41,6 +58,11 @@ The next release is 0.6.0: the first item changes results.
   `fit=OnlineFit()` for the old behaviour, and to restore a DAgger
   checkpoint saved before this release.
 
+- **PPO's defaults are ppo2's MuJoCo run**: one env (was 4) and 64-64 tanh
+  layers (was 128-128), so 2048 steps make ppo2's 32 minibatches of 64.
+  This changes results. Upgrade: pass `n_envs=4, actor_architecture=("128",
+  "tanh", "128", "tanh"), critic_architecture=("128", "tanh", "128",
+  "tanh")`.
 - **APG's in-context controller, IQL and PQN follow their reference code.**
   - `APG.contextual_controller` builds the reference's transformer layers:
     no bias outside the input embedding, LayerNorm epsilon 1e-5, and an MLP

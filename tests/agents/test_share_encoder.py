@@ -32,10 +32,12 @@ import ajax
 from ajax.agents.APO.APO import APO
 from ajax.agents.cloning import pre_train
 from ajax.agents.PPO.PPO import PPO
+from ajax.agents.recurrent import sample_replay
 from ajax.agents.TD3.TD3 import compute_td3_td_target
 from ajax.agents.update_steps import compute_actor_critic_gradients
 from ajax.checkpoint import restore_into, save_checkpoint
 from ajax.environments.interaction import get_pi
+from ajax.extensions.observe import PreviousAction
 from ajax.networks.memory import MemoryConfig
 from ajax.networks.networks import (
     mirror_shared_encoder,
@@ -430,10 +432,119 @@ def test_iqls_state_value_keeps_its_own_encoder():
     assert "encoder" not in state.value_state.params["params"]  # V's, in its ensemble
 
 
-def test_a_shared_memory_with_a_q_critic_is_refused():
-    agent = _q_agent(
-        "SAC", share_encoder=True, memory=MemoryConfig("gru", 8), learning_starts=32
-    )
+# -- A memory shared with a Q-critic ------------------------------------------
+# Contract (owner, 2026-11-13; Ni et al. 2022's shared RNN, twni2016/
+# pomdp-baselines @e7c19c3 policies/models/policy_rnn_shared.py): one memory,
+# the critic's, reads the observation and the previous action, which the
+# PreviousAction feature puts in the observation for both networks; the
+# queried action joins after it; the critic's loss alone trains it and the
+# actor reads it detached; a target actor warms up through the target
+# critic's; without PreviousAction it is refused.
 
-    with pytest.raises(ValueError, match="previous action"):
+RECURRENT_Q_AGENTS = ("SAC", "TD3", "REDQ", "TQC", "ASAC", "RVISAC")
+SHARED_MEMORY: dict[str, Any] = {
+    "share_encoder": True,
+    "memory": MemoryConfig("gru", 8),
+    "learning_starts": 64,
+    "extensions": (PreviousAction(),),
+}
+
+
+def _shift_critic_module(state: Any, module: str, amount: float) -> Any:
+    """state with every weight of the critic's module (its shared encoder or
+    memory block), online and target, moved by amount."""
+
+    def shift(params: Any) -> Any:
+        return jax.tree_util.tree_map_with_path(
+            lambda path, w: w + amount if module in str(path) else w, params
+        )
+
+    critic = state.critic_state
+    moved = critic.replace(
+        params=shift(critic.params), target_params=shift(critic.target_params)
+    )
+    return state.replace(critic_state=moved)
+
+
+def _recurrent_policy_mean(state: Any) -> np.ndarray:
+    """The policy's mean at the first observations of a fresh episode."""
+    actor = state.actor_state
+    n_envs = jax.tree.leaves(actor.hidden_state)[0].shape[0]
+    observations = jnp.concatenate([OBS[:n_envs], jnp.zeros((n_envs, 1))], axis=-1)
+    done = jnp.ones((n_envs,), bool)
+    pi, _ = get_pi(actor, actor.params, observations, done, recurrent=True)
+    return np.asarray(pi.mean())
+
+
+def test_a_shared_memory_with_a_q_critic_needs_the_previous_action():
+    agent = _q_agent("SAC", **{**SHARED_MEMORY, "extensions": ()})
+
+    with pytest.raises(ValueError, match="PreviousAction"):
         _init(agent)
+
+
+@pytest.mark.parametrize("name", RECURRENT_Q_AGENTS)
+def test_a_q_critic_agent_trains_on_one_memory_its_actor_reads(name):
+    agent = _q_agent(name, **SHARED_MEMORY)
+
+    state = _one_seed(agent.train(seed=0, n_timesteps=96)[0])
+
+    shared = dict(state.actor_state.shared_params)
+    assert set(shared) == {"encoder", "memory_cell"}
+    owned = state.critic_state.params["params"]
+    same = jax.tree.map(np.array_equal, shared, {k: owned[k] for k in shared})
+    assert all(jax.tree.leaves(same))
+    moved = mirror_shared_encoder(_shift_critic_module(state, "memory_cell", 0.5))
+    assert not np.allclose(_recurrent_policy_mean(moved), _recurrent_policy_mean(state))
+
+
+@pytest.mark.parametrize(
+    "critic_learning_rate, memory_moves", [(0.0, False), (3e-4, True)]
+)
+def test_only_the_critics_loss_trains_the_shared_memory(
+    critic_learning_rate, memory_moves
+):
+    agent = _q_agent("SAC", **SHARED_MEMORY, critic_learning_rate=critic_learning_rate)
+    state = _one_seed(agent.train(seed=0, n_timesteps=64)[0])
+    _, context = agent.make_context(128)
+
+    updated, _ = agent.update(state, context)
+
+    def memory(agent_state: Any) -> Any:
+        return agent_state.critic_state.params["params"]["memory_cell"]
+
+    moved = jax.tree.map(
+        lambda a, b: not np.array_equal(a, b), memory(state), memory(updated)
+    )
+    assert all(jax.tree.leaves(moved)) == memory_moves
+    copy = dict(updated.actor_state.shared_params)["memory_cell"]
+    assert all(jax.tree.leaves(jax.tree.map(np.array_equal, copy, memory(updated))))
+
+
+@pytest.mark.parametrize("target, changes", [(True, True), (False, False)])
+def test_td3s_target_actor_warms_up_through_the_target_critics_memory(target, changes):
+    """The target actor's warmed-up memory moves with the target critic's
+    memory block, not with the online critic's."""
+    agent = _q_agent("TD3", **SHARED_MEMORY)
+    state = _one_seed(agent.train(seed=0, n_timesteps=64)[0])
+    _, context = agent.make_context(128)
+    critic = state.critic_state
+    which = "target_params" if target else "params"
+    shifted = jax.tree_util.tree_map_with_path(
+        lambda path, w: w + 0.5 if "memory_cell" in str(path) else w,
+        getattr(critic, which),
+    )
+    # As the training loop leaves it: the actor's copy is the online critic's.
+    moved = mirror_shared_encoder(
+        state.replace(critic_state=critic.replace(**{which: shifted}))
+    )
+    key = jax.random.PRNGKey(0)
+
+    def warmed_up(agent_state: Any) -> np.ndarray:
+        _, carries = sample_replay(
+            agent_state, context.buffer, key, True, agent.burn_in, False, True
+        )
+        assert carries is not None  # a window's, with memory
+        return np.asarray(jax.tree.leaves(carries.target_actor_hidden)[0])
+
+    assert (not np.allclose(warmed_up(moved), warmed_up(state))) == changes

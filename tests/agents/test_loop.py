@@ -71,6 +71,7 @@ class State(Replaceable):
     collector_state: Collector
     value: jax.Array
     ext_state: tuple = ()
+    last_update_metrics: Any = None
 
 
 @struct.dataclass
@@ -156,6 +157,42 @@ def test_the_collector_acts_uniformly_until_uniform_steps(uniform_steps, uniform
         for tick in range(3):
             state, _ = built["iteration"](state, 0, tick)
     assert seen == uniform
+
+
+@pytest.mark.parametrize(
+    "n_envs, updated_at", [(1, [4, 8, 12]), (3, [6, 9, 12]), (6, [6, 12])]
+)
+def test_an_update_comes_when_the_steps_collected_reach_a_multiple(n_envs, updated_at):
+    """With update_every 4 (a replay agent's train_frequency), a tick updates
+    when the env steps it collects reach a multiple of 4, as log_frequency's
+    gate opens: 3 envs reach 4 at 6, 8 at 9, 12 at 12; 6 envs reach one every
+    tick. Counting ticks rather than steps, or missing a multiple passed
+    inside a tick, updates elsewhere."""
+
+    def collect(agent_state, _, uniform, **kwargs):
+        steps = agent_state.collector_state.timestep + n_envs
+        return agent_state.replace(collector_state=Collector(steps)), None
+
+    loop = dataclasses.replace(
+        _loop(), env_args=SimpleNamespace(mode="gymnax", n_envs=n_envs)
+    )
+    built = {}
+
+    def train(self, init, iteration, *args, **kwargs):
+        built["iteration"] = iteration
+
+    with (
+        mock.patch.object(loop_module, "collect_experience", collect),
+        mock.patch.object(TrainLoop, "train", train),
+    ):
+        loop.off_policy(None, lambda s, _: _update(s), 0, update_every=4)
+        state, seen = _state(0), []
+        for tick in range(12 // n_envs):
+            before = float(state.value)
+            state, _ = built["iteration"](state, 0, tick)
+            if float(state.value) > before:
+                seen.append(int(state.collector_state.timestep))
+    assert seen == updated_at
 
 
 def test_post_update_leaves_the_updates_key() -> None:

@@ -129,6 +129,7 @@
    "target_entropy_per_dim": -1.0,
    "tau": 0.005,
    "tau_theta": 0.005,
+   "train_frequency": 1,
    "weight_decay": 0.0
   }
  },
@@ -202,6 +203,7 @@
    "reward_normalization_gamma": null,
    "reward_scale": 1.0,
    "target_entropy_per_dim": -1.0,
+   "train_frequency": 1,
    "weight_decay": 0.0
   }
  },
@@ -233,6 +235,7 @@
    "max_grad_norm": null,
    "n_envs": 1,
    "normalize_observations": false,
+   "train_frequency": 1,
    "weight_decay": 0.0
   }
  },
@@ -241,13 +244,13 @@
    "action_repeat": 1,
    "algo_name": "DQN",
    "architecture": [
-    "128",
+    "120",
     "relu",
-    "128",
+    "84",
     "relu"
    ],
-   "batch_size": 64,
-   "buffer_size": 100000,
+   "batch_size": 128,
+   "buffer_size": 10000,
    "cnn_extra_obs_dim": 0,
    "cnn_image_shape": null,
    "cnn_spec": null,
@@ -262,7 +265,7 @@
    "extensions": [],
    "gamma": 0.99,
    "learning_rate": 0.00025,
-   "learning_starts": 1000,
+   "learning_starts": 10000,
    "max_grad_norm": null,
    "n_envs": 1,
    "n_gradient_steps": 1,
@@ -271,10 +274,11 @@
    "q_network_cls": null,
    "reward_normalization_gamma": null,
    "reward_scale": 1.0,
-   "target_update_interval": 500,
+   "target_update_interval": 50,
    "tau": 1.0,
    "td_loss_fn": null,
    "td_target_fn": null,
+   "train_frequency": 10,
    "weight_decay": 0.0
   }
  },
@@ -429,6 +433,7 @@
    "share_encoder": null,
    "tau": 0.005,
    "temperature": 3.0,
+   "train_frequency": 1,
    "value_learning_rate": 0.0003,
    "weight_decay": 0.0
   }
@@ -437,9 +442,9 @@
   "config": {
    "action_repeat": 1,
    "actor_architecture": [
-    "128",
+    "64",
     "tanh",
-    "128",
+    "64",
     "tanh"
    ],
    "actor_bias_init": null,
@@ -453,9 +458,9 @@
    "cnn_image_shape": null,
    "cnn_spec": null,
    "critic_architecture": [
-    "128",
+    "64",
     "tanh",
-    "128",
+    "64",
     "tanh"
    ],
    "critic_bias_init": null,
@@ -478,7 +483,7 @@
    "max_grad_norm": 0.5,
    "mean_kernel_init": null,
    "memory": null,
-   "n_envs": 4,
+   "n_envs": 1,
    "n_epochs": 10,
    "n_steps": 2048,
    "normalize_advantage": true,
@@ -583,6 +588,7 @@
    "subset_size": 2,
    "target_entropy_per_dim": -1.0,
    "tau": 0.005,
+   "train_frequency": 1,
    "weight_decay": 0.0
   }
  },
@@ -651,6 +657,7 @@
    "stored_state": false,
    "target_entropy_per_dim": -1.0,
    "tau": 0.005,
+   "train_frequency": 1,
    "weight_decay": 0.0
   }
  },
@@ -703,6 +710,7 @@
    "stored_state": false,
    "target_entropy_per_dim": -1.0,
    "tau": 0.005,
+   "train_frequency": 1,
    "weight_decay": 0.0
   }
  },
@@ -753,6 +761,7 @@
    "target_noise_clip": 0.5,
    "target_policy_noise": 0.2,
    "tau": 0.005,
+   "train_frequency": 1,
    "weight_decay": 0.0
   }
  },
@@ -999,6 +1008,7 @@
    "target_entropy_per_dim": -1.0,
    "tau": 0.005,
    "top_quantiles_to_drop_per_net": 2,
+   "train_frequency": 1,
    "weight_decay": 0.0
   }
  },

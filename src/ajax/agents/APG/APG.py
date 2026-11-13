@@ -277,7 +277,13 @@ class APG(GradientClipping, ExpertGuided, OwnIterationAgent):
         Defaults follow the paper (Table 2: 8 layers, 4 heads, context 100,
         width 128, b=1 system per iteration, N=100 horizon) and the
         reference code (AdamW betas (0.9, 0.95), eps 1e-8, 5k-step warmup
-        then cosine decay to lr/10, no gradient clipping). Deviations,
+        then cosine decay to lr/10, no gradient clipping). The sizes are the
+        paper's, the owner's choice (2026-11-13): no closed-loop run's
+        arguments are recorded, the closed-loop script's argparse defaults
+        are a sequence of 500 and width 32 (train_onestep_lin_CL.py:85,
+        :99), and the repository's one checkpoint, from the open-loop
+        script (out/ckpt_onestep_lin.pt), ran sequences of 800, width 32,
+        batch 32. Deviations,
         each backed by runs on the pendulum tracking test bed: actions are
         tanh-bounded (Ajax convention; the reference leaves u unbounded),
         and the PID head starts at the identity rather than the reference's

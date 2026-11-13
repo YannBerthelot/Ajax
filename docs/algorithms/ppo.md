@@ -55,7 +55,7 @@ Defaults are those of the constructor.
 
 | Argument | Default | What it does |
 | --- | --- | --- |
-| `n_envs` | 4 | environments stepped in parallel |
+| `n_envs` | 1 | environments stepped in parallel (ppo2's MuJoCo runs use one) |
 | `n_steps` | 2048 | steps per environment in each rollout |
 | `batch_size` | 64 | sets the number of minibatches (see the notes) |
 | `num_minibatches` | 0 | when positive, the number of minibatches, as in Brax |
@@ -70,7 +70,7 @@ Defaults are those of the constructor.
 | `clip_value_loss` | None | ppo2's clipped value loss (see the notes); `None` clips except with `unroll_length` |
 | `max_grad_norm` | 0.5 | one gradient clip by global norm over both networks (`None` turns it off) |
 | `normalize_advantage` | True | advantages standardised in each minibatch |
-| `actor_architecture`, `critic_architecture` | `("128", "tanh", "128", "tanh")` | hidden layers, as width and activation strings |
+| `actor_architecture`, `critic_architecture` | `("64", "tanh", "64", "tanh")` | hidden layers, as width and activation strings (ppo2's MLP) |
 | `normalize_observations`, `normalize_rewards` | False | running normalisation, as SB3's `VecNormalize` |
 | `reward_normalization_gamma` | None | with `normalize_rewards`, divide by the spread of the discounted return |
 | `memory`, `bptt_length` | None | memory block, and the length of the replayed chunks (by default the longest that split into the minibatches; see the notes) |

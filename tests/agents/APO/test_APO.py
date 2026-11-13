@@ -78,7 +78,8 @@ def test_APO_builds_its_reference_codes_hidden_layers():
     two hidden layers of 64 tanh units each, starting as torch's nn.Linear
     (kernel and bias uniform in +-1/sqrt(fan_in)). The networks' outputs
     equal the mean and the value computed by hand from their parameters.
-    PPO keeps its own default."""
+    PPO has the same layers, ppo2's mlp (baselines common/models.py:75), but
+    keeps its own initialisation."""
     agent = APO(env_id="Pendulum-v1", n_envs=2)
     state = agent.init(jax.random.PRNGKey(0), agent.make_context(1)[1])
     obs = jax.random.normal(jax.random.PRNGKey(1), (5, 3))
@@ -103,5 +104,5 @@ def test_APO_builds_its_reference_codes_hidden_layers():
     out = state.critic_state.apply_fn(state.critic_state.params, obs)
     np.testing.assert_allclose(out[0], value, rtol=1e-5, atol=1e-6)
     ppo = PPO(env_id="Pendulum-v1")
-    assert ppo.config["actor_architecture"] == ("128", "tanh", "128", "tanh")
+    assert ppo.config["actor_architecture"] == ("64", "tanh", "64", "tanh")
     assert ppo.network_args.encoder_kernel_init == PPO_HIDDEN_INIT

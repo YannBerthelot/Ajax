@@ -1,6 +1,6 @@
 """Deterministic actors and their actor-critic builder: TD3's (Fujimoto et
-al., 2018, Table 1), shared by TD3 and DAgger, which builds its actor with
-TD3's builder.
+al., 2018, Table 1), shared by TD3 and DAgger's OnlineFit, which builds its
+actor with TD3's builder.
 
 state -> Dense -> ReLU -> Dense -> ReLU -> Dense(action_dim) -> tanh, the
 tanh :class:`~ajax.networks.networks.Squashed`'s. No LayerNorm, no log_std

@@ -94,7 +94,7 @@ EPS = {"architecture": N32, "epsilon_start": 0.3, "epsilon_end": 0.3}
 DQN_KW = {**EPS, "buffer_size": 1000, "batch_size": 32}
 UDRL_KW = {"n_envs": 1, "actor_architecture": N32, "n_steps": 8, "batch_size": 8}
 UDRL_KW |= {"n_updates_per_iter": 4}
-# The second leg enters DAgger's second iteration (beta 1, then 14/15).
+# The second leg holds DAgger's first fit, at 96, and its second iteration.
 DAGGER_KW = {"actor_architecture": N32, "iteration_steps": 96, "batch_size": 8}
 DAGGER_KW |= {"expert_policy": lambda obs: jnp.full(obs.shape[:-1] + (1,), 0.5)}
 IQL_KW = {"buffer_size": 1000, "batch_size": 32, "learning_starts": 50}

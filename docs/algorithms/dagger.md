@@ -19,7 +19,7 @@ HumanCompatibleAI/imitation at `e5ef188`
 | Feature | DAgger |
 | --- | --- |
 | Discrete actions | yes; the expert returns its action index as an integer `(n, 1)` column |
-| Continuous actions | yes, tanh-bounded, mapped onto the environment's bounds |
+| Continuous actions | yes; the policy's actions are clipped to `[-1, 1]` and mapped onto the environment's bounds |
 | Stateful experts | yes; their state is tracked along each trajectory |
 | Memory (`memory=`) | no |
 | Environments | gymnax, Brax, MuJoCo Playground |
@@ -62,9 +62,10 @@ at the last step (`dagger/expert_frac`).
 | `eval_expert_policy` | None | another expert whose return each evaluation logs in place of `expert_policy`'s |
 | `beta_schedule` | `LinearBetaSchedule(15)` | the expert's probability of acting in iteration `i`: falling linearly from 1 to 0 over 15 iterations, the reference code's; `ExponentialBetaSchedule(decay)` gives `beta_i = decay ** (i - 1)` |
 | `iteration_steps` | 500 | timesteps (over all environments) per iteration |
+| `fit` | `IterationFit(epochs=4, entropy_weight=1e-3)` | how the policy fits the labels: the reference code's 4 epochs of behaviour cloning over the whole replay at the end of each iteration; `OnlineFit()` makes one gradient step per environment step instead |
 | `n_envs` | 1 | environments stepped in parallel |
 | `buffer_size` | 1,000,000 | labelled states kept |
-| `batch_size` | 32 | labelled states per gradient step |
+| `batch_size` | 32 | labelled states per gradient step (a minibatch of an epoch, for `IterationFit`) |
 | `actor_learning_rate` | 1e-3 | Adam step size (eps 1e-8, torch's) |
 | `actor_architecture` | `("32", "tanh", "32", "tanh")` | hidden layers |
 | `max_grad_norm` | None | gradient clipping by global norm |
@@ -75,13 +76,32 @@ at the last step (`dagger/expert_frac`).
 ## How it works
 
 At each step, each environment executes the expert's action with probability
-`beta_i`, and the policy's deterministic action otherwise: per environment
-and per step, as the reference's collector mixes them. The replay keeps
-every visited state with the expert's action there, whoever acted. It is the
-paper's aggregated dataset D. Once the replay holds a batch, each step makes
-one gradient step on a replay batch. The loss is the squared error between
-the policy's action and the expert's (both in `[-1, 1]`), or the
-cross-entropy of the expert's action for discrete actions.
+`beta_i`, and the policy's action otherwise: per environment and per step,
+as the reference's collector mixes them. The replay keeps every visited
+state with the expert's action there, whoever acted. It is the paper's
+aggregated dataset D.
+
+The policy fits D as the reference code does (`fit=IterationFit()`, the
+default). At the end of each iteration, it makes 4 passes (epochs) over
+every state the replay holds. Each pass shuffles the states and takes one
+gradient step per minibatch of `batch_size`, dropping a short last one. The
+policy is a Gaussian, whose mean comes from the network and whose standard
+deviation is one learned parameter per action dimension, starting at 1. A
+categorical policy takes discrete actions. The loss is the negative
+log-likelihood of the expert's action minus 0.001 times the policy's entropy
+(`entropy_weight`). The policy acts by sampling; evaluations use its mean,
+or its most likely action. Adam keeps its state from one fit to the next.
+The network starts as the reference's (SB3's `ActorCriticPolicy`): hidden
+layers orthogonal with gain √2, the output layer with gain 0.01.
+
+`fit=OnlineFit()` is the fit Ajax used before. Once the replay holds a
+batch, each step makes one gradient step on a replay batch. The policy is
+deterministic, tanh-bounded for continuous actions, and acts with that
+action. The loss is the squared error between the policy's action and the
+expert's (both in `[-1, 1]`), or the cross-entropy of the expert's action
+for discrete actions. The paper's analysis holds for any no-regret online
+learner (Sec. 4), and an online fit costs one step per environment step,
+where each `IterationFit` fit costs more as the replay grows.
 
 The default is the reference code's: `beta` falls linearly from 1 in the
 first iteration to 0 after 15 (`LinearBetaSchedule(15)`, imitation's
@@ -103,17 +123,18 @@ only the latest rollout or step, so there is no aggregated dataset.
 
 ## Notes
 
-- **Online fit.** The paper refits the policy on D after each iteration
-  (Follow-the-Leader). Ajax takes one gradient step per collection step, an
-  online learner. The paper's analysis holds for any no-regret online
-  learner (Sec. 4).
+- **Iterations.** An iteration is `iteration_steps` steps, and every step
+  joins the replay. The reference's round also lasts until 3 episodes have
+  ended (`rollout_round_min_episodes`), and keeps only the episodes that
+  ended. On tasks with long episodes, its rounds are longer than 500 steps.
+- **Action units.** The policy is fitted to the expert's actions in
+  `[-1, 1]`, the units every Ajax actor acts in. The reference fits them in
+  the environment's own units, so its starting standard deviation of 1 is a
+  different spread where the bounds are not `[-1, 1]`.
 - **The last policy.** The paper returns the best policy of the iterations,
   chosen on validation. Ajax returns the last one; the evaluations show each.
 - **Bounded memory.** The replay drops its oldest rows past `buffer_size`.
   D keeps them all.
-- **Deterministic policy, squared error.** The reference's behaviour cloning
-  fits a Gaussian policy by likelihood, with an entropy bonus. Ajax's policy
-  is deterministic, as the paper's is, so it fits by squared error.
 - **Rewards are not used.** They are recorded, and the evaluations measure
   them, but the policy learns from the expert's actions alone. The critic
   built beside the actor is unused.
@@ -124,12 +145,14 @@ only the latest rollout or step, so there is no aggregated dataset.
 ## Results
 
 No learning curves are published for DAgger yet. Unit tests
-(`tests/agents/DAgger`) check the `beta` schedule, the mixing and the labels
-on every stored row. The probes (`tests/probing/test_imitation.py`) train it
-on a four-state chain where one state is reached only by the learner's
-mistakes. The policy must take the expert's action there, which cloning the
-expert's own states never teaches. A discrete twin checks the cross-entropy
-fit.
+(`tests/agents/DAgger`) check the `beta` schedule, the mixing, the labels on
+every stored row, when each fit runs, over which rows, and its loss. The
+probes (`tests/probing/test_imitation.py`) train it on a four-state chain
+where one state is reached only by the learner's mistakes. The policy must
+take the expert's action there, which cloning the expert's own states never
+teaches. A discrete twin checks the cross-entropy fit. The probes were
+calibrated with `OnlineFit` and still run it; no probe runs `IterationFit`
+yet.
 
 ## API
 

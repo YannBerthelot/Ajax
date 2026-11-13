@@ -26,6 +26,21 @@ The next release is 0.6.0: the first item changes results.
     `beta_schedule=ExponentialBetaSchedule(d)`; the old default was
     `ExponentialBetaSchedule(0.0)`.
 
+- **DAgger fits its policy as its reference code does.** At the end of each
+  iteration of `iteration_steps` steps, it trains for 4 epochs over every
+  state the replay holds, in shuffled minibatches of 32
+  (HumanCompatibleAI/imitation's `DAggerTrainer`); before, it took one
+  gradient step per environment step. Its policy is a Gaussian with one
+  learned standard deviation per action dimension (categorical for discrete
+  actions), fitted by likelihood with an entropy bonus of weight 1e-3, and it
+  acts by sampling; before, it was deterministic and fitted by squared error.
+  This changes results. The new `fit` argument picks the fit:
+  `IterationFit(epochs=4, entropy_weight=1e-3)`, the default, or
+  `OnlineFit()`, the earlier one; both are in `ajax.agents.DAgger.DAgger`.
+  DAgger takes no `train_frequency`: its fit sets it. Upgrade: pass
+  `fit=OnlineFit()` for the old behaviour, and to restore a DAgger
+  checkpoint saved before this release.
+
 - **APG's in-context controller, IQL and PQN follow their reference code.**
   - `APG.contextual_controller` builds the reference's transformer layers:
     no bias outside the input embedding, LayerNorm epsilon 1e-5, and an MLP

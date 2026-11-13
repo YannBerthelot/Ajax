@@ -3105,6 +3105,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#ajax.networks.utils.map_optimizer_moments" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        map_optimizer_moments
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#ajax.networks.utils.scale_by_learning_rate_per_rank" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4521,6 +4532,17 @@
     <span class="md-ellipsis">
       
         get_adam_tx
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.networks.utils.map_optimizer_moments" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        map_optimizer_moments
       
     </span>
   </a>
@@ -7000,6 +7022,36 @@ them at learning_rate.</p>
           </tr>
       </tbody>
     </table>
+        <p>The state holds each of the rule's moments as one vector over every
+parameter (<code>optax.flatten</code>); a checkpoint saved with a moment per
+array restores into it (:func:<code>ajax.checkpoint.restore_into</code>).</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="ajax.networks.utils.map_optimizer_moments" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">map_optimizer_moments</span>
+
+
+<a href="#ajax.networks.utils.map_optimizer_moments" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">map_optimizer_moments</span><span class="p">(</span><span class="n">opt_state</span><span class="p">,</span> <span class="n">params</span><span class="p">,</span> <span class="n">edit</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>The optimiser state with edit applied to each of its moments (Adam's
+mu and nu, RMSProp's averages), edit taking and returning a tree shaped
+as params: a per-unit change, such as resetting a recycled neuron's
+moments, then needs no knowledge of how the state lays them out.</p>
+<p>get_adam_tx holds each moment as one vector over every parameter, in
+the order optax.flatten ravels them (jax's leaf order, each array in C
+order); another optimiser may hold a tree shaped as params. Both are
+found. The state and params are one seed's (vmap over several).</p>
 
 
     </div>

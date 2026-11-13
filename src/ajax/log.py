@@ -489,6 +489,7 @@ def _make_no_op(extra_eval_metrics=None, choosers=False):
         "extra_eval_metrics",
         "controller",
         "phase",
+        "value_estimate",
         "evaluator",
     ],
 )

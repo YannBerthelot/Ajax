@@ -1,9 +1,9 @@
 import copy
+import dataclasses
 from typing import Any, Callable, NamedTuple, Optional, TypeVar
 
 import jax
 import jax.numpy as jnp
-from flax import struct
 from gymnax.environments.environment import EnvParams
 from jax.tree_util import Partial as partial
 
@@ -60,20 +60,20 @@ _RATE_STEPS = 10_000 // _RATE_ENVS
 _RATE_TRAJECTORIES = 10
 
 
-@struct.dataclass
+@dataclasses.dataclass(frozen=True, eq=False)
 class ValueEstimate:
     """An agent's critic, read for the value bias :func:`evaluate` returns:
     ``value(agent_state, obs, action)`` is its estimate (one per env) of the
     return from ``obs`` taking ``action``, of the rewards times
     ``reward_scale`` discounted by ``gamma``, as its targets are.
 
-    ``gamma`` and ``reward_scale`` are data, not part of the compiled
-    program: the members of a sweep each evaluate with their own
-    (``ActorCritic.train``'s ``sweep``)."""
+    A static argument of the evaluation, its numbers the program's
+    constants, so that the evaluation an asynchronous evaluator compiles
+    apart holds them too. Hashed by identity: a sweep member's ``gamma`` is
+    a traced number (``ActorCritic.train``'s ``sweep``), which cannot be
+    hashed, and which the program then reads from the member's trace."""
 
-    value: Callable[[Any, jax.Array, jax.Array], jax.Array] = struct.field(
-        pytree_node=False
-    )
+    value: Callable[[Any, jax.Array, jax.Array], jax.Array]
     gamma: float
     reward_scale: float = 1.0
 
@@ -771,6 +771,7 @@ def _start_rollout(
         "max_eval_steps",
         "controller",
         "eval_expert_policy",
+        "value_estimate",
         "command",
     ],
 )

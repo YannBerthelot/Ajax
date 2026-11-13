@@ -44,8 +44,8 @@ The next release is 0.6.0: the first item changes results.
   and `agent.members` lists the seed and values of each leading row. SAC
   and PPO declare which fields can vary (their learning rates, `gamma` and
   the like); other agents, and settings that change shapes, are refused.
-  To allow it, the evaluation's value estimate and PPO's GAE take `gamma`
-  as data instead of a compile-time constant; results are unchanged.
+  To allow it, PPO's GAE no longer takes `gamma` and `gae_lambda` as
+  static jit arguments; results are unchanged.
 - **DreamerV3 can keep its replay latents in host memory.** With
   `replay_on_host=True`, the posterior latents stored with each replay row
   (about 99% of the replay's bytes: 8 GB per seed for 2^20 rows at 12M) stay

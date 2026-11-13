@@ -69,13 +69,33 @@ class ValueEstimate:
 
     A static argument of the evaluation, its numbers the program's
     constants, so that the evaluation an asynchronous evaluator compiles
-    apart holds them too. Hashed by identity: a sweep member's ``gamma`` is
-    a traced number (``ActorCritic.train``'s ``sweep``), which cannot be
-    hashed, and which the program then reads from the member's trace."""
+    apart holds them too. A sweep member's ``gamma`` is a traced number
+    (``ActorCritic.train``'s ``sweep``), which can be neither hashed nor
+    compared: an estimate hashes by its value function, and a traced number
+    equals only itself."""
 
     value: Callable[[Any, jax.Array, jax.Array], jax.Array]
     gamma: float
     reward_scale: float = 1.0
+
+    def __hash__(self) -> int:
+        return hash(self.value)
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, ValueEstimate):
+            return NotImplemented
+        return (
+            self.value == other.value
+            and _same_number(self.gamma, other.gamma)
+            and _same_number(self.reward_scale, other.reward_scale)
+        )
+
+
+def _same_number(ours: Any, theirs: Any) -> bool:
+    """Equal numbers, or a traced number (a sweep member's) and itself."""
+    if isinstance(ours, jax.Array) or isinstance(theirs, jax.Array):
+        return ours is theirs
+    return bool(ours == theirs)
 
 
 def _value_bias(

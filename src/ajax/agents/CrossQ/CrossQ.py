@@ -47,6 +47,7 @@ from ajax.agents.families import (
     RewardNormalization,
     TrainContext,
 )
+from ajax.agents.presets import Preset
 from ajax.agents.recurrent import sample_replay
 from ajax.agents.SAC.SAC import (
     compute_alpha_temperature_loss,
@@ -71,6 +72,13 @@ from ajax.state import Transition
 
 #: The authors' layers are flax's defaults: lecun-normal kernels, zero biases.
 LECUN = "lecun_normal"
+#: The one task the authors' runs set apart (adityab/CrossQ@a318a26,
+#: train.py:200): Swimmer discounts at 0.9999, every other task at 0.99.
+PRESETS = {
+    "Swimmer": Preset(
+        {"gamma": 0.9999}, "adityab/CrossQ@a318a26 train.py:200 (Swimmer-v4)"
+    )
+}
 
 
 @dataclass(kw_only=True, eq=False, repr=False)

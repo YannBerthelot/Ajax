@@ -57,6 +57,7 @@ from ajax.agents.minibatch import (
     get_actions_and_log_probs,
     run_epochs,
 )
+from ajax.agents.presets import Preset
 from ajax.agents.recurrent import (
     compute_rollout_values,
     get_policy_on_minibatch,
@@ -87,6 +88,27 @@ from ajax.types import Architecture, FloatOrCallable, InitializationFunction
 #: (ppo_rnn.py:53-55) and popjaxrl @12e5d42 (ppo_gru.py:45-47), whose GRU
 #: keeps flax's defaults (ppo_rnn.py:35, ppo_gru.py:30), as Ajax's does.
 PPO_HIDDEN_INIT = "orthogonal(np.sqrt(2))"
+#: ppo2's Atari config (openai/baselines@ea25b9e, ppo2/defaults.py:15-22),
+#: its rate kept constant as the defaults keep MuJoCo's (owner, 2026-10-18),
+#: the networks shared as its value_network default leaves them (MuJoCo's
+#: copies them, :12). The 8 envs are the PPO paper's actors (Schulman et
+#: al., 2017, Table 5); ppo2 runs one per CPU (run.py:87-89).
+PRESETS = {
+    "Atari": Preset(
+        {
+            "n_envs": 8,
+            "n_steps": 128,
+            "num_minibatches": 4,
+            "n_epochs": 4,
+            "actor_learning_rate": 2.5e-4,
+            "critic_learning_rate": 2.5e-4,
+            "clip_range": 0.1,
+            "ent_coef": 0.01,
+            "share_encoder": True,
+        },
+        "openai/baselines@ea25b9e ppo2/defaults.py:15-22",
+    )
+}
 
 
 @dataclass(kw_only=True, eq=False, repr=False)

@@ -50,6 +50,7 @@ from ajax.agents.families import (
     RewardNormalization,
     TrainContext,
 )
+from ajax.agents.presets import Preset
 from ajax.agents.recurrent import RecurrentCarries, q_values, sample_replay
 from ajax.agents.SAC.SAC import (
     compute_soft_policy_loss,
@@ -80,6 +81,37 @@ from ajax.types import Architecture
 #: and the actor read.
 NUM_CRITICS = 2
 
+#: The authors' tuned config of each Gymnasium v5 task (BobMak/asac
+#: @4b68862, hparams/<task>-v5/asac.yaml, which experiments/finetuned_runs.py
+#: :67-76 reads): the four settings they vary across tasks, the temperature
+#: 1 / beta (darer/ASAC.py:56-57). Swimmer-v3's config is not here: Ajax
+#: runs v5, and v3's averaged critics have no field.
+TUNED_TASKS = (
+    # task, beta, tau_theta, learning_starts, buffer_size
+    ("Ant", 5, 0.005, 10_000, 1_000_000),
+    ("HalfCheetah", 5, 0.005, 10_000, 1_000_000),
+    ("Hopper", 5, 0.001, 10_000, 1_000_000),
+    ("Humanoid", 20, 0.001, 10_000, 1_000_000),
+    ("InvertedDoublePendulum", 5, 0.001, 0, 1_000_000),
+    ("InvertedPendulum", 5, 0.005, 0, 1_000_000),
+    ("Pusher", 5, 0.005, 10_000, 1_000_000),
+    ("Reacher", 5, 0.005, 10_000, 100_000),
+    ("Swimmer", 20, 0.005, 10_000, 1_000_000),
+    ("Walker2d", 5, 0.0005, 10_000, 1_000_000),
+)
+PRESETS = {
+    task: Preset(
+        {
+            "alpha_init": 1 / beta,
+            "tau_theta": tau_theta,
+            "learning_starts": learning_starts,
+            "buffer_size": buffer_size,
+        },
+        f"BobMak/asac@4b68862 hparams/{task}-v5/asac.yaml:3,5,9,12",
+    )
+    for task, beta, tau_theta, learning_starts, buffer_size in TUNED_TASKS
+}
+
 
 @dataclass(kw_only=True, eq=False, repr=False)
 class ASAC(
@@ -104,14 +136,14 @@ class ASAC(
 
     Args:
         tau_theta: Rate of the theta and penalty averages (darer/ASAC.py:188,
-            :213). The authors tune it per environment, 0.0005 to 0.1; 0.005
-            is their default (darer/BaseAgent.py:80) and six of their 11
-            configs'.
+            :213). The authors tune it per environment, 0.0005 to 0.1
+            (PRESETS); 0.005 is their default (darer/BaseAgent.py:80) and six
+            of their 11 configs'.
         alpha_init: The temperature, or its initial value when fixed_alpha
             is False.
         fixed_alpha: Keep the temperature at alpha_init. The authors'
             published runs fix it at 1/beta: 0.2, and 0.05 for Humanoid and
-            Swimmer (hparams/*/asac.yaml, darer/ASAC.py:56-57,
+            Swimmer (PRESETS; hparams/*/asac.yaml, darer/ASAC.py:56-57,
             experiments/finetuned_runs.py:67-76). False learns it towards
             the target entropy, as SAC does.
         p_0: The termination penalty's scale (darer/ASAC.py:187).

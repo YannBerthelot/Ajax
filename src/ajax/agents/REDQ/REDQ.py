@@ -216,8 +216,13 @@ class REDQ(
         )
         collector_state = context.make_collector(collector_key)
         # REDQ's official critics read act_limit * tanh, the env's units
-        # (watchernyu/REDQ@7b5d1bf, core.py:238): so do Ajax's.
-        units = critic_action_units(context.env_args)
+        # (watchernyu/REDQ@7b5d1bf, core.py:238): so do Ajax's. With memory,
+        # REDQ follows Ni et al.'s recurrent SAC, whose critics read the
+        # [-1, 1] actions of its normalised action space (pomdp-baselines
+        # e7c19c3, policies/models/actor.py:94).
+        units = (
+            None if self.memory is not None else critic_action_units(context.env_args)
+        )
         return REDQState(
             rng=training_key,
             eval_rng=evaluation_key,

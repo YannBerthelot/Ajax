@@ -171,8 +171,13 @@ class TD3(
             num_critics=self.num_critics,
         )
         # sfujim/TD3's critics read max_action * tanh, the env's units: so do
-        # TD3's (static, from the concrete env params).
-        units = critic_action_units(context.env_args)
+        # TD3's (static, from the concrete env params). Ni et al.'s recurrent
+        # TD3 reads the [-1, 1] actions of its normalised action space
+        # (pomdp-baselines e7c19c3, policies/rl/td3.py:45-47, :60): with
+        # memory, so do TD3's.
+        units = (
+            None if self.memory is not None else critic_action_units(context.env_args)
+        )
         return TD3State(
             rng=training_key,
             eval_rng=evaluation_key,

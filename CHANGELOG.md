@@ -49,6 +49,14 @@ The next release is 0.6.0: the first item changes results.
   al.'s `a[0] = r[0] = 0`), unless the window starts from a stored memory.
   *Upgrade:* pass `burn_in=8, sequence_length=16, batch_size=256` to train
   as before.
+- **Recurrent TD3 is Ni et al.'s**: its actor maximises min(Q1, Q2), and
+  `policy_delay` defaults to `None`, 2 without memory as before and 1 with
+  it; with memory, TD3's and REDQ's critics read the agent's [-1, 1]
+  actions, not the env's units.
+- **Recurrent SAC's numerics are Ni et al.'s**: with memory, the squashed
+  log-density subtracts log(1 − tanh² + 1e-6) (also TQC's and RVI-SAC's;
+  REDQ's and ASAC's already did), the critics' squared errors are summed,
+  and the temperature steps alpha on the actor loss's own log-densities.
 - **SAC, TD3, REDQ, TQC, ASAC and RVI-SAC can share a memory.** With
   `share_encoder=True`, `memory=` and `PreviousAction()`, the critic's
   encoder and memory block read the observation and the previous action

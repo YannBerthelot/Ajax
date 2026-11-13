@@ -103,7 +103,9 @@ NI_MEMORY_INITS = {
 #: (recurrent_actor.py:77-80), the critic's the observation and the action
 #: in the memory's input width, 64 (recurrent_critic.py:71-76); the
 #: embeddings are torch's nn.Linear (utils/helpers.py:213-218); the two
-#: Q-networks read one RNN (recurrent_critic.py:95-99).
+#: Q-networks read one RNN (recurrent_critic.py:95-99). A squashed policy's
+#: log-density subtracts log(1 - tanh^2 + 1e-6) (TanhNormal's epsilon,
+#: torchkit/distributions.py:94, :120-122).
 NI_LAYOUT: dict[str, Any] = {
     "input_embedding": (
         ("previous_action", 16),
@@ -113,6 +115,7 @@ NI_LAYOUT: dict[str, Any] = {
     "shortcut_widths": (32, 16 + 16 + 32),
     "embedding_kernel_init": TORCH_LINEAR,
     "critics_share_encoder": True,
+    "squash_log_det_eps": 1e-6,
 }
 
 

@@ -208,3 +208,16 @@ def test_the_critics_read_the_agents_actions_with_memory(cls):
     state, _ = agent.train(seed=0, n_timesteps=0)
     assert recurrent.critic_state.action_units is None
     assert state.critic_state.action_units is not None
+
+
+@pytest.mark.parametrize("cls", [SAC, TD3, REDQ, ASAC])
+def test_the_squashed_log_density_takes_ni_et_als_guard(cls):
+    """TanhNormal subtracts log(1 - tanh^2 + 1e-6) (torchkit/distributions.py:
+    94, :120-122): at a saturated latent the guard, not the exact log-det,
+    bounds the log-density. SAC without memory keeps its reference's exact
+    one (softlearning's tfp bijector)."""
+    assert (
+        cls("Pendulum-v1", memory=MemoryConfig("gru")).network_args.squash_log_det_eps
+        == 1e-6
+    )
+    assert SAC("Pendulum-v1").network_args.squash_log_det_eps == 0.0

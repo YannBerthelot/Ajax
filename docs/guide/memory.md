@@ -242,6 +242,11 @@ theirs, the others take them by analogy):
 - The layers start as Ni et al.'s: torch's default for the embeddings and
   shortcuts, rlkit's fan-in uniform with biases 0.1 for the hidden layers,
   and output layers uniform in ±1e-3 (actor) or ±3e-3 (Q), biases too.
+- The squashed policy's log-density subtracts log(1 − tanh² + 1e-6), as Ni
+  et al.'s does. TD3's actor maximises the critics' minimum and steps at
+  every update; SAC sums its critics' squared errors and steps its
+  temperature (alpha, not its log) on the actor loss's own log-densities.
+  The critics read the agent's [-1, 1] actions.
 
 These are `NetworkConfig`'s `input_embedding`, `shortcut_widths`,
 `embedding_kernel_init` and `critics_share_encoder`. `share_encoder=True`

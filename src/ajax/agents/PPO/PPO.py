@@ -136,9 +136,9 @@ class PPO(
     the advantages normalised per
     minibatch; the Gaussian's log-std one learned parameter per action
     dimension starting at 0 (std 1), never clipped (the Actor in
-    networks.py cites it). Not taken: mujoco()'s linear decay of the rate
-    (owner, 2026-10-18), and run.py:115-116's VecNormalize of observations
-    and returns (normalize_observations, normalize_rewards stay off).
+    networks.py cites it); observations and discounted returns normalised
+    and clipped at 10, as run.py:115-116's VecNormalize. Not taken:
+    mujoco()'s linear decay of the rate (owner, 2026-10-18).
     """
 
     n_envs: int = 1
@@ -211,6 +211,14 @@ class PPO(
     #: Squashed or not, the action is read in [-1, 1] and mapped onto the
     #: env's bounds (agent_action_to_env), clipped there first.
     squash: bool = False
+    #: ppo2's MuJoCo run normalises observations and discounted returns by
+    #: running statistics, both clipped to +-10 (baselines run.py:115-116,
+    #: common/vec_env/vec_normalize.py: clipob=10, cliprew=10, epsilon 1e-8);
+    #: normalize_rewards divides by the return's spread with gamma and
+    #: clips at 10 (RewardNormalization).
+    normalize_observations: bool = True
+    observation_clip: Optional[float] = 10.0
+    normalize_rewards: bool = True
 
     #: The numbers a sweep may vary in one program (ActorCritic.train's sweep).
     sweepable: ClassVar[frozenset[str]] = frozenset(

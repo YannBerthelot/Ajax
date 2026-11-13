@@ -106,10 +106,10 @@ def test_a_given_normalisation_discount_wins(name: str) -> None:
             env_id=env_id, normalize_rewards=True, reward_normalization_gamma=gamma
         )
         assert _normaliser_gamma(given) == gamma
-    off = strip_ajax_wrappers(cls(env_id=env_id).env_args.env)[1]
-    assert not off.get("normalize_reward", False)
+    off = cls(env_id=env_id, normalize_rewards=False)  # PPO's default is on
+    assert not strip_ajax_wrappers(off.env_args.env)[1].get("normalize_reward", False)
     with pytest.raises(ValueError, match="normalize_rewards=True"):
-        cls(env_id=env_id, reward_normalization_gamma=0.9)
+        cls(env_id=env_id, normalize_rewards=False, reward_normalization_gamma=0.9)
 
 
 def test_a_constant_reward_is_not_divided_by_a_zero_spread() -> None:

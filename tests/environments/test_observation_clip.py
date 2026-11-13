@@ -5,13 +5,14 @@ Contract: an on-policy agent storing observations normalised at collection
 clips them to +-observation_clip, at collection and when its frozen
 statistics normalise an evaluation's observations; the env's leading raw
 columns stay as they are; None clips nothing; a replay agent, which
-normalises inside its networks, refuses a clip."""
+normalises inside its networks, refuses a clip. PPO's defaults are ppo2's
+MuJoCo run: both normalisers on, the clip at 10."""
 
 import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from ajax import SAC
+from ajax import PPO, SAC
 from ajax.environments.obs_norm import (
     init_agent_obs_norm,
     normalized_obs,
@@ -51,6 +52,13 @@ def test_the_envs_raw_columns_are_not_clipped() -> None:
     stored, _ = update_obs_norm(obs, info, raw_columns=1)
     np.testing.assert_allclose(stored[:, 0], [50.0, -50.0])
     assert float(jnp.abs(stored[:, 1]).max()) <= 1.0
+
+
+def test_ppo_normalises_and_clips_as_ppo2s_mujoco_run() -> None:
+    agent = PPO("Pendulum-v1")
+    assert agent.normalize_observations and agent.normalize_rewards
+    assert agent.env_args.observation_clip == 10.0
+    assert agent.env_args.store_normalized_obs
 
 
 def test_a_replay_agent_refuses_a_clip() -> None:

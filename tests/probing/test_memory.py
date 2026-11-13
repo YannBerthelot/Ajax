@@ -30,7 +30,7 @@ from . import readouts as R
 from .verdict import Case, Query, check, params
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "a8d332864bd1"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "91246698d3e8"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P0b: act on a cue seen two steps back, forget it at the episode's end ----
@@ -441,6 +441,72 @@ def test_q2_readout_matches_an_episode_start_inside_a_window(kind: str) -> None:
     observed = _with_previous_step(obs[:, None], acts[:, None, None], resets)
     a = jnp.clip(R.actor_sequence(n, observed, resets).mean().reshape(-1), -1, 1)
     np.testing.assert_allclose(a[starts], _a0(n), atol=1e-5)
+
+
+# --- Q2 cue: a recurrent critic's TD target carries a cue it saw -----------------
+# A 2-step episode observes its phase one-hot and, at step 0, P0b's cue c (its
+# sign one-hot); step 1 pays c whatever the action, terminally. The echoes
+# above show their action in the next observation, so their critics need no
+# memory; here the next step's value needs the cue from memory. At a pinned
+# alpha of 1 the actor's policy at step 1 is the same for every cue, so the
+# gaps between cues +1 and -1 hold no entropy term: Q(s1) gap = 2 (the memory
+# carries c to the last step) and Q(s0) gap = 2 gamma (the TD target reads c
+# from the memory at s1). No action pays, so none carries the cue. Read from a
+# fresh carry flagged as a start, at the actor's mean actions. A target memory
+# restarted at an episode's second step reads 0 at s0; an online memory
+# restarted at the last step, 0 at both. One 64-step window per update, as
+# P0b's. The critic's per-seed spread, 2-3% of each answer from 1500 to 3000
+# steps, breaks the 0.1 ceiling as the q2 controls' does: at 1500, where both
+# gaps settle, each tolerance is twice the ladder's worst error.
+
+
+def _value_cue(st: envs.State, a: jax.Array, key: Any) -> tuple:
+    return st.replace(s=st.s + 1), jnp.where(st.s == 1, st.c, 0.0), st.s + 1 >= 2
+
+
+def _phase_and_cue(st: envs.State) -> jax.Array:
+    return jnp.concatenate([envs.one_hot(jnp.minimum(st.s, 1), 2), _sign(_shown(st))])
+
+
+VALUE_CUE = envs.Spec("value_cue", _value_cue, _phase_and_cue, _draw, obs_dim=4)
+GAPS = (
+    Query("Q(s0 | +1) - Q(s0 | -1)", 2 * agents.GAMMA, {"target forgot the cue": 0.0}),
+    Query("Q(s1 | +1) - Q(s1 | -1)", 2.0, {"memory restarted at s1": 0.0}),
+)
+
+
+def _seen(step: int) -> jax.Array:
+    return jnp.stack([_phase_and_cue(VALUE_CUE.fresh(step, c)) for c in (1.0, -1.0)])
+
+
+def _gaps(n: R.Nets) -> dict:
+    """Steps 0 and 1 (T) after cues +1 and -1 (B), a start at step 0."""
+    obs, starts = jnp.stack([_seen(0), _seen(1)]), jnp.array([[True] * 2, [False] * 2])
+    a = jnp.clip(_step_actor_with_previous_step(n, obs, starts), -1.0, 1.0)
+    q = R.critic_sequence(n, _q_input(obs, a, starts), starts)
+    return {GAPS[0].name: q[0, 0] - q[0, 1], GAPS[1].name: q[1, 0] - q[1, 1]}
+
+
+def _value_cue_agent() -> Any:
+    pinned: dict[str, Any] = {"alpha_init": ALPHA, "fixed_alpha": True}
+    pinned["policy_update_start"] = 100  # the actor from learning_starts, as q2's
+    memory = MemoryConfig("gru", 32)
+    return agents.make("SAC", *VALUE_CUE.make(), memory=memory, batch_size=1, **pinned)
+
+
+def _read_gaps(run: runs.Run) -> dict:
+    return R.per_seed(_gaps, R.nets(run.state))
+
+
+CASES["q2-cue-SAC-gru"] = Case(
+    "q2-cue-SAC-gru",
+    GAPS,
+    runs.readings(_value_cue_agent, _read_gaps),
+    1500,
+    tol=(0.086, 0.115),
+    ceiling=0.5,
+    note="ladder worst 0.043 / 0.058; cert 32/32, worst 0.048 / 0.039",
+)
 
 
 # --- every judged case ---------------------------------------------------------

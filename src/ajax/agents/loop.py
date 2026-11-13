@@ -62,7 +62,13 @@ import jax.numpy as jnp
 import numpy as np
 from jax.tree_util import Partial as partial
 
-from ajax.agents.update_steps import apply_post_update, reached, run_if
+from ajax.agents.update_steps import (
+    all_of,
+    apply_post_update,
+    reached,
+    reaches_multiple,
+    run_if,
+)
 from ajax.async_evaluation import AsyncEvaluator
 from ajax.buffers.dataset import TransitionDataset, fill_replay
 from ajax.controller import Controller, make_run_controller, reads_progress
@@ -553,10 +559,12 @@ class TrainLoop:
         learning_starts: int,
         update: Callable[[Any], tuple[Any, Any]],
         timestep: Optional[jax.Array] = None,
+        trains: Any = True,
     ) -> tuple[Any, Any]:
-        """update and apply post_update once timestep, by default the steps
-        collected, reaches learning_starts; before, the metrics have the
-        update's structure, filled with NaN (which the logger drops)."""
+        """update and apply post_update on a tick that trains (trains, by
+        default every one) once timestep, by default the steps collected,
+        reaches learning_starts; otherwise the metrics have the update's
+        structure, filled with NaN (which the logger drops)."""
 
         def do_update(agent_state: Any) -> tuple[Any, Any]:
             # A jit of its own around the update, a deliberate workaround for
@@ -574,7 +582,8 @@ class TrainLoop:
         # No gate at learning_starts <= 0 (reached's Python True): a traced
         # one, always true there, still made every seed of a vmapped run
         # compute the update and select each leaf of its state, each step.
-        return run_if(reached(learning_starts, timestep), do_update, agent_state)
+        gate = all_of(reached(learning_starts, timestep), trains)
+        return run_if(gate, do_update, agent_state)
 
     def repeat_update(
         self, agent_state: Any, n: Any, update: Callable[[Any], tuple[Any, Any]]
@@ -822,6 +831,7 @@ class TrainLoop:
         num_ticks: Optional[int] = None,
         keeps_actor_metrics: bool = False,
         pretrain_update: Optional[Update] = None,
+        update_every: int = 1,
     ) -> Callable:
         """Train on one environment step per env per iteration (a tick).
 
@@ -830,19 +840,20 @@ class TrainLoop:
         as TQC's authors act), applies ``after_collect(agent_state,
         transition)`` when given, then from ``learning_starts`` runs
         ``update(agent_state, transition)`` (without a replay, from the step
-        collected at learning_starts), then evaluates the actor
-        (:meth:`evaluate_and_log`). ``expose_rollout`` keeps the step on
-        ``agent_state.last_rollout`` as a ``T = 1`` rollout. The budget is
-        :attr:`budget` ``// n_envs`` ticks.
+        collected at learning_starts) on the ticks whose steps collected
+        reach a multiple of ``update_every`` (:func:`reaches_multiple`), then
+        evaluates the actor (:meth:`evaluate_and_log`).
+        ``expose_rollout`` keeps the step on ``agent_state.last_rollout`` as
+        a ``T = 1`` rollout. The budget is :attr:`budget` ``// n_envs`` ticks.
 
         An agent acting, training and evaluating its own way (the module
         docstring) supplies those steps: ``collect`` replaces the collection
         and the arguments configuring it; ``n_updates(tick, agent_state)``
         updates (of the absolute, unbatched tick: a train ratio, a burst;
         or of the collected state: the env steps the tick took) replace the
-        ``learning_starts`` gate (:meth:`repeat_update`); ``evaluation``
-        replaces the actor's evaluation (:meth:`evaluate_every`);
-        ``num_ticks`` the budget.
+        ``learning_starts`` and ``update_every`` gate (:meth:`repeat_update`);
+        ``evaluation`` replaces the actor's evaluation
+        (:meth:`evaluate_every`); ``num_ticks`` the budget.
 
         ``keeps_actor_metrics``: the update keeps its actor's last metrics on
         the state (update_steps.run_actor_if), which then gets their slot.
@@ -898,11 +909,16 @@ class TrainLoop:
 
             aux = None
             if n_updates is None:
+                # The timestep is equal across seeds (the shared counters):
+                # the gate stays one branch under the seed vmap, never both.
+                n_envs = self.env_args.n_envs
+                trains = reaches_multiple(update_every, collected_at, n_envs)
                 agent_state, aux = self.maybe_update(
                     agent_state,
                     learning_starts,
                     step,
                     collected_at if learns_from_its_step else None,
+                    trains,
                 )
             else:
                 agent_state = self.repeat_update(

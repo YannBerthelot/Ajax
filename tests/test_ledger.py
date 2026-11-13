@@ -331,6 +331,16 @@ def test_the_gate_counts_the_steps_it_sees_on_many_envs():
     assert run_ledger(agent, 20).env_steps == 20 + 4 * 10
 
 
+def test_the_gate_evaluates_on_the_ticks_that_update():
+    """post_update runs after an update: with one every 10 steps
+    (train_frequency), of the evaluations due at 5, 10, 15 and 20 only those
+    at 10 and 20 happen. Charging all four spends steps no run took."""
+    gate = JSRLCurriculum(eval_every=5)
+    agent = jsrl(10, gate, learning_starts=0, train_frequency=10)
+
+    assert run_ledger(agent, 20).env_steps == 20 + 2 * 10
+
+
 def test_a_budget_inside_an_evaluation_stops_short_of_it():
     """One evaluation of 1,600 comes at step 10,000. With 11,000 to spend, step
     10,000 would spend 11,600, so the run stops at 9,999, short by 1,001, which

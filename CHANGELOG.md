@@ -44,6 +44,11 @@ The next release is 0.6.0: the first item changes results.
     (`lr_linear_decay`), epsilon decaying over the first 10% of the run.
     Upgrade: `n_envs=8, n_steps=128, n_epochs=4, num_minibatches=4,
     learning_rate=2.5e-4, lr_linear_decay=False, epsilon_decay_frac=0.5`.
+- **Replay agents take `train_frequency`**, SB3's `train_freq`: from
+  `learning_starts`, an update each time the steps collected reach a
+  multiple of it. The default, 1, updates every iteration, as before, on
+  every agent but DQN.
+
 - **APO's defaults are its reference code's MuJoCo config** (xtma/apo,
   `mujoco_appo.py`): rollouts of 10 envs x 200 steps (was 4 x 2,048), 20
   minibatches per epoch (`num_minibatches=20`; was cut by `batch_size`),

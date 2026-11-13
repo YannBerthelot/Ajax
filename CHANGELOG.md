@@ -8,6 +8,15 @@ PyPI as `ajax-rl`.
 
 The next release is 0.6.0: the first item changes results.
 
+- **PPO steps TensorFlow 1's Adam, as ppo2 does.** ppo2's
+  `tf.train.AdamOptimizer` adds epsilon to the square root of the second
+  moment before the bias correction; optax's Adam adds it after, an
+  epsilon 32 times smaller at the first step and about the same after a
+  few thousand. The new update rule `"tf1_adam"` (`OptimizerConfig`,
+  `ajax.networks.utils.scale_by_tf1_adam`) is PPO's; with `memory` or
+  `unroll_length` PPO keeps optax's Adam, as PureJaxRL and Brax use it.
+  PPO's results change.
+
 - **Three defaults now come from the agents' reference code.** An audit of
   every agent's defaults against its original code found these without a
   source:

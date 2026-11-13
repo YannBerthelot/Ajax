@@ -229,6 +229,16 @@ class RewardNormalization:
     normalize_rewards: bool = False
     reward_normalization_gamma: Optional[float] = None
 
+    def sweepable_fields(self) -> frozenset[str]:
+        # The env wrapper discounts the return it divides by with the gamma
+        # the agent was built with (reward_normalization_gamma None): a
+        # member sweeping gamma would keep that one and train apart from
+        # its separate run.
+        fields: frozenset[str] = super().sweepable_fields()  # type: ignore[misc]
+        if self.normalize_rewards and self.reward_normalization_gamma is None:
+            return fields.difference({"gamma"})
+        return fields
+
 
 @dataclass(kw_only=True, eq=False, repr=False)
 class ExpertGuided:

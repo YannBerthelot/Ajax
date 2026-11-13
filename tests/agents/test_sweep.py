@@ -57,6 +57,10 @@ def tiny_sac(**fields: Any) -> SAC:
 
 
 def tiny_ppo(**fields: Any) -> PPO:
+    """PPO without its normalisers (on by default): their running sums are
+    tens, where a sweep and a separate run round apart past atol 1e-6, and
+    the reward normaliser fixes gamma (test_a_normaliser_fixing_gamma_...)."""
+    options = {"normalize_observations": False, "normalize_rewards": False}
     return PPO(
         "CartPole-v1",
         n_envs=2,
@@ -65,7 +69,7 @@ def tiny_ppo(**fields: Any) -> PPO:
         n_epochs=2,
         actor_architecture=TANH,
         critic_architecture=TANH,
-        **fields,
+        **{**options, **fields},
     )
 
 
@@ -207,6 +211,9 @@ def test_every_sweepable_field_reaches_the_training(
         (tiny_sac, {"batch_size": [8, 16]}, "batch_size"),
         (tiny_sac, {"tau": [0.01], "learning_rate": [1e-3]}, "learning_rate"),
         (lambda: tiny_sac(n_step=2), {"gamma": [0.9, 0.99]}, "gamma"),
+        # The reward normaliser divides by the return discounted with the
+        # gamma it was built with; set apart, gamma sweeps again.
+        (lambda: tiny_ppo(normalize_rewards=True), {"gamma": [0.9, 0.99]}, "gamma"),
         (tiny_ppo, {"n_epochs": [2, 4]}, "n_epochs"),
         (tiny_sac, {"tau": ["0.01"]}, "numbers"),
         (tiny_sac, [{"tau": 0.01}, {"gamma": 0.9}], "same fields"),
@@ -218,6 +225,7 @@ def test_every_sweepable_field_reaches_the_training(
         "shape",
         "unknown",
         "n-step-gamma",
+        "normaliser-gamma",
         "loop-length",
         "text",
         "mixed",
@@ -232,6 +240,14 @@ def test_a_sweep_outside_the_sweepable_numbers_is_refused_before_training(
     every member with a value its replay or loop fixed when built."""
     with pytest.raises(ValueError, match=refused):
         make().train(seed=0, n_timesteps=16, sweep=sweep)
+
+
+def test_a_normaliser_with_its_own_discount_leaves_gamma_sweepable() -> None:
+    """reward_normalization_gamma fixes the normaliser's discount apart from
+    the agent's gamma, which a sweep may then vary."""
+    agent = tiny_ppo(normalize_rewards=True, reward_normalization_gamma=0.99)
+    assert "gamma" in agent.sweepable_fields()
+    assert "gamma" not in tiny_ppo(normalize_rewards=True).sweepable_fields()
 
 
 def test_a_resumed_sweep_continues_as_the_uninterrupted_sweep() -> None:

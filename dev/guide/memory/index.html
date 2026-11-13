@@ -3215,6 +3215,24 @@ exceed <code>burn_in + sequence_length + 1</code>), and <code>stored_state=True<
 taken before it. The action the loss asks about joins after the memory, at
 the critic's head, so asking about another action does not change what the
 critic remembers (the recurrent off-policy critic of Ni et al., 2022).</p>
+<p>The actor reads the observation alone. Add the <code>PreviousAction()</code>
+observation feature for it to read the action taken before each
+observation too, as Ni et al.'s recurrent actor does: the feature joins
+every observation, in collection, evaluation and <code>agent.policy</code>, zero at an
+episode's first. The critic then reads the previous action from the
+observation instead of adding its own, in the agent's [-1, 1] units. With
+the feature, <code>share_encoder=True</code> gives the actor and the critic one memory,
+the critic's (<a href="../networks/">Networks</a>).</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax</span><span class="w"> </span><span class="kn">import</span> <span class="n">SAC</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax.extensions.observe</span><span class="w"> </span><span class="kn">import</span> <span class="n">PreviousAction</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax.networks.memory</span><span class="w"> </span><span class="kn">import</span> <span class="n">MemoryConfig</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="n">agent</span> <span class="o">=</span> <span class="n">SAC</span><span class="p">(</span>
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>    <span class="s2">&quot;Pendulum-v1&quot;</span><span class="p">,</span>
+<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>    <span class="n">memory</span><span class="o">=</span><span class="n">MemoryConfig</span><span class="p">(</span><span class="n">kind</span><span class="o">=</span><span class="s2">&quot;gru&quot;</span><span class="p">,</span> <span class="n">hidden_size</span><span class="o">=</span><span class="mi">64</span><span class="p">),</span>
+<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>    <span class="n">extensions</span><span class="o">=</span><span class="p">(</span><span class="n">PreviousAction</span><span class="p">(),),</span>
+<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="p">)</span>
+</code></pre></div>
 <p>With memory, SAC, TD3 and REDQ accept no expert policy and no extensions
 (behaviour cloning included, which is the <code>CloningPretrain</code> extension), and
 ASAC, RVI-SAC and PPO no extensions, yet: they raise an error when training starts

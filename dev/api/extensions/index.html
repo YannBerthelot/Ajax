@@ -5358,6 +5358,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#ajax.extensions.observe.PreviousAction" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        PreviousAction
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#ajax.extensions.observe.TrainingProgressInput" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -8445,6 +8456,17 @@
     <span class="md-ellipsis">
       
         PIDTermsInput
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.extensions.observe.PreviousAction" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        PreviousAction
       
     </span>
   </a>
@@ -16587,6 +16609,67 @@ with sampling period <code>dt</code> and clamping anti-windup <code>integral_lim
 so gains acting on them are a PID's; a :class:<code>PIDPolicy</code> actor reads
 them where the observation holds them (:func:<code>pid_terms_at</code>). Every
 episode starts afresh: no term carries over.</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h3 id="ajax.extensions.observe.PreviousAction" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">PreviousAction</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-dataclass"><code>dataclass</code></small>
+  </span>
+
+<a href="#ajax.extensions.observe.PreviousAction" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">PreviousAction</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s1">&#39;previous_action&#39;</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+            <p class="doc doc-class-bases">
+              Bases: <code><a class="autorefs autorefs-internal" title="Extension (ajax.extensions.base.Extension)" href="#ajax.extensions.base.Extension">Extension</a></code></p>
+
+
+
+        <p>The action executed just before the observation, in agent units:
+zero at an episode's first observation, a discrete action one-hot
+(:func:<code>ajax.controller.previous_action_input</code>). Raw, since it is an
+action.</p>
+<p>An agent whose memory reads it acts on its own past commands, which a
+deployed controller has. Ni et al. (2022)'s recurrent actor reads the
+previous action with the observation (twni2016/pomdp-baselines at
+e7c19c3, policies/models/policy_rnn.py:23-91), as their critic does
+(ajax.agents.recurrent).</p>
 
 
 

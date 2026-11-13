@@ -6001,13 +6001,16 @@ action joins at its head (<code>Critic.query_dim</code>).</p>
 
 
 <a href="#ajax.networks.networks.check_share_encoder" class="headerlink" title="Permanent link">&para;</a></h3>
-<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">check_share_encoder</span><span class="p">(</span><span class="n">network_config</span><span class="p">,</span> <span class="n">action_value</span><span class="p">)</span>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">check_share_encoder</span><span class="p">(</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">network_config</span><span class="p">,</span> <span class="n">action_value</span><span class="p">,</span> <span class="n">observers</span><span class="o">=</span><span class="p">()</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="p">)</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
         <p>Refuse a shared encoder (<code>network_config.share_encoder</code>) the
-networks cannot have.</p>
+networks cannot have, the run's observation features being
+<code>observers</code>.</p>
 
 
     </div>

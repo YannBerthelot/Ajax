@@ -2947,7 +2947,7 @@
 <p>An extension adds a research feature to an agent's training without changing
 the agent: an extra term in a loss, a change to the TD target, another way to
 pick actions while collecting, an expert to learn from, a pre-training step,
-or measurements logged at each evaluation. Ajax ships forty-two of them,
+or measurements logged at each evaluation. Ajax ships forty-three of them,
 listed in the <a href="#catalogue">catalogue</a> below.</p>
 <p>Why extensions instead of agent options? An agent's constructor takes its
 paper's hyperparameters plus <code>extensions=()</code>. The exceptions are
@@ -3549,6 +3549,12 @@ accepts it. "SAC with an expert" means <code>SAC(..., expert_policy=...)</code>.
 <tr>
 <td><code>PIDTermsInput</code></td>
 <td>Appends a PID controller's terms for each tracking error <code>e = obs[target_idx] − obs[current_idx]</code>: the error, its integral (clamped at <code>integral_limit</code>) and its difference, with sampling period <code>dt</code>; raw, and started afresh each episode. A <a href="../networks/#the-pid-policy"><code>PIDPolicy</code></a> actor reads them.</td>
+<td><code>observe</code></td>
+<td>every agent but <code>TDMPC2MultiTask</code>, whose dataset holds no feature columns</td>
+</tr>
+<tr>
+<td><code>PreviousAction</code></td>
+<td>Appends the action executed just before each observation, in agent units: zero at an episode's first observation, a discrete action one-hot; raw. An actor with memory then reads its own past actions, as Ni et al. (2022)'s recurrent actor does (see <a href="../memory/">Memory</a>).</td>
 <td><code>observe</code></td>
 <td>every agent but <code>TDMPC2MultiTask</code>, whose dataset holds no feature columns</td>
 </tr>

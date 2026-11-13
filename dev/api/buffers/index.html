@@ -4620,7 +4620,9 @@ bootstrap. With memory, that value must come from the memory that has read
 the rows up to the current one. Where a time limit cut an episode, that
 needs the time-limit section below.</p>
 <p>A critic's memory reads each row's observation together with the action
-taken before it. The action a loss asks about (the taken one, or one the
+taken before it: appended to its input from the replay, or already in the
+observation where a PreviousAction feature puts it there, the actor's too.
+The action a loss asks about (the taken one, or one the
 policy samples) enters after the memory, at a head between the memory and
 the output layer, so asking about another action never changes the memory
 (Critic.query_dim). Ni et al. (2022)'s recurrent critic does the same: its
@@ -4929,10 +4931,12 @@ last axis).</p>
 - bootstrap True: the target critic, from its warmed-up memory, at each
   row's next observation (obs are those next observations, actions the
   next actions the target asks about), see the time-limit section.
-The memory reads each observation with the action taken before it; the
-asked-about action enters at the output layer. Every action reaches the
-critic in its own units (in_critic_units; predict_value converts a
-critic without memory's).</p>
+The memory reads each observation with the action taken before it,
+appended from carries.prev_actions or, where those are None, in the
+observation (PreviousAction, in agent units); the asked-about action
+enters at the output layer. Every appended action reaches the critic in
+its own units (in_critic_units; predict_value converts a critic without
+memory's).</p>
 
 
     </div>

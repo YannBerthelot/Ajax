@@ -101,8 +101,11 @@ class GymnasiumTask(mjx_env.MjxEnv):
         MuJoCo Warp's default is the whole contact buffer, and each physics
         call allocates about 6.5 kB of scratch per slot: 320 MB a call on
         Pusher, which has 7 pairs. Warp keeps a CUDA graph of a call for each
-        new set of XLA buffer addresses, up to 32 per function, each with its
-        scratch, and PPO on Pusher ran out of memory on an 11 GB GPU."""
+        new set of XLA buffer addresses, up to 32 per function. The graphs
+        share their physical memory, but each reserves its own addresses for
+        its scratch, and on an 11 GB GPU the driver refused new ones after
+        about 76 graphs (21 GiB), with under 1.4 GB in use: PPO on Pusher
+        stopped after a few evaluations."""
         if self._mjx_model.impl != mjx.Impl.WARP:
             return None
         pairs = sum(self._mjx_model._impl.geom_pair_type_count)

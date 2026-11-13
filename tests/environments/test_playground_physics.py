@@ -14,7 +14,7 @@ numbers all come from MJX's pure-JAX physics):
   stops the run rather than going on with dropped contacts;
 - on Warp, a ``"mujoco:"`` task's physics call allocates convex-collision
   scratch for the task's geom pairs, not for the whole contact buffer (each
-  CUDA graph Warp keeps holds a call's scratch).
+  CUDA graph Warp keeps reserves addresses for a call's scratch).
 """
 
 import jax
@@ -230,14 +230,16 @@ def warp_scratch_megabytes(text: str) -> float:
 def test_a_pusher_physics_call_on_warp_allocates_scratch_for_its_pairs_only():
     """Catches the convex-collision scratch sized for the whole contact
     buffer: MuJoCo Warp sizes it for 49,152 collisions unless told, and
-    every Pusher physics call allocated 235 MB (320 MB on a GPU). Warp
-    keeps a CUDA graph, scratch included, per call and per new set of XLA
-    buffer addresses, up to 32 per Warp function; PPO's benchmark run added
-    5 at each evaluation, and on an 11 GB GPU it ran out of memory after
-    about 7 evaluations. Room for Pusher's 7 geom pairs in 1,024 worlds
-    takes 47 MB at most; 100 MB leaves that margin and fails the old size.
-    MJX runs Warp's kernels on a CPU when a task is made directly (no CUDA
-    graphs), where Warp's tracker sees every allocation."""
+    every Pusher physics call allocated 235 MB (320 MB on a GPU). Warp keeps
+    a CUDA graph per call and per new set of XLA buffer addresses, up to 32
+    per Warp function, and each graph reserves its own addresses for the
+    scratch: PPO's benchmark run added 5 graphs per evaluation, and on an
+    11 GB GPU new ones failed after about 76 (21 GiB) with under 1.4 GB in
+    use. Room for Pusher's 7 geom pairs in 1,024 worlds takes 47 MB at most;
+    below 100 MB, the 96 graphs of three Warp functions fit in half of that
+    21 GiB, and the old size fails. MJX runs Warp's kernels on a CPU when a
+    task is made directly (no CUDA graphs), where Warp's tracker sees every
+    allocation."""
     import warp as wp
 
     from ajax.environments.mujoco.tasks import make

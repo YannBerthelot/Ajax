@@ -85,9 +85,10 @@ The next release is 0.6.0: the first item changes results.
 - **Warp's convex-collision room.** MuJoCo Warp sizes the buffer of its
   convex (GJK/EPA) collisions like the contact buffer unless told, and each
   physics call allocates scratch for every slot: 320 MB on
-  `"mujoco:Pusher-v5"`. Warp keeps that scratch with each CUDA graph it
-  captures, and PPO on Pusher ran out of memory on an 11 GB GPU after a few
-  evaluations. The `"mujoco:"` tasks now give the buffer a slot for each of
+  `"mujoco:Pusher-v5"`. Each CUDA graph Warp captures of a call reserves
+  its own addresses for that scratch, and on an 11 GB GPU, after about 76
+  graphs (a few PPO evaluations on Pusher), new ones failed with an
+  out-of-memory error while under 1.4 GB was in use. The `"mujoco:"` tasks now give the buffer a slot for each of
   their geom pairs in 1,024 worlds (47 MB of scratch on Pusher), and a step
   that drops convex collisions stops the run with an error.
 - **Gymnasium's MuJoCo tasks in JAX.** `"mujoco:HalfCheetah-v5"`,

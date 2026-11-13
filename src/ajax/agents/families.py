@@ -254,6 +254,33 @@ class ImageObservations:
     cnn_spec: Optional[CNNSpec] = None
 
 
+@dataclass(kw_only=True, eq=False, repr=False)
+class EncoderSharing:
+    """An actor and a critic that may read their observations through one
+    encoder.
+
+    Args:
+        share_encoder: One encoder (the MLP or CNN, and the memory block) for
+            the actor and the critic (NetworkConfig.share_encoder): the
+            critic owns it, both losses train it and the critic's optimiser
+            steps it, at critic_learning_rate. False: each network has its
+            own. None: what the agent's reference code does
+            (reference_share_encoder).
+    """
+
+    share_encoder: Optional[bool] = None
+
+    def reference_share_encoder(self) -> bool:
+        """Whether the agent's reference code gives the actor and the critic
+        one encoder, for the networks this agent builds. The model-free
+        references keep them apart (sfujim/TD3@34770cc TD3.py:81, :85;
+        xtma/rlpyt@e28bb20 models/pg/mujoco_ff_model.py:34-55; Ni et al.
+        2022's recurrent ones, twni2016/pomdp-baselines@e7c19c3
+        policies/learner.py:213); an agent whose reference shares overrides
+        this, citing it."""
+        return False
+
+
 # A mixin's methods read the agent's attributes (env_args, its optimisers),
 # which only the agent has: their self is typed Any.
 @dataclass(kw_only=True, eq=False, repr=False)
@@ -443,6 +470,11 @@ class DeclaredAgent(ActorCritic):
         network_settings = self.network_settings()
         if network_settings:
             self.network_args = self.network_args.replace(**network_settings)
+        if isinstance(self, EncoderSharing):
+            share_encoder = self.share_encoder
+            if share_encoder is None:
+                share_encoder = self.reference_share_encoder()
+            self.network_args = self.network_args.replace(share_encoder=share_encoder)
         self._build_family()
         self.setup()
         object.__setattr__(self, "_built", True)

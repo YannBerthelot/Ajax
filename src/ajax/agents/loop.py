@@ -86,6 +86,7 @@ from ajax.log import (
     unevaluated,
 )
 from ajax.logging.wandb_logging import LoggingConfig, start_async_logging, vmap_log
+from ajax.networks.networks import mirror_shared_encoder
 from ajax.perf_utils import build_chunked_train, build_resumable_train
 from ajax.state import EnvironmentConfig
 from ajax.types import NormalizationInfo
@@ -210,7 +211,9 @@ def fresh_state(
     env_args = context.get("env_args")
     state = with_obs_norm(init(init_key), env_args)
     state = with_horizon(state, env_args, total_steps)
-    return extensions.apply_init(state, extension_key, total_steps, **context)
+    state = extensions.apply_init(state, extension_key, total_steps, **context)
+    # The pretraining may have stepped a critic whose encoder the actor reads.
+    return mirror_shared_encoder(state)
 
 
 def with_actor_metrics_slot(agent_state: Any, one_update: Callable[[Any], Any]) -> Any:
@@ -533,13 +536,16 @@ class TrainLoop:
         return args
 
     def post_update(self, agent_state: Any) -> Any:
-        """:func:`apply_post_update` at the collector's timestep."""
-        return apply_post_update(
+        """:func:`apply_post_update` at the collector's timestep, then the
+        actor's copy of a shared encoder taken from the critic the update
+        stepped (mirror_shared_encoder)."""
+        agent_state = apply_post_update(
             self.extensions,
             agent_state,
             agent_state.collector_state.timestep,
             self.total_timesteps,
         )
+        return mirror_shared_encoder(agent_state)
 
     def maybe_update(
         self,

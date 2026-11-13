@@ -5929,15 +5929,16 @@ MinAtar's, made for MinAtar's 10 x 10 images.</p>
 
 
 <a href="#ajax.networks.networks.observation_encoder" class="headerlink" title="Permanent link">&para;</a></h3>
-<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">observation_encoder</span><span class="p">(</span><span class="n">network</span><span class="p">)</span>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">observation_encoder</span><span class="p">(</span><span class="n">network</span><span class="p">,</span> <span class="n">architecture</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
         <p>The layers <code>network</code> (an Actor, a Critic or a MultiCritic) reads
 its observations with, before any memory: a :class:<code>CNNEncoder</code> for
-image observations, else the MLP :class:<code>Encoder</code>. Built in the
-network's setup, so it is the network's own submodule.</p>
+image observations, else the MLP :class:<code>Encoder</code> of <code>architecture</code>
+(None: the network's <code>input_architecture</code>). Built in the network's
+setup, so it is the network's own submodule.</p>
 
 
     </div>

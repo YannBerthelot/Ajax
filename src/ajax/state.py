@@ -223,6 +223,13 @@ class LoadedTrainState(TrainState):
     # (sfujim/TD3's max_action * tanh) trains its critic on those, and Adam's
     # steps on the action inputs depend on the scale. None: [-1, 1] as is.
     action_units: Optional[tuple] = struct.field(pytree_node=False, default=None)
+    # A recurrent Q-critic's memory reads each observation with the action
+    # taken before it: appended to its input from the replay
+    # (recurrent.previous_actions), unless the observation carries it
+    # (PreviousAction), which this marks.
+    previous_action_in_observation: bool = struct.field(
+        pytree_node=False, default=False
+    )
     # The network's running statistics (its BatchRenorm layers'
     # ``batch_stats`` collection), apart from the trained ``params``: the
     # optimiser never steps them. None for a network without any.

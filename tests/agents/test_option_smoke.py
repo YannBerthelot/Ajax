@@ -219,6 +219,7 @@ EXTENSIONS: dict[str, tuple[Callable[[], Extension], str]] = {
     "ExpertStateInput": (lambda: observe.ExpertStateInput.for_expert(EXPERT), "SAC"),
     "TrainingProgressInput": (observe.TrainingProgressInput, "SAC APG"),
     "PIDTermsInput": (lambda: observe.PIDTermsInput((0,), (1,)), "SAC"),
+    "PreviousAction": (observe.PreviousAction, "SAC PPO DQN APG"),
     # Last of the extensions shaping the target, as it requires.
     "ValueCentering": (centering.ValueCentering, "SAC TD3"),
     # Its rows read nothing of the episode a termination ended (check_stack).
@@ -274,6 +275,7 @@ FEATURES_ON_OBSERVATIONS = (
     "ExpertStateInput",
     "TrainingProgressInput",
     "PIDTermsInput",
+    "PreviousAction",
 )
 #: Options no row takes together: one of each group, and no pair across these.
 ONE_OF = [{"normalize_rewards", "reward_normalization_gamma"}, MEMORY, set(ENVS)]
@@ -305,7 +307,7 @@ EXCLUSIVE = [
     (
         {"PriorData"},
         {"fast", "CartPole-v1", "TrainingProgressInput"}.union(
-            {"PIDTermsInput", "CHEQ"}, EXPERTS
+            {"PIDTermsInput", "PreviousAction", "CHEQ"}, EXPERTS
         ),
     ),
     # A replay keeps one ring of retained rows.

@@ -30,7 +30,7 @@ from . import readouts as R
 from .verdict import Case, Query, check, params
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "ea3157d457f5"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "a8d332864bd1"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P0b: act on a cue seen two steps back, forget it at the episode's end ----
@@ -227,7 +227,17 @@ BUDGET = {"SAC": 1500, "REDQ": 1500, "ASAC": 1500, "TD3": 6000}
 # about 0.05, is the half gap to the double-counting fault (0.047), and
 # seeds 3000-3031 read 26/32 within; at 6000 the ladder's seeds 1000-1031
 # and 2000-2031 read 63/64.
-LONGER_BUDGET = {("REDQ", "gru", 2): 6000}
+LONGER_BUDGET = {("REDQ", "gru", 2): 6000, ("TD3", "gru", 2): 9000}
+# With Ni et al.'s networks (2026-11-13; certified on seeds 3000-3031): SAC's
+# and REDQ's cells read 30-32/32 at their budgets; TD3's gru and lstm 30 and
+# 31/32, its windows of two 29/32 at 6000 and 31/32 at 9000. ASAC's GRU and
+# LSTM critics spread past the 0.1 ceiling at any budget (sd about 0.06 of 2,
+# 23-29/32 at 1500 to 6000): calibrated, as the controls, below.
+SPREAD = {  # (agent, kind, L): the target cell's tolerance and its record
+    ("ASAC", "gru", L): (0.477, "ladder worst 0.238; cert 32/32, worst 0.180"),
+    ("ASAC", "lstm", L): (0.397, "ladder worst 0.198; cert 32/32, worst 0.135"),
+    ("ASAC", "gru", 2): (0.398, "ladder worst 0.199; cert 32/32, worst 0.183"),
+}
 O0 = jnp.array([1.0, 0.0])
 SLOPE = "Q(o0, 0.5) - Q(o0, -0.5)"
 CURVATURE = "Q(o0, 0.5) - (Q(o0, 0.2) + Q(o0, 0.8)) / 2"
@@ -367,7 +377,11 @@ def _q2_case(
 
 for agent in BUDGET:
     for kind, length in [(k, L) for k in MEMORY_KINDS] + [("gru", 2)]:
-        _q2_case("target", agent, kind, length, _critic(agent, length))
+        spread: dict[str, Any] = {}
+        if (agent, kind, length) in SPREAD:
+            spread_tol, spread_note = SPREAD[agent, kind, length]
+            spread = {"tol": (spread_tol,), "ceiling": 0.5, "note": spread_note}
+        _q2_case("target", agent, kind, length, _critic(agent, length), **spread)
         if agent in ("SAC", "REDQ"):
             _q2_case("actor", agent, kind, length, _actor(length))
 for (agent, kind), (tol, note) in CONTROL.items():

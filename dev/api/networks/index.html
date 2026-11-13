@@ -3182,6 +3182,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#ajax.networks.utils.scale_by_tf1_adam" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        scale_by_tf1_adam
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#ajax.networks.utils.learning_rate_scale" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4708,6 +4719,17 @@
     <span class="md-ellipsis">
       
         clip_by_member_norm
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.networks.utils.scale_by_tf1_adam" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        scale_by_tf1_adam
       
     </span>
   </a>
@@ -7313,6 +7335,32 @@ share is no member's: it is clipped on its own, as one more network.</p>
 <div class="doc doc-object doc-function">
 
 
+<h3 id="ajax.networks.utils.scale_by_tf1_adam" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">scale_by_tf1_adam</span>
+
+
+<a href="#ajax.networks.utils.scale_by_tf1_adam" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">scale_by_tf1_adam</span><span class="p">(</span><span class="n">b1</span><span class="p">,</span> <span class="n">b2</span><span class="p">,</span> <span class="n">eps</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>TensorFlow 1's Adam (tf.compat.v1.train.AdamOptimizer, "epsilon hat"
+in its docstring): eps joins sqrt(v) before the bias correction, which
+scales the step instead, lr * sqrt(1 - b2^t) / (1 - b1^t) * m / (sqrt(v)
++ eps). optax's (and torch's) adds eps to the corrected sqrt(v_hat); in
+those terms TF 1's eps is eps / sqrt(1 - b2^t), 32 times larger at the
+first step, about eps after a few thousand. The moments and the state
+are optax's Adam's.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
 <h3 id="ajax.networks.utils.learning_rate_scale" class="doc doc-heading">
             <span class="doc doc-object-name doc-function-name">learning_rate_scale</span>
 
@@ -7410,7 +7458,8 @@ it out, so <code>"adam"</code> is <code>optax.adam</code>.</p>
             <td>
               <div class="doc-md-description">
                 <p>The update rule (<code>OptimizerConfig.optimizer</code>):
-<code>"adam"</code>, <code>"radam"</code> or <code>"centered_rmsprop"</code>.</p>
+<code>"adam"</code>, <code>"tf1_adam"</code> (:func:<code>scale_by_tf1_adam</code>),
+<code>"radam"</code> or <code>"centered_rmsprop"</code>.</p>
               </div>
             </td>
             <td>

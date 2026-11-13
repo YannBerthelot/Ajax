@@ -3281,6 +3281,16 @@ check.</p>
 <td>tinkoff-ai/ReBRAC (JAX, the oldest flax that runs)</td>
 <td><code>tests/conformance/test_rebrac_original.py</code></td>
 </tr>
+<tr>
+<td>PPO, MLP and CNN (shared encoder)</td>
+<td>openai/baselines ppo2 (TensorFlow 1.15)</td>
+<td><code>tests/conformance/test_ppo2_original.py</code></td>
+</tr>
+<tr>
+<td>Recurrent PPO (shared encoder), its parameters only</td>
+<td>luchris429/purejaxrl <code>ppo_rnn.py</code> (JAX)</td>
+<td><code>tests/conformance/test_purejaxrl_rnn.py</code></td>
+</tr>
 </tbody>
 </table>
 <p>The world models were checked against their originals before this kit
@@ -3305,7 +3315,12 @@ the original, its recorder and that environment's lock stay the same
 (<code>AJAX_CONFORMANCE_RECORDS</code>). TQC's original runs as written only on torch
 before 1.5, which has no arm64 wheels: it is recorded locally in
 <code>benchmarks/reference/envs/torch14</code> (x86 Python 3.8) and its records are
-committed under <code>tests/conformance/records</code>. <code>tests/conformance/kit.py</code> holds the seams
+committed under <code>tests/conformance/records</code>. So are ppo2's: TensorFlow 1.15
+runs in its official container on x86-64 Linux (<code>benchmarks/reference/envs/tf115</code>),
+and each case starts from a seeded state the test recomputes
+(<code>benchmarks/reference/conformance_start.py</code>), its largest layers kept at
+sampled positions, so that its Nature CNN's records stay under a megabyte.
+<code>tests/conformance/kit.py</code> holds the seams
 that make one step comparable without changing the code under test: a tape
 of the random draws, and the capture of an agent's update. A difference
 that is the original's convention or defect is registered with its reason

@@ -1566,6 +1566,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#ajax.agents.PPO.PPO.PPO.clips_value_loss" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        clips_value_loss
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#ajax.agents.PPO.PPO.PPO.network_settings" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2937,6 +2948,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#ajax.agents.PPO.PPO.PPO.clips_value_loss" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        clips_value_loss
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#ajax.agents.PPO.PPO.PPO.network_settings" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3140,7 +3162,7 @@ Optimization Algorithms</em>, 2017 (<a href="https://arxiv.org/abs/1707.06347">a
 <tr>
 <td><code>adam_eps</code></td>
 <td>1e-5</td>
-<td>Adam's epsilon (ppo2's)</td>
+<td>Adam's epsilon (ppo2's), added as TensorFlow 1's Adam adds it (see the notes)</td>
 </tr>
 <tr>
 <td><code>gamma</code></td>
@@ -3166,6 +3188,11 @@ Optimization Algorithms</em>, 2017 (<a href="https://arxiv.org/abs/1707.06347">a
 <td><code>vf_coef</code></td>
 <td>0.5</td>
 <td>critic loss weight, on half the squared error (ppo2's)</td>
+</tr>
+<tr>
+<td><code>clip_value_loss</code></td>
+<td>None</td>
+<td>ppo2's clipped value loss (see the notes); <code>None</code> clips except with <code>unroll_length</code></td>
 </tr>
 <tr>
 <td><code>max_grad_norm</code></td>
@@ -3312,8 +3339,17 @@ clipping are the environment's.</p>
   separate, unlike ppo2 and PureJaxRL (see the networks guide).
   <code>share_encoder</code> overrides the default. As ppo2's one optimizer, their gradients are clipped together to one
   global norm, then each takes an Adam step (Adam is per coordinate, so
-  the two are one Adam over the whole model); the value loss is not
-  clipped. As in Baselines' ppo2,
+  the two are one Adam over the whole model). It is ppo2's,
+  TensorFlow 1's Adam, whose epsilon joins the square root of the second
+  moment before the bias correction (<code>optimizer="tf1_adam"</code>); optax's adds
+  it after, a 32 times smaller epsilon at the first step, about the same
+  after a few thousand. With memory or <code>unroll_length</code> PPO takes optax's
+  Adam, as PureJaxRL and Brax do. As ppo2's, the value loss
+  is clipped (<code>ppo2/model.py:66-75</code>): each squared error is the larger of
+  its own and that of the value clipped to <code>clip_range</code> around the value
+  that collected the rollout, so the loss stops pulling a value once it
+  has moved <code>clip_range</code> towards its target. With <code>unroll_length</code>, Brax's
+  PPO, it is not clipped, as in Brax. As in Baselines' ppo2,
   their hidden layers start orthogonal with gain <code>sqrt(2)</code>, the policy's
   output layer with gain 0.01 and the value layer with gain 1. An entropy bonus on a
   squashed policy is a one-sample estimate of the executed action's entropy,
@@ -3435,23 +3471,24 @@ compilation) at main <code>a8a13c2</code>
 <a id="__codelineno-0-31" name="__codelineno-0-31" href="#__codelineno-0-31"></a>    <span class="n">batch_size</span><span class="o">=</span><span class="mi">64</span><span class="p">,</span>
 <a id="__codelineno-0-32" name="__codelineno-0-32" href="#__codelineno-0-32"></a>    <span class="n">adam_eps</span><span class="o">=</span><span class="mf">1e-05</span><span class="p">,</span>
 <a id="__codelineno-0-33" name="__codelineno-0-33" href="#__codelineno-0-33"></a>    <span class="n">vf_coef</span><span class="o">=</span><span class="mf">0.5</span><span class="p">,</span>
-<a id="__codelineno-0-34" name="__codelineno-0-34" href="#__codelineno-0-34"></a>    <span class="n">unroll_length</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-35" name="__codelineno-0-35" href="#__codelineno-0-35"></a>    <span class="n">num_resets_per_eval</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
-<a id="__codelineno-0-36" name="__codelineno-0-36" href="#__codelineno-0-36"></a>    <span class="n">num_evals</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
-<a id="__codelineno-0-37" name="__codelineno-0-37" href="#__codelineno-0-37"></a>    <span class="n">gae_lambda</span><span class="o">=</span><span class="mf">0.95</span><span class="p">,</span>
-<a id="__codelineno-0-38" name="__codelineno-0-38" href="#__codelineno-0-38"></a>    <span class="n">normalize_advantage</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
-<a id="__codelineno-0-39" name="__codelineno-0-39" href="#__codelineno-0-39"></a>    <span class="n">memory</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-40" name="__codelineno-0-40" href="#__codelineno-0-40"></a>    <span class="n">bptt_length</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-41" name="__codelineno-0-41" href="#__codelineno-0-41"></a>    <span class="n">actor_bias_init</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-42" name="__codelineno-0-42" href="#__codelineno-0-42"></a>    <span class="n">critic_bias_init</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-43" name="__codelineno-0-43" href="#__codelineno-0-43"></a>    <span class="n">encoder_kernel_init</span><span class="o">=</span><span class="n">PPO_HIDDEN_INIT</span><span class="p">,</span>
-<a id="__codelineno-0-44" name="__codelineno-0-44" href="#__codelineno-0-44"></a>    <span class="n">log_std_state_independent</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
-<a id="__codelineno-0-45" name="__codelineno-0-45" href="#__codelineno-0-45"></a>    <span class="n">log_std_init</span><span class="o">=</span><span class="mf">0.0</span><span class="p">,</span>
-<a id="__codelineno-0-46" name="__codelineno-0-46" href="#__codelineno-0-46"></a>    <span class="n">log_std_bounds</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-47" name="__codelineno-0-47" href="#__codelineno-0-47"></a>    <span class="n">mean_kernel_init</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-48" name="__codelineno-0-48" href="#__codelineno-0-48"></a>    <span class="n">encoder_layer_norm</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
-<a id="__codelineno-0-49" name="__codelineno-0-49" href="#__codelineno-0-49"></a>    <span class="n">squash</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
-<a id="__codelineno-0-50" name="__codelineno-0-50" href="#__codelineno-0-50"></a><span class="p">)</span>
+<a id="__codelineno-0-34" name="__codelineno-0-34" href="#__codelineno-0-34"></a>    <span class="n">clip_value_loss</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-35" name="__codelineno-0-35" href="#__codelineno-0-35"></a>    <span class="n">unroll_length</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-36" name="__codelineno-0-36" href="#__codelineno-0-36"></a>    <span class="n">num_resets_per_eval</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+<a id="__codelineno-0-37" name="__codelineno-0-37" href="#__codelineno-0-37"></a>    <span class="n">num_evals</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+<a id="__codelineno-0-38" name="__codelineno-0-38" href="#__codelineno-0-38"></a>    <span class="n">gae_lambda</span><span class="o">=</span><span class="mf">0.95</span><span class="p">,</span>
+<a id="__codelineno-0-39" name="__codelineno-0-39" href="#__codelineno-0-39"></a>    <span class="n">normalize_advantage</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+<a id="__codelineno-0-40" name="__codelineno-0-40" href="#__codelineno-0-40"></a>    <span class="n">memory</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-41" name="__codelineno-0-41" href="#__codelineno-0-41"></a>    <span class="n">bptt_length</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-42" name="__codelineno-0-42" href="#__codelineno-0-42"></a>    <span class="n">actor_bias_init</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-43" name="__codelineno-0-43" href="#__codelineno-0-43"></a>    <span class="n">critic_bias_init</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-44" name="__codelineno-0-44" href="#__codelineno-0-44"></a>    <span class="n">encoder_kernel_init</span><span class="o">=</span><span class="n">PPO_HIDDEN_INIT</span><span class="p">,</span>
+<a id="__codelineno-0-45" name="__codelineno-0-45" href="#__codelineno-0-45"></a>    <span class="n">log_std_state_independent</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+<a id="__codelineno-0-46" name="__codelineno-0-46" href="#__codelineno-0-46"></a>    <span class="n">log_std_init</span><span class="o">=</span><span class="mf">0.0</span><span class="p">,</span>
+<a id="__codelineno-0-47" name="__codelineno-0-47" href="#__codelineno-0-47"></a>    <span class="n">log_std_bounds</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-48" name="__codelineno-0-48" href="#__codelineno-0-48"></a>    <span class="n">mean_kernel_init</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-49" name="__codelineno-0-49" href="#__codelineno-0-49"></a>    <span class="n">encoder_layer_norm</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+<a id="__codelineno-0-50" name="__codelineno-0-50" href="#__codelineno-0-50"></a>    <span class="n">squash</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+<a id="__codelineno-0-51" name="__codelineno-0-51" href="#__codelineno-0-51"></a><span class="p">)</span>
 </code></pre></div>
 
     <div class="doc doc-contents first">
@@ -3494,10 +3531,13 @@ compilation) at main <code>a8a13c2</code>
 <p>Defaults are ppo2's MuJoCo run (ppo2/defaults.py:1-12 mujoco(),
 ppo2/ppo2.py:22, model.py:75, :91, :100-107): one env (run.py:113,
 num_env or 1) of 2048 steps cut into 32 minibatches of 64 for 10
-epochs, 64-64 tanh layers (common/models.py:75, mlp's defaults), Adam
-at 3e-4 with eps 1e-5, its gradient clipped to 0.5 over both networks
-at once, vf_coef 0.5 on half the squared value error, clip 0.2, no
-entropy bonus, gamma 0.99, lambda 0.95, the advantages normalised per
+epochs, 64-64 tanh layers (common/models.py:75, mlp's defaults),
+TensorFlow 1's Adam at 3e-4 with eps 1e-5 (optax's with memory or
+unroll_length, as their references), its gradient clipped to 0.5 over
+both networks at once, vf_coef 0.5 on half the squared value error,
+each value kept within the clip of the one that collected the rollout
+(model.py:66-75), clip 0.2, no entropy bonus, gamma 0.99, lambda 0.95,
+the advantages normalised per
 minibatch; the Gaussian's log-std one learned parameter per action
 dimension starting at 0 (std 1), never clipped (the Actor in
 networks.py cites it). Not taken: mujoco()'s linear decay of the rate
@@ -3554,6 +3594,26 @@ with the references' per-head layers (network_settings): GRU returns
 37, 33 and 12 over 3 seeds, against 211, 194 and 500 apart. Recurrent
 PPO keeps its networks apart until that is understood (owner,
 2026-11-13).</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="ajax.agents.PPO.PPO.PPO.clips_value_loss" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">clips_value_loss</span>
+
+
+<a href="#ajax.agents.PPO.PPO.PPO.clips_value_loss" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">clips_value_loss</span><span class="p">()</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>clip_value_loss, or the reference's choice where it is None.</p>
 
 
     </div>

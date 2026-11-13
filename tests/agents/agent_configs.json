@@ -231,11 +231,16 @@
    "eval_expert_policy": null,
    "expert_policy": "<function>",
    "extensions": [],
+   "fit": {
+    "IterationFit": {
+     "entropy_weight": 0.001,
+     "epochs": 4
+    }
+   },
    "iteration_steps": 500,
    "max_grad_norm": null,
    "n_envs": 1,
    "normalize_observations": false,
-   "train_frequency": 1,
    "weight_decay": 0.0
   }
  },

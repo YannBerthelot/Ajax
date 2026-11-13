@@ -2272,3 +2272,55 @@ _GOLDEN.update(
         },
     }
 )
+
+# Recorded on macOS ARM CPU once PPO normalised its observations and returns
+# by default, as ppo2's MuJoCo VecNormalize (actors -2.8% to +1.4%, critics
+# -3.1% to -0.5%; targets and update counts unchanged).
+_GOLDEN.update(
+    {
+        "PPO-flat": {
+            "actor": 6.084283828735352,
+            "critic": 7.008105754852295,
+            "target": 6.0001020431518555,
+            "n_updates": 2.0,
+        },
+        "PPO-env-split": {
+            "actor": 6.029027938842773,
+            "critic": 7.020392417907715,
+            "target": 6.0001020431518555,
+            "n_updates": 4.0,
+        },
+        "PPO-env-split-nudge": {
+            "actor": 5.540170669555664,
+            "critic": 6.926347732543945,
+            "target": 6.0001020431518555,
+            "n_updates": 4.0,
+            "nudge": 0.8760150671005249,
+        },
+        "PPO-unroll": {
+            "actor": 6.055914878845215,
+            "critic": 6.934496879577637,
+            "target": 6.0001020431518555,
+            "n_updates": 2.0,
+        },
+        "PPO-gru": {
+            "actor": 89.6171875,
+            "critic": 86.63198852539062,
+            "target": 88.98634338378906,
+            "n_updates": 4.0,
+        },
+        "PPO-mcc": {
+            "actor": 3.9840002059936523,
+            "critic": 4.984694957733154,
+            "target": 4.000099182128906,
+            "n_updates": 2.0,
+        },
+        "PPO-discrete-nudge": {
+            "actor": 7.548346996307373,
+            "critic": 8.936015129089355,
+            "target": 8.000201225280762,
+            "n_updates": 4.0,
+            "nudge": 0.8760150671005249,
+        },
+    }
+)

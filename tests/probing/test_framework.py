@@ -95,9 +95,9 @@ from . import readouts as R
 # The asynchronous evaluator's: faults/ + 1, test_framework + 2.
 # APO's presets kept as calibrated: agents.py + 2, test_framework + 1.
 # DQN's presets kept as calibrated, train_frequency's faults: agents.py + 2,
-# faults/ + 3, test_framework + 4.
+# faults/ + 4, test_framework + 4.
 CAPS = {"verdict.py": 255, "envs.py": 255, "agents.py": 171, "runs.py": 250}
-CAPS.update({"readouts.py": 220, "oracles.py": 198, "faults.py": 152, "faults/": 419})
+CAPS.update({"readouts.py": 220, "oracles.py": 198, "faults.py": 152, "faults/": 420})
 CAPS.update({"test_average_reward.py": 186})
 CAPS.update({"test_framework.py": 325, "test_value_chains.py": 1051})
 CAPS.update({"test_episode_ends.py": 1050, "test_bookkeeping.py": 1013})
@@ -289,8 +289,8 @@ def test_the_directory_keeps_to_its_budget() -> None:
     2 for the dataset fill's seam, 2 for the update starts' offline fault,
     3 for the asynchronous evaluator's, 3 for APO's presets kept as calibrated,
     2 for SAC's update starts, 3 for DAgger's beta, 4 for IQL's calibrated
-    actor rate and split-run horizon, 3 for PQN's presets, 9 for DQN's presets
-    kept as calibrated and train_frequency's three faults, and 2 for these
+    actor rate and split-run horizon, 3 for PQN's presets, 10 for DQN's presets
+    kept as calibrated and train_frequency's four faults, and 2 for these
     notes."""
     cmd = ["git", "ls-files", "--cached", "--others", "--exclude-standard"]
     out = subprocess.run(
@@ -298,7 +298,7 @@ def test_the_directory_keeps_to_its_budget() -> None:
     )
     files = [f for f in out.stdout.split() if f.count("/") == 2 or "/faults/" in f]
     total = sum(_lines(os.path.join(faults.REPO, f)) for f in files)
-    assert total <= 8741, total
+    assert total <= 8742, total
 
 
 def test_every_fault_names_the_fast_tests_that_catch_it() -> None:

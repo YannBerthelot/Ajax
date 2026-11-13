@@ -79,7 +79,7 @@ def test_the_logged_epsilon_is_the_schedules_at_each_evaluation(agent, lag) -> N
     reads it once per update, at its rollout's start (``lag`` steps before
     the log, purejaxql's reading). The log every 40 steps falls on DQN's
     updates, every 10 steps (its train_frequency): an evaluation between
-    two logs no training metric."""
+    two logs the last one's."""
     logging = LoggingConfig(log_frequency=40, backends=())
     _, out = agent().train(
         seed=0, n_timesteps=256, num_episode_test=1, logging_config=logging

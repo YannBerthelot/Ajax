@@ -11,6 +11,7 @@ from ajax.buffers.utils import get_batch_from_buffer
 from ajax.extensions.base import Extension, ExtensionContext
 from ajax.extensions.expert import ExpertValueMetrics, ExpertWarmup
 from ajax.extensions.pretrain import ExpertPrefill
+from ajax.logging.wandb_logging import LoggingConfig
 from ajax.networks.networks import MINATAR_CNN, MNIH_CNN, CNNEncoder, CNNSpec
 from ajax.networks.q_networks import (
     DuelingQNetwork,
@@ -81,6 +82,28 @@ def test_dqn_updates_and_refreshes_its_target_at_cleanrl_s_steps():
     updated, refreshed = (np.asarray(x[0]) for x in state.ext_state[0])
     np.testing.assert_array_equal(np.flatnonzero(updated), np.arange(20, 121, 5))
     np.testing.assert_array_equal(np.flatnonzero(refreshed), np.arange(20, 121, 20))
+
+
+def test_an_evaluation_between_updates_logs_the_last_update_s_metrics():
+    """A skipped update logs the last real step, not NaN (owner, 2026-10-24).
+    Updating every 10 steps from step 10, epsilon falling from 1 by 0.95/30 a
+    step: the evaluations at 15 and 25 log the updates' at 10 and 20 (0.6833,
+    0.3667), not their own step's (0.525, 0.2083); the one at 5, before any
+    update, logs none."""
+    logging = LoggingConfig(log_frequency=5, backends=())
+    agent = DQN(
+        env_id="CartPole-v1",
+        architecture=("16", "relu"),
+        learning_starts=10,
+        batch_size=8,
+        epsilon_decay_frac=1.0,
+    )
+    _, out = agent.train(
+        seed=0, n_timesteps=30, num_episode_test=1, logging_config=logging
+    )
+    np.testing.assert_array_equal(np.ravel(out["timestep"]), [5, 10, 15, 20, 25, 30])
+    expected = [np.nan, 0.683333, 0.683333, 0.366667, 0.366667, 0.05]
+    np.testing.assert_allclose(np.ravel(out["policy/epsilon"]), expected, rtol=1e-5)
 
 
 def test_dqn_defaults_are_cleanrl_s():

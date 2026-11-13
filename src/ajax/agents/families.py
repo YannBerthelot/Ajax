@@ -811,7 +811,7 @@ class ReplayAgent(DeclaredAgent):
             and CleanRL's (dqn.py:195): from learning_starts, an update on
             each tick whose steps collected reach a multiple of it
             (update_steps.reaches_multiple); 1, the default, every tick. An
-            evaluation between two updates logs no training metric.
+            evaluation between two updates logs the last one's metrics.
     """
 
     buffer_size: int

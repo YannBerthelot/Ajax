@@ -96,9 +96,8 @@ and loss (see Notes).
   `train_frequency`, it takes `n_gradient_steps` gradient steps: one per 10
   environment steps at the defaults, whatever `n_envs` (with `n_envs` at
   or above `train_frequency`, one per iteration). `train_frequency=1`
-  updates every iteration. An evaluation logs the training metrics of the
-  update on its own iteration: keep `log_frequency` a multiple of
-  `train_frequency`, or the evaluations between updates log none.
+  updates every iteration. An evaluation between two updates logs the
+  training metrics of the last one.
 - **Target refresh.** One mechanism covers both classic schemes: every
   `target_update_interval` gradient steps the target moves by `tau`. The
   hard copy is `tau=1.0`; a Polyak average is `tau < 1` with interval `1`.

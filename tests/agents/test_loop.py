@@ -71,6 +71,7 @@ class State(Replaceable):
     collector_state: Collector
     value: jax.Array
     ext_state: tuple = ()
+    last_update_metrics: Any = None
 
 
 @struct.dataclass

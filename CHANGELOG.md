@@ -26,6 +26,11 @@ The next release is 0.6.0: the first item changes results.
     `beta_schedule=ExponentialBetaSchedule(d)`; the old default was
     `ExponentialBetaSchedule(0.0)`.
 
+- **PPO's defaults are ppo2's MuJoCo run**: one env (was 4) and 64-64 tanh
+  layers (was 128-128), so 2048 steps make ppo2's 32 minibatches of 64.
+  This changes results. Upgrade: pass `n_envs=4, actor_architecture=("128",
+  "tanh", "128", "tanh"), critic_architecture=("128", "tanh", "128",
+  "tanh")`.
 - **APG's in-context controller, IQL and PQN follow their reference code.**
   - `APG.contextual_controller` builds the reference's transformer layers:
     no bias outside the input embedding, LayerNorm epsilon 1e-5, and an MLP

@@ -14,6 +14,7 @@ from ajax.controller import (
     init_observers,
     observe_features,
     previous_action_input,
+    previous_reward_input,
 )
 from ajax.environments.interaction import (
     APPLIED_ACTION_KEY,
@@ -527,6 +528,9 @@ def step_environment(
                 previous_action=previous_action_input(
                     controller.observers, actions, obs.shape[0], env, env_params
                 ),
+                previous_reward=previous_reward_input(
+                    controller.observers, new_rewards, obs.shape[0]
+                ),
             )
             obs, observer_states = observe_features(
                 obs, inputs, controller.observers, observer_states
@@ -735,6 +739,9 @@ def _start_rollout(
             progress=frozen_progress(agent_state),
             previous_action=previous_action_input(
                 controller.observers, None, num_episodes, env, env_params
+            ),
+            previous_reward=previous_reward_input(
+                controller.observers, None, num_episodes
             ),
         )
         first_obs, observer_states = observe_features(
@@ -1109,9 +1116,13 @@ def evaluate_policy(
     observers, progress_now = env_args.observers, frozen_progress(agent_state)
 
     def observe(
-        obs: jax.Array, states: Any, action: Optional[jax.Array]
+        obs: jax.Array,
+        states: Any,
+        action: Optional[jax.Array],
+        reward: Optional[jax.Array],
     ) -> tuple[jax.Array, Any]:
-        """obs with the features, after action (None: a reset)."""
+        """obs with the features, after action and the reward it earned
+        (None: a reset)."""
         previous_action = previous_action_input(
             observers, action, num_episodes, env, env_params
         )
@@ -1119,13 +1130,14 @@ def evaluate_policy(
             obs.astype(jnp.float32),
             progress=progress_now,
             previous_action=previous_action,
+            previous_reward=previous_reward_input(observers, reward, num_episodes),
         )
         return observe_features(obs, inputs, observers, states)
 
     observer_states = None
     if observers:
         fresh = init_observers(observers, num_episodes)
-        obs, observer_states = observe(obs, fresh, None)
+        obs, observer_states = observe(obs, fresh, None, None)
 
     def body(carry, _):
         (
@@ -1155,7 +1167,7 @@ def evaluate_policy(
         done = done | (terminated > 0) | (truncated > 0)
         # Each env runs one episode, masked after its end: its features need no restart.
         if observers:
-            obs, observer_states = observe(obs, observer_states, action)
+            obs, observer_states = observe(obs, observer_states, action, reward)
         return (
             obs,
             env_state,

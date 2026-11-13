@@ -3,9 +3,11 @@ transformer or Mamba; a network's memory is also called its carry).
 
 Two kinds of agent use it:
 - The off-policy agents with a Q-critic (families.RecurrentReplayAgent) train
-  on windows of consecutive steps from one environment, as R2D2 does
-  (Kapturowski et al. 2019): sample_and_burnin_sequences draws the windows,
-  and actor_dist and q_values run the networks over them.
+  on windows of consecutive steps from one environment, as Ni et al. (2022)
+  do, with R2D2's burn-in and stored state as options (Kapturowski et al.
+  2019): sample_and_burnin_sequences draws the windows, and actor_dist and
+  q_values run the networks over them. Their networks are Ni et al.'s (the
+  section below).
 - PPO computes its values on a rollout with compute_rollout_values, and its
   losses run its networks with get_policy_on_minibatch and
   predict_values_on_minibatch, each for a network with or without memory
@@ -17,7 +19,9 @@ How an off-policy agent trains its memory:
 2. Warm up ("burn in") each network's memory: start it from zero and run
    the network over the first burn_in steps with the current parameters.
    Training does not change these warmed-up memories (no gradient flows
-   back into them).
+   back into them). Ni et al. burn in nothing (burn_in 0, the default):
+   the trained steps start from a zero memory, at a first row that reads
+   no previous action or reward, as an episode's first does.
 3. Train on the next sequence_length steps, backpropagating through time.
    The window's last step is never trained on: each row already stores the
    next observation its target looks ahead to (interaction.bootstrap_obs).
@@ -28,15 +32,14 @@ the rows up to the current one. Where a time limit cut an episode, that
 needs the time-limit section below.
 
 A critic's memory reads each row's observation together with the action
-taken before it: appended to its input from the replay, or already in the
-observation where a PreviousAction feature puts it there, the actor's too.
-The action a loss asks about (the taken one, or one the
-policy samples) enters after the memory, at a head between the memory and
-the output layer, so asking about another action never changes the memory
-(Critic.query_dim). Ni et al. (2022)'s recurrent critic does the same: its
-RNN reads the previous action, reward and observation, and the current
-action joins the RNN's output before the Q-heads (twni2016/pomdp-baselines
-at e7c19c3, policies/models/recurrent_critic.py:129-139 and 165-186).
+taken before it and the reward it earned, which the PreviousAction and
+PreviousReward features put in the observation (a run with memory adds
+them; without PreviousAction, the replay appends the action). The action a
+loss asks about (the taken one, or one the policy samples) enters after the
+memory, at a head between the memory and the output layer, so asking about
+another action never changes the memory (Critic.query_dim), as in Ni et al.
+(2022)'s recurrent critic (twni2016/pomdp-baselines at e7c19c3,
+policies/models/recurrent_critic.py:129-139 and 165-186).
 """
 
 from typing import Any, Optional, Tuple
@@ -65,8 +68,76 @@ from ajax.networks.networks import (
     predict_value_sequence,
     with_critic_encoder,
 )
+from ajax.networks.utils import RLKIT_FANIN, TORCH_LINEAR
 from ajax.state import BaseAgentState, LoadedTrainState, Transition
 from ajax.types import BufferType
+
+# ----------------------------------------------------------------------------
+# Ni et al. (2022)'s recurrent networks, which the off-policy agents with
+# memory build (twni2016/pomdp-baselines @e7c19c3; its MuJoCo POMDP configs,
+# configs/pomdp/{ant,cheetah,hopper,walker}_blt/{p,v}/rnn.yml, agree on
+# every setting below). SAC and TD3 are Ni et al.'s own; REDQ, ASAC, TQC and
+# RVI-SAC have no recurrent reference and take theirs by analogy.
+# ----------------------------------------------------------------------------
+
+#: The memory's width, rnn_hidden_size (rnn.yml:36).
+NI_MEMORY_WIDTH = 128
+#: The windows each update samples, batch_size (rnn.yml:19), of
+#: sampled_seq_len steps (rnn.yml:20), each trained from a zero memory with
+#: no burn-in (policy_rnn.py:138, "initial hidden state is zeros").
+NI_WINDOWS, NI_WINDOW_STEPS = 64, 64
+#: Each memory kind's initialisation: Ni et al.'s GRU and LSTM, every weight
+#: orthogonal over the stacked gates and zero biases (recurrent_actor.py:
+#: 67-74); Memory-RL's GPT-2 (owner, 2026-10-17); Mamba's own.
+NI_MEMORY_INITS = {
+    "gru": "stacked_orthogonal",
+    "lstm": "stacked_orthogonal",
+    "transformer": "gpt2",
+    "mamba": "mamba",
+}
+#: The networks' layout (NetworkConfig's Ni et al. fields). The memory reads
+#: the previous action, the previous reward and the observation, each
+#: through its own Linear and ReLU of 16, 16 and 32 units (rnn.yml:33-35),
+#: joined in that order (recurrent_actor.py:106-109, recurrent_critic.py:
+#: 132-135); the actor's shortcut embeds the observation in 32 units
+#: (recurrent_actor.py:77-80), the critic's the observation and the action
+#: in the memory's input width, 64 (recurrent_critic.py:71-76); the
+#: embeddings are torch's nn.Linear (utils/helpers.py:213-218); the two
+#: Q-networks read one RNN (recurrent_critic.py:95-99). A squashed policy's
+#: log-density subtracts log(1 - tanh^2 + 1e-6) (TanhNormal's epsilon,
+#: torchkit/distributions.py:94, :120-122).
+NI_LAYOUT: dict[str, Any] = {
+    "input_embedding": (
+        ("previous_action", 16),
+        ("previous_reward", 16),
+        ("observation", 32),
+    ),
+    "shortcut_widths": (32, 16 + 16 + 32),
+    "embedding_kernel_init": TORCH_LINEAR,
+    "critics_share_encoder": True,
+    "squash_log_det_eps": 1e-6,
+}
+
+
+def ni_initialisation(deterministic: bool = False) -> dict[str, Any]:
+    """Ni et al.'s initialisation of the layers after the memory, as an
+    agent's ActorCritic arguments: rlkit's Mlp, hidden layers uniform in
+    +-1/sqrt(fan_out) with biases 0.1 (torchkit/networks.py:53-57), output
+    layers uniform in +-3e-3, kernel and bias (:66-68), the actor's in
+    +-1e-3 (policies/models/actor.py:22, :103), its log-std layer's too
+    (:118-121). deterministic: TD3's actor, which has no log-std layer."""
+    actor_head = "symmetric_uniform(1e-3)"
+    args = {
+        "encoder_kernel_init": RLKIT_FANIN,
+        "value_kernel_init": "symmetric_uniform(3e-3)",
+        "critic_bias_init": "symmetric_uniform(3e-3)",
+        "mean_kernel_init": actor_head,
+        "actor_bias_init": actor_head,
+    }
+    if not deterministic:
+        args.update({"log_std_kernel_init": actor_head, "log_std_init": actor_head})
+    return args
+
 
 # ----------------------------------------------------------------------------
 # Replayed windows for the off-policy agents: sampling them and warming up
@@ -119,6 +190,13 @@ def previous_actions(actions: jax.Array, resets: jax.Array) -> jax.Array:
     return jnp.where(resets[..., None], 0.0, previous)
 
 
+def zero_columns(x: jax.Array, ranges: Tuple[Tuple[int, int], ...]) -> jax.Array:
+    """x with its columns in ranges set to zero."""
+    for start, stop in ranges:
+        x = x.at[..., start:stop].set(0.0)
+    return x
+
+
 def sample_and_burnin_sequences(
     agent_state: BaseAgentState,
     buffer: BufferType,
@@ -155,6 +233,13 @@ def sample_and_burnin_sequences(
             "reward": normalized_rewards(window["reward"], reward_stats),
         }
     window_obs = window["obs"]
+    if not stored_state:
+        # The window starts from a zero memory, as an episode does: its first
+        # row reads no previous action or reward either, as Ni et al.'s
+        # windows (policy_rnn.py:247-257). A stored memory read them.
+        window_obs = window_obs.at[0].set(
+            zero_columns(window_obs[0], agent_state.critic_state.previous_step_columns)
+        )
     window_actions = window["action"]
     window_dones = jnp.logical_or(window["terminated"], window["truncated"]).squeeze(
         -1

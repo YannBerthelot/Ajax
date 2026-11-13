@@ -23,7 +23,7 @@ follows the code.
 | Discrete actions | No |
 | Learning | Off-policy, replay buffer |
 | Vectorised environments (`n_envs`) | Yes |
-| Recurrent memory (`memory=`) | Yes: trains on replayed sequences (R2D2-style burn-in) |
+| Recurrent memory (`memory=`) | Yes: Ni et al. (2022)'s recurrent networks, on replayed windows |
 | Extension phases | `pretrain`, `post_update`, `eval_metrics`, `observe`, `on_target`, `critic_loss`, `actor_loss`, `transform_action`, `actuate`, `choose_replay_action` |
 
 ## Example
@@ -55,12 +55,12 @@ Defaults are read from `TQC.__init__`, the authors' `main.py` and `tqc/`.
 | `gamma` | `0.99` | discount |
 | `tau` | `0.005` | target networks' Polyak rate |
 | `buffer_size` | `1_000_000` | replay capacity |
-| `batch_size` | `256` | replay minibatch |
+| `batch_size` | `None` | replay minibatch: 256 rows, or 64 windows with `memory=` |
 | `learning_starts` | `257` | the step of the first update; the policy acts from the first step (no uniform warm-up) |
 | `alpha_init` | `1.0` | initial entropy weight |
 | `target_entropy_per_dim` | `-1.0` | target entropy, times the action dimension |
 | `reward_scale` | `1.0` | multiplies the rewards in the target |
-| `memory`, `burn_in`, `sequence_length`, `stored_state` | `None`, `8`, `16`, `False` | recurrent memory and its sequence replay |
+| `memory`, `burn_in`, `sequence_length`, `stored_state` | `None`, `0`, `64`, `False` | recurrent memory and its sequence replay |
 | `max_grad_norm`, `weight_decay` | `None`, `0.0` | gradient clipping, decoupled weight decay |
 | `normalize_observations`, `normalize_rewards` | `False` | running normalisation |
 | `expert_policy` | `None` | an expert whose return the evaluation reports next to the agent's |

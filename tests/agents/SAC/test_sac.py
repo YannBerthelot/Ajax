@@ -191,33 +191,6 @@ def test_sac_starts_every_layer_xavier_uniform():
         np.testing.assert_array_equal(layer["bias"], 0.0, err_msg=name)
 
 
-def test_recurrent_sac_keeps_its_previous_initialisation():
-    """With memory, SAC keeps Ajax's previous initialisation until Ni et
-    al.'s is audited: orthogonal(1.0) hidden layers, an orthogonal(0.01)
-    mean and a zero-kernel log-std head starting at -1."""
-    from ajax.networks.memory import MemoryConfig
-
-    agent = SAC(env_id="Pendulum-v1", memory=MemoryConfig("gru", 16))
-    actor_state, _ = get_initialized_actor_critic(
-        jax.random.PRNGKey(0),
-        agent.env_args,
-        agent.actor_optimizer_args,
-        agent.critic_optimizer_args,
-        agent.network_args,
-        continuous=True,
-        action_value=True,
-        squash=True,
-        num_critics=2,
-    )
-    actor = actor_state.params["params"]
-    hidden = np.asarray(actor["encoder"]["network"]["layers_2"]["kernel"])
-    np.testing.assert_allclose(hidden.T @ hidden, np.eye(256), atol=1e-4)
-    mean = np.asarray(actor["mean"]["kernel"])
-    np.testing.assert_allclose(mean.T @ mean, 1e-4 * np.eye(1), atol=1e-8)
-    np.testing.assert_array_equal(actor["log_std"]["kernel"], 0.0)
-    np.testing.assert_array_equal(actor["log_std"]["bias"], -1.0)
-
-
 def test_the_critic_step_reads_the_agents_discount_and_reward_scale(monkeypatch):
     """SAC's critic step builds its target on its own gamma and
     reward_scale fields (a target dropping either still trains, on the wrong

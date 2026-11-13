@@ -51,7 +51,12 @@ from ajax.agents.families import (
     TrainContext,
 )
 from ajax.agents.presets import Preset
-from ajax.agents.recurrent import RecurrentCarries, q_values, sample_replay
+from ajax.agents.recurrent import (
+    RecurrentCarries,
+    ni_initialisation,
+    q_values,
+    sample_replay,
+)
 from ajax.agents.SAC.SAC import (
     compute_soft_bellman_target,
     compute_soft_policy_loss,
@@ -161,7 +166,8 @@ class REDQ(
     num_critics: int = 10
     subset_size: int = 2
     buffer_size: int = int(1e6)
-    batch_size: int = 256
+    # None: 256 rows, or 64 windows with memory (RecurrentReplayAgent).
+    batch_size: Optional[int] = None  # type: ignore[assignment]
     # start_steps=5000 uniform actions, and updates that wait as long
     # (delay_update_steps='auto'): redq_sac.py:34, :85.
     learning_starts: int = 5_000
@@ -172,11 +178,10 @@ class REDQ(
         # xavier_uniform with gain 1, bias 0) to every Linear layer of
         # its policy and Q networks, the mean and log-std layers
         # included (:96-98, :194-198), whatever their comments say.
-        # Recurrent REDQ (memory set) keeps Ajax's previous initialisation
-        # until Ni et al.'s, its recurrent reference (pomdp-baselines), is
-        # audited: at REDQ's, its memory cells' actors read 24-29/32.
+        # Recurrent REDQ (memory set) starts as Ni et al.'s recurrent SAC.
         args: dict[str, Any] = {"squash": True}
         if self.memory is not None:
+            args.update(ni_initialisation())
             return args
         args.update(
             {
@@ -229,8 +234,13 @@ class REDQ(
         )
         collector_state = context.make_collector(collector_key)
         # REDQ's official critics read act_limit * tanh, the env's units
-        # (watchernyu/REDQ@7b5d1bf, core.py:238): so do Ajax's.
-        units = critic_action_units(context.env_args)
+        # (watchernyu/REDQ@7b5d1bf, core.py:238): so do Ajax's. With memory,
+        # REDQ follows Ni et al.'s recurrent SAC, whose critics read the
+        # [-1, 1] actions of its normalised action space (pomdp-baselines
+        # e7c19c3, policies/models/actor.py:94).
+        units = (
+            None if self.memory is not None else critic_action_units(context.env_args)
+        )
         return REDQState(
             rng=training_key,
             eval_rng=evaluation_key,

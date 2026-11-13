@@ -24,14 +24,15 @@ SHARED_ENCODER_MODULES = ("encoder", "memory_cell")
 
 
 def shared_by_members(path: Any) -> bool:
-    """Whether the parameter at path is an encoder the members of a
+    """Whether the parameter at path is one the members of a
     :class:`~ajax.networks.networks.MultiCritic` share
     (``MultiCritic.share_encoder``): outside their vmapped ``ensemble``, in
-    its encoder or memory block. Every other parameter is a member's."""
+    its encoder, memory block or shortcut. Every other parameter is a
+    member's."""
     names = [getattr(key, "key", None) for key in path]
     if "ensemble" in names:
         return False
-    return any(name in SHARED_ENCODER_MODULES for name in names)
+    return any(name in (*SHARED_ENCODER_MODULES, "shortcut") for name in names)
 
 
 def clip_by_member_norm(max_norm: float) -> optax.GradientTransformation:
@@ -339,10 +340,19 @@ def trunc_normal_fan_in(scale: float = 1.0) -> InitializationFunction:
 # Initializers selectable by name besides the factories of
 # ``flax.linen.initializers``. Each value is a factory: called with no
 # argument for ``"name"``, with the parsed number for ``"name(number)"``.
+def symmetric_uniform(bound: float) -> InitializationFunction:
+    """Uniform in ``+-bound`` (flax's ``uniform(scale)`` draws in ``[0,
+    scale)``): rlkit's last layers, ``uniform_(-init_w, init_w)`` on the
+    weight and the bias (pomdp-baselines e7c19c3, torchkit/networks.py:66-
+    68)."""
+    return uniform_init(bound)
+
+
 _AJAX_INITIALIZERS: dict[str, Callable[..., InitializationFunction]] = {
     # flax's ``zeros`` is an initializer, not a factory (``zeros_init`` is).
     "zeros": lambda: flax_initializers.zeros,
     "trunc_normal_fan_in": trunc_normal_fan_in,
+    "symmetric_uniform": symmetric_uniform,
 }
 
 
@@ -492,11 +502,21 @@ def dense(
     """A Dense layer with ``kernel_init`` (``default_kernel_init`` for None)
     and ``bias_init`` (zeros for None), as :func:`parse_initialization`
     reads them; ``kernel_init="torch_linear"`` builds a
-    :class:`TorchLinear`, which draws its bias too."""
-    if kernel_init == TORCH_LINEAR:
+    :class:`TorchLinear`, which draws its bias too, and
+    ``kernel_init="rlkit_fanin"`` rlkit's hidden layer (:data:`RLKIT_FANIN`),
+    which sets its bias too."""
+    if kernel_init in (TORCH_LINEAR, RLKIT_FANIN):
         if bias_init is not None:
+            sets = "draws" if kernel_init == TORCH_LINEAR else "sets"
             raise ValueError(
-                f"{TORCH_LINEAR!r} draws the biases too; got bias_init={bias_init!r}"
+                f"{kernel_init!r} {sets} the biases too; got bias_init={bias_init!r}"
+            )
+        if kernel_init == RLKIT_FANIN:
+            return nn.Dense(
+                features,
+                kernel_init=uniform_init(1.0 / math.sqrt(features)),
+                bias_init=constant(0.1),
+                name=name,
             )
         return TorchLinear(features, name=name)
     return nn.Dense(
@@ -531,6 +551,12 @@ def uniform_init(bound: float) -> InitializationFunction:
 
 #: The kernel-initializer name that builds :class:`TorchLinear` layers.
 TORCH_LINEAR = "torch_linear"
+#: The kernel-initializer name for rlkit's hidden layers, which Ni et al.'s
+#: recurrent agents keep (pomdp-baselines e7c19c3, torchkit/networks.py:53-
+#: 57): ``fanin_init`` reads ``size[0]`` of torch's (out, in) weight, so the
+#: kernel is uniform in ``+-1 / sqrt(fan_out)``, and every bias is 0.1
+#: (torchkit/pytorch_utils.py:39-48, ``b_init_value=0.1``).
+RLKIT_FANIN = "rlkit_fanin"
 
 
 class TorchLinear(nn.Module):

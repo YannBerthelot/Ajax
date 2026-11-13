@@ -48,7 +48,7 @@ Defaults are read from `ASAC.__init__`.
 | `actor_learning_rate`, `critic_learning_rate`, `alpha_learning_rate` | `1e-4`, `5e-4`, `1e-4` | Adam step sizes (the authors'; Adam's epsilon is torch's 1e-8) |
 | `actor_architecture`, `critic_architecture` | `("256", "relu", "256", "relu")` | hidden layers (plain MLPs) |
 | `buffer_size` | `1_000_000` | replay capacity |
-| `batch_size` | `256` | replay minibatch |
+| `batch_size` | `None` | replay minibatch: 256 rows, or 64 windows with `memory=` |
 | `learning_starts` | `10_000` | steps of uniform random actions before the first update |
 | `tau` | `0.005` | Polyak rate of the target critics |
 | `tau_theta` | `0.005` | rate of the `theta` and penalty averages (the authors tune it per environment, 0.0005 to 0.1: [Presets](#presets)) |
@@ -61,7 +61,7 @@ Defaults are read from `ASAC.__init__`.
 | `normalize_observations`, `normalize_rewards` | `False` | running normalisation |
 | `reward_normalization_gamma` | `None` | with `normalize_rewards`, the discount of the return whose spread divides the rewards: 0.99 if None, 0 for the single reward's |
 | `expert_policy` | `None` | an expert whose return the evaluation reports next to the agent's (`Eval/expert bias`) |
-| `memory`, `burn_in`, `sequence_length`, `stored_state` | `None`, `8`, `16`, `False` | recurrent memory (see [Memory](../guide/memory.md)) |
+| `memory`, `burn_in`, `sequence_length`, `stored_state` | `None`, `0`, `64`, `False` | recurrent memory (see [Memory](../guide/memory.md)) |
 | `episode_length`, `action_repeat` | `None`, `1` | simulator steps per episode (1,000 when `None`) and per agent step, on Brax and Playground |
 | `extensions` | `()` | research features (see [Extensions](../guide/extensions.md)) |
 
@@ -121,8 +121,9 @@ minimised) has no preset: Ajax runs v5.
 - **Initialisation.** As the authors' code (stable-baselines3's SAC actor
   and plain torch critics): every layer, the mean and log-std heads
   included, starts as torch's `nn.Linear` does, its kernel and bias
-  uniform in `±1/sqrt(fan_in)`. With `memory=`, ASAC keeps its previous
-  initialisation until Ni et al.'s is audited.
+  uniform in `±1/sqrt(fan_in)`. With `memory=`, ASAC builds Ni et al.
+  (2022)'s recurrent networks and their initialisation, by analogy with
+  their SAC (see [Memory](../guide/memory.md)).
 - **Actions and evaluation.** As SAC: a `tanh`-squashed Gaussian in
   `[-1, 1]`, mapped onto the environment's bounds; evaluation uses the mean
   action. Its log-probability subtracts `log(1 - tanh(u)^2 + 1e-6)`, as the

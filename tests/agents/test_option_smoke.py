@@ -163,6 +163,9 @@ ELSEWHERE = {
     "alpha_learning_rate": "agents/CrossQ/test_CrossQ.py",
     "observation_clip": "environments/test_observation_clip.py",
     "share_encoder": "agents/test_share_encoder.py",
+    # None resolves to the reference's, with memory or without.
+    "batch_size": "agents/test_ni_recurrent_replay.py",
+    "policy_delay": "agents/TD3/test_TD3.py",
 }
 #: Each src extension's builder and the agents whose rows take it, in stack
 #: order (cloning seeds the statistics the other pretraining reads).
@@ -223,6 +226,7 @@ EXTENSIONS: dict[str, tuple[Callable[[], Extension], str]] = {
     "TrainingProgressInput": (observe.TrainingProgressInput, "SAC APG"),
     "PIDTermsInput": (lambda: observe.PIDTermsInput((0,), (1,)), "SAC"),
     "PreviousAction": (observe.PreviousAction, "SAC PPO DQN APG"),
+    "PreviousReward": (observe.PreviousReward, "SAC PPO DQN"),
     # Last of the extensions shaping the target, as it requires.
     "ValueCentering": (centering.ValueCentering, "SAC TD3"),
     # Its rows read nothing of the episode a termination ended (check_stack).
@@ -279,6 +283,7 @@ FEATURES_ON_OBSERVATIONS = (
     "TrainingProgressInput",
     "PIDTermsInput",
     "PreviousAction",
+    "PreviousReward",
 )
 #: Options no row takes together: one of each group, and no pair across these.
 ONE_OF = [{"normalize_rewards", "reward_normalization_gamma"}, MEMORY, set(ENVS)]
@@ -310,7 +315,7 @@ EXCLUSIVE = [
     (
         {"PriorData"},
         {"fast", "CartPole-v1", "TrainingProgressInput"}.union(
-            {"PIDTermsInput", "PreviousAction", "CHEQ"}, EXPERTS
+            {"PIDTermsInput", "PreviousAction", "PreviousReward", "CHEQ"}, EXPERTS
         ),
     ),
     # A replay keeps one ring of retained rows.

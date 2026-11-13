@@ -51,7 +51,12 @@ from ajax.agents.families import (
     TrainContext,
 )
 from ajax.agents.presets import Preset
-from ajax.agents.recurrent import RecurrentCarries, q_values, sample_replay
+from ajax.agents.recurrent import (
+    RecurrentCarries,
+    ni_initialisation,
+    q_values,
+    sample_replay,
+)
 from ajax.agents.SAC.SAC import (
     compute_soft_policy_loss,
     compute_temperature_loss,
@@ -162,7 +167,8 @@ class ASAC(
     fixed_alpha: bool = True
     p_0: float = 20
     buffer_size: int = int(1e6)
-    batch_size: int = 256
+    # None: 256 rows, or 64 windows with memory (RecurrentReplayAgent).
+    batch_size: Optional[int] = None  # type: ignore[assignment]
     learning_starts: int = int(1e4)
 
     def actor_critic_args(self) -> dict[str, Any]:
@@ -172,11 +178,10 @@ class ASAC(
         # at v2.4.0) and its critics from Qsa (darer/Models.py:409-411),
         # all torch nn.Linear layers at torch's default initialisation:
         # "torch_linear", whose layers draw their biases too.
-        # Recurrent ASAC (memory set) keeps Ajax's previous initialisation
-        # until Ni et al.'s, its recurrent reference (pomdp-baselines), is
-        # audited, as SAC and REDQ do.
+        # Recurrent ASAC (memory set) starts as Ni et al.'s recurrent SAC.
         args: dict[str, Any] = {"squash": True}
         if self.memory is not None:
+            args.update(ni_initialisation())
             return args
         init = ("encoder_kernel_init", "mean_kernel_init", "log_std_kernel_init")
         args.update(dict.fromkeys((*init, "value_kernel_init"), TORCH_LINEAR))

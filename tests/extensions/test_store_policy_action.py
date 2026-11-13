@@ -45,6 +45,7 @@ def test_the_learner_holds_nothing_for_it_and_a_recurrent_agent_takes_it():
         memory=gru,
         learning_starts=40,
         batch_size=4,
+        sequence_length=8,
         buffer_size=64,
         extensions=(StorePolicyAction(),),
         **networks,

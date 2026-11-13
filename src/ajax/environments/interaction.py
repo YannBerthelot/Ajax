@@ -25,6 +25,7 @@ from ajax.controller import (
     memory_tracker_of,
     observe_features,
     previous_action_input,
+    previous_reward_input,
     read_the_residual,
     restart_observers,
     warmup_expert_flags,
@@ -981,6 +982,7 @@ def step_features(
     expert_state: Any,
     ended: jax.Array,
     executed_action: jax.Array,
+    paid_reward: jax.Array,
     **at: Any,
 ) -> tuple[jax.Array, jax.Array, Any]:
     """A step's observation features (``env_args.observers``): those of the
@@ -989,7 +991,8 @@ def step_features(
     transition's next) from the continuing ``observer_states``, the expert's
     ``expert_state`` after this step's call; and the observers' states after
     the next observation. ``executed_action`` is the action the envs
-    executed this step, in agent units. ``at``: the inputs' timestep and
+    executed this step, in agent units, and ``paid_reward`` what the
+    environment paid for it. ``at``: the inputs' timestep and
     horizon, or progress (:class:`ajax.controller.ObserveInputs`)."""
     observers, n_envs = env_args.observers, env_args.n_envs
     start, expert_start = restart_observers(
@@ -1000,7 +1003,8 @@ def step_features(
     previous_action = previous_action_input(
         observers, executed_action, n_envs, env_args.env, env_args.env_params
     )
-    at = {**at, "previous_action": previous_action}
+    previous_reward = previous_reward_input(observers, paid_reward, n_envs)
+    at = {**at, "previous_action": previous_action, "previous_reward": previous_reward}
     next_inputs = ObserveInputs(raw_next, expert, expert_start, **at)
     final_inputs = ObserveInputs(raw_final_obs, expert, expert_state, **at)
     next_columns, states = feature_columns(next_inputs, observers, start)
@@ -1230,6 +1234,7 @@ def collect_experience(
             new_expert_state,
             jnp.logical_or(terminated, truncated),
             env_action,
+            reward,
             timestep=collector.timestep,
             horizon=collector.max_timesteps,
         )
@@ -1425,6 +1430,7 @@ def collect_experience_from_expert_policy(
             previous_action=previous_action_input(
                 observers, None, env_args.n_envs, env_args.env, env_args.env_params
             ),
+            previous_reward=previous_reward_input(observers, None, env_args.n_envs),
             **before_training,
         )
         last_obs, observer_states = observe_features(
@@ -1498,6 +1504,7 @@ def collect_experience_from_expert_policy(
                 post_step_state if expert_is_stateful else None,
                 ended,
                 action,
+                reward,
                 **before_training,
             )
             obsv = jnp.concatenate([obsv, next_columns], axis=-1)
@@ -1573,6 +1580,7 @@ def reset_features(
         previous_action=previous_action_input(
             env_args.observers, None, n_envs, env_args.env, env_args.env_params
         ),
+        previous_reward=previous_reward_input(env_args.observers, None, n_envs),
     )
     fresh = init_observers(env_args.observers, n_envs)
     return observe_features(obs, inputs, env_args.observers, fresh)

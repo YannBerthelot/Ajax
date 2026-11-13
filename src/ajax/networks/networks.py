@@ -11,7 +11,12 @@ from flax.core import FrozenDict
 from flax.linen.initializers import constant, lecun_normal, orthogonal
 from flax.serialization import to_state_dict
 
-from ajax.controller import feature_width, policy_action_dim, reads_previous_action
+from ajax.controller import (
+    feature_width,
+    observation_layout,
+    policy_action_dim,
+    reads_previous_action,
+)
 from ajax.environments.obs_norm import apply_obs_norm
 from ajax.environments.utils import get_state_action_shapes
 from ajax.extensions.observe import pid_terms_at
@@ -157,7 +162,11 @@ def observation_encoder(
     its observations with, before any memory: a :class:`CNNEncoder` for
     image observations, else the MLP :class:`Encoder` of ``architecture``
     (None: the network's ``input_architecture``). Built in the network's
-    setup, so it is the network's own submodule."""
+    setup, so it is the network's own submodule. A network with an input
+    embedding (Ni et al.'s layout) reads its parts through a
+    :class:`PartEmbedding` instead."""
+    if getattr(network, "input_embedding", ()):
+        return PartEmbedding(network.input_embedding, network.embedding_kernel_init)
     if network.cnn_image_shape is not None:
         return CNNEncoder(
             network.cnn_image_shape, network.cnn_extra_obs_dim, network.cnn_spec
@@ -170,6 +179,81 @@ def observation_encoder(
         kernel_init=network.encoder_kernel_init,
         layer_norm=network.encoder_layer_norm,
     )
+
+
+#: Ni et al.'s input embedding as a network reads it
+#: (NetworkConfig.input_embedding): per part, its name, its columns as
+#: (start, stop) ranges of the observation, and its embedding's width.
+EmbeddingParts = Tuple[Tuple[str, Tuple[Tuple[int, int], ...], int], ...]
+
+
+def take_columns(x: jax.Array, ranges: Tuple[Tuple[int, int], ...]) -> jax.Array:
+    """The columns of x in ``ranges``, joined in order."""
+    return jnp.concatenate([x[..., start:stop] for start, stop in ranges], axis=-1)
+
+
+class PartEmbedding(nn.Module):
+    """Each part of the input through its own Dense layer and ReLU, the
+    results joined in order: Ni et al. (2022)'s embedders before their
+    memory, one torch Linear and ReLU per input, joined as (action, reward,
+    observation) (pomdp-baselines e7c19c3, utils/helpers.py:201-226;
+    policies/models/recurrent_actor.py:36-46, :101-109)."""
+
+    parts: EmbeddingParts
+    kernel_init: Optional[Union[str, InitializationFunction]] = None
+
+    @nn.compact
+    def __call__(self, x: jax.Array) -> jax.Array:
+        embeddings = []
+        for name, ranges, width in self.parts:
+            layer = dense(width, self.kernel_init, None, lecun_normal(), name=name)
+            embeddings.append(nn.relu(layer(take_columns(x, ranges))))
+        return jnp.concatenate(embeddings, axis=-1)
+
+
+def shortcut_layer(network: nn.Module) -> Optional[nn.Module]:
+    """Ni et al.'s shortcut of ``network`` (its ``shortcut_width``), built in
+    its setup; None without one."""
+    if not network.shortcut_width:
+        return None
+    return dense(
+        network.shortcut_width,
+        network.embedding_kernel_init,
+        None,
+        lecun_normal(),
+        name="shortcut",
+    )
+
+
+def observation_ranges(parts: EmbeddingParts) -> Tuple[Tuple[int, int], ...]:
+    """The columns of the observation part of an input embedding."""
+    for name, ranges, _ in parts:
+        if name == "observation":
+            return ranges
+    raise ValueError("An input embedding with a shortcut needs an 'observation' part.")
+
+
+def join_after_memory(
+    network: nn.Module,
+    features: jax.Array,
+    observation: jax.Array,
+    query: Optional[jax.Array] = None,
+) -> jax.Array:
+    """What a network's layers after its memory read: the memory's features
+    joined with Ni et al.'s shortcut, the current observation (with the
+    action asked about, ``query``) through one Dense layer and ReLU
+    (pomdp-baselines e7c19c3, recurrent_actor.py:76-80, :136-140;
+    recurrent_critic.py:70-82, :164-182), or, without a shortcut, with the
+    action asked about alone. ``observation`` is what the memory read, the
+    observation part's columns of it are the shortcut's."""
+    if network.shortcut_width:
+        current = take_columns(observation, observation_ranges(network.input_embedding))
+        if query is not None:
+            current = jnp.concatenate([current, query], axis=-1)
+        return jnp.concatenate([features, nn.relu(network.shortcut(current))], axis=-1)
+    if query is not None:
+        return jnp.concatenate([features, query], axis=-1)
+    return features
 
 
 def head_layers(
@@ -242,15 +326,16 @@ class CNNEncoder(nn.Module):
 
 def check_log_std_head(
     state_independent: bool,
-    log_std_init: Optional[float],
+    log_std_init: Optional[Union[float, str]],
     log_std_kernel_init: Optional[Union[str, InitializationFunction]],
 ) -> None:
     """Refuse a log-std head whose start is set twice or not at all: the
-    learned parameter needs ``log_std_init`` and has no kernel; the Dense
-    head takes ``log_std_init`` as its bias unless its kernel init is
-    "torch_linear", whose layer draws the bias (``log_std_init`` None)."""
+    learned parameter needs a float ``log_std_init`` and has no kernel; the
+    Dense head takes ``log_std_init`` as its bias (a float: a constant; a
+    string: an initializer) unless its kernel init is "torch_linear", whose
+    layer draws the bias (``log_std_init`` None)."""
     if state_independent:
-        if log_std_init is None or log_std_kernel_init is not None:
+        if not isinstance(log_std_init, (int, float)) or log_std_kernel_init:
             raise ValueError(
                 "A state-independent log-std is one parameter: it needs a"
                 " float log_std_init and takes no log_std_kernel_init."
@@ -258,7 +343,7 @@ def check_log_std_head(
     elif (log_std_kernel_init == TORCH_LINEAR) != (log_std_init is None):
         raise ValueError(
             f"A {TORCH_LINEAR!r} log-std head draws its bias: log_std_init must"
-            " be None with it, and a float otherwise."
+            " be None with it, and set otherwise."
         )
 
 
@@ -291,7 +376,7 @@ class Actor(nn.Module):
     log_variance_head: bool = False
     # None only for a "torch_linear" log-std head, whose layer draws its
     # bias: the starting std is then the layer's, not one constant.
-    log_std_init: Optional[float] = -1.0
+    log_std_init: Optional[Union[float, str]] = -1.0
     log_std_bounds: Optional[Tuple[float, float]] = LOG_STD_BOUNDS
     # The output layers' kernel inits (``parse_initialization`` strings or
     # callables, or "torch_linear"), so an agent can start them as its
@@ -332,12 +417,24 @@ class Actor(nn.Module):
     # encoder's) features through (NetworkConfig.head_architecture).
     head_architecture: Sequence[Union[str, ActivationFunction]] = ()
     head_kernel_init: Optional[Union[str, InitializationFunction]] = None
+    # Ni et al.'s layout (NetworkConfig.input_embedding): the memory reads
+    # the parts' embeddings, and input_architecture runs after it (as
+    # ``head``) on its output joined with the shortcut (shortcut_width,
+    # join_after_memory).
+    input_embedding: EmbeddingParts = ()
+    shortcut_width: int = 0
+    embedding_kernel_init: Optional[Union[str, InitializationFunction]] = None
 
     def setup(self):
         check_log_std_bounds(self.log_std_bounds)
         if self.memory is not None:
             self.memory_cell = MemoryCell(self.memory)
         self.encoder = observation_encoder(self)
+        if self.input_embedding:
+            self.head = Encoder(
+                self.input_architecture, kernel_init=self.encoder_kernel_init
+            )
+            self.shortcut = shortcut_layer(self)
         self.head_layers = head_layers(
             self.head_architecture, self.head_kernel_init, self.encoder_kernel_init
         )
@@ -365,10 +462,15 @@ class Actor(nn.Module):
             # the value-estimating features; flax requires it declared in
             # setup() (or an @nn.compact method).
             if not self.log_std_state_independent:
+                # A float log_std_init is the bias's constant; a string is
+                # its initializer (Ni et al.'s uniform, actor.py:118-121).
+                bias_init = self.log_std_init
+                if isinstance(bias_init, (int, float)):
+                    bias_init = constant(bias_init)
                 self.log_std = dense(
                     self.action_dim,
                     self.log_std_kernel_init,
-                    None if self.log_std_init is None else constant(self.log_std_init),
+                    bias_init,
                     nn.initializers.zeros,
                     name="log_std",
                 )
@@ -415,6 +517,8 @@ class Actor(nn.Module):
                     "Recurrent Actor requires hidden_state and done flags."
                 )
             hidden_state, embedding = self.memory_cell(hidden_state, embedding, done)
+            if self.input_embedding:
+                embedding = self.head(join_after_memory(self, embedding, obs))
             return self._distribution(embedding), hidden_state
         return self._distribution(embedding)
 
@@ -482,13 +586,21 @@ class Critic(nn.Module):
     # the memory and the action (NetworkConfig.head_architecture).
     head_architecture: Sequence[Union[str, ActivationFunction]] = ()
     head_kernel_init: Optional[Union[str, InitializationFunction]] = None
+    # Ni et al.'s layout, as Actor's: with an input embedding, the memory
+    # reads its parts' embeddings and ``head`` (input_architecture) reads
+    # the memory's output joined with the shortcut, which a Q-critic's reads
+    # with the action asked about (Ni et al.'s critic, recurrent_critic.py:
+    # 70-99).
+    input_embedding: EmbeddingParts = ()
+    shortcut_width: int = 0
+    embedding_kernel_init: Optional[Union[str, InitializationFunction]] = None
 
     def setup(self):
         self.head_layers = head_layers(
             self.head_architecture, self.head_kernel_init, self.encoder_kernel_init
         )
         if self.reads_features:
-            if self.query_dim:
+            if self.query_dim or self.input_embedding:
                 self.head = Encoder(
                     input_architecture=self.input_architecture,
                     penultimate_normalization=self.penultimate_normalization,
@@ -504,12 +616,13 @@ class Critic(nn.Module):
             return
         if self.memory is not None:
             self.memory_cell = MemoryCell(self.memory)
-            if self.query_dim:
+            if self.query_dim or self.input_embedding:
                 self.head = Encoder(
                     input_architecture=self.input_architecture,
                     kernel_init=self.encoder_kernel_init,
                     layer_norm=self.encoder_layer_norm,
                 )
+            self.shortcut = shortcut_layer(self)
         self.encoder = observation_encoder(self)
         self.model = dense(
             self.n_quantiles, self.value_kernel_init, self.bias_init, orthogonal(1.0)
@@ -528,7 +641,9 @@ class Critic(nn.Module):
     def quantiles(self, x: jax.Array, hidden_state=None, done=None):
         """The head's ``n_quantiles`` outputs (and the carry, with memory)."""
         if self.reads_features:
-            return self.model(self.head_layers(self.head(x) if self.query_dim else x))
+            if self.query_dim or self.input_embedding:
+                x = self.head(x)
+            return self.model(self.head_layers(x))
         if self.memory is None:
             return self.model(self.head_layers(self.encoder(x)))
         if hidden_state is None or done is None:
@@ -537,8 +652,8 @@ class Critic(nn.Module):
         if self.query_dim:
             x, query = x[..., : -self.query_dim], x[..., -self.query_dim :]
         hidden_state, feat = self.memory_cell(hidden_state, self.encoder(x), done)
-        if query is not None:
-            feat = self.head(jnp.concatenate([feat, query], axis=-1))
+        if query is not None or self.input_embedding:
+            feat = self.head(join_after_memory(self, feat, x, query))
         return self.model(self.head_layers(feat)), hidden_state
 
     def apply_encoder(self, x: jax.Array) -> jax.Array:
@@ -578,12 +693,19 @@ class MultiCritic(nn.Module):
     # Each member's hidden layers before its value layer (Critic's).
     head_architecture: Sequence[Union[str, ActivationFunction]] = ()
     head_kernel_init: Optional[Union[str, InitializationFunction]] = None
+    # Ni et al.'s layout (Critic's). With share_encoder, the input embedding,
+    # the memory and the shortcut are the members' one trunk, as Ni et al.'s
+    # qf1 and qf2 read one RNN (recurrent_critic.py:95-99, :184-186).
+    input_embedding: EmbeddingParts = ()
+    shortcut_width: int = 0
+    embedding_kernel_init: Optional[Union[str, InitializationFunction]] = None
 
     def setup(self):
         if self.share_encoder:
             if self.memory is not None:
                 self.memory_cell = MemoryCell(self.memory)
             self.encoder = observation_encoder(self, self.encoder_architecture)
+            self.shortcut = shortcut_layer(self)
         # x (and done) are broadcast across the ensemble; the carry is
         # mapped over its leading (num,) axis so each member evolves its
         # own memory. NOTE: the recurrent in_axes spec matches __call__'s
@@ -617,6 +739,9 @@ class MultiCritic(nn.Module):
             reads_features=self.share_encoder,
             head_architecture=self.head_architecture,
             head_kernel_init=self.head_kernel_init,
+            input_embedding=self.input_embedding,
+            shortcut_width=0 if self.share_encoder else self.shortcut_width,
+            embedding_kernel_init=self.embedding_kernel_init,
         )
 
     def __call__(self, x: jax.Array, hidden_state=None, done=None):
@@ -658,9 +783,7 @@ class MultiCritic(nn.Module):
             carry = jax.tree.map(lambda leaf: leaf[0], hidden_state)
             carry, features = self.memory_cell(carry, features, done)
             hidden_state = jax.tree.map(lambda leaf: leaf[None], carry)
-        if action is not None:
-            features = jnp.concatenate([features, action], axis=-1)
-        return features, hidden_state
+        return join_after_memory(self, features, x, action), hidden_state
 
     def apply_encoder_ensemble(self, x: jax.Array) -> jax.Array:
         """Per-ensemble-member encoder features, shape ``(num, ..., d)``
@@ -727,6 +850,71 @@ def check_share_encoder(
         )
 
 
+def embedding_parts(
+    network_config: NetworkConfig, env_config: EnvironmentConfig, extra_obs_dim: int
+) -> EmbeddingParts:
+    """``network_config.input_embedding`` as the networks read it
+    (:data:`EmbeddingParts`): each part's columns in the observation with
+    its features (``env_config.observers``); the "observation" part takes
+    every column no other part names."""
+    if not network_config.input_embedding:
+        return ()
+    if network_config.memory is None:
+        raise ValueError(
+            "input_embedding is Ni et al.'s layout around a memory block: it"
+            " needs memory."
+        )
+    if network_config.cnn_image_shape is not None or extra_obs_dim:
+        raise ValueError(
+            "input_embedding reads flat observations with their features alone:"
+            " no CNN, no command appended."
+        )
+    env_width = get_state_action_shapes(env_config.env)[0][-1]
+    layout = observation_layout(env_width, env_config.observers, env_config)
+    named: dict[str, Tuple[int, int]] = {}
+    for name, _ in network_config.input_embedding:
+        if name == "observation":
+            continue
+        try:
+            columns = layout.slice(name)
+        except KeyError as error:
+            raise ValueError(
+                f"input_embedding's part {name!r} is an observation feature's"
+                " columns: add the feature (ajax.extensions.observe) to the"
+                " extensions."
+            ) from error
+        named[name] = (columns.start, columns.stop)
+    rest = []
+    start = 0
+    for begin, end in sorted(named.values()):
+        if begin > start:
+            rest.append((start, begin))
+        start = end
+    if start < layout.width:
+        rest.append((start, layout.width))
+    parts = []
+    for name, width in network_config.input_embedding:
+        ranges = tuple(rest) if name == "observation" else (named[name],)
+        parts.append((name, ranges, width))
+    return tuple(parts)
+
+
+def previous_step_columns(env_config: EnvironmentConfig) -> Tuple[Tuple[int, int], ...]:
+    """The observation's columns the PreviousAction and PreviousReward
+    features append (those reading the previous action or reward), as
+    (start, stop) ranges."""
+    env_width = get_state_action_shapes(env_config.env)[0][-1]
+    layout = observation_layout(env_width, env_config.observers, env_config)
+    columns = []
+    for feature in env_config.observers:
+        if getattr(feature, "reads_previous_action", False) or getattr(
+            feature, "reads_previous_reward", False
+        ):
+            found = layout.slice(feature.name)
+            columns.append((found.start, found.stop))
+    return tuple(columns)
+
+
 def get_initialized_actor_critic(
     key: jax.Array,
     env_config: EnvironmentConfig,
@@ -764,6 +952,8 @@ def get_initialized_actor_critic(
     action_dim = policy_action_dim(env_config)
 
     memory = parse_memory_config(network_config.memory)
+    parts = embedding_parts(network_config, env_config, extra_obs_dim)
+    actor_shortcut, critic_shortcut = network_config.shortcut_widths
 
     # A CNN critic is only valid for state-value critics; an action-value
     # critic (SAC's Q(s,a)) keeps the MLP.
@@ -816,6 +1006,9 @@ def get_initialized_actor_critic(
             memory=memory,
             head_architecture=network_config.head_architecture,
             head_kernel_init=network_config.head_kernel_init,
+            input_embedding=parts,
+            shortcut_width=actor_shortcut,
+            embedding_kernel_init=network_config.embedding_kernel_init,
         )
     if squash and continuous:  # a discrete policy has no range to bound
         actor = Squashed(
@@ -830,6 +1023,8 @@ def get_initialized_actor_critic(
         if isinstance(actor_architecture, PIDPolicy) or not network_config.share_encoder
         else actor_architecture
     )
+    # The critics read one encoder when the actor shares it too.
+    members_share = network_config.share_encoder or network_config.critics_share_encoder
     critic = MultiCritic(
         input_architecture=network_config.critic_architecture,
         penultimate_normalization=network_config.penultimate_normalization,
@@ -843,16 +1038,17 @@ def get_initialized_actor_critic(
         memory=memory,
         # The action joins after a recurrent or a shared encoder.
         query_dim=(
-            action_dim
-            if action_value and (memory is not None or network_config.share_encoder)
-            else 0
+            action_dim if action_value and (memory is not None or members_share) else 0
         ),
         value_kernel_init=network_config.value_kernel_init,
         n_quantiles=network_config.critic_quantiles,
-        share_encoder=network_config.share_encoder,
+        share_encoder=members_share,
         encoder_architecture=shared_architecture,
         head_architecture=network_config.head_architecture,
         head_kernel_init=network_config.head_kernel_init,
+        input_embedding=parts,
+        shortcut_width=critic_shortcut,
+        embedding_kernel_init=network_config.embedding_kernel_init,
     )
 
     actor_tx = get_adam_tx(**to_state_dict(actor_optimizer_config))
@@ -901,7 +1097,12 @@ def get_initialized_actor_critic(
         memory=memory,
         n_envs=env_config.n_envs,
     )
-    critic_state = critic_state.replace(previous_action_in_observation=in_observation)
+    critic_state = critic_state.replace(
+        previous_action_in_observation=in_observation,
+        previous_step_columns=(
+            previous_step_columns(env_config) if memory is not None else ()
+        ),
+    )
     if network_config.share_encoder:
         if "encoder" not in actor_state.params["params"]:
             raise ValueError(

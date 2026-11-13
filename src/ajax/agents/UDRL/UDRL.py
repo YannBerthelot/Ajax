@@ -334,6 +334,7 @@ class UDRL(
                 expert_state,
                 done > 0,
                 env_action,
+                reward,
                 timestep=collector.timestep,
                 horizon=collector.max_timesteps,
             )

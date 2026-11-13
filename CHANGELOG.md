@@ -34,6 +34,46 @@ The next release is 0.6.0: the first item changes results.
   Q-critic then reads it from the observation instead of appending its
   own. It is opt-in: default runs do not change. Observation features
   read the action through `ObserveInputs.previous_action`.
+- **`PreviousReward()` appends the reward paid for the action executed
+  before each observation** (`ajax.extensions.observe`), raw, zero at an
+  episode's first observation, as Ni et al.'s recurrent networks read it.
+  Collection stores it, evaluation appends it, and `agent.policy`'s `act`
+  reads the reward it is given (it refuses `done` without `reward`).
+  Features read it through `ObserveInputs.previous_reward`. APG refuses it:
+  its closed-loop rollout passes the features no reward yet.
+- **Breaking: SAC, TD3, REDQ, ASAC, TQC and RVI-SAC with `memory=` build
+  Ni et al. (2022)'s recurrent networks** (twni2016/pomdp-baselines, the
+  owner's reference for them; TQC and RVI-SAC by analogy). The memory reads
+  the previous action, the previous reward and the observation through
+  embeddings of 16, 16 and 32 units; a run with memory adds
+  `PreviousAction()` and `PreviousReward()` where its extensions hold
+  neither, so `agent.policy`'s `act` needs each reward. The memory is 128
+  units wide and starts as Ni et al.'s unless the `MemoryConfig` sets
+  them. The networks' layers run after the memory, on its output joined
+  with a shortcut embedding of the observation (the critic's with the
+  action asked about), and the critics read one memory. Every layer starts
+  as Ni et al.'s. `NetworkConfig` gains `input_embedding`,
+  `shortcut_widths`, `embedding_kernel_init` and `critics_share_encoder`;
+  `MemoryConfig.hidden_size` defaults to `None`, the agent's reference
+  width (64 where an agent has none, as before). *Upgrade:* a checkpoint of
+  one of these agents trained with memory does not restore into this
+  version: its parameters are another network's. Retrain, or pin the
+  previous version to use it.
+- **Breaking: their replay takes Ni et al.'s windows**: `burn_in=0` (was 8),
+  `sequence_length=64` (was 16) and, with memory, `batch_size=64` windows
+  (was 256). `batch_size` now defaults to `None`: 256 rows without memory,
+  as before. A window's first row reads no previous action or reward (Ni et
+  al.'s `a[0] = r[0] = 0`), unless the window starts from a stored memory.
+  *Upgrade:* pass `burn_in=8, sequence_length=16, batch_size=256` to train
+  as before.
+- **Recurrent TD3 is Ni et al.'s**: its actor maximises min(Q1, Q2), and
+  `policy_delay` defaults to `None`, 2 without memory as before and 1 with
+  it; with memory, TD3's and REDQ's critics read the agent's [-1, 1]
+  actions, not the env's units.
+- **Recurrent SAC's numerics are Ni et al.'s**: with memory, the squashed
+  log-density subtracts log(1 − tanh² + 1e-6) (also TQC's and RVI-SAC's;
+  REDQ's and ASAC's already did), the critics' squared errors are summed,
+  and the temperature steps alpha on the actor loss's own log-densities.
 - **SAC, TD3, REDQ, TQC, ASAC and RVI-SAC can share a memory.** With
   `share_encoder=True`, `memory=` and `PreviousAction()`, the critic's
   encoder and memory block read the observation and the previous action

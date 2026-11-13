@@ -65,6 +65,8 @@ MEMORY_INITS = {
     "mamba": ("flax", "mamba"),
 }
 _GATES = {"gru": 3, "lstm": 4}
+#: A memory's width where neither the config nor the agent sets one.
+DEFAULT_HIDDEN_SIZE = 64
 
 
 @dataclass(frozen=True)
@@ -77,7 +79,9 @@ class MemoryConfig:
     """
 
     kind: str = "gru"
-    hidden_size: int = 64
+    # The memory's width; None: the agent's reference width
+    # (with_reference_defaults), DEFAULT_HIDDEN_SIZE for an agent without one.
+    hidden_size: Optional[int] = None
     num_layers: int = 1
     # Recompute activations in the backward pass instead of storing them;
     # trades compute for memory on long sequences.
@@ -121,7 +125,7 @@ class MemoryConfig:
                 f"init {self.init!r} does not apply to kind {self.kind!r},"
                 f" expected one of {MEMORY_INITS[self.kind]}"
             )
-        if self.hidden_size <= 0:
+        if self.hidden_size is not None and self.hidden_size <= 0:
             raise ValueError(f"hidden_size must be positive, got {self.hidden_size}")
         if self.num_layers <= 0:
             raise ValueError(f"num_layers must be positive, got {self.num_layers}")
@@ -134,10 +138,10 @@ class MemoryConfig:
         if self.kind == "transformer":
             if self.window < 1:
                 raise ValueError(f"window must be >= 1, got {self.window}")
-            if self.hidden_size % self.num_heads != 0:
+            if self.width % self.num_heads != 0:
                 raise ValueError(
                     "hidden_size must be divisible by num_heads, got"
-                    f" {self.hidden_size} and {self.num_heads}"
+                    f" {self.width} and {self.num_heads}"
                 )
         if self.kind == "mamba":
             if self.d_state < 1 or self.d_conv < 1 or self.expand < 1:
@@ -145,6 +149,11 @@ class MemoryConfig:
                     "d_state, d_conv and expand must be >= 1, got"
                     f" {self.d_state}, {self.d_conv}, {self.expand}"
                 )
+
+    @property
+    def width(self) -> int:
+        """The memory's width: hidden_size, or the default where unset."""
+        return DEFAULT_HIDDEN_SIZE if self.hidden_size is None else self.hidden_size
 
     @property
     def ends_normalised(self) -> bool:
@@ -171,9 +180,24 @@ def with_default_init(
     """``memory`` with ``init`` set to ``inits[memory.kind]`` when unset: an
     agent's reference initialisation, which an explicit ``init`` overrides.
     A kind ``inits`` does not name keeps flax's."""
-    if memory is None or memory.init is not None or memory.kind not in inits:
+    return with_reference_defaults(memory, inits)
+
+
+def with_reference_defaults(
+    memory: Optional[MemoryConfig],
+    inits: Mapping[str, str],
+    hidden_size: Optional[int] = None,
+) -> Optional[MemoryConfig]:
+    """``memory`` with an agent's reference settings where it leaves them
+    unset: ``init`` from ``inits[memory.kind]`` (a kind ``inits`` does not
+    name keeps flax's) and ``hidden_size``."""
+    if memory is None:
         return memory
-    return dataclasses.replace(memory, init=inits[memory.kind])
+    if memory.init is None and memory.kind in inits:
+        memory = dataclasses.replace(memory, init=inits[memory.kind])
+    if memory.hidden_size is None and hidden_size is not None:
+        memory = dataclasses.replace(memory, hidden_size=hidden_size)
+    return memory
 
 
 def init_carry(
@@ -186,7 +210,7 @@ def init_carry(
     layer. Shapes are derived from the config alone — no params needed.
     ``cache_keys_values``: a transformer's carry for a MemoryCell caching
     keys and values (see MemoryCell)."""
-    B, H = batch_size, config.hidden_size
+    B, H = batch_size, config.width
     if cache_keys_values and config.kind != "transformer":
         raise ValueError(
             f"Only a transformer memory caches keys and values, not {config.kind!r}."
@@ -387,7 +411,7 @@ class _RecurrentCore(nn.Module):
         hidden = x
         for layer in range(self.config.num_layers):
             cell = cell_cls(
-                features=self.config.hidden_size,
+                features=self.config.width,
                 name=f"{self.config.kind}_{layer}",
                 **inits,
             )
@@ -434,7 +458,7 @@ class _TransformerCore(nn.Module):
     def __call__(self, carry, x, resets):
         cfg = self.config
         T, B = x.shape[:2]
-        H, W, n_heads = cfg.hidden_size, cfg.window, cfg.num_heads
+        H, W, n_heads = cfg.width, cfg.window, cfg.num_heads
         head_dim = H // n_heads
         cache_len = W - 1
 
@@ -566,7 +590,7 @@ class _MambaCore(nn.Module):
     def __call__(self, carry, x, resets):
         cfg = self.config
         T, B = x.shape[:2]
-        H = cfg.hidden_size
+        H = cfg.width
         d_inner, d_state, d_conv = cfg.expand * H, cfg.d_state, cfg.d_conv
 
         resets = resets.reshape((T, B)).astype(bool)

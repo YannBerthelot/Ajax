@@ -446,6 +446,7 @@ SHARED_MEMORY: dict[str, Any] = {
     "share_encoder": True,
     "memory": MemoryConfig("gru", 8),
     "learning_starts": 64,
+    "sequence_length": 8,
     "extensions": (PreviousAction(),),
 }
 
@@ -470,17 +471,20 @@ def _recurrent_policy_mean(state: Any) -> np.ndarray:
     """The policy's mean at the first observations of a fresh episode."""
     actor = state.actor_state
     n_envs = jax.tree.leaves(actor.hidden_state)[0].shape[0]
-    observations = jnp.concatenate([OBS[:n_envs], jnp.zeros((n_envs, 1))], axis=-1)
+    # The previous action's and reward's columns, zero at an episode start.
+    observations = jnp.concatenate([OBS[:n_envs], jnp.zeros((n_envs, 2))], axis=-1)
     done = jnp.ones((n_envs,), bool)
     pi, _ = get_pi(actor, actor.params, observations, done, recurrent=True)
     return np.asarray(pi.mean())
 
 
-def test_a_shared_memory_with_a_q_critic_needs_the_previous_action():
+def test_a_shared_memory_with_a_q_critic_reads_the_previous_action_by_default():
+    """A run with memory adds the previous action its networks read (owner,
+    2026-11-13), so a shared memory with a Q-critic always has it."""
     agent = _q_agent("SAC", **{**SHARED_MEMORY, "extensions": ()})
 
-    with pytest.raises(ValueError, match="PreviousAction"):
-        _init(agent)
+    assert any(isinstance(e, PreviousAction) for e in agent.extensions)
+    _init(agent)
 
 
 @pytest.mark.parametrize("name", RECURRENT_Q_AGENTS)
@@ -524,8 +528,9 @@ def test_only_the_critics_loss_trains_the_shared_memory(
 @pytest.mark.parametrize("target, changes", [(True, True), (False, False)])
 def test_td3s_target_actor_warms_up_through_the_target_critics_memory(target, changes):
     """The target actor's warmed-up memory moves with the target critic's
-    memory block, not with the online critic's."""
-    agent = _q_agent("TD3", **SHARED_MEMORY)
+    memory block, not with the online critic's (a window warmed up by a
+    burn-in: Ni et al.'s default has none)."""
+    agent = _q_agent("TD3", **SHARED_MEMORY, burn_in=4)
     state = _one_seed(agent.train(seed=0, n_timesteps=64)[0])
     _, context = agent.make_context(128)
     critic = state.critic_state

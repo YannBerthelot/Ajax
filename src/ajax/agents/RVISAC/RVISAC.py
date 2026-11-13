@@ -58,7 +58,12 @@ from ajax.agents.families import (
     RewardNormalization,
     TrainContext,
 )
-from ajax.agents.recurrent import RecurrentCarries, q_values, sample_replay
+from ajax.agents.recurrent import (
+    RecurrentCarries,
+    ni_initialisation,
+    q_values,
+    sample_replay,
+)
 from ajax.agents.reset_cost import (
     ORTHOGONAL_THIRD,
     TORCH_ADAM_EPS,
@@ -137,7 +142,8 @@ class RVISAC(
     centering: CenteringRule = field(default_factory=RVIBatchMean)
     reset_cost: Optional[ResetCostSettings] = field(default_factory=ResetCostSettings)
     buffer_size: int = int(1e6)
-    batch_size: int = 256
+    # None: 256 rows, or 64 windows with memory (RecurrentReplayAgent).
+    batch_size: Optional[int] = None  # type: ignore[assignment]
     learning_starts: int = int(1e4)
 
     def actor_critic_args(self) -> dict[str, Any]:
@@ -145,10 +151,11 @@ class RVISAC(
         # :79-83): every layer orthogonal with gain sqrt(1/3) and a zero
         # bias. Their actor draws the mean and the log-std from one output
         # layer, one orthogonal matrix; here each head draws its own.
-        # Recurrent RVI-SAC (memory set) keeps Ajax's initialisation, as
-        # recurrent SAC and ASAC do until Ni et al.'s is audited.
+        # Recurrent RVI-SAC (memory set) starts as Ni et al.'s recurrent SAC,
+        # as the other recurrent off-policy agents do.
         args: dict[str, Any] = {"squash": True}
         if self.memory is not None:
+            args.update(ni_initialisation())
             return args
         init = ("encoder_kernel_init", "mean_kernel_init", "log_std_kernel_init")
         args.update(dict.fromkeys((*init, "value_kernel_init"), ORTHOGONAL_THIRD))

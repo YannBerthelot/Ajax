@@ -3,7 +3,7 @@
 An extension adds a research feature to an agent's training without changing
 the agent: an extra term in a loss, a change to the TD target, another way to
 pick actions while collecting, an expert to learn from, a pre-training step,
-or measurements logged at each evaluation. Ajax ships forty-three of them,
+or measurements logged at each evaluation. Ajax ships forty-four of them,
 listed in the [catalogue](#catalogue) below.
 
 Why extensions instead of agent options? An agent's constructor takes its
@@ -313,6 +313,7 @@ accepts it. "SAC with an expert" means `SAC(..., expert_policy=...)`.
 | `ExpertStateInput` | Appends a stateful expert's internal state before its call at the observation (`ExpertStateInput.for_expert(expert)` sizes it). | `observe` | agents with a stateful expert (SAC, TD3, REDQ, TQC, CrossQ, ASAC, AVG, IQL, PPO, APO, DAgger, DQN, PQN, APG, UDRL) |
 | `PIDTermsInput` | Appends a PID controller's terms for each tracking error `e = obs[target_idx] − obs[current_idx]`: the error, its integral (clamped at `integral_limit`) and its difference, with sampling period `dt`; raw, and started afresh each episode. A [`PIDPolicy`](networks.md#the-pid-policy) actor reads them. | `observe` | every agent but `TDMPC2MultiTask`, whose dataset holds no feature columns |
 | `PreviousAction` | Appends the action executed just before each observation, in agent units: zero at an episode's first observation, a discrete action one-hot; raw. An actor with memory then reads its own past actions, as Ni et al. (2022)'s recurrent actor does (see [Memory](memory.md)). | `observe` | every agent but `TDMPC2MultiTask`, whose dataset holds no feature columns |
+| `PreviousReward` | Appends the reward the environment paid for the action executed just before each observation, raw: zero at an episode's first observation. Ni et al. (2022)'s recurrent actor and critic read it with the previous action (see [Memory](memory.md)). `agent.policy`'s `act` then needs each reward. | `observe` | every agent but `TDMPC2MultiTask` (no feature columns in its dataset) and APG (its closed-loop rollout passes no reward yet) |
 | `TrainingProgressInput` | Appends the fraction of training done (`ajax.schedule.progress`); an evaluation holds the collector's. | `observe` | every agent but `TDMPC2MultiTask`, whose dataset holds no feature columns |
 
 **Exploration** (`ajax.extensions.exploration`)

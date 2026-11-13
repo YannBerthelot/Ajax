@@ -2,6 +2,11 @@
 restart at the episode's end (P0b memory cue), and its critic must value the
 actions actually taken (Q2 delayed echo). Ids name the memory kind: CI
 shards select by it.
+
+The off-policy agents with memory observe the previous action and reward,
+as Ni et al.'s networks read them: the readouts append them as collection
+does, zero at an episode start, the reward zero throughout (both envs pay
+at an episode's last step, which no read observation follows).
 """
 
 from __future__ import annotations
@@ -16,7 +21,8 @@ import numpy as np
 import pytest
 
 from ajax.agents.recurrent import previous_actions
-from ajax.networks.memory import MEMORY_KINDS, MemoryConfig
+from ajax.environments.interaction import get_pi
+from ajax.networks.memory import MEMORY_KINDS, MemoryConfig, zeros_carry_like
 from ajax.networks.networks import action_value_input
 
 from . import agents, envs, oracles, runs
@@ -24,7 +30,7 @@ from . import readouts as R
 from .verdict import Case, Query, check, params
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "ea3157d457f5"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "a8d332864bd1"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P0b: act on a cue seen two steps back, forget it at the episode's end ----
@@ -79,14 +85,41 @@ P0B = (
 )
 
 
+def _with_previous_step(obs: jax.Array, a: jax.Array, starts: jax.Array) -> jax.Array:
+    """(T, B) observations as a run with memory observes them after steps
+    that took ``a``: with the previous action and a zero previous reward."""
+    rewards = jnp.zeros((*obs.shape[:-1], 1))
+    return jnp.concatenate([obs, previous_actions(a, starts), rewards], axis=-1)
+
+
 def _q_input(obs: jax.Array, a: jax.Array, starts: jax.Array) -> jax.Array:
-    """A recurrent Q-critic's input over (T, B) steps that took ``a``."""
-    return action_value_input(obs, a, previous_actions(a, starts))
+    """A recurrent Q-critic's input over (T, B) steps that took ``a``: the
+    observation with the previous step, then the action asked about."""
+    return action_value_input(_with_previous_step(obs, a, starts), a)
+
+
+def _step_actor_with_previous_step(n: R.Nets, obs: jax.Array, starts: jax.Array) -> Any:
+    """R.step_actor, each observation read with the clipped action before it
+    and a zero reward (one action column, as one reward's)."""
+
+    def step(carry: Any, x: tuple) -> tuple:
+        before = jnp.where(x[1][:, None], 0.0, carry[1])
+        seen = jnp.concatenate([x[0], before, jnp.zeros_like(before)], axis=-1)
+        actor = n.actor.replace(hidden_state=carry[0])
+        p, stepped = get_pi(actor, actor.params, seen, x[1], recurrent=True)
+        return (stepped.hidden_state, jnp.clip(p.mean()[0], -1, 1)), p.mean()[0]
+
+    hidden = zeros_carry_like(n.actor.hidden_state, obs.shape[1], batch_axis=0)
+    first = (hidden, jnp.zeros((obs.shape[1], 1)))
+    return jax.lax.scan(step, first, (obs, starts))[1]
 
 
 def _p0b_read(agent: str) -> Callable:
     def read(n: R.Nets) -> dict:
-        a = jnp.clip(R.step_actor(n, CUE_OBS, STARTS), -1.0, 1.0)
+        if agent == "PPO":
+            a = jnp.clip(R.step_actor(n, CUE_OBS, STARTS), -1.0, 1.0)
+        else:
+            a = jnp.clip(_step_actor_with_previous_step(n, CUE_OBS, STARTS), -1, 1)
         x = CUE_OBS if agent == "PPO" else _q_input(CUE_OBS, a, STARTS)
         a, v = a[-1, :, 0], R.critic_sequence(n, x, STARTS)[-1]
         out = dict(zip([q.name for q in P0B[1:5]], v, strict=True))
@@ -96,8 +129,9 @@ def _p0b_read(agent: str) -> Callable:
 
 
 def _p0b_agent(agent: str, spec: envs.Spec = CUE, kind: str = "gru", **kw: Any) -> Any:
-    """32 units; replay batches of 4 windows of 25 steps (64 trained positions)."""
-    kw = ({} if agent == "PPO" else {"batch_size": 4}) | kw
+    """32 units; replay batches of one window of Ni et al.'s 64 trained
+    steps (64 trained positions, as the 4 windows of 16 before them)."""
+    kw = ({} if agent == "PPO" else {"batch_size": 1}) | kw
     if agent == "SAC":  # actor and temperature updates start with the critic's
         kw |= {"policy_update_start": 100, "alpha_update_start": 100}
     if agent == "REDQ":
@@ -118,6 +152,10 @@ def _p0b_agent(agent: str, spec: envs.Spec = CUE, kind: str = "gru", **kw: Any) 
 # head PPO had before (std 0.37 at the start, about 0.02 by 5000 steps) failures
 # returned at longer budgets and its transformer and mamba qualified at no budget of
 # 2000-20,000. The action gap reads exactly 0: it takes the 0.02 floor.
+# With Ni et al.'s networks (2026-11-13), seeds 3000-3031: SAC 32/32, REDQ
+# 30/32; TD3 28/32 at 7500, 29/32 at 10,000 and 26/32 at 15,000, its actor
+# saturated at a bound on two seeds whatever the budget: kept at 10,000 with
+# the shortfall (owner), Ni's learning rate 3e-4 left to a follow-up.
 P0B_CELLS: dict[tuple[str, str], tuple[int, tuple[float, ...]]] = {
     ("PPO", "gru"): (20_000, (0.4, 0.325, 0.317, 0.054, 0.054, 0.02)),
     ("PPO", "lstm"): (20_000, (0.381, 0.296, 0.282, 0.045, 0.045, 0.02)),
@@ -125,7 +163,7 @@ P0B_CELLS: dict[tuple[str, str], tuple[int, tuple[float, ...]]] = {
     ("PPO", "mamba"): (30_000, (0.429, 0.441, 0.428, 0.089, 0.089, 0.02)),
     ("SAC", "gru"): (3750, (0.48, 0.455, 0.456, 0.095, 0.095, 0.02)),
     ("REDQ", "gru"): (2000, (0.463, 0.406, 0.405, 0.1, 0.1, 0.02)),
-    ("TD3", "gru"): (7500, (0.429, 0.467, 0.383, 0.099, 0.099, 0.02)),
+    ("TD3", "gru"): (10_000, (0.429, 0.467, 0.383, 0.099, 0.099, 0.02)),
 }
 for (agent, kind), (budget, tol) in P0B_CELLS.items():
     cid = f"p0b-{agent}-{kind}"
@@ -171,7 +209,8 @@ def test_p0b_recurrent_sac_trains_on_a_one_feature_observation() -> None:
 # faults: a target critic whose carry is fed the policy's samples after the
 # window's first row reads 1/L of the slope, and an actor loss feeding its
 # own fresh actions to the critic's carry credits a0 again through the next
-# Q; L = 1 hides both and is the control. Every cell trains 64 positions per
+# Q; L = 1 hides both and is the control, after one burn-in step (a window's
+# first row reads no previous action, as Ni et al.'s). Every cell trains 64 positions per
 # update (64 // L windows); the actor is judged for SAC and REDQ only:
 # ASAC's double count (2/16 + 2 15/16) equals its right slope, 2, and both
 # faults only scale TD3's quadratic, so its a0 is 0.5 either way.
@@ -192,7 +231,19 @@ BUDGET = {"SAC": 1500, "REDQ": 1500, "ASAC": 1500, "TD3": 6000}
 # about 0.05, is the half gap to the double-counting fault (0.047), and
 # seeds 3000-3031 read 26/32 within; at 6000 the ladder's seeds 1000-1031
 # and 2000-2031 read 63/64.
-LONGER_BUDGET = {("REDQ", "gru", 2): 6000}
+LONGER_BUDGET = {("REDQ", "gru", 2): 6000, ("TD3", "gru", 2): 9000}
+# With Ni et al.'s networks (2026-11-13; certified on seeds 3000-3031): SAC's
+# and REDQ's cells read 30-32/32 at their budgets; TD3's gru and lstm 30 and
+# 31/32, its windows of two 29/32 at 6000 and 31/32 at 9000. ASAC's GRU and
+# LSTM critics spread past the 0.1 ceiling at any budget (sd about 0.06 of 2,
+# 23-29/32 at 1500 to 6000): calibrated, as the controls, below. TD3's
+# transformer and mamba read 28/32 (transformer also at 9000; a few seeds
+# near 0.33): kept with the shortfall (owner), as p0b-TD3 is.
+SPREAD = {  # (agent, kind, L): the target cell's tolerance and its record
+    ("ASAC", "gru", L): (0.477, "ladder worst 0.238; cert 32/32, worst 0.180"),
+    ("ASAC", "lstm", L): (0.397, "ladder worst 0.198; cert 32/32, worst 0.135"),
+    ("ASAC", "gru", 2): (0.398, "ladder worst 0.199; cert 32/32, worst 0.183"),
+}
 O0 = jnp.array([1.0, 0.0])
 SLOPE = "Q(o0, 0.5) - Q(o0, -0.5)"
 CURVATURE = "Q(o0, 0.5) - (Q(o0, 0.2) + Q(o0, 0.8)) / 2"
@@ -255,7 +306,9 @@ def _q0(n: R.Nets, acts: jax.Array) -> jax.Array:
 
 
 def _a0(n: R.Nets) -> jax.Array:
-    p = R.actor_sequence(n, O0[None, None], jnp.ones((1, 1), bool))
+    start = jnp.ones((1, 1), bool)
+    observed = _with_previous_step(O0[None, None], jnp.zeros((1, 1, 1)), start)
+    p = R.actor_sequence(n, observed, start)
     return jnp.clip(p.mean().reshape(()), -1.0, 1.0)
 
 
@@ -286,6 +339,8 @@ def _q2_agent(agent: str, kind: str, length: int, batch: int = 0) -> Any:
     if agent == "TD3":
         kw = {"exploration_noise": 0.3}
     kw |= {"sequence_length": length, "batch_size": batch or 64 // length}
+    if length == 1:
+        kw["burn_in"] = 1
     spec = QUADRATIC_ECHO if agent == "TD3" else ECHO
     memory = MemoryConfig(kind, 32)
     return agents.make(agent, *spec.make(), memory=memory, buffer_size=20_000, **kw)
@@ -328,7 +383,11 @@ def _q2_case(
 
 for agent in BUDGET:
     for kind, length in [(k, L) for k in MEMORY_KINDS] + [("gru", 2)]:
-        _q2_case("target", agent, kind, length, _critic(agent, length))
+        spread: dict[str, Any] = {}
+        if (agent, kind, length) in SPREAD:
+            spread_tol, spread_note = SPREAD[agent, kind, length]
+            spread = {"tol": (spread_tol,), "ceiling": 0.5, "note": spread_note}
+        _q2_case("target", agent, kind, length, _critic(agent, length), **spread)
         if agent in ("SAC", "REDQ"):
             _q2_case("actor", agent, kind, length, _actor(length))
 for (agent, kind), (tol, note) in CONTROL.items():
@@ -364,20 +423,18 @@ def test_q2_readout_matches_an_episode_start_inside_a_window(kind: str) -> None:
     one = jnp.ones((1, 1), bool)
     gaps = []
     for step in (1, 3, 5):
-        fresh = R.critic_sequence(
-            n,
-            _q_input(
-                obs[step : step + 1, None], acts[step : step + 1, None, None], one
-            ),
-            one,
-        )
+        # The step's own input, its previous action included, from a fresh
+        # carry: only the carry differs.
+        fresh = R.critic_sequence(n, x[step : step + 1], one)
         gaps.append(abs(q[step] - fresh[0, 0]))
     # The largest gap: the carry's effect on one reading of an untrained
-    # network can nearly cancel by chance (5e-5 for a GRU on one seed, where
-    # the other two read 1e-2 and 3e-3), while a carry that is ignored or
-    # reset leaves all three at zero.
-    assert max(gaps) > 1e-4
-    a = jnp.clip(R.actor_sequence(n, obs[:, None], resets).mean().reshape(-1), -1, 1)
+    # network can nearly cancel by chance, while a carry that is ignored or
+    # reset leaves all three at zero. Relative to the values: Ni et al.'s
+    # output layer, uniform in +-3e-3, starts them near 1e-3 (the carry
+    # moves them by 1e-5 to 6e-5).
+    assert max(gaps) > 1e-3 * float(jnp.abs(q).max())
+    observed = _with_previous_step(obs[:, None], acts[:, None, None], resets)
+    a = jnp.clip(R.actor_sequence(n, observed, resets).mean().reshape(-1), -1, 1)
     np.testing.assert_allclose(a[starts], _a0(n), atol=1e-5)
 
 

@@ -47,7 +47,13 @@ from ajax.agents.families import (
     RewardNormalization,
     TrainContext,
 )
-from ajax.agents.recurrent import RecurrentCarries, actor_dist, q_values, sample_replay
+from ajax.agents.recurrent import (
+    RecurrentCarries,
+    actor_dist,
+    ni_initialisation,
+    q_values,
+    sample_replay,
+)
 from ajax.agents.temperature import (
     SoftActorCriticState,
     TemperatureAuxiliaries,
@@ -121,7 +127,8 @@ class SAC(
     num_critic_updates: int = 1
     n_step: int = 1
     buffer_size: int = int(1e6)
-    batch_size: int = 256
+    # None: 256 rows, or 64 windows with memory (RecurrentReplayAgent).
+    batch_size: Optional[int] = None  # type: ignore[assignment]
     learning_starts: int = int(1e4)
 
     #: The numbers a sweep may vary in one program (ActorCritic.train's sweep).
@@ -163,9 +170,11 @@ class SAC(
     def make_replay_buffer(self) -> BufferType:
         if self.n_step == 1:
             return super().make_replay_buffer()
+        batch_size = self.batch_size
+        assert batch_size is not None  # resolved before the agent is built
         return get_buffer(
             self.buffer_size,
-            self.batch_size,
+            batch_size,
             self.n_envs,
             n_step=self.n_step,
             gamma=self.gamma,
@@ -193,11 +202,10 @@ class SAC(
         # default at tensorflow 2.4.1, its requirements'). Both draw the
         # mean and the log-std from one output layer; here each head
         # takes Glorot's bound for its own width.
-        # Recurrent SAC (memory set) keeps Ajax's previous initialisation
-        # until Ni et al.'s, its reference (pomdp-baselines), is audited: at
-        # the feedforward reference's, its memory cells' actors read 25-28/32.
+        # Recurrent SAC (memory set) starts as its reference, Ni et al.'s.
         args: dict[str, Any] = {"squash": True}
         if self.memory is not None:
+            args.update(ni_initialisation())
             return args
         args.update(
             {
@@ -287,7 +295,13 @@ class SAC(
                 (policy_aux, policy_metrics),
                 log_probs,
                 context.extensions,
-                compute_temperature_loss,
+                # Ni et al.'s recurrent SAC steps alpha, not log alpha
+                # (policies/rl/sac.py:38-47).
+                (
+                    compute_alpha_temperature_loss
+                    if self.memory is not None
+                    else compute_temperature_loss
+                ),
                 self.fixed_alpha,
             )
         )
@@ -332,7 +346,7 @@ class SAC(
         )
 
         def critic_loss(params: FrozenDict, target_q: jax.Array) -> tuple:
-            return compute_mean_critic_loss(
+            loss, aux = compute_mean_critic_loss(
                 params,
                 agent_state.critic_state,
                 batch.obs,
@@ -340,6 +354,11 @@ class SAC(
                 target_q,
                 carries=carries,
             )
+            if self.memory is None:
+                return loss, aux
+            # Ni et al.'s recurrent SAC sums its critics' squared errors,
+            # which train their one memory (policy_rnn.py:171-178).
+            return loss * self.num_critics, aux
 
         agent_state, aux, grad_norm, metrics = update_steps.critic_step(
             agent_state,
@@ -377,7 +396,9 @@ class SAC(
         their clone target. Also returns the log-probs of a fresh
         sample of the stepped actor, which the temperature's step reads
         (CleanRL's order: vwxyzjn/cleanrl@fe8d8a0,
-        cleanrl/sac_continuous_action.py:279-292)."""
+        cleanrl/sac_continuous_action.py:279-292); with memory, the mean of
+        the loss's own, before the step, as Ni et al.'s recurrent SAC
+        (policy_rnn.py:180-216)."""
         actor_key, sample_key = split_by_index(
             update_steps.derive_actor_key(agent_state), 2
         )
@@ -412,8 +433,13 @@ class SAC(
             batch,
             agent_state.critic_state,
         )
-        policy = actor_dist(actor_state, actor_state.params, batch.obs, carries)
-        _, log_probs = policy.sample_and_log_prob(seed=sample_key)
+        if self.memory is not None:
+            # The loss's log-density, summed over the action's dimensions,
+            # as one column the temperature's step sums (update_temperature).
+            log_probs = aux.log_pi.reshape(1)
+        else:
+            policy = actor_dist(actor_state, actor_state.params, batch.obs, carries)
+            _, log_probs = policy.sample_and_log_prob(seed=sample_key)
         return (
             agent_state.replace(actor_state=actor_state),
             aux.replace(grad_norm=grad_norm),

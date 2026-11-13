@@ -85,9 +85,10 @@ class ObserveInputs(NamedTuple):
     passes its frozen ``progress``), the run's horizon (None where the
     collector keeps none), in evaluation the training progress it holds,
     whether the features' gradient flows back to what they read (APG's
-    differentiable rollout; elsewhere they are held constant), and the
-    action executed just before the observation (:func:`previous_action_input`;
-    None unless a feature reads it)."""
+    differentiable rollout; elsewhere they are held constant), the action
+    executed just before the observation (:func:`previous_action_input`) and
+    the reward the environment paid for it (:func:`previous_reward_input`),
+    each None unless a feature reads it."""
 
     raw_obs: jax.Array
     expert: Any = None
@@ -97,6 +98,7 @@ class ObserveInputs(NamedTuple):
     progress: Any = None
     differentiable: bool = False
     previous_action: Optional[jax.Array] = None
+    previous_reward: Optional[jax.Array] = None
 
 
 @dataclass(frozen=True)
@@ -399,6 +401,27 @@ def previous_action_input(
     # A discrete action arrives as an (n_envs,) index or an (n_envs, 1) column.
     index = action.reshape(n_envs, -1)[:, 0].astype(jnp.int32)
     return jax.nn.one_hot(index, width)
+
+
+def reads_previous_reward(observers: Any) -> bool:
+    """Whether a feature among ``observers`` reads the reward paid for the
+    action executed before each observation (``ObserveInputs.previous_reward``)."""
+    return any(getattr(e, "reads_previous_reward", False) for e in observers)
+
+
+def previous_reward_input(
+    observers: Any, reward: Optional[jax.Array], n_envs: int
+) -> Optional[jax.Array]:
+    """``ObserveInputs.previous_reward``: ``reward``, what the environment paid
+    for the action executed before the observation, as one column, raw as
+    the environment pays it. Zeros where no action was executed yet
+    (``reward`` None: a reset). None, and nothing computed, unless a feature
+    among ``observers`` reads it."""
+    if not reads_previous_reward(observers):
+        return None
+    if reward is None:
+        return jnp.zeros((n_envs, 1), jnp.float32)
+    return reward.reshape(n_envs, 1).astype(jnp.float32)
 
 
 def reads_agent_expert(env_args: Any) -> bool:

@@ -62,7 +62,7 @@ Defaults are read from `SAC.__init__`.
 | `actor_architecture`, `critic_architecture` | `("256", "relu", "256", "relu")` | hidden layers (plain MLPs) |
 | `gamma` | `0.99` | discount |
 | `buffer_size` | `1_000_000` | replay capacity |
-| `batch_size` | `256` | replay minibatch |
+| `batch_size` | `None` | replay minibatch: 256 rows, or 64 windows with `memory=` |
 | `learning_starts` | `10_000` | steps of uniform random actions before the first update |
 | `tau` | `0.005` | Polyak rate of the target critics |
 | `alpha_init` | `1.0` | initial entropy weight |
@@ -75,7 +75,7 @@ Defaults are read from `SAC.__init__`.
 | `max_grad_norm` | `None` | gradient clipping of the actor and critics |
 | `normalize_observations`, `normalize_rewards` | `False` | running normalisation (see [Environments](../guide/environments.md)) |
 | `reward_normalization_gamma` | `None` | with `normalize_rewards`, divide by the spread of the discounted return instead of the single reward's |
-| `memory`, `burn_in`, `sequence_length`, `stored_state` | `None`, `8`, `16`, `False` | recurrent memory (see [Memory](../guide/memory.md)) |
+| `memory`, `burn_in`, `sequence_length`, `stored_state` | `None`, `0`, `64`, `False` | recurrent memory (see [Memory](../guide/memory.md)) |
 | `episode_length`, `action_repeat` | `None`, `1` | simulator steps per episode (1,000 when `None`) and per agent step, on Brax and Playground |
 | `extensions` | `()` | research features (see [Extensions](../guide/extensions.md)) |
 
@@ -112,7 +112,8 @@ only SAC supports.
   kernels and zero biases in every layer. They draw the mean and the
   log-std from one output layer; Ajax's two heads each take Glorot's bound
   for their own width (about 1% wider with 256 inputs). With `memory=`, SAC
-  keeps its previous initialisation until Ni et al.'s is audited.
+  is Ni et al. (2022)'s recurrent SAC, networks and initialisation included
+  (see [Memory](../guide/memory.md)).
 - **Standard deviation.** The log-std is clipped to `[-20, 2]` and the
   standard deviation is its exponential, as in `haarnoja/sac` and in
   `softlearning` at the time of the learned-temperature paper. Later
@@ -131,9 +132,12 @@ only SAC supports.
   `alpha_update_start` hold the actor and `alpha` back until those
   timesteps; with the default `learning_starts=10_000` they change nothing.
   The target-entropy ramp and the expert options above are research features.
-- **Memory.** With `memory=`, SAC replays sequences in the R2D2 way
-  (Kapturowski et al. 2019): `burn_in` steps warm the memory up, then
-  `sequence_length` steps are learned from. It refuses extensions and
+- **Memory.** With `memory=`, SAC replays windows as Ni et al. (2022) do:
+  64 windows of `sequence_length` 64 steps, each from a zero memory, with
+  R2D2's `burn_in` and `stored_state` as options (Kapturowski et al. 2019).
+  It sums its critics' squared errors and steps the temperature (alpha, not
+  its log) on the actor loss's own log-densities, as Ni et al.'s SAC does.
+  It refuses extensions other than observation features, and
   `expert_policy`.
 
 ## CQL and Cal-QL: offline

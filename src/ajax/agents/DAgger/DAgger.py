@@ -15,13 +15,14 @@ InteractiveTrajectoryCollector). The replay, which keeps every visited
 state with the expert's action there, is D. Neither a reward nor a critic
 is used.
 
-How the actor fits D is the fit option. OnlineFit, the default, is an
-online learner: one gradient step on a replay batch per step, a
-deterministic actor regressed onto the expert's action; the paper's
-guarantee holds for any no-regret online learner (Sec. 4). IterationFit is
-the reference code's: at the end of each iteration, behaviour cloning over
-the whole replay for 4 epochs (DAggerTrainer.extend_and_update), a Gaussian
+How the actor fits D is the fit option. IterationFit, the default, is the
+reference code's: at the end of each iteration, behaviour cloning over the
+whole replay for 4 epochs (DAggerTrainer.extend_and_update), a Gaussian
 actor fitted by likelihood with an entropy bonus, which acts by sampling.
+OnlineFit is Ajax's earlier fit, an online learner: one gradient step on a
+replay batch per step, a deterministic actor regressed onto the expert's
+action. The paper's guarantee holds for any no-regret online learner
+(Sec. 4).
 
 Deviations: an iteration is iteration_steps steps, every one kept, where
 the reference's round also waits for 3 episodes to end
@@ -142,8 +143,8 @@ class IterationFit:
 
 @dataclass(frozen=True)
 class OnlineFit:
-    """An online learner: one gradient step on a replay batch per step once
-    the replay holds a batch. The actor
+    """Ajax's fit before the reference's became the default: one gradient
+    step on a replay batch per step once the replay holds a batch. The actor
     is deterministic (TD3's, tanh-squashed), fitted by the squared error to
     the expert's action, or categorical for discrete actions, fitted by
     cross-entropy; it acts with its mean or most likely action."""
@@ -166,10 +167,10 @@ class DAgger(GradientClipping, ObservationNormalization, ExpertGuided, ReplayAge
     paper prefers beta_i = I(i = 1), ExponentialBetaSchedule(0.0), as
     "often performs best in practice", Sec. 3; the code that made the
     reference's numbers ramps); 500-step iterations
-    (rollout_round_min_timesteps) and its behaviour cloning's batch of 32,
-    32-32 tanh network and torch Adam (learning rate 1e-3, eps 1e-8). Its
-    fit after each iteration (IterationFit) is an option; the default,
-    OnlineFit, fits online.
+    (rollout_round_min_timesteps), each ending with 4 epochs of behaviour
+    cloning over the whole replay (IterationFit); its behaviour cloning's
+    batch of 32, 32-32 tanh network and torch Adam (learning rate 1e-3, eps
+    1e-8).
     """
 
     #: The expert DAgger imitates (ExpertGuided's, required here).
@@ -180,7 +181,9 @@ class DAgger(GradientClipping, ObservationNormalization, ExpertGuided, ReplayAge
     )
     #: How the actor fits the replay: the reference's IterationFit, or
     #: OnlineFit.
-    fit: Union[IterationFit, OnlineFit] = dataclasses.field(default_factory=OnlineFit)
+    fit: Union[IterationFit, OnlineFit] = dataclasses.field(
+        default_factory=IterationFit
+    )
     #: The timesteps of one iteration i, over all envs.
     iteration_steps: int = 500
     actor_learning_rate: float = 1e-3

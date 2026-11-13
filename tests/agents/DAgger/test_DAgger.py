@@ -91,14 +91,16 @@ def test_beta_falls_linearly_to_zero_over_fifteen_iterations_by_default():
 def test_rows_hold_the_experts_label_whoever_acted(iteration_steps, expert_acts):
     """Every row stores the expert's action at its state, in agent units.
     While beta is 1 the expert's action is the executed one; once it is 0
-    (after the first tick) the actor's, flagged as not the expert's."""
+    (after the first tick) the actor's, flagged as not the expert's. A
+    batch of 16 keeps the fits, every tick at iteration_steps 2, under the
+    fast tier's 128 gradient updates (40)."""
     agent = DAgger(
         "Pendulum-v1",
         expert_policy=push,
         n_envs=N_ENVS,
         iteration_steps=iteration_steps,
         beta_schedule=FIRST_ONLY,
-        batch_size=4,
+        batch_size=16,
         buffer_size=64,
     )
     state, _ = agent.train(seed=[0], n_timesteps=32)
@@ -165,6 +167,16 @@ def test_the_actor_learns_the_experts_labels_not_the_actions_taken(env_id, fit):
     else:
         before, after = (_pi(s, obs).probs[:, label].mean() for s in (init, state))
         assert after > before + 0.25, (before, after)
+
+
+def test_the_default_fit_is_the_references_cloning_after_each_round():
+    """imitation@e5ef188: rounds of 500 steps (rollout_round_min_timesteps,
+    dagger.py:620), each followed by DEFAULT_N_EPOCHS = 4 of behaviour
+    cloning (dagger.py:326), whose batch is 32 and entropy weight 1e-3
+    (bc.py:282, :286)."""
+    agent = DAgger("Pendulum-v1", expert_policy=push)
+    assert agent.fit == IterationFit(epochs=4, entropy_weight=1e-3)
+    assert (agent.iteration_steps, agent.batch_size) == (500, 32)
 
 
 def actor_steps(state) -> int:

@@ -105,22 +105,22 @@ def _p0b_agent(agent: str, spec: envs.Spec = CUE, kind: str = "gru", **kw: Any) 
     return agents.make(agent, *spec.make(), memory=MemoryConfig(kind, 32), **kw)
 
 
-# Budgets: the smallest qualifying on seeds 1000-2031 of 1250-3750 steps
-# (TD3 also 5000 and 7500; PPO 10,000, 15,000, 20,000, 30,000 and 40,000);
-# certified 32/32 on 3000-3031 (PPO-lstm 30/32; PPO-mamba kept). The critic's V
-# after a cue-free episode settles last: it sets SAC's, REDQ's and TD3's
-# budgets, its tolerance near the 0.1 ceiling. TD3's actor can saturate at a
-# bound: seed 1011 reads -0.99 or beyond after cue -1 from 1250 to 3750
-# steps. PPO's log-std, one parameter from 0 (std 1), falls steadily: median
-# std 0.38-0.41 at 10,000 steps, where V's margin needs sigma under 0.35 and
-# 52 to 64 of 64 seeds fail; 0.09-0.11 at 30,000, where none fails; 0.05-0.07
-# at 40,000 (one mamba seed fails). With the Dense head PPO had before (std
-# 0.37 at the start, about 0.02 by 5000 steps) failures returned at longer
-# budgets and its transformer and mamba qualified at no budget of 2000-20,000.
-# The action gap reads exactly 0: it takes the 0.02 floor.
+# Budgets: the smallest qualifying on seeds 1000-2031 of 1250-3750 steps (TD3 also
+# 5000 and 7500; PPO 10,000, 15,000, 20,000, 30,000 and 40,000); certified 32/32 on
+# 3000-3031 (PPO with its per-head layers: gru and transformer 31, mamba 30; lstm at
+# 20,000, as 15,000 passed 12 of 16 test seeds; 3 ladder seeds never learn V(+1)). The
+# critic's V after a cue-free episode settles last: it sets SAC's, REDQ's and TD3's
+# budgets, its tolerance near the 0.1 ceiling. TD3's actor can saturate at a bound:
+# seed 1011 reads -0.99 or beyond after cue -1 from 1250 to 3750 steps. PPO's log-std,
+# one parameter from 0 (std 1), falls steadily: median std 0.38-0.41 at 10,000 steps,
+# where V's margin needs sigma under 0.35 and 52 to 64 of 64 seeds fail; 0.09-0.11 at
+# 30,000, where none fails; 0.05-0.07 at 40,000 (one mamba seed fails). With the Dense
+# head PPO had before (std 0.37 at the start, about 0.02 by 5000 steps) failures
+# returned at longer budgets and its transformer and mamba qualified at no budget of
+# 2000-20,000. The action gap reads exactly 0: it takes the 0.02 floor.
 P0B_CELLS: dict[tuple[str, str], tuple[int, tuple[float, ...]]] = {
     ("PPO", "gru"): (20_000, (0.4, 0.325, 0.317, 0.054, 0.054, 0.02)),
-    ("PPO", "lstm"): (15_000, (0.381, 0.296, 0.282, 0.045, 0.045, 0.02)),
+    ("PPO", "lstm"): (20_000, (0.381, 0.296, 0.282, 0.045, 0.045, 0.02)),
     ("PPO", "transformer"): (30_000, (0.432, 0.402, 0.396, 0.093, 0.093, 0.02)),
     ("PPO", "mamba"): (30_000, (0.429, 0.441, 0.428, 0.089, 0.089, 0.02)),
     ("SAC", "gru"): (3750, (0.48, 0.455, 0.456, 0.095, 0.095, 0.02)),

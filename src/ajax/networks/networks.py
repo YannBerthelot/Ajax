@@ -1,5 +1,5 @@
 import math
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import Any, NamedTuple, Optional, Tuple, Union
 
 import distrax
@@ -172,6 +172,22 @@ def observation_encoder(
     )
 
 
+def head_layers(
+    architecture: Sequence[Union[str, ActivationFunction]],
+    kernel_init: Optional[Union[str, InitializationFunction]],
+    encoder_kernel_init: Optional[Union[str, InitializationFunction]],
+) -> Callable[[jax.Array], jax.Array]:
+    """The hidden layers a network's output layers read its trunk (encoder,
+    then memory block) through (NetworkConfig.head_architecture), started
+    with ``kernel_init``, else the encoder's; none: the features as they
+    are. Built in the network's setup, so they are the network's own."""
+    if not architecture:
+        return lambda features: features
+    if kernel_init is None:
+        kernel_init = encoder_kernel_init
+    return nn.Sequential(parse_architecture(architecture, kernel_init))
+
+
 class CNNEncoder(nn.Module):
     """Conv encoder for image observations packed flat as ``(H*W*C + extra_dim,)``.
 
@@ -312,12 +328,19 @@ class Actor(nn.Module):
     # (distribution, new_hidden_state). None keeps the network feedforward
     # and the call signature unchanged.
     memory: Optional[MemoryConfig] = None
+    # The hidden layers the output layers read the memory's (or the
+    # encoder's) features through (NetworkConfig.head_architecture).
+    head_architecture: Sequence[Union[str, ActivationFunction]] = ()
+    head_kernel_init: Optional[Union[str, InitializationFunction]] = None
 
     def setup(self):
         check_log_std_bounds(self.log_std_bounds)
         if self.memory is not None:
             self.memory_cell = MemoryCell(self.memory)
         self.encoder = observation_encoder(self)
+        self.head_layers = head_layers(
+            self.head_architecture, self.head_kernel_init, self.encoder_kernel_init
+        )
         # Discrete logits start near 0 (a near-uniform policy) unless
         # logits_kernel_init sets them, as in OpenAI Baselines @ea25b9e
         # (common/policies.py:49, init_scale=0.01), CleanRL @fe8d8a0
@@ -369,6 +392,7 @@ class Actor(nn.Module):
             )
 
     def _distribution(self, embedding) -> distrax.Distribution:
+        embedding = self.head_layers(embedding)
         if self.continuous:
             mean = self.mean(embedding)
             if self.tanh_mean:
@@ -454,8 +478,15 @@ class Critic(nn.Module):
     # its own architecture, as SAC-AE's critic (the action joins after the
     # encoder).
     reads_features: bool = False
+    # The hidden layers the value layer reads the features through, after
+    # the memory and the action (NetworkConfig.head_architecture).
+    head_architecture: Sequence[Union[str, ActivationFunction]] = ()
+    head_kernel_init: Optional[Union[str, InitializationFunction]] = None
 
     def setup(self):
+        self.head_layers = head_layers(
+            self.head_architecture, self.head_kernel_init, self.encoder_kernel_init
+        )
         if self.reads_features:
             if self.query_dim:
                 self.head = Encoder(
@@ -497,9 +528,9 @@ class Critic(nn.Module):
     def quantiles(self, x: jax.Array, hidden_state=None, done=None):
         """The head's ``n_quantiles`` outputs (and the carry, with memory)."""
         if self.reads_features:
-            return self.model(self.head(x) if self.query_dim else x)
+            return self.model(self.head_layers(self.head(x) if self.query_dim else x))
         if self.memory is None:
-            return self.model(self.encoder(x))
+            return self.model(self.head_layers(self.encoder(x)))
         if hidden_state is None or done is None:
             raise ValueError("Recurrent Critic requires hidden_state and done flags.")
         query = None
@@ -508,7 +539,7 @@ class Critic(nn.Module):
         hidden_state, feat = self.memory_cell(hidden_state, self.encoder(x), done)
         if query is not None:
             feat = self.head(jnp.concatenate([feat, query], axis=-1))
-        return self.model(feat), hidden_state
+        return self.model(self.head_layers(feat)), hidden_state
 
     def apply_encoder(self, x: jax.Array) -> jax.Array:
         """The encoder's features alone, without the value head (read by
@@ -544,6 +575,9 @@ class MultiCritic(nn.Module):
     # reads it with. A Q-critic's members keep input_architecture for their
     # heads over its features and the action. None: input_architecture.
     encoder_architecture: Optional[Sequence[Union[str, ActivationFunction]]] = None
+    # Each member's hidden layers before its value layer (Critic's).
+    head_architecture: Sequence[Union[str, ActivationFunction]] = ()
+    head_kernel_init: Optional[Union[str, InitializationFunction]] = None
 
     def setup(self):
         if self.share_encoder:
@@ -581,6 +615,8 @@ class MultiCritic(nn.Module):
             value_kernel_init=self.value_kernel_init,
             n_quantiles=self.n_quantiles,
             reads_features=self.share_encoder,
+            head_architecture=self.head_architecture,
+            head_kernel_init=self.head_kernel_init,
         )
 
     def __call__(self, x: jax.Array, hidden_state=None, done=None):
@@ -778,6 +814,8 @@ def get_initialized_actor_critic(
             tanh_mean=network_config.tanh_mean,
             encoder_layer_norm=network_config.encoder_layer_norm,
             memory=memory,
+            head_architecture=network_config.head_architecture,
+            head_kernel_init=network_config.head_kernel_init,
         )
     if squash and continuous:  # a discrete policy has no range to bound
         actor = Squashed(
@@ -813,6 +851,8 @@ def get_initialized_actor_critic(
         n_quantiles=network_config.critic_quantiles,
         share_encoder=network_config.share_encoder,
         encoder_architecture=shared_architecture,
+        head_architecture=network_config.head_architecture,
+        head_kernel_init=network_config.head_kernel_init,
     )
 
     actor_tx = get_adam_tx(**to_state_dict(actor_optimizer_config))
@@ -891,6 +931,7 @@ def get_initialized_critic(
         penultimate_normalization=network_config.penultimate_normalization,
         encoder_layer_norm=network_config.encoder_layer_norm,
         num=num_critics,
+        head_architecture=network_config.head_architecture,
     )
 
     critic_tx = get_adam_tx(**to_state_dict(critic_optimizer_config), per_member=True)

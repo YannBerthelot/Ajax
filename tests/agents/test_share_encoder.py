@@ -11,8 +11,10 @@ summed loss, ppo2/model.py:75-107, common/policies.py:155-157):
   the policy loss's, so the policy loss alone trains it;
 - the actor's copy follows the critic's encoder after training and after
   cloning pretraining, which trains the encoder through the actor;
-- ``None`` is the agent's reference: separate MLPs for PPO (ppo2's MuJoCo
-  setting, defaults.py:12) and for APO (rlpyt's MujocoFfModel);
+- ``None`` is the agent's reference: for PPO one encoder with images
+  (ppo2's Atari defaults), separate MLPs (ppo2's MuJoCo setting,
+  defaults.py:12) and, by the owner's choice, separate memories; separate
+  MLPs for APO (rlpyt's MujocoFfModel);
 - the networks it cannot build are refused.
 """
 
@@ -229,6 +231,27 @@ def test_a_shared_encoder_state_restores_from_its_checkpoint(tmp_path):
         state.actor_state.shared_params,
     )
     assert all(jax.tree.leaves(same))
+
+
+@pytest.mark.parametrize(
+    "network, shared",
+    [
+        ({}, False),  # ppo2's MuJoCo copy (defaults.py:12), CleanRL's, PureJaxRL's
+        # ppo2 and PureJaxRL share a memory, behind per-head layers Ajax lacks
+        ({"memory": MemoryConfig("gru", 8)}, False),
+        ({"env_id": "Breakout-MinAtar", "cnn_image_shape": (10, 10, 4)}, True),
+    ],
+)
+def test_ppo_follows_its_reference_per_network(network, shared):
+    """ppo2 shares its network with images (Atari defaults, defaults.py:15-21)
+    and copies MLPs on MuJoCo; the owner chose the copy for every MLP, and
+    separate networks with memory until Ajax has PureJaxRL's per-head layers
+    after it (2026-11-13)."""
+    agent = PPO(**{"env_id": "CartPole-v1", **SMALL, **network})
+    assert agent.network_args.share_encoder == shared
+    assert not PPO(
+        **{"env_id": "CartPole-v1", **SMALL, **network, "share_encoder": False}
+    ).network_args.share_encoder
 
 
 @pytest.mark.parametrize("agent_class", [PPO, APO])

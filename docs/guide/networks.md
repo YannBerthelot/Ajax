@@ -197,9 +197,21 @@ state, _ = agent.train(seed=0, n_timesteps=64)
   it back to the critic.
 
 `share_encoder=None`, the default, does what the agent's reference code
-does. PPO and APO take it. Their references keep MLP networks apart:
-ppo2 does on MuJoCo (`value_network='copy'`), and so do CleanRL,
-PureJaxRL and APO's rlpyt model.
+does. PPO and APO take it:
+
+| Agent | MLP | Image (CNN) | Memory |
+| --- | --- | --- | --- |
+| PPO | separate (ppo2 on MuJoCo, CleanRL, PureJaxRL) | shared (ppo2 on Atari, CleanRL) | separate (see below) |
+| APO | separate (its rlpyt model) | - | - |
+
+ppo2 also shares MLP networks outside MuJoCo; Ajax keeps them apart, as
+its MuJoCo setting does. With memory, ppo2 and PureJaxRL share the
+encoder and the memory block, but PureJaxRL gives each head its own
+hidden layer after the memory, which Ajax's heads do not have. Without
+those layers, large value targets (CartPole's undiscounted returns) take
+over the one memory, so PPO keeps separate memories by default. With
+`share_encoder=True` and memory, normalise the rewards
+(`normalize_rewards=True`).
 
 ## The PID policy
 

@@ -132,9 +132,12 @@ Defaults are those of the constructor.
   `num_resets_per_eval` and `num_evals` reproduce choices of Brax's PPO.
   They are off by default, as is `encoder_layer_norm` (a LayerNorm on the
   encoder's output).
-- **Separate networks.** The actor and the critic are separate networks,
-  unless `share_encoder=True` gives them one encoder (see the networks
-  guide). As ppo2's one optimizer, their gradients are clipped together to one
+- **Separate networks, or one encoder.** The actor and the critic are
+  separate MLP networks, as ppo2 copies them on MuJoCo
+  (`ppo2/defaults.py:12`). With images they share one encoder, as ppo2's
+  Atari policies do (`common/policies.py:155-167`). With memory they stay
+  separate, unlike ppo2 and PureJaxRL (see the networks guide).
+  `share_encoder` overrides the default. As ppo2's one optimizer, their gradients are clipped together to one
   global norm, then each takes an Adam step (Adam is per coordinate, so
   the two are one Adam over the whole model); the value loss is not
   clipped. As in Baselines' ppo2,

@@ -178,6 +178,25 @@ class PPO(
             return {"encoder_kernel_init": PPO_HIDDEN_INIT}
         return {}
 
+    def reference_share_encoder(self) -> bool:
+        """ppo2's choice (@ea25b9e), whose value head reads the policy's
+        network unless value_network says otherwise
+        (common/policies.py:155-167): shared with images, where its Atari
+        defaults leave it so (ppo2/defaults.py:15-21; CleanRL @fe8d8a0
+        ppo_atari.py:120-133). MLP networks stay apart, as ppo2's MuJoCo
+        defaults copy them (defaults.py:12, value_network='copy'), and as
+        CleanRL's ppo.py:103-116 and PureJaxRL @31756b1 ppo.py:24-45 build
+        them; ppo2 shares them on other tasks (run.py:170-176), which the
+        owner left aside (2026-11-13).
+
+        With memory the references share too (common/policies.py:165;
+        PureJaxRL ppo_rnn.py:51-57), but PureJaxRL gives each head a
+        128-unit layer after the GRU (ppo_rnn.py:59-75), which Ajax's heads
+        lack: on CartPole's raw returns the value then swamps the one memory
+        (return 23 against 260 apart, 100k steps). Recurrent PPO keeps its
+        networks apart until those layers exist (owner, 2026-11-13)."""
+        return self.cnn_image_shape is not None
+
     def optimizer_settings(self) -> dict[str, Any]:
         # ppo2's Adam (model.py:100-107) with eps 1e-5; its one clip over both
         # networks is minibatch_step's (update_steps.apply_gradients_clipped_together),

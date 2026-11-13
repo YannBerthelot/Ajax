@@ -53,7 +53,7 @@ lstm = {"kind": "lstm", "hidden_size": 64}  # a dictionary works too
 
 | Setting | Default | Used by |
 | --- | --- | --- |
-| `hidden_size` | 64 | every kind; a multiple of `num_heads` for the transformer |
+| `hidden_size` | `None` | every kind: the memory's width; `None` is the agent's reference width (128, Ni et al.'s, for the off-policy agents), else 64; a multiple of `num_heads` for the transformer |
 | `num_layers` | 1 | every kind |
 | `gradient_checkpoint` | `False` | every kind: recompute activations in the backward pass, trading time for memory on long sequences |
 | `window`, `num_heads` | 32, 4 | transformer: a step attends to itself and the `window - 1` steps before it in the same episode |
@@ -91,7 +91,8 @@ its memory through a 128-unit ReLU layer, as PureJaxRL's heads do.
 `share_encoder=True` gives them one memory, as ppo2's recurrent policies and
 PureJaxRL do; in Ajax that memory does not yet learn what the observation
 hides (see the networks guide).
-The off-policy agents keep separate memories, as Ni et al. (2022) do.
+The off-policy agents' actor and critics keep separate memories, as Ni et
+al. (2022)'s do; their critics share one.
 
 ### The libraries disagree on the length
 
@@ -208,30 +209,45 @@ whole sequence before the first update (`learning_starts // n_envs` must
 exceed `burn_in + sequence_length + 1`), and `stored_state=True` without
 `memory=`.
 
-A recurrent critic's memory reads each step's observation and the action
-taken before it. The action the loss asks about joins after the memory, at
-the critic's head, so asking about another action does not change what the
-critic remembers (the recurrent off-policy critic of Ni et al., 2022).
+### The networks
 
-The actor reads the observation alone. Add the `PreviousAction()`
-observation feature for it to read the action taken before each
-observation too, as Ni et al.'s recurrent actor does: the feature joins
-every observation, in collection, evaluation and `agent.policy`, zero at an
-episode's first. The critic then reads the previous action from the
-observation instead of adding its own, in the agent's [-1, 1] units. With
-the feature, `share_encoder=True` gives the actor and the critic one memory,
-the critic's ([Networks](networks.md)).
+With memory, SAC, TD3, REDQ, ASAC, TQC and RVI-SAC build Ni et al.
+(2022)'s recurrent networks (twni2016/pomdp-baselines; SAC and TD3 are
+theirs, the others take them by analogy):
+
+- The memory reads the previous action, the previous reward and the
+  observation, each through its own linear layer and ReLU of 16, 16 and 32
+  units. A run with memory adds the `PreviousAction()` and
+  `PreviousReward()` observation features for them where its extensions
+  hold neither, so collection, evaluation and `agent.policy` append them,
+  zero at an episode's first observation; `agent.policy`'s `act` then needs
+  the reward the last action earned.
+- The memory has 128 units unless `MemoryConfig.hidden_size` sets them. A
+  GRU or LSTM starts as Ni et al.'s (`init="stacked_orthogonal"`), a
+  transformer as GPT-2 and Mamba as Mamba, unless `init` is set.
+- The networks' own layers (`actor_architecture`, `critic_architecture`)
+  run after the memory, on its output joined with a shortcut: a linear
+  layer and ReLU over the current observation, of 32 units for the actor
+  and 64 for a critic, whose shortcut also reads the action it is asked
+  about. That action never reaches the memory, so asking about another
+  action does not change what the critic remembers.
+- The critics read one memory, each Q-network with its own layers after it.
+- The layers start as Ni et al.'s: torch's default for the embeddings and
+  shortcuts, rlkit's fan-in uniform with biases 0.1 for the hidden layers,
+  and output layers uniform in ±1e-3 (actor) or ±3e-3 (Q), biases too.
+
+These are `NetworkConfig`'s `input_embedding`, `shortcut_widths`,
+`embedding_kernel_init` and `critics_share_encoder`. `share_encoder=True`
+also gives the actor the critics' embeddings and memory
+([Networks](networks.md)).
 
 ```python
 from ajax import SAC
-from ajax.extensions.observe import PreviousAction
 from ajax.networks.memory import MemoryConfig
 
-agent = SAC(
-    "Pendulum-v1",
-    memory=MemoryConfig(kind="gru", hidden_size=64),
-    extensions=(PreviousAction(),),
-)
+# Ni et al.'s networks: a 128-unit GRU reading the previous action and
+# reward, which the run observes.
+agent = SAC("Pendulum-v1", memory=MemoryConfig(kind="gru"))
 ```
 
 With memory, SAC, TD3 and REDQ accept no expert policy and no extensions

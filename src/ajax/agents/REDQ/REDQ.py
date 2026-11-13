@@ -50,7 +50,12 @@ from ajax.agents.families import (
     RewardNormalization,
     TrainContext,
 )
-from ajax.agents.recurrent import RecurrentCarries, q_values, sample_replay
+from ajax.agents.recurrent import (
+    RecurrentCarries,
+    ni_initialisation,
+    q_values,
+    sample_replay,
+)
 from ajax.agents.SAC.SAC import (
     compute_soft_bellman_target,
     compute_soft_policy_loss,
@@ -154,11 +159,10 @@ class REDQ(
         # xavier_uniform with gain 1, bias 0) to every Linear layer of
         # its policy and Q networks, the mean and log-std layers
         # included (:96-98, :194-198), whatever their comments say.
-        # Recurrent REDQ (memory set) keeps Ajax's previous initialisation
-        # until Ni et al.'s, its recurrent reference (pomdp-baselines), is
-        # audited: at REDQ's, its memory cells' actors read 24-29/32.
+        # Recurrent REDQ (memory set) starts as Ni et al.'s recurrent SAC.
         args: dict[str, Any] = {"squash": True}
         if self.memory is not None:
+            args.update(ni_initialisation())
             return args
         args.update(
             {

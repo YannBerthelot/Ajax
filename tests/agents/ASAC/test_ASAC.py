@@ -164,31 +164,6 @@ def test_asac_starts_every_layer_as_torch_nn_linear():
             np.testing.assert_allclose(kernel.var(), bound**2 / 3, rtol=0.3)
 
 
-def test_recurrent_asac_keeps_its_previous_initialisation():
-    """With memory, ASAC keeps Ajax's previous initialisation until Ni et
-    al.'s is audited: an orthogonal(0.01) mean and a zero-kernel log-std
-    head starting at -1."""
-    from ajax.networks.memory import MemoryConfig
-
-    agent = ASAC(env_id="Pendulum-v1", memory=MemoryConfig("gru", 16))
-    actor_state, _ = get_initialized_actor_critic(
-        jax.random.PRNGKey(0),
-        agent.env_args,
-        agent.actor_optimizer_args,
-        agent.critic_optimizer_args,
-        agent.network_args,
-        continuous=True,
-        action_value=True,
-        squash=True,
-        num_critics=2,
-    )
-    actor = actor_state.params["params"]
-    mean = np.asarray(actor["mean"]["kernel"])
-    np.testing.assert_allclose(mean.T @ mean, 1e-4 * np.eye(1), atol=1e-8)
-    np.testing.assert_array_equal(actor["log_std"]["kernel"], 0.0)
-    np.testing.assert_array_equal(actor["log_std"]["bias"], -1.0)
-
-
 def test_a_terminated_rows_reward_is_charged_the_penalty_for_the_critics_alone(
     monkeypatch,
 ):

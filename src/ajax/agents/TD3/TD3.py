@@ -42,7 +42,13 @@ from ajax.agents.families import (
     RewardNormalization,
     TrainContext,
 )
-from ajax.agents.recurrent import RecurrentCarries, actor_dist, q_values, sample_replay
+from ajax.agents.recurrent import (
+    RecurrentCarries,
+    actor_dist,
+    ni_initialisation,
+    q_values,
+    sample_replay,
+)
 from ajax.controller import critic_action_units, leave_unchanged
 from ajax.environments.interaction import Explore, explore_pipeline
 from ajax.extensions.base import merge_metrics
@@ -75,9 +81,8 @@ class TD3(
     layers keep torch's nn.Linear initialisation (bc98e62 TD3.py:24-26,
     :43-50), kernel and bias uniform in +-1/sqrt(fan_in), the actor's last
     layer included (DDPG's uniform(+-3e-3) is in neither), and its critics
-    read the env's units, max_action * tanh. With memory, TD3 keeps
-    Ajax's previous initialisation until Ni et al.'s reference
-    (pomdp-baselines) is audited, as SAC, REDQ and ASAC do.
+    read the env's units, max_action * tanh. With memory, TD3 is Ni et
+    al.'s recurrent TD3 (ajax.agents.recurrent).
     """
 
     actor_learning_rate: float = 3e-4
@@ -100,10 +105,12 @@ class TD3(
     action_pipeline: Optional[Callable] = None
 
     def actor_critic_args(self) -> dict[str, Any]:
-        if self.memory is not None:
-            return {"squash": True}
-        init = ("encoder_kernel_init", "mean_kernel_init", "value_kernel_init")
         args: dict[str, Any] = {"squash": True}
+        if self.memory is not None:
+            # Recurrent TD3 starts as its reference, Ni et al.'s.
+            args.update(ni_initialisation(deterministic=True))
+            return args
+        init = ("encoder_kernel_init", "mean_kernel_init", "value_kernel_init")
         args.update(dict.fromkeys(init, TORCH_LINEAR))
         return args
 

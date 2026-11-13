@@ -24,6 +24,24 @@ The next release is 0.6.0: the first item changes results.
   reads the reward it is given (it refuses `done` without `reward`).
   Features read it through `ObserveInputs.previous_reward`. APG refuses it:
   its closed-loop rollout passes the features no reward yet.
+- **Breaking: SAC, TD3, REDQ, ASAC, TQC and RVI-SAC with `memory=` build
+  Ni et al. (2022)'s recurrent networks** (twni2016/pomdp-baselines, the
+  owner's reference for them; TQC and RVI-SAC by analogy). The memory reads
+  the previous action, the previous reward and the observation through
+  embeddings of 16, 16 and 32 units; a run with memory adds
+  `PreviousAction()` and `PreviousReward()` where its extensions hold
+  neither, so `agent.policy`'s `act` needs each reward. The memory is 128
+  units wide and starts as Ni et al.'s unless the `MemoryConfig` sets
+  them. The networks' layers run after the memory, on its output joined
+  with a shortcut embedding of the observation (the critic's with the
+  action asked about), and the critics read one memory. Every layer starts
+  as Ni et al.'s. `NetworkConfig` gains `input_embedding`,
+  `shortcut_widths`, `embedding_kernel_init` and `critics_share_encoder`;
+  `MemoryConfig.hidden_size` defaults to `None`, the agent's reference
+  width (64 where an agent has none, as before). *Upgrade:* a checkpoint of
+  one of these agents trained with memory does not restore into this
+  version: its parameters are another network's. Retrain, or pin the
+  previous version to use it.
 - **SAC, TD3, REDQ, TQC, ASAC and RVI-SAC can share a memory.** With
   `share_encoder=True`, `memory=` and `PreviousAction()`, the critic's
   encoder and memory block read the observation and the previous action

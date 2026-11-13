@@ -44,14 +44,17 @@ from gymnax import EnvParams
 from ajax.agents import update_steps
 from ajax.agents.base import ActorCritic, run_horizon, shared_counters
 from ajax.agents.loop import LOOP_PHASES, Evaluation, TrainLoop
-
-# Imported under another name: ReplayAgent's own hook is make_replay_buffer.
-from ajax.agents.recurrent import make_replay_buffer as make_recurrent_replay_buffer
 from ajax.agents.recurrent import (
+    NI_LAYOUT,
+    NI_MEMORY_INITS,
+    NI_MEMORY_WIDTH,
     replayed_window,
     stored_actor_carry_dim,
     unsupported_recurrent_options,
 )
+
+# Imported under another name: ReplayAgent's own hook is make_replay_buffer.
+from ajax.agents.recurrent import make_replay_buffer as make_recurrent_replay_buffer
 from ajax.agents.update_steps import REPLAY_BATCH_KEYS, reached
 from ajax.buffers.ring import count_ring_rows, size_ring
 from ajax.buffers.utils import (
@@ -73,7 +76,12 @@ from ajax.environments.row_collector import resume_tick
 from ajax.environments.utils import get_state_action_shapes
 from ajax.evaluate import ValueEstimate
 from ajax.extensions.base import Extension, ExtensionStack, holds_expert
-from ajax.networks.memory import MemoryConfig
+from ajax.extensions.observe import PreviousAction, PreviousReward
+from ajax.networks.memory import (
+    MemoryConfig,
+    parse_memory_config,
+    with_reference_defaults,
+)
 from ajax.networks.networks import (
     CNNSpec,
     action_value,
@@ -1051,6 +1059,13 @@ class RecurrentReplayAgent(ReplayAgent):
     (ajax.agents.recurrent), and its learning_starts must give
     each env more steps than a window.
 
+    Its networks with memory are Ni et al. (2022)'s (ajax.agents.recurrent:
+    NI_LAYOUT, NI_MEMORY_WIDTH, NI_MEMORY_INITS, ni_initialisation, which
+    the agent's actor_critic_args takes). They read the previous action and
+    the previous reward, so a run with memory observes both: PreviousAction
+    and PreviousReward join its extensions where it has none of them (owner,
+    2026-11-13: on by default, as Ni et al.'s networks read them).
+
     Args:
         memory: The networks' memory block (MemoryConfig or its dict form);
             None keeps them feedforward.
@@ -1069,6 +1084,21 @@ class RecurrentReplayAgent(ReplayAgent):
 
     supports_memory = True
 
+    def __post_init__(self) -> None:
+        # Resolved before the run config records them, so the log keeps
+        # what runs.
+        if self.memory is not None:
+            self.memory = with_reference_defaults(
+                parse_memory_config(self.memory), NI_MEMORY_INITS, NI_MEMORY_WIDTH
+            )
+            self.extensions = with_ni_features(self.extensions)
+        super().__post_init__()
+
+    def _build_family(self) -> None:
+        if self.memory is not None:
+            self.network_args = self.network_args.replace(**NI_LAYOUT)
+        super()._build_family()
+
     def make_replay_buffer(self) -> BufferType:
         return make_recurrent_replay_buffer(
             self,
@@ -1083,6 +1113,17 @@ class RecurrentReplayAgent(ReplayAgent):
 
     def stores_state(self) -> bool:
         return self.stored_state
+
+
+def with_ni_features(extensions: Sequence[Extension]) -> tuple[Extension, ...]:
+    """extensions with the features Ni et al.'s recurrent networks read,
+    the previous action and the previous reward (PreviousAction,
+    PreviousReward), each appended where none is there."""
+    kept = tuple(extensions)
+    for feature in (PreviousAction(), PreviousReward()):
+        if not any(isinstance(extension, type(feature)) for extension in kept):
+            kept = (*kept, feature)
+    return kept
 
 
 @dataclass(kw_only=True, eq=False, repr=False)

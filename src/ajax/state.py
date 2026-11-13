@@ -390,7 +390,7 @@ class NetworkConfig(Replaceable):
     # The actor head's knobs; Actor (networks.py) documents each and its
     # reference.
     log_std_state_independent: bool = False
-    log_std_init: Optional[float] = -1.0
+    log_std_init: Optional[Union[float, str]] = -1.0
     # Static, not a pytree leaf: jax rebuilds the config (tree.map,
     # unflatten) through __post_init__, whose check must then read the
     # bounds, not a leaf jax put in their place.
@@ -439,6 +439,34 @@ class NetworkConfig(Replaceable):
     head_architecture: Tuple[str, ...] = ()
     # Their kernel init, as encoder_kernel_init is read; None: the encoder's.
     head_kernel_init: Optional[Union[str, InitializationFunction]] = None
+    # Ni et al. (2022)'s recurrent layout, for networks with memory: the parts
+    # of the observation the memory reads, each through its own Dense layer
+    # and ReLU of the given width, joined in this order, as (part, width)
+    # pairs. A part is an observation feature's name ("previous_action",
+    # "previous_reward") or "observation": every column no other part
+    # names. The network's architecture then runs after the memory, on its
+    # output joined with the shortcut. (): the architecture is the encoder
+    # the memory reads. Static, as every field below: they decide the
+    # networks' structure.
+    input_embedding: Tuple[Tuple[str, int], ...] = flax.struct.field(
+        pytree_node=False, default=()
+    )
+    # Ni et al.'s shortcut, (actor's, critic's) widths: the current
+    # observation (a Q-critic's with the action asked about) through one
+    # Dense layer and ReLU, joined to the memory's output; 0: none.
+    shortcut_widths: Tuple[int, int] = flax.struct.field(
+        pytree_node=False, default=(0, 0)
+    )
+    # The input embedding's and the shortcuts' kernel init, as
+    # encoder_kernel_init is read; None: the encoder's.
+    embedding_kernel_init: Optional[str] = flax.struct.field(
+        pytree_node=False, default=None
+    )
+    # The critics read one encoder (or input embedding), memory block and
+    # shortcut, each with its own layers after them, as Ni et al.'s
+    # recurrent critic's two Q-networks read one RNN. share_encoder, which
+    # gives the actor the critics' encoder too, implies it.
+    critics_share_encoder: bool = flax.struct.field(pytree_node=False, default=False)
 
     def __post_init__(self):
         check_log_std_bounds(self.log_std_bounds)

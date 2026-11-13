@@ -47,7 +47,13 @@ from ajax.agents.families import (
     RewardNormalization,
     TrainContext,
 )
-from ajax.agents.recurrent import RecurrentCarries, actor_dist, q_values, sample_replay
+from ajax.agents.recurrent import (
+    RecurrentCarries,
+    actor_dist,
+    ni_initialisation,
+    q_values,
+    sample_replay,
+)
 from ajax.agents.temperature import (
     SoftActorCriticState,
     TemperatureAuxiliaries,
@@ -172,11 +178,10 @@ class SAC(
         # default at tensorflow 2.4.1, its requirements'). Both draw the
         # mean and the log-std from one output layer; here each head
         # takes Glorot's bound for its own width.
-        # Recurrent SAC (memory set) keeps Ajax's previous initialisation
-        # until Ni et al.'s, its reference (pomdp-baselines), is audited: at
-        # the feedforward reference's, its memory cells' actors read 25-28/32.
+        # Recurrent SAC (memory set) starts as its reference, Ni et al.'s.
         args: dict[str, Any] = {"squash": True}
         if self.memory is not None:
+            args.update(ni_initialisation())
             return args
         args.update(
             {

@@ -437,9 +437,9 @@
   "config": {
    "action_repeat": 1,
    "actor_architecture": [
-    "128",
+    "64",
     "tanh",
-    "128",
+    "64",
     "tanh"
    ],
    "actor_bias_init": null,
@@ -453,9 +453,9 @@
    "cnn_image_shape": null,
    "cnn_spec": null,
    "critic_architecture": [
-    "128",
+    "64",
     "tanh",
-    "128",
+    "64",
     "tanh"
    ],
    "critic_bias_init": null,
@@ -478,7 +478,7 @@
    "max_grad_norm": 0.5,
    "mean_kernel_init": null,
    "memory": null,
-   "n_envs": 4,
+   "n_envs": 1,
    "n_epochs": 10,
    "n_steps": 2048,
    "normalize_advantage": true,

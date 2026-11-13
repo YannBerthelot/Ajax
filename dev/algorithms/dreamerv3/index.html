@@ -1617,6 +1617,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#presets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Presets
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#key-hyperparameters" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2870,6 +2881,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#presets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Presets
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#key-hyperparameters" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3148,6 +3170,12 @@ train ratio of 512, action repeat 2, and 500K environment frames, which is
 <a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>                  <span class="n">action_repeat</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">episode_length</span><span class="o">=</span><span class="mi">1000</span><span class="p">)</span>
 <a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="n">state</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">seed</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">250_000</span><span class="p">)</span>  <span class="c1"># 500K env frames</span>
 </code></pre></div>
+<h2 id="presets">Presets<a class="headerlink" href="#presets" title="Permanent link">&para;</a></h2>
+<p><code>DreamerV3.preset("DMC", env_id)</code> builds that configuration, the
+reference's <code>dmc_proprio</code> (danijar/dreamerv3@<code>29eb964</code>, <code>configs.yaml:44</code>,
+<code>:84</code>, <code>:232-236</code>; <a href="../../guide/training/#presets">Presets</a>): <code>model_size="12m"</code>, <code>train_ratio=512</code>, <code>n_envs=16</code>
+and <code>action_repeat=2</code>. The reference's other domains (Atari, Crafter, DMLab,
+Procgen) observe images, which Ajax's DreamerV3 does not encode yet.</p>
 <h2 id="key-hyperparameters">Key hyperparameters<a class="headerlink" href="#key-hyperparameters" title="Permanent link">&para;</a></h2>
 <p>Every default is the paper-era value.</p>
 <table>

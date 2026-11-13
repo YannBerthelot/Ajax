@@ -1460,6 +1460,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#presets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Presets
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#notes" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2826,6 +2837,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#presets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Presets
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#notes" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3131,6 +3153,52 @@ rewards scaled by 0.1.</p>
 </table>
 <p>A rollout holds <code>n_steps * n_envs</code> rows (1,024 by default), which must divide
 evenly into <code>num_minibatches</code>; PQN raises otherwise.</p>
+<h2 id="presets">Presets<a class="headerlink" href="#presets" title="Permanent link">&para;</a></h2>
+<p><code>PQN.preset(task, env_id)</code> takes purejaxql's config for the task
+(mttga/purejaxql@<code>47af6d7</code>, <code>purejaxql/config/alg/pqn_&lt;task&gt;.yaml</code>; <a href="../../guide/training/#presets">Presets</a>);
+its MinAtar config is the defaults.</p>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th><code>CartPole</code></th>
+<th><code>Atari</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>n_envs</code>, <code>n_steps</code></td>
+<td>32, 64</td>
+<td>128, 32</td>
+</tr>
+<tr>
+<td><code>num_minibatches</code>, <code>n_epochs</code></td>
+<td>16, 4</td>
+<td>32, 2</td>
+</tr>
+<tr>
+<td><code>learning_rate</code>, <code>lr_linear_decay</code></td>
+<td><code>1e-4</code>, <code>True</code></td>
+<td><code>2.5e-4</code>, <code>False</code></td>
+</tr>
+<tr>
+<td><code>epsilon_end</code>, <code>epsilon_decay_frac</code></td>
+<td>0.2, 0.2</td>
+<td>0.001, 0.1</td>
+</tr>
+<tr>
+<td><code>q_lambda</code>, <code>reward_scale</code></td>
+<td>0.95, 0.1</td>
+<td>0.65, 1.0</td>
+</tr>
+<tr>
+<td><code>architecture</code></td>
+<td>256-256 ReLU</td>
+<td>the default</td>
+</tr>
+</tbody>
+</table>
+<p>Atari's frame skip, life loss and reward clipping are the environment's.</p>
 <h2 id="notes">Notes<a class="headerlink" href="#notes" title="Permanent link">&para;</a></h2>
 <ul>
 <li><strong>Returns.</strong> As purejaxql computes them. With <code>V(s) = max_a Q(s, a)</code>,

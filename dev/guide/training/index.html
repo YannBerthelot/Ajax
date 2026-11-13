@@ -625,6 +625,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Building an agent">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#presets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Presets
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -2790,6 +2807,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Building an agent">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#presets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Presets
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -3025,18 +3059,106 @@ step the agent's loop never runs or data its replay does not keep (the
 constructor argument by name (<code>TDMPC2MultiTask</code> leaves out its dataset and
 evaluation environments), plus <code>algo_name</code>. The loggers store it with each
 run (<a href="../logging/">Logging</a>).</p>
-<h2 id="train"><code>train</code><a class="headerlink" href="#train" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax</span><span class="w"> </span><span class="kn">import</span> <span class="n">SAC</span>
+<h3 id="presets">Presets<a class="headerlink" href="#presets" title="Permanent link">&para;</a></h3>
+<p>An agent's defaults are its reference code's general configuration. Where
+the reference tunes some values for one task (a temperature for Humanoid, a
+discount for Swimmer, a whole configuration for Atari), the agent keeps them
+in a preset, named after the task:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax</span><span class="w"> </span><span class="kn">import</span> <span class="n">TQC</span>
 <a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>
-<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="n">agent</span> <span class="o">=</span> <span class="n">SAC</span><span class="p">(</span><span class="s2">&quot;Pendulum-v1&quot;</span><span class="p">,</span> <span class="n">learning_starts</span><span class="o">=</span><span class="mi">1_000</span><span class="p">)</span>
-<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="n">state</span><span class="p">,</span> <span class="n">out</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span>
-<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>    <span class="n">seed</span><span class="o">=</span><span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">],</span>  <span class="c1"># one run per seed, all in one program</span>
-<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>    <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">2_000</span><span class="p">,</span>  <span class="c1"># environment steps this call trains for</span>
-<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>    <span class="n">num_episode_test</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span>  <span class="c1"># test episodes per evaluation</span>
-<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>    <span class="n">logging_config</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>  <span class="c1"># None: no evaluation, and out is None</span>
-<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>    <span class="n">initial_state</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>  <span class="c1"># or a state to continue from</span>
-<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a>    <span class="n">total_timesteps</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>  <span class="c1"># the run&#39;s horizon; None: this call&#39;s end</span>
-<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="p">)</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="n">agent</span> <span class="o">=</span> <span class="n">TQC</span><span class="o">.</span><span class="n">preset</span><span class="p">(</span><span class="s2">&quot;Hopper&quot;</span><span class="p">,</span> <span class="s2">&quot;hopper&quot;</span><span class="p">)</span>  <span class="c1"># brax&#39;s Hopper</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="nb">print</span><span class="p">(</span><span class="n">agent</span><span class="o">.</span><span class="n">top_quantiles_to_drop_per_net</span><span class="p">)</span>  <span class="c1"># 5, the authors&#39; Hopper setting</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="nb">print</span><span class="p">(</span><span class="n">agent</span><span class="o">.</span><span class="n">config</span><span class="p">[</span><span class="s2">&quot;preset&quot;</span><span class="p">])</span>  <span class="c1"># Hopper: the run config records it</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="c1"># The arguments you give win over the preset&#39;s.</span>
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="n">agent</span> <span class="o">=</span> <span class="n">TQC</span><span class="o">.</span><span class="n">preset</span><span class="p">(</span><span class="s2">&quot;Hopper&quot;</span><span class="p">,</span> <span class="s2">&quot;hopper&quot;</span><span class="p">,</span> <span class="n">top_quantiles_to_drop_per_net</span><span class="o">=</span><span class="mi">3</span><span class="p">)</span>
+</code></pre></div>
+<p>A preset is named after its task, not an environment id, so it applies to
+the gymnasium, Brax and Playground versions of the task alike. An unknown
+name raises and lists the agent's presets. Each agent module keeps its
+presets in a <code>PRESETS</code> table, each entry the values and where they come
+from:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax.agents.TQC.TQC</span><span class="w"> </span><span class="kn">import</span> <span class="n">PRESETS</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="nb">print</span><span class="p">(</span><span class="n">PRESETS</span><span class="p">[</span><span class="s2">&quot;Hopper&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">citation</span><span class="p">)</span>  <span class="c1"># bayesgroup/tqc_pytorch@65114eb README.md:42-48</span>
+</code></pre></div>
+<p>A preset sets every value its reference varies across tasks, even one that
+equals the default today. It sets the agent's fields only: the environment's
+own settings (Atari's frame skip or reward clipping) and a dataset's
+preprocessing stay yours.</p>
+<table>
+<thead>
+<tr>
+<th>Agent</th>
+<th>Presets</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="../../algorithms/asac/#presets">ASAC</a></td>
+<td>the ten Gymnasium MuJoCo tasks</td>
+<td>the authors' tuned runs</td>
+</tr>
+<tr>
+<td><a href="../../algorithms/crossq/#presets">CrossQ</a></td>
+<td><code>Swimmer</code></td>
+<td>the authors' <code>train.py</code></td>
+</tr>
+<tr>
+<td><a href="../../algorithms/dreamerv3/#presets">DreamerV3</a></td>
+<td><code>DMC</code></td>
+<td><code>configs.yaml</code></td>
+</tr>
+<tr>
+<td><a href="../../algorithms/dqn/#presets">DQN</a></td>
+<td><code>Atari</code></td>
+<td>Mnih et al.'s <code>run_gpu</code></td>
+</tr>
+<tr>
+<td><a href="../../algorithms/iql/#presets">IQL</a></td>
+<td><code>AntMaze</code></td>
+<td><code>antmaze_config.py</code></td>
+</tr>
+<tr>
+<td><a href="../../algorithms/ppo/#presets">PPO</a></td>
+<td><code>Atari</code></td>
+<td>ppo2's <code>defaults.py</code></td>
+</tr>
+<tr>
+<td><a href="../../algorithms/pqn/#presets">PQN</a></td>
+<td><code>CartPole</code>, <code>Atari</code></td>
+<td>purejaxql's configs</td>
+</tr>
+<tr>
+<td><a href="../../algorithms/redq/#presets">REDQ</a></td>
+<td><code>Hopper</code>, <code>HalfCheetah</code>, <code>Walker2d</code>, <code>Ant</code>, <code>Humanoid</code></td>
+<td>MBPO's target entropies</td>
+</tr>
+<tr>
+<td><a href="../../algorithms/td3/#presets">TD3</a></td>
+<td><code>D4RL</code> (TD3+BC)</td>
+<td>TD3_BC's <code>main.py</code></td>
+</tr>
+<tr>
+<td><a href="../../algorithms/tqc/#presets">TQC</a></td>
+<td><code>Hopper</code>, <code>HalfCheetah</code>, <code>Walker2d</code>, <code>Ant</code>, <code>Humanoid</code></td>
+<td>the authors' README</td>
+</tr>
+</tbody>
+</table>
+<h2 id="train"><code>train</code><a class="headerlink" href="#train" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax</span><span class="w"> </span><span class="kn">import</span> <span class="n">SAC</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="n">agent</span> <span class="o">=</span> <span class="n">SAC</span><span class="p">(</span><span class="s2">&quot;Pendulum-v1&quot;</span><span class="p">,</span> <span class="n">learning_starts</span><span class="o">=</span><span class="mi">1_000</span><span class="p">)</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="n">state</span><span class="p">,</span> <span class="n">out</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>    <span class="n">seed</span><span class="o">=</span><span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">],</span>  <span class="c1"># one run per seed, all in one program</span>
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>    <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">2_000</span><span class="p">,</span>  <span class="c1"># environment steps this call trains for</span>
+<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>    <span class="n">num_episode_test</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span>  <span class="c1"># test episodes per evaluation</span>
+<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>    <span class="n">logging_config</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>  <span class="c1"># None: no evaluation, and out is None</span>
+<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a>    <span class="n">initial_state</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>  <span class="c1"># or a state to continue from</span>
+<a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a>    <span class="n">total_timesteps</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>  <span class="c1"># the run&#39;s horizon; None: this call&#39;s end</span>
+<a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a><span class="p">)</span>
 </code></pre></div>
 <h3 id="the-budget">The budget<a class="headerlink" href="#the-budget" title="Permanent link">&para;</a></h3>
 <p><code>n_timesteps</code> counts environment steps summed over the <code>n_envs</code> copies. An
@@ -3126,12 +3248,12 @@ keys (<code>rng</code> for training, <code>eval_rng</code> for evaluation), the 
 <code>n_logs</code>, and each extension's state.</p>
 <h2 id="continuing-a-run">Continuing a run<a class="headerlink" href="#continuing-a-run" title="Permanent link">&para;</a></h2>
 <p>Pass a returned state back as <code>initial_state</code> to train further:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax</span><span class="w"> </span><span class="kn">import</span> <span class="n">PPO</span>
-<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>
-<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="n">agent</span> <span class="o">=</span> <span class="n">PPO</span><span class="p">(</span><span class="s2">&quot;CartPole-v1&quot;</span><span class="p">,</span> <span class="n">n_envs</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">n_steps</span><span class="o">=</span><span class="mi">128</span><span class="p">)</span>
-<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="n">state</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">seed</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">],</span> <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">8_192</span><span class="p">)</span>
-<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="n">state</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">seed</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">],</span> <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">8_192</span><span class="p">,</span> <span class="n">initial_state</span><span class="o">=</span><span class="n">state</span><span class="p">)</span>
-<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="nb">print</span><span class="p">(</span><span class="n">state</span><span class="o">.</span><span class="n">collector_state</span><span class="o">.</span><span class="n">timestep</span><span class="p">)</span>  <span class="c1"># [16384 16384]</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax</span><span class="w"> </span><span class="kn">import</span> <span class="n">PPO</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="n">agent</span> <span class="o">=</span> <span class="n">PPO</span><span class="p">(</span><span class="s2">&quot;CartPole-v1&quot;</span><span class="p">,</span> <span class="n">n_envs</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">n_steps</span><span class="o">=</span><span class="mi">128</span><span class="p">)</span>
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="n">state</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">seed</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">],</span> <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">8_192</span><span class="p">)</span>
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="n">state</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">seed</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">],</span> <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">8_192</span><span class="p">,</span> <span class="n">initial_state</span><span class="o">=</span><span class="n">state</span><span class="p">)</span>
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="nb">print</span><span class="p">(</span><span class="n">state</span><span class="o">.</span><span class="n">collector_state</span><span class="o">.</span><span class="n">timestep</span><span class="p">)</span>  <span class="c1"># [16384 16384]</span>
 </code></pre></div>
 <p>The second call continues from the first call's timestep. Its schedules
 (the extensions', the training fraction, the exploration, the logging's
@@ -3147,12 +3269,12 @@ as its original code does: give each call a whole number of them (8,192 is
 8 rollouts of 1,024 here) and the calls end where one call does. A budget
 that is not whole rollouts stops at the last whole one, with a warning; a
 budget under one rollout trains one.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="n">total</span> <span class="o">=</span> <span class="mi">16_384</span>
-<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="n">state</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">seed</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">],</span> <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">8_192</span><span class="p">,</span> <span class="n">total_timesteps</span><span class="o">=</span><span class="n">total</span><span class="p">)</span>
-<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="n">state</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span>
-<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>    <span class="n">seed</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">],</span> <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">8_192</span><span class="p">,</span> <span class="n">initial_state</span><span class="o">=</span><span class="n">state</span><span class="p">,</span> <span class="n">total_timesteps</span><span class="o">=</span><span class="n">total</span>
-<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="p">)</span>
-<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="nb">print</span><span class="p">(</span><span class="n">state</span><span class="o">.</span><span class="n">collector_state</span><span class="o">.</span><span class="n">timestep</span><span class="p">)</span>  <span class="c1"># [16384 16384], as one call of 16_384</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="n">total</span> <span class="o">=</span> <span class="mi">16_384</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="n">state</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">seed</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">],</span> <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">8_192</span><span class="p">,</span> <span class="n">total_timesteps</span><span class="o">=</span><span class="n">total</span><span class="p">)</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="n">state</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span>
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>    <span class="n">seed</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">],</span> <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">8_192</span><span class="p">,</span> <span class="n">initial_state</span><span class="o">=</span><span class="n">state</span><span class="p">,</span> <span class="n">total_timesteps</span><span class="o">=</span><span class="n">total</span>
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="p">)</span>
+<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="nb">print</span><span class="p">(</span><span class="n">state</span><span class="o">.</span><span class="n">collector_state</span><span class="o">.</span><span class="n">timestep</span><span class="p">)</span>  <span class="c1"># [16384 16384], as one call of 16_384</span>
 </code></pre></div>
 <p>To resume in another process, save the state first:
 <a href="../checkpoints/">Checkpoints and resuming</a>.</p>
@@ -3167,25 +3289,25 @@ With a <code>logging_config</code> it evaluates every <code>log_frequency</code>
 the updates done as the <code>timestep</code>. The state it returns is back at
 timestep 0, so <code>train(initial_state=state, ...)</code> then fine-tunes it online,
 its replay keeping the dataset's rows:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">jax</span>
-<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="kn">import</span><span class="w"> </span><span class="nn">jax.numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">jnp</span>
-<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>
-<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax</span><span class="w"> </span><span class="kn">import</span> <span class="n">TD3</span>
-<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax.buffers.dataset</span><span class="w"> </span><span class="kn">import</span> <span class="n">record</span>
-<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax.logging</span><span class="w"> </span><span class="kn">import</span> <span class="n">LoggingConfig</span>
-<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a>
-<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a>
-<a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a><span class="k">def</span><span class="w"> </span><span class="nf">pd_expert</span><span class="p">(</span><span class="n">obs</span><span class="p">):</span>
-<a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a>    <span class="n">theta</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">arctan2</span><span class="p">(</span><span class="n">obs</span><span class="p">[</span><span class="o">...</span><span class="p">,</span> <span class="mi">1</span><span class="p">],</span> <span class="n">obs</span><span class="p">[</span><span class="o">...</span><span class="p">,</span> <span class="mi">0</span><span class="p">])</span>
-<a id="__codelineno-4-11" name="__codelineno-4-11" href="#__codelineno-4-11"></a>    <span class="k">return</span> <span class="n">jnp</span><span class="o">.</span><span class="n">clip</span><span class="p">(</span><span class="o">-</span><span class="p">(</span><span class="mf">2.0</span> <span class="o">*</span> <span class="n">theta</span> <span class="o">+</span> <span class="mf">0.5</span> <span class="o">*</span> <span class="n">obs</span><span class="p">[</span><span class="o">...</span><span class="p">,</span> <span class="mi">2</span><span class="p">]),</span> <span class="o">-</span><span class="mf">2.0</span><span class="p">,</span> <span class="mf">2.0</span><span class="p">)[</span><span class="o">...</span><span class="p">,</span> <span class="kc">None</span><span class="p">]</span>
-<a id="__codelineno-4-12" name="__codelineno-4-12" href="#__codelineno-4-12"></a>
-<a id="__codelineno-4-13" name="__codelineno-4-13" href="#__codelineno-4-13"></a>
-<a id="__codelineno-4-14" name="__codelineno-4-14" href="#__codelineno-4-14"></a><span class="n">agent</span> <span class="o">=</span> <span class="n">TD3</span><span class="p">(</span><span class="s2">&quot;Pendulum-v1&quot;</span><span class="p">,</span> <span class="n">learning_starts</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>  <span class="c1"># online: update from the first step</span>
-<a id="__codelineno-4-15" name="__codelineno-4-15" href="#__codelineno-4-15"></a><span class="n">data</span> <span class="o">=</span> <span class="n">record</span><span class="p">(</span><span class="n">pd_expert</span><span class="p">,</span> <span class="n">agent</span><span class="o">.</span><span class="n">env_args</span><span class="p">,</span> <span class="n">jax</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">PRNGKey</span><span class="p">(</span><span class="mi">0</span><span class="p">),</span> <span class="n">n_steps</span><span class="o">=</span><span class="mi">1_000</span><span class="p">)</span>
-<a id="__codelineno-4-16" name="__codelineno-4-16" href="#__codelineno-4-16"></a><span class="n">logging</span> <span class="o">=</span> <span class="n">LoggingConfig</span><span class="p">(</span><span class="n">log_frequency</span><span class="o">=</span><span class="mi">500</span><span class="p">,</span> <span class="n">backends</span><span class="o">=</span><span class="p">())</span>
-<a id="__codelineno-4-17" name="__codelineno-4-17" href="#__codelineno-4-17"></a><span class="n">state</span><span class="p">,</span> <span class="n">offline</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">train_offline</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="n">n_updates</span><span class="o">=</span><span class="mi">1_000</span><span class="p">,</span> <span class="n">seed</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">logging_config</span><span class="o">=</span><span class="n">logging</span><span class="p">)</span>
-<a id="__codelineno-4-18" name="__codelineno-4-18" href="#__codelineno-4-18"></a><span class="nb">print</span><span class="p">(</span><span class="n">offline</span><span class="p">[</span><span class="s2">&quot;timestep&quot;</span><span class="p">])</span>  <span class="c1"># [[ 500 1000]]: updates done</span>
-<a id="__codelineno-4-19" name="__codelineno-4-19" href="#__codelineno-4-19"></a><span class="n">state</span><span class="p">,</span> <span class="n">online</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">seed</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">1_000</span><span class="p">,</span> <span class="n">initial_state</span><span class="o">=</span><span class="n">state</span><span class="p">)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">jax</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="kn">import</span><span class="w"> </span><span class="nn">jax.numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">jnp</span>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax</span><span class="w"> </span><span class="kn">import</span> <span class="n">TD3</span>
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax.buffers.dataset</span><span class="w"> </span><span class="kn">import</span> <span class="n">record</span>
+<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax.logging</span><span class="w"> </span><span class="kn">import</span> <span class="n">LoggingConfig</span>
+<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a>
+<a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a>
+<a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a><span class="k">def</span><span class="w"> </span><span class="nf">pd_expert</span><span class="p">(</span><span class="n">obs</span><span class="p">):</span>
+<a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a>    <span class="n">theta</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">arctan2</span><span class="p">(</span><span class="n">obs</span><span class="p">[</span><span class="o">...</span><span class="p">,</span> <span class="mi">1</span><span class="p">],</span> <span class="n">obs</span><span class="p">[</span><span class="o">...</span><span class="p">,</span> <span class="mi">0</span><span class="p">])</span>
+<a id="__codelineno-6-11" name="__codelineno-6-11" href="#__codelineno-6-11"></a>    <span class="k">return</span> <span class="n">jnp</span><span class="o">.</span><span class="n">clip</span><span class="p">(</span><span class="o">-</span><span class="p">(</span><span class="mf">2.0</span> <span class="o">*</span> <span class="n">theta</span> <span class="o">+</span> <span class="mf">0.5</span> <span class="o">*</span> <span class="n">obs</span><span class="p">[</span><span class="o">...</span><span class="p">,</span> <span class="mi">2</span><span class="p">]),</span> <span class="o">-</span><span class="mf">2.0</span><span class="p">,</span> <span class="mf">2.0</span><span class="p">)[</span><span class="o">...</span><span class="p">,</span> <span class="kc">None</span><span class="p">]</span>
+<a id="__codelineno-6-12" name="__codelineno-6-12" href="#__codelineno-6-12"></a>
+<a id="__codelineno-6-13" name="__codelineno-6-13" href="#__codelineno-6-13"></a>
+<a id="__codelineno-6-14" name="__codelineno-6-14" href="#__codelineno-6-14"></a><span class="n">agent</span> <span class="o">=</span> <span class="n">TD3</span><span class="p">(</span><span class="s2">&quot;Pendulum-v1&quot;</span><span class="p">,</span> <span class="n">learning_starts</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>  <span class="c1"># online: update from the first step</span>
+<a id="__codelineno-6-15" name="__codelineno-6-15" href="#__codelineno-6-15"></a><span class="n">data</span> <span class="o">=</span> <span class="n">record</span><span class="p">(</span><span class="n">pd_expert</span><span class="p">,</span> <span class="n">agent</span><span class="o">.</span><span class="n">env_args</span><span class="p">,</span> <span class="n">jax</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">PRNGKey</span><span class="p">(</span><span class="mi">0</span><span class="p">),</span> <span class="n">n_steps</span><span class="o">=</span><span class="mi">1_000</span><span class="p">)</span>
+<a id="__codelineno-6-16" name="__codelineno-6-16" href="#__codelineno-6-16"></a><span class="n">logging</span> <span class="o">=</span> <span class="n">LoggingConfig</span><span class="p">(</span><span class="n">log_frequency</span><span class="o">=</span><span class="mi">500</span><span class="p">,</span> <span class="n">backends</span><span class="o">=</span><span class="p">())</span>
+<a id="__codelineno-6-17" name="__codelineno-6-17" href="#__codelineno-6-17"></a><span class="n">state</span><span class="p">,</span> <span class="n">offline</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">train_offline</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="n">n_updates</span><span class="o">=</span><span class="mi">1_000</span><span class="p">,</span> <span class="n">seed</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">logging_config</span><span class="o">=</span><span class="n">logging</span><span class="p">)</span>
+<a id="__codelineno-6-18" name="__codelineno-6-18" href="#__codelineno-6-18"></a><span class="nb">print</span><span class="p">(</span><span class="n">offline</span><span class="p">[</span><span class="s2">&quot;timestep&quot;</span><span class="p">])</span>  <span class="c1"># [[ 500 1000]]: updates done</span>
+<a id="__codelineno-6-19" name="__codelineno-6-19" href="#__codelineno-6-19"></a><span class="n">state</span><span class="p">,</span> <span class="n">online</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">seed</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">1_000</span><span class="p">,</span> <span class="n">initial_state</span><span class="o">=</span><span class="n">state</span><span class="p">)</span>
 </code></pre></div>
 <p><code>train_offline</code> runs the agent's own update, with its extensions' terms:
 <a href="../../algorithms/td3/#td3bc-offline">TD3+BC</a> is TD3 with a cloning term, and
@@ -3195,20 +3317,20 @@ pre-training of an ordinary <code>train</code> call, without evaluations.</p>
 <h2 id="learning-rate-schedules">Learning-rate schedules<a class="headerlink" href="#learning-rate-schedules" title="Permanent link">&para;</a></h2>
 <p>A learning rate can be a function of the optimiser step, such as an optax
 schedule:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">optax</span>
-<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>
-<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax</span><span class="w"> </span><span class="kn">import</span> <span class="n">PPO</span>
-<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>
-<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="c1"># Decays linearly to zero over the first 1,000 optimiser steps.</span>
-<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="n">schedule</span> <span class="o">=</span> <span class="n">optax</span><span class="o">.</span><span class="n">linear_schedule</span><span class="p">(</span><span class="n">init_value</span><span class="o">=</span><span class="mf">3e-4</span><span class="p">,</span> <span class="n">end_value</span><span class="o">=</span><span class="mf">0.0</span><span class="p">,</span> <span class="n">transition_steps</span><span class="o">=</span><span class="mi">1_000</span><span class="p">)</span>
-<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="n">agent</span> <span class="o">=</span> <span class="n">PPO</span><span class="p">(</span>
-<a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a>    <span class="s2">&quot;CartPole-v1&quot;</span><span class="p">,</span>
-<a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a>    <span class="n">n_envs</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span>
-<a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a>    <span class="n">n_steps</span><span class="o">=</span><span class="mi">128</span><span class="p">,</span>
-<a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a>    <span class="n">actor_learning_rate</span><span class="o">=</span><span class="n">schedule</span><span class="p">,</span>
-<a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a>    <span class="n">critic_learning_rate</span><span class="o">=</span><span class="n">schedule</span><span class="p">,</span>
-<a id="__codelineno-5-13" name="__codelineno-5-13" href="#__codelineno-5-13"></a><span class="p">)</span>
-<a id="__codelineno-5-14" name="__codelineno-5-14" href="#__codelineno-5-14"></a><span class="n">state</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">seed</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">8_192</span><span class="p">)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">optax</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax</span><span class="w"> </span><span class="kn">import</span> <span class="n">PPO</span>
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>
+<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="c1"># Decays linearly to zero over the first 1,000 optimiser steps.</span>
+<a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="n">schedule</span> <span class="o">=</span> <span class="n">optax</span><span class="o">.</span><span class="n">linear_schedule</span><span class="p">(</span><span class="n">init_value</span><span class="o">=</span><span class="mf">3e-4</span><span class="p">,</span> <span class="n">end_value</span><span class="o">=</span><span class="mf">0.0</span><span class="p">,</span> <span class="n">transition_steps</span><span class="o">=</span><span class="mi">1_000</span><span class="p">)</span>
+<a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a><span class="n">agent</span> <span class="o">=</span> <span class="n">PPO</span><span class="p">(</span>
+<a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a>    <span class="s2">&quot;CartPole-v1&quot;</span><span class="p">,</span>
+<a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a>    <span class="n">n_envs</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span>
+<a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a>    <span class="n">n_steps</span><span class="o">=</span><span class="mi">128</span><span class="p">,</span>
+<a id="__codelineno-7-11" name="__codelineno-7-11" href="#__codelineno-7-11"></a>    <span class="n">actor_learning_rate</span><span class="o">=</span><span class="n">schedule</span><span class="p">,</span>
+<a id="__codelineno-7-12" name="__codelineno-7-12" href="#__codelineno-7-12"></a>    <span class="n">critic_learning_rate</span><span class="o">=</span><span class="n">schedule</span><span class="p">,</span>
+<a id="__codelineno-7-13" name="__codelineno-7-13" href="#__codelineno-7-13"></a><span class="p">)</span>
+<a id="__codelineno-7-14" name="__codelineno-7-14" href="#__codelineno-7-14"></a><span class="n">state</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">seed</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">8_192</span><span class="p">)</span>
 </code></pre></div>
 <p>The step counts gradient updates, not environment steps: here 9 rollouts of
 10 epochs of 2 minibatches, 180 steps. <code>ajax.schedule.warmup_cosine_schedule</code>
@@ -3219,14 +3341,14 @@ controller.</p>
 <a href="https://github.com/YannBerthelot/Ajax/blob/main/src/ajax/agents/loop.py"><code>agents/loop.py</code></a>. An agent brings only its
 algorithm: how to build a fresh state and how to make one update. The loop
 does everything else, the same way for every agent:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>fresh run:  build the agent&#39;s state, then each extension&#39;s state
-<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>            and its one-shot pre-training (if any)
-<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>resumed:    take the state passed as initial_state
-<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>repeat:     collect one step per environment (off-policy)
-<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>              or one rollout (on-policy)
-<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a>            once learning_starts steps are collected:
-<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a>              update, then let the extensions act after the update
-<a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a>            every log_frequency steps: evaluate and log
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>fresh run:  build the agent&#39;s state, then each extension&#39;s state
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>            and its one-shot pre-training (if any)
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>resumed:    take the state passed as initial_state
+<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a>repeat:     collect one step per environment (off-policy)
+<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a>              or one rollout (on-policy)
+<a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a>            once learning_starts steps are collected:
+<a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a>              update, then let the extensions act after the update
+<a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a>            every log_frequency steps: evaluate and log
 </code></pre></div>
 <p>The world models (DreamerV3, TD-MPC2) act through their own planner or
 latent policy and decide how many updates to make per step, but they plug

@@ -1432,6 +1432,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#presets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Presets
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#notes" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2859,6 +2870,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#presets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Presets
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#notes" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3226,6 +3248,16 @@ and loss (see Notes).</p>
 </tr>
 </tbody>
 </table>
+<h2 id="presets">Presets<a class="headerlink" href="#presets" title="Permanent link">&para;</a></h2>
+<p><code>DQN.preset("Atari", env_id)</code> takes Mnih et al.'s Atari config
+(google-deepmind/dqn@<code>9d9b1d1</code>, <code>run_gpu:12-32</code>;
+<a href="../../guide/training/#presets">Presets</a>): a 1,000,000-row replay, batches of
+32, 50,000 warm-up steps, one update every 4 steps (<code>train_frequency=4</code>), the
+target refreshed every 10,000 steps (<code>target_update_interval=2_500</code>
+updates), epsilon falling to 0.1 by step 1,050,000. That last is a fraction
+of the reference's 50M-step run (<code>epsilon_decay_frac=0.021</code>), so it comes
+sooner in a shorter run. Atari's frame skip and stack, no-op starts and
+reward clipping are the environment's.</p>
 <h2 id="notes">Notes<a class="headerlink" href="#notes" title="Permanent link">&para;</a></h2>
 <ul>
 <li><strong>Target.</strong> <code>r + gamma (1 - terminated) max_a' Q'(s', a')</code>; Double DQN

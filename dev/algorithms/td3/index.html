@@ -1320,6 +1320,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#presets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Presets
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#notes" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2848,6 +2859,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#presets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Presets
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#notes" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3182,6 +3204,11 @@ updated in 2019, not the paper's: see <a href="#notes">Notes</a>.</p>
 <p>Cloning an expert into the actor before training is the <code>CloningPretrain</code>
 extension; a cloning term during training, of the TD3+BC form, is <code>ImitationLoss</code>
 (<a href="../../guide/expert-guidance/">Expert guidance</a>).</p>
+<h2 id="presets">Presets<a class="headerlink" href="#presets" title="Permanent link">&para;</a></h2>
+<p><code>TD3.preset("D4RL", env_id)</code> is TD3+BC as its authors run it on the D4RL
+datasets (sfujim/TD3_BC@<code>8791ad7</code>, <code>main.py:56-57</code>; <a href="../../guide/training/#presets">Presets</a>): <code>ImitationLoss</code>
+cloning the dataset's actions at <code>alpha=2.5</code>, and <code>normalize_observations=True</code>.
+Train it with <code>train_offline</code> (<a href="#td3bc-offline">TD3+BC</a>).</p>
 <h2 id="notes">Notes<a class="headerlink" href="#notes" title="Permanent link">&para;</a></h2>
 <ul>
 <li><strong>Defaults.</strong> The authors updated their code's hyperparameters in 2019
@@ -3239,6 +3266,8 @@ the offline mode:</p>
 <a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="p">)</span>
 <a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="c1"># state, evaluations = agent.train_offline(dataset, n_updates=1_000_000)</span>
 </code></pre></div>
+<p><code>TD3.preset("D4RL", env_id)</code> builds it with the same extension and
+normalisation (<a href="#presets">Presets</a>).</p>
 <p>The paper's actor loss is <code>-λ mean Q(s, π(s)) + mean((π(s) - a)²)</code>, with
 <code>λ = α / mean|Q(s, π(s))|</code> and α = 2.5 (<code>TD3_BC.py:141-143</code>), the actions
 compared in the environment's units. With <code>alpha</code>, <code>ImitationLoss</code> makes

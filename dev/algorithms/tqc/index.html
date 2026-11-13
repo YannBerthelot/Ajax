@@ -1348,6 +1348,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#presets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Presets
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#notes" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2815,6 +2826,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#presets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Presets
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#notes" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3036,7 +3058,7 @@ follows the code.</p>
 <tr>
 <td><code>top_quantiles_to_drop_per_net</code></td>
 <td><code>2</code></td>
-<td>pooled target quantiles dropped per critic; the paper tunes it per task (5 on Hopper, 0 on HalfCheetah, 2 on the others)</td>
+<td>pooled target quantiles dropped per critic; the paper tunes it per task: <a href="#presets">Presets</a></td>
 </tr>
 <tr>
 <td><code>gamma</code></td>
@@ -3107,6 +3129,31 @@ follows the code.</p>
 <td><code>extensions</code></td>
 <td><code>()</code></td>
 <td>research features (see <a href="../../guide/extensions/">Extensions</a>)</td>
+</tr>
+</tbody>
+</table>
+<h2 id="presets">Presets<a class="headerlink" href="#presets" title="Permanent link">&para;</a></h2>
+<p><code>TQC.preset(task, env_id)</code> drops the authors' number of quantiles for the
+task (bayesgroup/tqc_pytorch, <code>README.md:42-48</code>; the paper's Table 6; <a href="../../guide/training/#presets">Presets</a>).</p>
+<table>
+<thead>
+<tr>
+<th>Preset</th>
+<th><code>top_quantiles_to_drop_per_net</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Hopper</code></td>
+<td>5</td>
+</tr>
+<tr>
+<td><code>HalfCheetah</code></td>
+<td>0</td>
+</tr>
+<tr>
+<td><code>Walker2d</code>, <code>Ant</code>, <code>Humanoid</code></td>
+<td>2</td>
 </tr>
 </tbody>
 </table>
@@ -3322,7 +3369,8 @@ policy acting from the first (main.py:65).</p>
               <div class="doc-md-description">
                 <p>The pooled target quantiles dropped
 per critic. The paper tunes it per task (Appendix B, Table 6: 5
-on Hopper, 0 on HalfCheetah, 2 on Walker2d, Ant and Humanoid).</p>
+on Hopper, 0 on HalfCheetah, 2 on Walker2d, Ant and Humanoid:
+PRESETS).</p>
               </div>
             </td>
             <td>

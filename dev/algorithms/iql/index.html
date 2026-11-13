@@ -1376,6 +1376,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#presets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Presets
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#how-it-works" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2848,6 +2859,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#presets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Presets
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#how-it-works" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3148,6 +3170,18 @@ and the critics (<code>value/value_loss</code>, <code>value/actor_loss</code>,
 </tr>
 </tbody>
 </table>
+<h2 id="presets">Presets<a class="headerlink" href="#presets" title="Permanent link">&para;</a></h2>
+<p><code>IQL.preset("AntMaze", env_id)</code> takes the reference's AntMaze config,
+<code>expectile=0.9</code> and <code>temperature=10</code> (ikostrikov/implicit_q_learning@<code>09d7002</code>,
+<code>configs/antmaze_config.py:15-16</code>; <a href="../../guide/training/#presets">Presets</a>). The reference also preprocesses each
+dataset's rewards, which a preset cannot do:</p>
+<ul>
+<li>on AntMaze it subtracts 1 from them (<code>train_offline.py:68-69</code>): shift your
+  dataset's rewards before training;</li>
+<li>on the locomotion tasks it scales them by 1000 over the range of the
+  dataset's episode returns (<code>:35-52</code>): pass
+  <code>reward_scale=1000 / (max_return - min_return)</code>, computed from your dataset.</li>
+</ul>
 <h2 id="how-it-works">How it works<a class="headerlink" href="#how-it-works" title="Permanent link">&para;</a></h2>
 <p>Each update samples one replay batch and runs, in the reference's order:</p>
 <ol>
@@ -3284,7 +3318,7 @@ online with train: the same update, the offline rows kept in its
 replay (Sec. 5.3).</p>
 <p>Defaults are the reference code's (configs/mujoco_config.py,
 learner.py, policy.py): expectile 0.7 and temperature 3
-(locomotion; antmaze takes 0.9 and 10); 256-256 ReLU networks,
+(locomotion; antmaze takes 0.9 and 10, PRESETS); 256-256 ReLU networks,
 orthogonal(sqrt 2) initialisation; Adam at 3e-4 with optax's eps 1e-8
 for the actor, the critics and the value; the actor a Gaussian on a
 tanh mean with one learned log-std per action dimension, clipped to

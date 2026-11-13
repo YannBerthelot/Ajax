@@ -1208,6 +1208,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#presets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Presets
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#notes" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2815,6 +2826,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#presets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Presets
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#notes" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3042,7 +3064,7 @@ termination a learned penalty.</p>
 <tr>
 <td><code>tau_theta</code></td>
 <td><code>0.005</code></td>
-<td>rate of the <code>theta</code> and penalty averages (the authors tune it per environment, 0.0005 to 0.1)</td>
+<td>rate of the <code>theta</code> and penalty averages (the authors tune it per environment, 0.0005 to 0.1: <a href="#presets">Presets</a>)</td>
 </tr>
 <tr>
 <td><code>p_0</code></td>
@@ -3109,6 +3131,81 @@ termination a learned penalty.</p>
 <p>With an <code>expert_policy</code>, ASAC stores the expert's actions along each
 trajectory, from its state when it has one, and takes the <code>CloningPretrain</code>
 and <code>ImitationLoss</code> extensions (<a href="../../guide/expert-guidance/">Expert guidance</a>).</p>
+<h2 id="presets">Presets<a class="headerlink" href="#presets" title="Permanent link">&para;</a></h2>
+<p><code>ASAC.preset(task, env_id)</code> takes the authors' tuned values for a Gymnasium
+MuJoCo task (BobMak/asac@<code>4b68862</code>, <code>hparams/&lt;task&gt;-v5/asac.yaml</code>; <a href="../../guide/training/#presets">Presets</a>).
+Their temperature is 1 / <code>beta</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Preset</th>
+<th><code>alpha_init</code></th>
+<th><code>tau_theta</code></th>
+<th><code>learning_starts</code></th>
+<th><code>buffer_size</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Ant</code>, <code>HalfCheetah</code>, <code>Pusher</code></td>
+<td>0.2</td>
+<td>0.005</td>
+<td>10,000</td>
+<td>1,000,000</td>
+</tr>
+<tr>
+<td><code>Hopper</code></td>
+<td>0.2</td>
+<td>0.001</td>
+<td>10,000</td>
+<td>1,000,000</td>
+</tr>
+<tr>
+<td><code>Humanoid</code></td>
+<td>0.05</td>
+<td>0.001</td>
+<td>10,000</td>
+<td>1,000,000</td>
+</tr>
+<tr>
+<td><code>InvertedDoublePendulum</code></td>
+<td>0.2</td>
+<td>0.001</td>
+<td>0</td>
+<td>1,000,000</td>
+</tr>
+<tr>
+<td><code>InvertedPendulum</code></td>
+<td>0.2</td>
+<td>0.005</td>
+<td>0</td>
+<td>1,000,000</td>
+</tr>
+<tr>
+<td><code>Reacher</code></td>
+<td>0.2</td>
+<td>0.005</td>
+<td>10,000</td>
+<td>100,000</td>
+</tr>
+<tr>
+<td><code>Swimmer</code></td>
+<td>0.05</td>
+<td>0.005</td>
+<td>10,000</td>
+<td>1,000,000</td>
+</tr>
+<tr>
+<td><code>Walker2d</code></td>
+<td>0.2</td>
+<td>0.0005</td>
+<td>10,000</td>
+<td>1,000,000</td>
+</tr>
+</tbody>
+</table>
+<p>Their Swimmer-v3 config (<code>tau_theta</code> 0.1, the critics averaged rather than
+minimised) has no preset: Ajax runs v5.</p>
 <h2 id="notes">Notes<a class="headerlink" href="#notes" title="Permanent link">&para;</a></h2>
 <ul>
 <li><strong>Target.</strong> <code>r - theta + (1 - done) (min(Q'_1, Q'_2)(s', a') - alpha (log pi(a'|s') - log(1/nA))) - Q'(0, 0)</code>
@@ -3133,8 +3230,8 @@ and <code>ImitationLoss</code> extensions (<a href="../../guide/expert-guidance/
   (skipped with <code>fixed_alpha</code>), the <code>theta</code> step and the target update. Each
   iteration steps every env once, then makes one update.</li>
 <li><strong>Temperature.</strong> As in the authors' published runs, <code>alpha</code> is fixed:
-  0.2 by default. Those runs use 0.05 for Humanoid and Swimmer; pass
-  <code>alpha_init=0.05</code> for those. <code>fixed_alpha=False</code> learns it as SAC does.</li>
+  0.2 by default. Those runs use 0.05 for Humanoid and Swimmer, as their
+  <a href="#presets">presets</a> do. <code>fixed_alpha=False</code> learns it as SAC does.</li>
 <li><strong>Two critics.</strong> ASAC always uses two critics; it has no <code>num_critics</code>.</li>
 <li><strong>Extensions.</strong> ASAC tells its extensions there is no discount: they
   receive <code>gamma=None</code>.</li>
@@ -3299,9 +3396,9 @@ darer/ASAC.py:87, :92, :104 for the temperature's 1e-4, :228-229 and
             <td>
               <div class="doc-md-description">
                 <p>Rate of the theta and penalty averages (darer/ASAC.py:188,
-:213). The authors tune it per environment, 0.0005 to 0.1; 0.005
-is their default (darer/BaseAgent.py:80) and six of their 11
-configs'.</p>
+:213). The authors tune it per environment, 0.0005 to 0.1
+(PRESETS); 0.005 is their default (darer/BaseAgent.py:80) and six
+of their 11 configs'.</p>
               </div>
             </td>
             <td>
@@ -3336,7 +3433,7 @@ is False.</p>
               <div class="doc-md-description">
                 <p>Keep the temperature at alpha_init. The authors'
 published runs fix it at 1/beta: 0.2, and 0.05 for Humanoid and
-Swimmer (hparams/*/asac.yaml, darer/ASAC.py:56-57,
+Swimmer (PRESETS; hparams/*/asac.yaml, darer/ASAC.py:56-57,
 experiments/finetuned_runs.py:67-76). False learns it towards
 the target entropy, as SAC does.</p>
               </div>

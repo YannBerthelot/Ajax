@@ -1488,6 +1488,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#presets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Presets
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#notes" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2837,6 +2848,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#presets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Presets
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#notes" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3205,6 +3227,14 @@ Optimization Algorithms</em>, 2017 (<a href="https://arxiv.org/abs/1707.06347">a
 </tr>
 </tbody>
 </table>
+<h2 id="presets">Presets<a class="headerlink" href="#presets" title="Permanent link">&para;</a></h2>
+<p><code>PPO.preset("Atari", env_id)</code> takes ppo2's Atari config
+(openai/baselines@<code>ea25b9e</code>, <code>ppo2/defaults.py:15-22</code>; <a href="../../guide/training/#presets">Presets</a>): 8 environments
+(the paper's actors; ppo2 runs one per CPU) of 128 steps, 4 minibatches, 4
+epochs, learning rates <code>2.5e-4</code>, <code>clip_range=0.1</code>, <code>ent_coef=0.01</code> and one
+network shared by the actor and the critic. The learning rate stays constant,
+as the defaults keep MuJoCo's. Atari's frame skip, frame stack and reward
+clipping are the environment's.</p>
 <h2 id="notes">Notes<a class="headerlink" href="#notes" title="Permanent link">&para;</a></h2>
 <ul>
 <li><strong><code>batch_size</code> sets the number of minibatches, not their size.</strong> Unless

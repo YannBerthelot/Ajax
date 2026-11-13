@@ -2696,6 +2696,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#ajax.networks.networks.head_layers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        head_layers
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#ajax.networks.networks.check_log_std_head" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4200,6 +4211,17 @@
     <span class="md-ellipsis">
       
         observation_encoder
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.networks.networks.head_layers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        head_layers
       
     </span>
   </a>
@@ -5939,6 +5961,29 @@ its observations with, before any memory: a :class:<code>CNNEncoder</code> for
 image observations, else the MLP :class:<code>Encoder</code> of <code>architecture</code>
 (None: the network's <code>input_architecture</code>). Built in the network's
 setup, so it is the network's own submodule.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="ajax.networks.networks.head_layers" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">head_layers</span>
+
+
+<a href="#ajax.networks.networks.head_layers" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">head_layers</span><span class="p">(</span><span class="n">architecture</span><span class="p">,</span> <span class="n">kernel_init</span><span class="p">,</span> <span class="n">encoder_kernel_init</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>The hidden layers a network's output layers read its trunk (encoder,
+then memory block) through (NetworkConfig.head_architecture), started
+with <code>kernel_init</code>, else the encoder's; none: the features as they
+are. Built in the network's setup, so they are the network's own.</p>
 
 
     </div>

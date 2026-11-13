@@ -1566,6 +1566,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#ajax.agents.PPO.PPO.PPO.network_settings" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        network_settings
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#ajax.agents.PPO.PPO.PPO.init" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2926,6 +2937,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#ajax.agents.PPO.PPO.PPO.network_settings" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        network_settings
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#ajax.agents.PPO.PPO.PPO.init" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3526,11 +3548,35 @@ CleanRL's ppo.py:103-116 and PureJaxRL @31756b1 ppo.py:24-45 build
 them; ppo2 shares them on other tasks (run.py:170-176), which the
 owner left aside (2026-11-13).</p>
 <p>With memory the references share too (common/policies.py:165;
-PureJaxRL ppo_rnn.py:51-57), but PureJaxRL gives each head a
-128-unit layer after the GRU (ppo_rnn.py:59-75), which Ajax's heads
-lack: on CartPole's raw returns the value then swamps the one memory
-(return 23 against 260 apart, 100k steps). Recurrent PPO keeps its
-networks apart until those layers exist (owner, 2026-11-13).</p>
+PureJaxRL ppo_rnn.py:51-57; popjaxrl @12e5d42 ppo_gru.py:45-50), but
+Ajax's shared memory fails the masked-CartPole memory probe, even
+with the references' per-head layers (network_settings): GRU returns
+37, 33 and 12 over 3 seeds, against 211, 194 and 500 apart. Recurrent
+PPO keeps its networks apart until that is understood (owner,
+2026-11-13).</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="ajax.agents.PPO.PPO.PPO.network_settings" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">network_settings</span>
+
+
+<a href="#ajax.agents.PPO.PPO.PPO.network_settings" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">network_settings</span><span class="p">()</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>With memory, each head reads the memory through a 128-unit ReLU
+layer of its own, started orthogonal(2), as PureJaxRL's do
+(ppo_rnn.py:59-75; popjaxrl's ppo_gru.py:53-66 has two, of leaky
+ReLU).</p>
 
 
     </div>

@@ -555,7 +555,7 @@
    "expert_policy": null,
    "extensions": [],
    "gamma": 0.99,
-   "learning_starts": 10000,
+   "learning_starts": 5000,
    "max_grad_norm": null,
    "memory": null,
    "n_envs": 1,

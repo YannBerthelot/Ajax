@@ -105,7 +105,8 @@ class IQL(
     #: fine-tuning config does (antmaze_finetune_config.py:21). The cosine
     #: spans train's total_timesteps, so a run split into calls passes its
     #: whole horizon to each. An offline run's decayed rate carries into a
-    #: train(initial_state=...) that fine-tunes it: train both with None.
+    #: train(initial_state=...) that fine-tunes it: train both with None. A
+    #: schedule given as actor_learning_rate runs as given.
     actor_lr_decay: Optional[Literal["cosine"]] = "cosine"
 
     def check(self) -> None:
@@ -114,11 +115,6 @@ class IQL(
         if self.actor_lr_decay not in (None, "cosine"):
             raise ValueError(
                 f"IQL's actor_lr_decay is 'cosine' or None, got {self.actor_lr_decay!r}."
-            )
-        if self.actor_lr_decay is not None and callable(self.actor_learning_rate):
-            raise ValueError(
-                "IQL's actor_lr_decay='cosine' decays a constant actor_learning_rate;"
-                " pass actor_lr_decay=None with a schedule of your own."
             )
 
     def actor_critic_args(self) -> dict[str, Any]:
@@ -195,7 +191,8 @@ class IQL(
         timestep offline, one per tick of n_envs online from update_start.
         The schedule counts the optimiser's steps, so a resumed call of the
         same run continues it."""
-        if self.actor_lr_decay is None:
+        peak = context.actor_optimizer_args.learning_rate
+        if self.actor_lr_decay is None or callable(peak):
             return context
         if context.offline:
             updates = context.total_timesteps
@@ -204,8 +201,6 @@ class IQL(
             updates = online_steps // context.env_args.n_envs
         for extension in context.extensions.extensions:
             updates += extension.pretrain_updates()
-        peak = context.actor_optimizer_args.learning_rate
-        assert isinstance(peak, (int, float))  # check refuses a schedule
         schedule = optax.cosine_decay_schedule(float(peak), max(updates, 1))
         actor_args = context.actor_optimizer_args.replace(learning_rate=schedule)
         return dataclasses.replace(context, actor_optimizer_args=actor_args)

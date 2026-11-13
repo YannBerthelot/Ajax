@@ -7,6 +7,7 @@ import dataclasses
 import jax
 import jax.numpy as jnp
 import numpy as np
+import optax
 import pytest
 
 from ajax import IQL
@@ -116,6 +117,10 @@ def test_the_actor_rate_falls_to_zero_by_a_cosine_over_the_runs_updates(
     constant = IQL("Pendulum-v1", n_envs=2, actor_lr_decay=None)
     kept = constant.with_decayed_actor_rate(constant.make_context(100)[1])
     assert kept.actor_optimizer_args.learning_rate == 3e-4
+    given = IQL("Pendulum-v1", actor_learning_rate=optax.constant_schedule(1e-3))
+    as_given = given.with_decayed_actor_rate(given.make_context(100)[1])
+    given_rate = as_given.actor_optimizer_args.learning_rate
+    assert callable(given_rate) and float(given_rate(50)) == 1e-3
 
 
 def test_the_cosine_also_spans_the_updates_an_extension_runs_before_env_steps() -> None:
@@ -137,5 +142,3 @@ def test_it_refuses_discrete_actions_and_an_expectile_outside_the_open_unit() ->
     for bad in (0.0, 1.0):
         with pytest.raises(ValueError, match="expectile"):
             IQL("Pendulum-v1", expectile=bad)
-    with pytest.raises(ValueError, match="actor_lr_decay"):
-        IQL("Pendulum-v1", actor_learning_rate=lambda step: 3e-4)

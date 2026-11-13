@@ -214,7 +214,11 @@
    "actor_learning_rate": 0.001,
    "algo_name": "DAgger",
    "batch_size": 32,
-   "beta_decay": 0.0,
+   "beta_schedule": {
+    "LinearBetaSchedule": {
+     "rampdown_rounds": 15
+    }
+   },
    "buffer_size": 1000000,
    "env_id": "fast",
    "env_params": null,
@@ -555,7 +559,7 @@
    "expert_policy": null,
    "extensions": [],
    "gamma": 0.99,
-   "learning_starts": 10000,
+   "learning_starts": 5000,
    "max_grad_norm": null,
    "memory": null,
    "n_envs": 1,
@@ -654,7 +658,7 @@
    "algo_name": "SAC",
    "alpha_init": 1.0,
    "alpha_learning_rate": 0.0003,
-   "alpha_update_start": 2000,
+   "alpha_update_start": 0,
    "batch_size": 256,
    "buffer_size": 1000000,
    "burn_in": 8,
@@ -682,7 +686,7 @@
    "normalize_rewards": false,
    "num_critic_updates": 1,
    "num_critics": 2,
-   "policy_update_start": 2000,
+   "policy_update_start": 0,
    "reward_normalization_gamma": null,
    "reward_scale": 1.0,
    "sequence_length": 16,

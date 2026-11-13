@@ -94,15 +94,15 @@ from . import readouts as R
 # The update starts' offline fault: faults/ + 1, test_framework + 1.
 # The asynchronous evaluator's: faults/ + 1, test_framework + 2.
 # APO's presets kept as calibrated: agents.py + 2, test_framework + 1.
-CAPS = {"verdict.py": 255, "envs.py": 255, "agents.py": 164, "runs.py": 250}
+CAPS = {"verdict.py": 255, "envs.py": 255, "agents.py": 166, "runs.py": 250}
 CAPS.update({"readouts.py": 220, "oracles.py": 198, "faults.py": 152, "faults/": 417})
 CAPS.update({"test_average_reward.py": 186})
-CAPS.update({"test_framework.py": 319, "test_value_chains.py": 1051})
+CAPS.update({"test_framework.py": 320, "test_value_chains.py": 1051})
 CAPS.update({"test_episode_ends.py": 1050, "test_bookkeeping.py": 1013})
 CAPS.update({"test_extensions.py": 855, "test_p4_split_run.py": 360})
 CAPS.update({"test_memory.py": 389, "test_world_models.py": 452})
-CAPS.update({"test_action_box.py": 207, "test_imitation.py": 189})
-CAPS.update({"test_offline.py": 300, "test_action_stage.py": 412})
+CAPS.update({"test_action_box.py": 207, "test_imitation.py": 191})
+CAPS.update({"test_offline.py": 300, "test_action_stage.py": 413})
 
 
 def _modules() -> list:
@@ -285,14 +285,15 @@ def test_the_directory_keeps_to_its_budget() -> None:
     for the faults of 32 random edits the fast tier missed, 133 for the structure
     arms' cells and faults, 5 for PORL's, 15 for the harness's gaps, 1 for Warp's,
     2 for the dataset fill's seam, 2 for the update starts' offline fault,
-    3 for the asynchronous evaluator's, 3 for APO's presets kept as calibrated."""
+    3 for the asynchronous evaluator's, 3 for APO's presets kept as calibrated,
+    2 for SAC's update starts, 3 for DAgger's beta and 1 for this note."""
     cmd = ["git", "ls-files", "--cached", "--others", "--exclude-standard"]
     out = subprocess.run(
         [*cmd, "tests/probing"], cwd=faults.REPO, capture_output=True, text=True
     )
     files = [f for f in out.stdout.split() if f.count("/") == 2 or "/faults/" in f]
     total = sum(_lines(os.path.join(faults.REPO, f)) for f in files)
-    assert total <= 8718, total
+    assert total <= 8724, total
 
 
 def test_every_fault_names_the_fast_tests_that_catch_it() -> None:

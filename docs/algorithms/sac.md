@@ -70,7 +70,7 @@ Defaults are read from `SAC.__init__`.
 | `fixed_alpha` | `False` | keep `alpha` at `alpha_init` |
 | `num_critics` | `2` | critics in the ensemble; the target takes their minimum |
 | `num_critic_updates` | `1` | critic steps per update |
-| `policy_update_start`, `alpha_update_start` | `2_000` | timestep from which the actor and `alpha` update |
+| `policy_update_start`, `alpha_update_start` | `0` | timestep from which the actor and `alpha` update |
 | `reward_scale` | `1.0` | multiplies the rewards in the target |
 | `max_grad_norm` | `None` | gradient clipping of the actor and critics |
 | `normalize_observations`, `normalize_rewards` | `False` | running normalisation (see [Environments](../guide/environments.md)) |

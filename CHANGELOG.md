@@ -8,6 +8,24 @@ PyPI as `ajax-rl`.
 
 The next release is 0.6.0: the first item changes results.
 
+- **Three defaults now come from the agents' reference code.** An audit of
+  every agent's defaults against its original code found these without a
+  source:
+  - SAC's actor and temperature step from the first update, as
+    softlearning's do; `policy_update_start` and `alpha_update_start` were
+    2,000. Default runs do not change (the warm-up is 10,000 steps); runs
+    with a shorter `learning_starts` do. Upgrade: pass both at 2,000 for the
+    old behaviour.
+  - REDQ warms up for 5,000 steps (`learning_starts`), its official code's
+    `start_steps`, not 10,000. Upgrade: pass `learning_starts=10_000`.
+  - DAgger's expert share falls linearly from 1 to 0 over 15 iterations,
+    the reference code's `LinearBetaSchedule(15)`. `beta_decay` becomes
+    `beta_schedule`: `LinearBetaSchedule(rampdown_rounds)` or
+    `ExponentialBetaSchedule(decay)`, both in `ajax.agents.DAgger.DAgger`.
+    Upgrade: `beta_decay=d` becomes
+    `beta_schedule=ExponentialBetaSchedule(d)`; the old default was
+    `ExponentialBetaSchedule(0.0)`.
+
 - **APO's defaults are its reference code's MuJoCo config** (xtma/apo,
   `mujoco_appo.py`): rollouts of 10 envs x 200 steps (was 4 x 2,048), 20
   minibatches per epoch (`num_minibatches=20`; was cut by `batch_size`),

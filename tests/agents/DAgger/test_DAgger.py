@@ -9,9 +9,12 @@ import numpy as np
 import pytest
 
 from ajax import DAgger
+from ajax.agents.DAgger.DAgger import ExponentialBetaSchedule, LinearBetaSchedule
 from ajax.environments.interaction import get_pi
 
 N_ENVS = 2
+#: The paper's beta_i = I(i = 1): the expert acts in the first iteration only.
+FIRST_ONLY = ExponentialBetaSchedule(0.0)
 
 
 def push(obs):
@@ -38,11 +41,23 @@ def replay(state, first: int = 0) -> dict:
 def test_beta_is_the_decay_to_the_iterations_done(decay):
     """beta_i = decay ** (i - 1) over iterations of iteration_steps
     timesteps; 0 ** 0 = 1: the paper's beta_i = I(i = 1) at decay 0."""
+    schedule = ExponentialBetaSchedule(decay)
     agent = DAgger(
-        "Pendulum-v1", expert_policy=push, beta_decay=decay, iteration_steps=10
+        "Pendulum-v1", expert_policy=push, beta_schedule=schedule, iteration_steps=10
     )
     got = [float(agent.compute_beta(jnp.asarray(t))) for t in (0, 9, 10, 25)]
     np.testing.assert_allclose(got, [1.0, 1.0, decay, decay**2])
+
+
+def test_beta_falls_linearly_to_zero_over_fifteen_iterations_by_default():
+    """The reference's LinearBetaSchedule(15) (imitation@e5ef188
+    dagger.py:56-67, :355): beta = clip((15 - k) / 15, 0, 1) in the
+    iteration k counted from 0, so 1, 14/15, 8/15, 1/15, then 0 for good."""
+    agent = DAgger("Pendulum-v1", expert_policy=push, iteration_steps=10)
+    assert agent.beta_schedule == LinearBetaSchedule(rampdown_rounds=15)
+    timesteps = (0, 9, 10, 75, 149, 150, 400)
+    got = [float(agent.compute_beta(jnp.asarray(t))) for t in timesteps]
+    np.testing.assert_allclose(got, [1.0, 1.0, 14 / 15, 8 / 15, 1 / 15, 0.0, 0.0])
 
 
 @pytest.mark.parametrize(
@@ -57,6 +72,7 @@ def test_rows_hold_the_experts_label_whoever_acted(iteration_steps, expert_acts)
         expert_policy=push,
         n_envs=N_ENVS,
         iteration_steps=iteration_steps,
+        beta_schedule=FIRST_ONLY,
         batch_size=4,
         buffer_size=64,
     )
@@ -99,6 +115,7 @@ def test_the_actor_learns_the_experts_labels_not_the_actions_taken(env_id):
     samples leaves it near 0.5 (0.40-0.58), hence a 0.25 margin."""
     continuous = env_id == "Pendulum-v1"
     kwargs = {"n_envs": N_ENVS, "iteration_steps": N_ENVS, "batch_size": 8}
+    kwargs.update({"beta_schedule": FIRST_ONLY})
     kwargs.update({"buffer_size": 256, "actor_learning_rate": 1e-2})
     # The initial actor, built beside an expert of the env's action kind
     # (collection stores its actions in the replay's layout).
@@ -123,8 +140,10 @@ def test_the_actor_learns_the_experts_labels_not_the_actions_taken(env_id):
         assert after > before + 0.25, (before, after)
 
 
-def test_it_refuses_no_expert_and_a_decay_outside_the_unit_interval():
+def test_it_refuses_no_expert_and_a_schedule_outside_its_range():
     with pytest.raises(ValueError, match="expert_policy"):
         DAgger("Pendulum-v1", expert_policy=None)
-    with pytest.raises(ValueError, match="beta_decay"):
-        DAgger("Pendulum-v1", expert_policy=push, beta_decay=1.5)
+    with pytest.raises(ValueError, match="decay"):
+        ExponentialBetaSchedule(1.5)
+    with pytest.raises(ValueError, match="rampdown_rounds"):
+        LinearBetaSchedule(0)

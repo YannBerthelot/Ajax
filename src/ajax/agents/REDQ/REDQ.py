@@ -142,7 +142,9 @@ class REDQ(
     subset_size: int = 2
     buffer_size: int = int(1e6)
     batch_size: int = 256
-    learning_starts: int = int(1e4)
+    # start_steps=5000 uniform actions, and updates that wait as long
+    # (delay_update_steps='auto'): redq_sac.py:34, :85.
+    learning_starts: int = 5_000
 
     def actor_critic_args(self) -> dict[str, Any]:
         # The initialisation of REDQ's reference code: watchernyu/REDQ

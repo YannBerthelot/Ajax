@@ -423,6 +423,15 @@ class NetworkConfig(Replaceable):
     # False: each network has its own. Static: it decides the networks'
     # structure.
     share_encoder: bool = flax.struct.field(pytree_node=False, default=False)
+    # Each network's hidden layers between its trunk (the encoder, then the
+    # memory block) and its output layers, written as actor_architecture is;
+    # () reads the trunk's features linearly. Each network has its own, so
+    # with share_encoder the actor and the critic part after the trunk, as
+    # in PureJaxRL's recurrent PPO (agents set their reference's in
+    # network_settings). A PID actor, having no layers, has none.
+    head_architecture: Tuple[str, ...] = ()
+    # Their kernel init, as encoder_kernel_init is read; None: the encoder's.
+    head_kernel_init: Optional[Union[str, InitializationFunction]] = None
 
     def __post_init__(self):
         check_log_std_bounds(self.log_std_bounds)

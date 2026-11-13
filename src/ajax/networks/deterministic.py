@@ -19,7 +19,11 @@ from ajax.extensions.observe import pid_terms_at
 from ajax.modules.pid_actor import PIDLaw, PIDPolicy, check_pid_actor
 from ajax.networks.distributions import Deterministic
 from ajax.networks.memory import MemoryCell, MemoryConfig
-from ajax.networks.networks import Encoder, get_initialized_actor_critic
+from ajax.networks.networks import (
+    Encoder,
+    get_initialized_actor_critic,
+    head_layers,
+)
 from ajax.networks.utils import dense, parse_architecture, uniform_init
 from ajax.state import (
     EnvironmentConfig,
@@ -53,6 +57,10 @@ class DeterministicActor(nn.Module):
     # The hidden layers as an Encoder, whose parameters a critic sharing it
     # holds (NetworkConfig.share_encoder).
     share_encoder: bool = False
+    # The hidden layers the output layer reads the memory's (or the hidden
+    # stack's) features through (NetworkConfig.head_architecture).
+    head_architecture: Sequence[Union[str, ActivationFunction]] = ()
+    head_kernel_init: Optional[Union[str, InitializationFunction]] = None
 
     def setup(self):
         if self.share_encoder:
@@ -66,6 +74,9 @@ class DeterministicActor(nn.Module):
             )
         if self.memory is not None:
             self.memory_cell = MemoryCell(self.memory)
+        self.head_layers = head_layers(
+            self.head_architecture, self.head_kernel_init, self.kernel_init
+        )
         self.head = dense(
             self.action_dim,
             self.output_kernel_init,
@@ -82,8 +93,8 @@ class DeterministicActor(nn.Module):
                     "Recurrent DeterministicActor requires hidden_state and done flags."
                 )
             hidden_state, h = self.memory_cell(hidden_state, h, done)
-            return Deterministic(self.head(h)), hidden_state
-        return Deterministic(self.head(h))
+            return Deterministic(self.head(self.head_layers(h))), hidden_state
+        return Deterministic(self.head(self.head_layers(h)))
 
 
 class DeterministicPIDActor(nn.Module):
@@ -135,6 +146,8 @@ def get_initialized_td3_actor_critic(
             kernel_init=network_config.encoder_kernel_init,
             output_kernel_init=network_config.mean_kernel_init,
             share_encoder=network_config.share_encoder,
+            head_architecture=network_config.head_architecture,
+            head_kernel_init=network_config.head_kernel_init,
         )
     return get_initialized_actor_critic(
         key,

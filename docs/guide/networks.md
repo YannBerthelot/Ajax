@@ -91,6 +91,25 @@ every hidden layer, as its paper does, whatever the setting. AVG normalises
 its penultimate features instead, as its paper does, which overrides the
 setting.
 
+### Layers per head
+
+By default the output layers read the encoder's features, or the memory's,
+directly. `head_architecture` puts hidden layers in between, written as
+`actor_architecture` is. Each network gets its own copy, and so does each
+critic of an ensemble. With a shared encoder, the actor and the critic
+separate after it. `head_kernel_init` sets their initialiser; `None` uses
+the encoder's. Agents read it from the network configuration:
+
+```python
+from ajax import SAC
+from ajax.networks.memory import MemoryConfig
+
+agent = SAC("Pendulum-v1", memory=MemoryConfig("gru", 32), learning_starts=500)
+agent.network_args = agent.network_args.replace(head_architecture=("64", "relu"))
+```
+
+A PID policy has no hidden layers, so it gets no head layers either.
+
 ### The policy head
 
 PPO exposes the policy head's options. By default its Gaussian learns one

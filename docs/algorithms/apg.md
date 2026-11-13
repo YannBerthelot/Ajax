@@ -110,7 +110,9 @@ stages = [  # the nominal pendulum first, then the whole family
 | `eval_expert_policy` | None | the expert whose return each evaluation logs instead of `expert_policy`'s, acting alone on the evaluation's systems |
 | `episode_length`, `action_repeat` | None, 1 | accepted as by every agent; on gymnax environments, the only ones APG takes, the episode length is the environment's and the repeat must be 1 |
 
-`APG.contextual_controller(env, system_class, ...)` sets the paper's values:
+`APG.contextual_controller(env, system_class, ...)` sets the paper's values (Table 2;
+the reference's closed-loop script defaults to a sequence of 500 and width 32,
+and its one saved run, open-loop, used 800 and 32):
 8 layers, 4 heads, width 128, context 100, one system per update
 (`n_envs=1`), horizon 100, betas (0.9, 0.95) with `weight_decay=0` (plain
 Adam), 5,000 warmup updates then cosine decay to a tenth of the rate, no

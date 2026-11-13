@@ -62,6 +62,7 @@ from ajax.agents.DreamerV3.replay import (
 from ajax.agents.DreamerV3.state import DreamerV3Config, LearningRate
 from ajax.agents.DreamerV3.world_model import make_initial_carry, observe_and_act
 from ajax.agents.families import OwnReplayAgent, TrainContext
+from ajax.agents.presets import Preset
 from ajax.buffers.ring import count_ring_rows, size_ring
 from ajax.controller import feature_width
 from ajax.environments.row_collector import (
@@ -77,6 +78,18 @@ from ajax.policy import PolicyParts, row_collector_policy
 from ajax.state import BaseAgentState, EnvironmentConfig, LoadedTrainState
 
 logger = logging.getLogger(__name__)
+
+#: The reference's DeepMind Control config on proprioceptive observations
+#: (danijar/dreamerv3@29eb964, dreamerv3/configs.yaml:232-236 dmc_proprio,
+#: :84 the env's action repeat 2, :44 run.num_envs). Its other domains
+#: (Atari, Crafter, DMLab, Procgen, ...) observe images, which Ajax's
+#: DreamerV3 does not encode yet.
+PRESETS = {
+    "DMC": Preset(
+        {"model_size": "12m", "train_ratio": 512, "n_envs": 16, "action_repeat": 2},
+        "danijar/dreamerv3@29eb964 dreamerv3/configs.yaml:44,84,232-236",
+    )
+}
 
 
 @dataclass(kw_only=True, eq=False, repr=False)

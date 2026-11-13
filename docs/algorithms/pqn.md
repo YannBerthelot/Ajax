@@ -68,6 +68,23 @@ rewards scaled by 0.1.
 A rollout holds `n_steps * n_envs` rows (1,024 by default), which must divide
 evenly into `num_minibatches`; PQN raises otherwise.
 
+## Presets
+
+`PQN.preset(task, env_id)` takes purejaxql's config for the task
+(mttga/purejaxql@`47af6d7`, `purejaxql/config/alg/pqn_<task>.yaml`; [Presets](../guide/training.md#presets));
+its MinAtar config is the defaults.
+
+| Argument | `CartPole` | `Atari` |
+| --- | --- | --- |
+| `n_envs`, `n_steps` | 32, 64 | 128, 32 |
+| `num_minibatches`, `n_epochs` | 16, 4 | 32, 2 |
+| `learning_rate`, `lr_linear_decay` | `1e-4`, `True` | `2.5e-4`, `False` |
+| `epsilon_end`, `epsilon_decay_frac` | 0.2, 0.2 | 0.001, 0.1 |
+| `q_lambda`, `reward_scale` | 0.95, 0.1 | 0.65, 1.0 |
+| `architecture` | 256-256 ReLU | the default |
+
+Atari's frame skip, life loss and reward clipping are the environment's.
+
 ## Notes
 
 - **Returns.** As purejaxql computes them. With `V(s) = max_a Q(s, a)`,

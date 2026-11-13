@@ -35,7 +35,7 @@ import inspect
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import KW_ONLY, dataclass
 from functools import partial
-from typing import Any, ClassVar, Optional, Union
+from typing import Any, ClassVar, Optional, Self, Union
 
 import jax
 import jax.numpy as jnp
@@ -44,6 +44,7 @@ from gymnax import EnvParams
 from ajax.agents import update_steps
 from ajax.agents.base import ActorCritic, run_horizon, shared_counters
 from ajax.agents.loop import LOOP_PHASES, Evaluation, TrainLoop
+from ajax.agents.presets import presets_of
 
 # Imported under another name: ReplayAgent's own hook is make_replay_buffer.
 from ajax.agents.recurrent import make_replay_buffer as make_recurrent_replay_buffer
@@ -497,6 +498,24 @@ class DeclaredAgent(ActorCritic):
     @classmethod
     def field_names(cls) -> frozenset[str]:
         return frozenset(field.name for field in dataclasses.fields(cls))  # type: ignore[arg-type]
+
+    @classmethod
+    def preset(cls, name: str, env_id: Union[str, EnvType], **overrides: Any) -> Self:
+        """The agent with the settings its reference tunes for the task
+        ``name``, from its module's PRESETS table (ajax.agents.presets), the
+        ``overrides`` given winning over them. Its run config records the
+        name under "preset"."""
+        table = presets_of(cls)
+        if name not in table:
+            known = ", ".join(sorted(table)) or "none"
+            raise ValueError(
+                f"{cls.__name__} has no preset {name!r}; its presets: {known}."
+            )
+        arguments = dict(table[name].overrides)
+        arguments.update(overrides)
+        agent = cls(env_id, **arguments)
+        agent.config.update({"preset": name})
+        return agent
 
     def _build_family(self) -> None:
         """What the family builds from the fields, before the agent's

@@ -195,3 +195,16 @@ def test_rlkits_fanin_reads_the_fan_out_and_sets_biases_to_one_tenth():
     assert kernel.shape == (4, 400)
     assert 0.9 / np.sqrt(400) < np.abs(kernel).max() <= 1 / np.sqrt(400)
     np.testing.assert_array_equal(params["bias"], np.float32(0.1))
+
+
+@pytest.mark.parametrize("cls", [TD3, REDQ])
+def test_the_critics_read_the_agents_actions_with_memory(cls):
+    """Ni et al.'s critics read the [-1, 1] actions of a normalised action
+    space (policies/rl/td3.py:45-47, policies/models/actor.py:94); without
+    memory TD3's and REDQ's references read the env's units (Pendulum's
+    torque in [-2, 2])."""
+    _, recurrent = _states(cls)
+    agent = cls("Pendulum-v1", n_envs=2)
+    state, _ = agent.train(seed=0, n_timesteps=0)
+    assert recurrent.critic_state.action_units is None
+    assert state.critic_state.action_units is not None

@@ -496,7 +496,8 @@ class PPO(
 
 
 # -- PPO's equations, in the order the update calls them ---------------------
-@partial(jax.jit, static_argnames=["gamma", "gae_lambda"])
+# Not jitted on its own: gamma and gae_lambda may be a sweep member's traced
+# values (ActorCritic.train's sweep); the training program compiles it.
 def _compute_gae(
     rewards: jax.Array,
     values: jax.Array,

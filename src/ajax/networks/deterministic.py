@@ -43,12 +43,13 @@ class DeterministicActor(nn.Module):
     input_architecture: Sequence[Union[str, ActivationFunction]]
     action_dim: int
     memory: Optional[MemoryConfig] = None
-    # The hidden layers' and the head's kernel inits (as the network
-    # config's encoder_kernel_init and mean_kernel_init); None keeps
-    # parse_layer's default and, for the head, DDPG's uniform(+-3e-3), the
-    # head recurrent TD3 keeps until Ni et al.'s initialisation is audited.
+    # The hidden layers' and the output layer's ("head") kernel inits (as
+    # the network config's encoder_kernel_init and mean_kernel_init); None
+    # keeps parse_layer's default and, for the output, DDPG's
+    # uniform(+-3e-3), which recurrent TD3 keeps until Ni et al.'s
+    # initialisation is audited.
     kernel_init: Optional[Union[str, InitializationFunction]] = None
-    head_kernel_init: Optional[Union[str, InitializationFunction]] = None
+    output_kernel_init: Optional[Union[str, InitializationFunction]] = None
     # The hidden layers as an Encoder, whose parameters a critic sharing it
     # holds (NetworkConfig.share_encoder).
     share_encoder: bool = False
@@ -67,7 +68,7 @@ class DeterministicActor(nn.Module):
             self.memory_cell = MemoryCell(self.memory)
         self.head = dense(
             self.action_dim,
-            self.head_kernel_init,
+            self.output_kernel_init,
             None,
             uniform_init(3e-3),
             name="head",
@@ -132,7 +133,7 @@ def get_initialized_td3_actor_critic(
             action_dim=action_dim,
             memory=network_config.memory,
             kernel_init=network_config.encoder_kernel_init,
-            head_kernel_init=network_config.mean_kernel_init,
+            output_kernel_init=network_config.mean_kernel_init,
             share_encoder=network_config.share_encoder,
         )
     return get_initialized_actor_critic(

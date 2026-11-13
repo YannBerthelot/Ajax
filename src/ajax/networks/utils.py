@@ -17,12 +17,21 @@ from optax import GradientTransformationExtraArgs
 
 from ajax.types import ActivationFunction, InitializationFunction
 
+#: The modules of an encoder the actor shares with the critic
+#: (NetworkConfig.share_encoder): their parameters are the critic's, outside
+#: the members of its ensemble.
+SHARED_ENCODER_MODULES = ("encoder", "memory_cell")
 
-def in_ensemble(path: Any) -> bool:
-    """Whether the parameter at path belongs to the members of a
-    :class:`~ajax.networks.networks.MultiCritic` (its vmapped ``ensemble``),
-    rather than to an encoder they share (``MultiCritic.share_encoder``)."""
-    return "ensemble" in [getattr(key, "key", None) for key in path]
+
+def shared_by_members(path: Any) -> bool:
+    """Whether the parameter at path is an encoder the members of a
+    :class:`~ajax.networks.networks.MultiCritic` share
+    (``MultiCritic.share_encoder``): outside their vmapped ``ensemble``, in
+    its encoder or memory block. Every other parameter is a member's."""
+    names = [getattr(key, "key", None) for key in path]
+    if "ensemble" in names:
+        return False
+    return any(name in SHARED_ENCODER_MODULES for name in names)
 
 
 def clip_by_member_norm(max_norm: float) -> optax.GradientTransformation:
@@ -36,17 +45,17 @@ def clip_by_member_norm(max_norm: float) -> optax.GradientTransformation:
     def update_fn(updates: optax.Updates, state: optax.EmptyState, params=None):
         del params
         flat = jax.tree_util.tree_flatten_with_path(updates)[0]
-        leaves = [leaf for path, leaf in flat if in_ensemble(path)]
+        leaves = [leaf for path, leaf in flat if not shared_by_members(path)]
         if len({leaf.shape[0] for leaf in leaves}) != 1:
             raise ValueError("every leaf's leading axis must index the members")
         norm = jnp.sqrt(
             sum(jnp.sum(jnp.square(g).reshape(g.shape[0], -1), axis=1) for g in leaves)
         )
-        shared = [leaf for path, leaf in flat if not in_ensemble(path)]
+        shared = [leaf for path, leaf in flat if shared_by_members(path)]
         shared_norm = optax.global_norm(shared)
 
         def clip(path: Any, g: jax.Array) -> jax.Array:
-            if not in_ensemble(path):
+            if shared_by_members(path):
                 n = shared_norm.astype(g.dtype)
             else:
                 n = norm.reshape((-1,) + (1,) * (g.ndim - 1)).astype(g.dtype)

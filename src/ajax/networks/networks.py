@@ -25,6 +25,7 @@ from ajax.networks.memory import (
     parse_memory_config,
 )
 from ajax.networks.utils import (
+    SHARED_ENCODER_MODULES,
     TORCH_LINEAR,
     dense,
     get_adam_tx,
@@ -878,11 +879,6 @@ def get_initialized_critic(
         tx=critic_tx,
         n_envs=env_config.n_envs,
     )
-
-
-#: The modules of an encoder the actor shares with the critic
-#: (NetworkConfig.share_encoder): their parameters are the critic's.
-SHARED_ENCODER_MODULES = ("encoder", "memory_cell")
 
 
 def shared_encoder_params(critic_params: Any) -> FrozenDict:

@@ -15,7 +15,7 @@ from ajax.agents.recurrent import RecurrentCarries, q_values
 from ajax.agents.update_steps import gradient_step
 from ajax.extensions.base import ExtensionStack
 from ajax.networks.q_networks import predict_q
-from ajax.networks.utils import in_ensemble
+from ajax.networks.utils import shared_by_members
 from ajax.state import LoadedTrainState
 
 
@@ -78,7 +78,7 @@ def ensemble_members(
     def member_rows(path: Any, leaf: jax.Array) -> jax.Array:
         # An encoder the members share (MultiCritic.share_encoder) is every
         # member's: kept whole.
-        return leaf[members] if in_ensemble(path) else leaf
+        return leaf if shared_by_members(path) else leaf[members]
 
     def take(variables: Optional[FrozenDict]) -> Optional[FrozenDict]:
         if variables is None:

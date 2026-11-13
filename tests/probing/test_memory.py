@@ -30,7 +30,9 @@ from . import readouts as R
 from .verdict import Case, Query, check, params
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "a8d332864bd1"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "c74808b638fe"  # verdict.digest(CASES): every answer, pinned
+# TD3 learns at Ni et al.'s rate (pomdp-baselines configs/pomdp/*/rnn.yml:40).
+NI_LEARNING_RATES = {"actor_learning_rate": 3e-4, "critic_learning_rate": 3e-4}
 
 
 # --- P0b: act on a cue seen two steps back, forget it at the episode's end ----
@@ -131,6 +133,8 @@ def _p0b_read(agent: str) -> Callable:
 def _p0b_agent(agent: str, spec: envs.Spec = CUE, kind: str = "gru", **kw: Any) -> Any:
     """32 units; replay batches of one window of Ni et al.'s 64 trained
     steps (64 trained positions, as the 4 windows of 16 before them)."""
+    if agent == "TD3":
+        kw = {**NI_LEARNING_RATES, **kw}
     kw = ({} if agent == "PPO" else {"batch_size": 1}) | kw
     if agent == "SAC":  # actor and temperature updates start with the critic's
         kw |= {"policy_update_start": 100, "alpha_update_start": 100}
@@ -144,18 +148,17 @@ def _p0b_agent(agent: str, spec: envs.Spec = CUE, kind: str = "gru", **kw: Any) 
 # 3000-3031 (PPO with its per-head layers: gru and transformer 31, mamba 30; lstm at
 # 20,000, as 15,000 passed 12 of 16 test seeds; 3 ladder seeds never learn V(+1)). The
 # critic's V after a cue-free episode settles last: it sets SAC's, REDQ's and TD3's
-# budgets, its tolerance near the 0.1 ceiling. TD3's actor can saturate at a bound:
-# seed 1011 reads -0.99 or beyond after cue -1 from 1250 to 3750 steps. PPO's log-std,
-# one parameter from 0 (std 1), falls steadily: median std 0.38-0.41 at 10,000 steps,
-# where V's margin needs sigma under 0.35 and 52 to 64 of 64 seeds fail; 0.09-0.11 at
-# 30,000, where none fails; 0.05-0.07 at 40,000 (one mamba seed fails). With the Dense
-# head PPO had before (std 0.37 at the start, about 0.02 by 5000 steps) failures
-# returned at longer budgets and its transformer and mamba qualified at no budget of
-# 2000-20,000. The action gap reads exactly 0: it takes the 0.02 floor.
-# With Ni et al.'s networks (2026-11-13), seeds 3000-3031: SAC 32/32, REDQ
-# 30/32; TD3 28/32 at 7500, 29/32 at 10,000 and 26/32 at 15,000, its actor
-# saturated at a bound on two seeds whatever the budget: kept at 10,000 with
-# the shortfall (owner), Ni's learning rate 3e-4 left to a follow-up.
+# budgets, its tolerance near the 0.1 ceiling. PPO's log-std, one parameter from 0
+# (std 1), falls steadily: median std 0.38-0.41 at 10,000 steps, where V's margin
+# needs sigma under 0.35 and 52 to 64 of 64 seeds fail; 0.09-0.11 at 30,000, where
+# none fails; 0.05-0.07 at 40,000 (one mamba seed fails). With the Dense head PPO
+# had before (std 0.37 at the start, about 0.02 by 5000 steps) failures returned at
+# longer budgets and its transformer and mamba qualified at no budget of 2000-20,000.
+# The action gap reads exactly 0: it takes the 0.02 floor.
+# With Ni et al.'s networks (2026-11-13), seeds 3000-3031: SAC 32/32, REDQ 30/32,
+# TD3 32/32 at its 3e-4 (1e-3: 29/32 at best, two actors saturated at a bound). Its
+# ladder: 63/64 at 10,000, 58/64 at 15,000 (V after a cue-free episode drifts); its
+# tolerances kept, as choose fits that V at neither (worst error 0.10 at 10,000).
 P0B_CELLS: dict[tuple[str, str], tuple[int, tuple[float, ...]]] = {
     ("PPO", "gru"): (20_000, (0.4, 0.325, 0.317, 0.054, 0.054, 0.02)),
     ("PPO", "lstm"): (20_000, (0.381, 0.296, 0.282, 0.045, 0.045, 0.02)),
@@ -214,13 +217,13 @@ def test_p0b_recurrent_sac_trains_on_a_one_feature_observation() -> None:
 # update (64 // L windows); the actor is judged for SAC and REDQ only:
 # ASAC's double count (2/16 + 2 15/16) equals its right slope, 2, and both
 # faults only scale TD3's quadratic, so its a0 is 0.5 either way.
-# The controls break the rule's 0.1 ceiling, pending the maintainer: the
-# critic's per-seed spread is a few % of its answer whatever the budget,
-# learning rate or kind. Each tolerance is twice the worst error on seeds
-# 1000-1031 and 2000-2031, within half the gap to a blind critic (0).
+# SAC's, REDQ's and ASAC's controls break the rule's 0.1 ceiling, pending the
+# maintainer: the critic's per-seed spread is a few % of its answer whatever
+# the budget, learning rate or kind. Each tolerance is twice the worst error
+# on seeds 1000-1031 and 2000-2031, within half the gap to a blind critic (0).
 # Budgets: SAC's worst errors are smallest at 1500 (1000: 0.118 / 0.083,
-# 3000: 0.088 / 0.077); TD3 at 1500 has not settled, and reads about 8% low
-# at L = 1 whatever the steps (12000: 0.513) or noise (0.5: 0.503).
+# 3000: 0.088 / 0.077); TD3 at 1500 has not settled. At 1e-3 TD3 read 8% low at
+# L = 1 whatever the steps or noise; at its 3e-4, 0.555 of 0.558 (median).
 # Seeds 3000-3031 with the transformer's and mamba's final LayerNorm: their
 # target and actor cells read 32/32 for SAC, REDQ and ASAC; TD3's 31/32 and
 # 30/32 (worst 0.111 / 0.147), as without it (30/32 and 30/32).
@@ -233,12 +236,11 @@ BUDGET = {"SAC": 1500, "REDQ": 1500, "ASAC": 1500, "TD3": 6000}
 # and 2000-2031 read 63/64.
 LONGER_BUDGET = {("REDQ", "gru", 2): 6000, ("TD3", "gru", 2): 9000}
 # With Ni et al.'s networks (2026-11-13; certified on seeds 3000-3031): SAC's
-# and REDQ's cells read 30-32/32 at their budgets; TD3's gru and lstm 30 and
-# 31/32, its windows of two 29/32 at 6000 and 31/32 at 9000. ASAC's GRU and
-# LSTM critics spread past the 0.1 ceiling at any budget (sd about 0.06 of 2,
-# 23-29/32 at 1500 to 6000): calibrated, as the controls, below. TD3's
-# transformer and mamba read 28/32 (transformer also at 9000; a few seeds
-# near 0.33): kept with the shortfall (owner), as p0b-TD3 is.
+# and REDQ's cells read 30-32/32 at their budgets. ASAC's GRU and LSTM
+# critics spread past the 0.1 ceiling at any budget (sd about 0.06 of 2,
+# 23-29/32 at 1500 to 6000): calibrated, as the controls, below. TD3's at 3e-4
+# (ladder 62-64/64): gru 30, lstm, transformer and mamba 32/32 at 6000, windows
+# of two 30/32 at 9000 (ladder 62/64 at 6000); at 1e-3 two kinds read 28/32.
 SPREAD = {  # (agent, kind, L): the target cell's tolerance and its record
     ("ASAC", "gru", L): (0.477, "ladder worst 0.238; cert 32/32, worst 0.180"),
     ("ASAC", "lstm", L): (0.397, "ladder worst 0.198; cert 32/32, worst 0.135"),
@@ -337,7 +339,7 @@ def _q2_agent(agent: str, kind: str, length: int, batch: int = 0) -> Any:
     if agent == "REDQ":
         kw |= {"num_critic_updates": 1, "num_critics": 4, "subset_size": 2}
     if agent == "TD3":
-        kw = {"exploration_noise": 0.3}
+        kw = {"exploration_noise": 0.3, **NI_LEARNING_RATES}
     kw |= {"sequence_length": length, "batch_size": batch or 64 // length}
     if length == 1:
         kw["burn_in"] = 1
@@ -360,7 +362,7 @@ CONTROL = {  # tolerances (critic, actor); certification on seeds 3000-3031
         " worst 0.039 / 0.072",
     ),
     ("REDQ", "gru"): ((0.186, 0.159), "cert 32/32, worst 0.097 / 0.073"),
-    ("TD3", "gru"): ((0.269,), "cert 32/32, worst 0.263 (it reads 8% low)"),
+    ("TD3", "gru"): ((0.042,), "cert 32/32, worst 0.020"),
     ("ASAC", "gru"): ((0.323,), "cert 32/32, worst 0.127"),
 }
 

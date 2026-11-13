@@ -449,28 +449,36 @@ def get_batch_from_buffer(
     ``reward_stats``, a reward normaliser's current statistics
     (:func:`ajax.environments.interaction.reward_statistics`), they come
     divided by them, as SB3's replay buffer does under VecNormalize."""
-    first = buffer.sample(buffer_state, key).experience
-    reward = first["reward"]
+    return as_replay_batch(buffer.sample(buffer_state, key).experience, reward_stats)
+
+
+def as_replay_batch(
+    rows: dict, reward_stats: Optional[NormalizationInfo] = None
+) -> ReplayBatch:
+    """rows, a replay's fields as an agent reads them (as_read), as a
+    ReplayBatch: a sample's, or the rows an agent picks itself (DAgger's
+    passes over the whole replay); their rewards as get_batch_from_buffer's."""
+    reward = rows["reward"]
     if reward_stats is not None:
         reward = normalized_rewards(reward, reward_stats)
     return ReplayBatch(
-        obs=first["obs"],
+        obs=rows["obs"],
         # Not the next row's obs: after a time limit that is the reset one,
         # and the target bootstraps on the final one (interaction.bootstrap_obs).
-        next_obs=first["next_obs"],
-        terminated=first["terminated"],
-        truncated=first["truncated"],
+        next_obs=rows["next_obs"],
+        terminated=rows["terminated"],
+        truncated=rows["truncated"],
         reward=reward,
-        action=first["action"],
-        raw_obs=first.get("raw_obs"),
-        is_expert=first.get("is_expert"),
-        a_expert=first.get("a_expert"),
-        next_a_expert=first.get("next_a_expert"),
-        raw_next_obs=first.get("raw_next_obs"),
-        return_to_go=first.get("return_to_go"),
-        next_action=first.get("next_action"),
-        policy_action=first.get("policy_action"),
-        bootstrap_discount=first.get("bootstrap_discount"),
+        action=rows["action"],
+        raw_obs=rows.get("raw_obs"),
+        is_expert=rows.get("is_expert"),
+        a_expert=rows.get("a_expert"),
+        next_a_expert=rows.get("next_a_expert"),
+        raw_next_obs=rows.get("raw_next_obs"),
+        return_to_go=rows.get("return_to_go"),
+        next_action=rows.get("next_action"),
+        policy_action=rows.get("policy_action"),
+        bootstrap_discount=rows.get("bootstrap_discount"),
     )
 
 

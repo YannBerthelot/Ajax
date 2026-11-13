@@ -8,7 +8,7 @@ an expert by dataset aggregation, with a supervised loss only::
         pi_hat_{i+1} = the policy fitted to D (supervised)
 
 On the replay family's loop (ReplayAgent), at each step every env executes
-the expert's action with probability beta_i (compute_beta), else the
+the expert's action with probability beta_i (beta_schedule), else the
 actor's deterministic one (DAgger.choose_behaviour; the per-env, per-step
 mixing of HumanCompatibleAI/imitation@e5ef188 algorithms/dagger.py,
 InteractiveTrajectoryCollector). The replay, which keeps every visited
@@ -52,21 +52,59 @@ from ajax.state import BaseAgentState
 from ajax.types import Architecture
 
 
+@dataclass(frozen=True)
+class LinearBetaSchedule:
+    """beta falls linearly from 1 in the first iteration to 0 after
+    rampdown_rounds iterations: the reference code's default,
+    LinearBetaSchedule(15) (HumanCompatibleAI/imitation@e5ef188
+    algorithms/dagger.py:45-67, :355)."""
+
+    rampdown_rounds: int = 15
+
+    def __post_init__(self) -> None:
+        if self.rampdown_rounds < 1:
+            raise ValueError(
+                f"rampdown_rounds is at least 1, got {self.rampdown_rounds}."
+            )
+
+    def __call__(self, iteration: jax.Array) -> jax.Array:
+        rounds = jnp.float32(self.rampdown_rounds)
+        return jnp.clip((rounds - iteration) / rounds, 0.0, 1.0)
+
+
+@dataclass(frozen=True)
+class ExponentialBetaSchedule:
+    """beta_i = decay ** (i - 1), as the reference's ExponentialBetaSchedule
+    (dagger.py:70-91); decay 0 is the paper's parameter-free beta_i = I(i = 1)
+    (its Sec. 3), which the reference's range (0, 1] leaves out."""
+
+    decay: float
+
+    def __post_init__(self) -> None:
+        if not 0.0 <= self.decay <= 1.0:
+            raise ValueError(f"The beta decay is in [0, 1], got {self.decay}.")
+
+    def __call__(self, iteration: jax.Array) -> jax.Array:
+        return jnp.power(jnp.float32(self.decay), iteration)  # 0 ** 0 = 1
+
+
 @dataclass(kw_only=True, eq=False, repr=False)
 class DAgger(GradientClipping, ObservationNormalization, ExpertGuided, ReplayAgent):
     """DAgger (Ross, Gordon and Bagnell, AISTATS 2011): imitation of an
     expert by dataset aggregation (the module's program).
 
-    At iteration i the expert acts with probability beta_i = beta_decay **
-    (i - 1) at each step, the actor otherwise; every visited state joins
+    At iteration i the expert acts with probability beta_i (beta_schedule)
+    at each step, the actor otherwise; every visited state joins
     the replay with the expert's action there, and the actor fits those
     actions. It needs no reward and has no critic. The expert follows the
     conventions of the expert guide: it may be stateful; a discrete expert
     returns its action index as an integer (n, 1) column.
 
-    Defaults: the paper's parameter-free beta_i = I(i = 1) (beta_decay=0,
-    its Sec. 3: "often performs best in practice"); the rest is the
-    reference code's, HumanCompatibleAI/imitation@e5ef188: 500-step
+    Defaults are the reference code's, HumanCompatibleAI/imitation@e5ef188:
+    beta falling linearly to 0 over 15 iterations (LinearBetaSchedule; the
+    paper prefers beta_i = I(i = 1), ExponentialBetaSchedule(0.0), as
+    "often performs best in practice", Sec. 3; the code that made the
+    reference's numbers ramps); 500-step
     iterations (rollout_round_min_timesteps) and its behaviour cloning's
     batch of 32, 32-32 tanh network and torch Adam (learning rate 1e-3, eps
     1e-8). Its cloning fits a Gaussian by likelihood with an entropy bonus;
@@ -76,8 +114,10 @@ class DAgger(GradientClipping, ObservationNormalization, ExpertGuided, ReplayAge
 
     #: The expert DAgger imitates (ExpertGuided's, required here).
     expert_policy: Callable
-    #: beta_i = beta_decay ** (i - 1): 0 is the paper's beta_i = I(i = 1).
-    beta_decay: float = 0.0
+    #: beta_i, the expert's share of iteration i's actions.
+    beta_schedule: Union[LinearBetaSchedule, ExponentialBetaSchedule] = (
+        dataclasses.field(default_factory=LinearBetaSchedule)
+    )
     #: The timesteps of one iteration i, over all envs.
     iteration_steps: int = 500
     actor_learning_rate: float = 1e-3
@@ -88,10 +128,6 @@ class DAgger(GradientClipping, ObservationNormalization, ExpertGuided, ReplayAge
     learning_starts: int = dataclasses.field(init=False)
 
     def check(self) -> None:
-        if not 0.0 <= self.beta_decay <= 1.0:
-            raise ValueError(
-                f"DAgger's beta_decay is in [0, 1], got {self.beta_decay}."
-            )
         if self.expert_policy is None:
             raise ValueError("DAgger imitates an expert: give it an expert_policy.")
 
@@ -110,10 +146,10 @@ class DAgger(GradientClipping, ObservationNormalization, ExpertGuided, ReplayAge
         self.learning_starts = self.batch_size
 
     def compute_beta(self, timestep: Union[int, jax.Array]) -> jax.Array:
-        """beta_i = beta_decay ** (i - 1) at iteration i = timestep //
-        iteration_steps + 1; 0 ** 0 = 1."""
+        """beta_i at iteration i = timestep // iteration_steps + 1, the
+        schedules counting iterations from 0 as the reference's rounds."""
         iteration = jnp.asarray(timestep // self.iteration_steps, jnp.float32)
-        return jnp.power(jnp.float32(self.beta_decay), iteration)
+        return self.beta_schedule(iteration)
 
     def choose_behaviour(self, context: TrainContext) -> Callable:
         """Per env, the expert's action with probability beta_i, else the

@@ -60,7 +60,7 @@ at the last step (`dagger/expert_frac`).
 | --- | --- | --- |
 | `expert_policy` | required | the expert to imitate, as in [Expert guidance](../guide/expert-guidance.md#the-expert) |
 | `eval_expert_policy` | None | another expert whose return each evaluation logs in place of `expert_policy`'s |
-| `beta_decay` | 0.0 | the expert acts with probability `beta_i = beta_decay ** (i - 1)` in iteration `i`; 0 lets it act in the first iteration only |
+| `beta_schedule` | `LinearBetaSchedule(15)` | the expert's probability of acting in iteration `i`: falling linearly from 1 to 0 over 15 iterations, the reference code's; `ExponentialBetaSchedule(decay)` gives `beta_i = decay ** (i - 1)` |
 | `iteration_steps` | 500 | timesteps (over all environments) per iteration |
 | `n_envs` | 1 | environments stepped in parallel |
 | `buffer_size` | 1,000,000 | labelled states kept |
@@ -83,10 +83,12 @@ one gradient step on a replay batch. The loss is the squared error between
 the policy's action and the expert's (both in `[-1, 1]`), or the
 cross-entropy of the expert's action for discrete actions.
 
-`beta_decay=0` is the paper's parameter-free choice, `beta_i = I(i = 1)`.
-The paper reports that it "often performs best in practice" (Sec. 3). Any
-value in (0, 1] gives its exponential schedule. The guarantee needs only
-that the mean of the `beta_i` goes to 0.
+The default is the reference code's: `beta` falls linearly from 1 in the
+first iteration to 0 after 15 (`LinearBetaSchedule(15)`, imitation's
+`dagger.py`). The paper prefers its parameter-free `beta_i = I(i = 1)`,
+which it reports "often performs best in practice" (Sec. 3):
+`ExponentialBetaSchedule(0.0)`. Any decay in (0, 1] gives its exponential
+schedule. The guarantee needs only that the mean of the `beta_i` goes to 0.
 
 ## DAgger and `ImitationLoss`
 

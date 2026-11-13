@@ -32,6 +32,7 @@ from ajax import APO, ASAC, AVG, DQN, IQL, PPO, PQN, REDQ, SAC, TD3, TQC, CrossQ
 from ajax.agents.APG.APG import APG
 from ajax.agents.APG.networks import PIDHeadConfig
 from ajax.agents.critics import compute_mse_td_loss, make_huber_td_loss
+from ajax.agents.DAgger.DAgger import ExponentialBetaSchedule
 from ajax.agents.DQN.DQN import compute_double_dqn_td_target
 from ajax.agents.DreamerV3.DreamerV3 import DreamerV3
 from ajax.agents.TD3.TD3 import make_default_action_pipeline
@@ -188,6 +189,7 @@ NORM = {"normalize_observations": True}
 GRU = {"learning_starts": 60, "memory": MemoryConfig(kind="gru", hidden_size=8)}
 DAGGER = {"env_id": "Pendulum-v1", "n_envs": 2, "actor_architecture": ("32", "relu")}
 DAGGER.update({"buffer_size": 1000, "batch_size": 16, "expert_policy": push})
+HALF_DECAY = {"beta_schedule": ExponentialBetaSchedule(0.5)}
 CROSSQ = {"env_id": "Pendulum-v1", "n_envs": 2, "actor_width": 32, "critic_width": 64}
 CROSSQ.update({**R, "learning_starts": 40})
 # The paths a replay agent's options take: a residual policy (its executed
@@ -355,7 +357,7 @@ B5_CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
     "DQN-offline": (DQN, {**CART, "learning_starts": 0, "batch_size": 8}, 80),
     "DQN-image": (DQN, MINATAR, 64),
     "DAgger": (DAgger, DAGGER, 200),
-    "DAgger-mix": (DAgger, {**DAGGER, "beta_decay": 0.5, "iteration_steps": 40}, 200),
+    "DAgger-mix": (DAgger, {**DAGGER, **HALF_DECAY, "iteration_steps": 40}, 200),
     "DAgger-norm-clip": (
         DAgger,
         {**DAGGER, **NORM, "max_grad_norm": 0.5, "weight_decay": 0.01},

@@ -35,6 +35,7 @@ from flax.core import FrozenDict
 
 from ajax.agents.diagnostics import approximate_kl, explained_variance, mean_policy_std
 from ajax.agents.families import (
+    EncoderSharing,
     ExpertGuided,
     ObservationNormalization,
     OnPolicyAgent,
@@ -58,7 +59,7 @@ from ajax.environments.interaction import get_pi
 from ajax.environments.utils import check_if_environment_has_continuous_actions
 from ajax.extensions.base import merge_metrics
 from ajax.networks.distributions import policy_entropy, recompute_log_prob
-from ajax.networks.networks import predict_value
+from ajax.networks.networks import predict_value, with_critic_encoder
 from ajax.networks.utils import TORCH_LINEAR
 from ajax.random_keys import derive_key, split_by_index
 from ajax.schedule import Schedule, at
@@ -67,7 +68,13 @@ from ajax.types import Architecture, FloatOrCallable, InitializationFunction
 
 
 @dataclass(kw_only=True, eq=False, repr=False)
-class APO(ObservationNormalization, RewardNormalization, ExpertGuided, OnPolicyAgent):
+class APO(
+    ObservationNormalization,
+    RewardNormalization,
+    ExpertGuided,
+    EncoderSharing,
+    OnPolicyAgent,
+):
     """APO for discrete and continuous actions.
 
     Defaults are its reference code's, each cited where it is declared. An
@@ -382,9 +389,12 @@ class APO(ObservationNormalization, RewardNormalization, ExpertGuided, OnPolicyA
 
         def summed_loss(params: tuple) -> Tuple[jax.Array, AuxiliaryLogs]:
             actor_params, critic_params = params
+            # An actor sharing the critic's encoder reads it from
+            # critic_params, so the policy's terms train it too.
+            actor = with_critic_encoder(actor_state, critic_params)
             policy_loss, (policy_aux, pi_mean) = compute_policy_loss(
                 actor_params,
-                actor_state,
+                actor,
                 observations=minibatch["obs"],
                 actions=minibatch["actions"],
                 log_probs=minibatch["log_probs"],
@@ -416,7 +426,7 @@ class APO(ObservationNormalization, RewardNormalization, ExpertGuided, OnPolicyA
                 "raw_observations": minibatch["raw_obs"],
                 "pi_mean": pi_mean,
                 "actor_params": actor_params,
-                "actor_state": actor_state,
+                "actor_state": actor,
                 "a_expert": minibatch["a_expert"],
             }
             critic_extra, critic_metrics = extensions.compute_extensions_critic_loss(

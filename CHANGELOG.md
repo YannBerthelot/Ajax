@@ -26,6 +26,13 @@ The next release is 0.6.0: the first item changes results.
   of the default; each update is a little slower. A checkpoint restores
   each array into the memory its skeleton keeps it in, so a resumed run
   keeps the latents on the host.
+- **The actor and the critic can share their encoder.** PPO and APO take
+  `share_encoder`. With `True` the two networks read the observations
+  through one encoder (the hidden layers or the CNN, and the memory
+  block): the critic owns it, both losses train it, and the actor reads a
+  copy refreshed after every update. `None`, the default, follows the
+  agent's reference code; for MLP networks both keep the encoders apart, as
+  before. See the networks guide.
 - **DreamerV3 trains faster on the GPU.** The world model's gradient
   through its 64 filtering steps now takes each RSSM weight's gradient once
   per update, as one product over all steps, instead of adding 64 small

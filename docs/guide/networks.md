@@ -172,6 +172,35 @@ read in height, width, channels order. `padding` takes flax's padding
 before its ReLU, and `kernel_init` names the initialiser of every layer, as
 the network's other `*_kernel_init` settings do.
 
+## A shared encoder
+
+By default the actor and the critic each have their own encoder: the
+hidden layers, or the CNN, and the memory block if there is one.
+`share_encoder=True` gives them one. The actor and the critic then differ
+only in their output layers, as in ppo2's shared network:
+
+```python
+from ajax import PPO
+
+agent = PPO("CartPole-v1", share_encoder=True, n_envs=2, n_steps=16, batch_size=16)
+state, _ = agent.train(seed=0, n_timesteps=64)
+```
+
+- The critic owns the encoder, and the critic's optimiser steps it, at
+  `critic_learning_rate`. The actor keeps a copy, which the training loop
+  refreshes after every update.
+- Both losses train it. Its gradient is the sum of the value loss's and the
+  policy loss's, as in one network trained down the summed loss.
+- One encoder needs one architecture: `actor_architecture` and
+  `critic_architecture` must be equal (a CNN replaces both).
+- Cloning pretraining (`CloningPretrain`) trains the encoder too, and hands
+  it back to the critic.
+
+`share_encoder=None`, the default, does what the agent's reference code
+does. PPO and APO take it. Their references keep MLP networks apart:
+ppo2 does on MuJoCo (`value_network='copy'`), and so do CleanRL,
+PureJaxRL and APO's rlpyt model.
+
 ## The PID policy
 
 Many control tasks are run by PID controllers, which engineers can read,

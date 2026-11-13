@@ -22,8 +22,9 @@ single steps and computes GAE once, on the rollout; with unroll_length
 in time order, and GAE is computed again in each minibatch from the current
 critic; a recurrent policy (memory) trains on sequences of
 bptt_length steps in time order, each replayed from the memory it
-started with, GAE once. Each network takes the gradient of its own loss,
-which is that of ppo2's summed loss (their parameters are apart).
+started with, GAE once. Each network takes its gradient of ppo2's summed
+loss: that of its own loss, unless they share their encoder
+(share_encoder), whose gradient is both losses'.
 """
 
 from __future__ import annotations
@@ -40,6 +41,7 @@ from flax.core import FrozenDict
 
 from ajax.agents.diagnostics import approximate_kl, explained_variance, mean_policy_std
 from ajax.agents.families import (
+    EncoderSharing,
     ExpertGuided,
     ImageObservations,
     ObservationNormalization,
@@ -62,14 +64,14 @@ from ajax.agents.recurrent import (
 )
 from ajax.agents.update_steps import (
     apply_gradients_clipped_together,
-    compute_gradients,
+    compute_actor_critic_gradients,
     derive_extensions_key,
 )
 from ajax.environments.utils import check_if_environment_has_continuous_actions
 from ajax.extensions.base import ExtensionStack, merge_metrics
 from ajax.networks.distributions import policy_entropy, recompute_log_prob
 from ajax.networks.memory import MemoryConfig
-from ajax.networks.networks import predict_value
+from ajax.networks.networks import predict_value, with_critic_encoder
 from ajax.random_keys import derive_key, split_by_index
 from ajax.schedule import Schedule, at
 from ajax.state import BaseAgentState, LoadedTrainState, Transition
@@ -93,6 +95,7 @@ class PPO(
     RewardNormalization,
     ExpertGuided,
     ImageObservations,
+    EncoderSharing,
     OnPolicyAgent,
 ):
     """Proximal Policy Optimization, for discrete and continuous actions.
@@ -379,8 +382,8 @@ class PPO(
         """One gradient step of the critic and one of the actor on the
         minibatch. Both gradients are taken at the parameters this step starts
         from, then clipped together and applied. That is ppo2's single step
-        down the sum of the two losses: the networks share no parameter, so
-        each network's gradient of the sum is the gradient of its own loss."""
+        down the sum of the two losses (compute_actor_critic_gradients),
+        with or without a shared encoder."""
         # The minibatch's key: a squashed policy's entropy is sampled with it,
         # and the extensions' keys below are derived from it.
         entropy_key = minibatch["entropy_key"]
@@ -427,10 +430,10 @@ class PPO(
                 compute_extensions_loss=compute_extensions_critic_loss,
             )
 
-        def policy_loss(actor_params: FrozenDict) -> tuple:
+        def policy_loss(actor_params: FrozenDict, critic_params: FrozenDict) -> tuple:
             return compute_policy_loss(
                 actor_params,
-                actor,
+                with_critic_encoder(actor, critic_params),
                 minibatch,
                 gae,
                 clip_coef=at(self.clip_range, agent_state.collector_state.timestep),
@@ -440,12 +443,10 @@ class PPO(
                 entropy_key=entropy_key,
             )
 
-        value_grads, (value_aux, value_metrics) = compute_gradients(
-            value_loss, critic.params
+        policy_grads, value_grads, policy_out, value_out = (
+            compute_actor_critic_gradients(policy_loss, value_loss, actor, critic)
         )
-        policy_grads, (policy_aux, policy_metrics) = compute_gradients(
-            policy_loss, actor.params
-        )
+        (policy_aux, policy_metrics), (value_aux, value_metrics) = policy_out, value_out
         actor, critic, policy_grad_norm, value_grad_norm = (
             apply_gradients_clipped_together(
                 actor, critic, policy_grads, value_grads, self.max_grad_norm

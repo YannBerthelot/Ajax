@@ -9,6 +9,7 @@ import distrax
 import jax
 import jax.numpy as jnp
 import optax
+from flax.core import FrozenDict
 from flax.training import train_state
 from jax.tree_util import Partial as partial
 
@@ -67,6 +68,32 @@ def _reset_actor_heads(cloned: Any, before: Any, reset_actor_head: bool) -> Any:
         return old if reset_actor_head and _is_output_head(names) else new
 
     return jax.tree_util.tree_map_with_path(reset, cloned, before)
+
+
+def with_borrowed_encoder(actor_state: Any) -> Any:
+    """The actor's parameters with the encoder it borrows from the critic
+    (LoadedTrainState.shared_params) among its own; its parameters as they
+    are without one."""
+    shared_params = getattr(actor_state, "shared_params", None)
+    if shared_params is None:
+        return actor_state.params
+    own = actor_state.params["params"]
+    return FrozenDict({**actor_state.params, "params": {**shared_params, **own}})
+
+
+def with_trained_params(actor_state: Any, params: Any) -> Any:
+    """actor_state with params (with_borrowed_encoder's layout) trained: the
+    encoder's back in its borrowed copy, which the caller hands to the
+    critic (networks.take_actor_encoder)."""
+    shared_params = getattr(actor_state, "shared_params", None)
+    if shared_params is None:
+        return actor_state.replace(params=params)
+    trained = params["params"]
+    own = {name: value for name, value in trained.items() if name not in shared_params}
+    encoder: FrozenDict = FrozenDict({name: trained[name] for name in shared_params})
+    return actor_state.replace(
+        params=FrozenDict({**params, "params": own}), shared_params=encoder
+    )
 
 
 def zero_output_head(params: Any) -> Any:
@@ -161,9 +188,13 @@ def pre_train(
             obs_std,
         )
 
+    # An actor sharing the critic's encoder clones it too, as one network
+    # would be: its own entries, trained, take precedence over the borrowed
+    # copy (network_variables), which is handed back afterwards.
+    initial_params = with_borrowed_encoder(actor_state)
     bc_actor_state = train_state.TrainState.create(
         apply_fn=actor_state.apply_fn,
-        params=actor_state.params,
+        params=initial_params,
         tx=optax.adam(actor_lr),
     )
 
@@ -216,9 +247,9 @@ def pre_train(
     )
     params = bc_actor_state.params
     if reset_log_std or reset_actor_head:
-        params = _reset_actor_heads(params, actor_state.params, reset_actor_head)
+        params = _reset_actor_heads(params, initial_params, reset_actor_head)
     return (
-        actor_state.replace(params=params),
+        with_trained_params(actor_state, params),
         {"actor_loss": actor_losses},
         obs_mean,
         obs_std,

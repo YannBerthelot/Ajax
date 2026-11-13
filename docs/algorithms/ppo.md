@@ -132,8 +132,9 @@ Defaults are those of the constructor.
   `num_resets_per_eval` and `num_evals` reproduce choices of Brax's PPO.
   They are off by default, as is `encoder_layer_norm` (a LayerNorm on the
   encoder's output).
-- **Separate networks.** The actor and the critic are separate networks.
-  As ppo2's one optimizer, their gradients are clipped together to one
+- **Separate networks.** The actor and the critic are separate networks,
+  unless `share_encoder=True` gives them one encoder (see the networks
+  guide). As ppo2's one optimizer, their gradients are clipped together to one
   global norm, then each takes an Adam step (Adam is per coordinate, so
   the two are one Adam over the whole model); the value loss is not
   clipped. As in Baselines' ppo2,

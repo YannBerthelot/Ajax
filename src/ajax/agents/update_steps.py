@@ -237,6 +237,36 @@ def compute_gradients(
     return jax.grad(loss, has_aux=True)(params)
 
 
+def compute_actor_critic_gradients(
+    policy_loss: Callable[[Any, Any], tuple[jax.Array, Any]],
+    value_loss: Callable[[Any], tuple[jax.Array, Any]],
+    actor: Any,
+    critic: Any,
+) -> tuple[Any, Any, Any, Any]:
+    """Each network's gradient of the summed loss policy_loss + value_loss
+    at their parameters, then what each loss returns beside its value.
+
+    value_loss takes the critic's parameters; policy_loss the actor's, then
+    the critic's, from which an actor sharing the critic's encoder reads it
+    (networks.with_critic_encoder). Without a shared encoder the networks
+    share no parameter, so each network's gradient is that of its own loss.
+    With one, the encoder is the critic's: its gradient is the value loss's
+    plus the policy loss's, as in ppo2's one network (ppo2/model.py:75-107).
+    """
+    value_grads, value_aux = compute_gradients(value_loss, critic.params)
+    if actor.shared_params is None:
+        policy_grads, policy_aux = compute_gradients(
+            lambda actor_params: policy_loss(actor_params, critic.params),
+            actor.params,
+        )
+        return policy_grads, value_grads, policy_aux, value_aux
+    (policy_grads, encoder_grads), policy_aux = jax.grad(
+        policy_loss, argnums=(0, 1), has_aux=True
+    )(actor.params, critic.params)
+    critic_grads = jax.tree.map(jnp.add, value_grads, encoder_grads)
+    return policy_grads, critic_grads, policy_aux, value_aux
+
+
 def gradient_step(train_state: Any, loss_fn: Callable) -> tuple[Any, Any, jax.Array]:
     """One optimiser step down loss_fn(params) -> (loss, aux).
 

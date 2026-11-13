@@ -333,6 +333,7 @@ class UDRL(
                 get_raw_final_obs(info, final_obs),
                 expert_state,
                 done > 0,
+                env_action,
                 timestep=collector.timestep,
                 horizon=collector.max_timesteps,
             )

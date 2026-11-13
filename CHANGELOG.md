@@ -8,6 +8,15 @@ PyPI as `ajax-rl`.
 
 The next release is 0.6.0: the first item changes results.
 
+- **`PreviousAction()` appends the action executed before each
+  observation** (`ajax.extensions.observe`): zero at an episode's first
+  observation, in agent units, a discrete action one-hot, never
+  normalised. Collection stores it, and evaluation and `agent.policy`
+  append it as collection does, so an actor with memory can read its own
+  past actions, as Ni et al. (2022)'s recurrent actor does. It is opt-in:
+  default runs do not change. Observation features now read the action
+  through `ObserveInputs.previous_action`.
+
 - **Three defaults now come from the agents' reference code.** An audit of
   every agent's defaults against its original code found these without a
   source:

@@ -38,8 +38,11 @@ from ajax.state import Transition
 from tests.conformance import kit
 
 #: ppo2's settings (ppo2/defaults.py, and learn's: vf_coef 0.5, max_grad_norm 0.5), in Ajax's names;
-#: the learning rate is each record's.
+#: the learning rate is each record's. No normalisation: ppo2's VecNormalize sits in its env, outside
+#: the update, and the records feed the update the batch it read.
 PPO2 = {
+    "normalize_observations": False,
+    "normalize_rewards": False,
     "gamma": 0.99,
     "gae_lambda": 0.95,
     "vf_coef": 0.5,

@@ -322,6 +322,32 @@ def test_a_q_critic_agent_trains_on_one_encoder_its_actor_reads(name):
     assert not np.allclose(_policy_mean(moved), _policy_mean(state))
 
 
+def _dense_shapes(params: Any) -> set[tuple[int, int]]:
+    """The (inputs, outputs) of every dense layer in params, a member's
+    leading ensemble axis aside."""
+    return {
+        leaf.shape[-2:]
+        for path, leaf in jax.tree_util.tree_leaves_with_path(params)
+        if path[-1].key == "kernel"
+    }
+
+
+@pytest.mark.parametrize("name", ["SAC", "TD3"])  # a stochastic, a deterministic actor
+def test_a_shared_encoder_is_the_actors_architecture_and_the_heads_the_critics(name):
+    """Catches the shared encoder built from critic_architecture, which the
+    actor, reading it with actor_architecture, cannot apply (#437). Pendulum
+    has 3 observations and 1 action: the encoder maps 3 to the actor's 8, and
+    each member's head reads those 8 with the action (9) into the critic's 16,
+    then its value layer 16 into 1."""
+    agent = _q_agent(name, share_encoder=True, critic_architecture=("16", "relu"))
+
+    state = _one_seed(agent.train(seed=0, n_timesteps=48)[0])
+
+    critic = state.critic_state.params["params"]
+    assert _dense_shapes(critic["encoder"]) == {(3, 8)}
+    assert _dense_shapes(critic["ensemble"]) == {(9, 16), (16, 1)}
+
+
 @pytest.mark.parametrize(
     "critic_learning_rate, encoder_moves", [(0.0, False), (3e-4, True)]
 )

@@ -85,7 +85,9 @@ The next release is 0.6.0: the first item changes results.
   the memory block). The critic owns it, and the actor reads a copy
   refreshed after every update. PPO and APO train it with both losses, as
   ppo2's one network; the off-policy agents with the critic's loss alone,
-  the actor reading it without a gradient, as SAC-AE and DrQ do. `None`,
+  the actor reading it without a gradient, as SAC-AE and DrQ do; their
+  encoder is `actor_architecture`, and the critic's `critic_architecture`
+  layers read its features with the action. `None`,
   the default, follows each agent's reference code: PPO shares its CNN, as
   ppo2 and CleanRL do on Atari; every other network stays apart, as
   before. This changes the results of PPO with `cnn_image_shape`.

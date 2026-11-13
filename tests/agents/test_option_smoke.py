@@ -135,6 +135,7 @@ OPTIONS.update(
         "n_gradient_steps": {"n_gradient_steps": 2},
         "n_epochs": {"n_epochs": 2},
         "actor_lr_decay": {"actor_lr_decay": None},
+        "lr_linear_decay": {"lr_linear_decay": False},
         "cnn_image_shape": {"cnn_image_shape": None},
         "mlp": {"cnn_image_shape": None},  # the CNN's alternative
         "lr_schedule": {"lr_schedule": "warmup_cosine", "warmup_steps": 2},

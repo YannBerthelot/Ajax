@@ -36,20 +36,25 @@ print(evaluations["Eval/episodic mean reward"])  # one row per seed
 
 ## Key hyperparameters
 
-Defaults are read from `PQN.__init__`.
+Defaults are read from `PQN.__init__`. They are purejaxql's MinAtar
+config (`config/alg/pqn_minatar.yaml`); its CartPole config, on vector
+observations, takes 32 envs of 64 steps, 4 epochs of 16 minibatches, lambda
+0.95, epsilon to 0.2 over 20% of the run, a 256-256 network, rate 1e-4 and
+rewards scaled by 0.1.
 
 | Argument | Default | What it does |
 | --- | --- | --- |
-| `n_envs` | `8` | parallel environments |
-| `learning_rate` | `2.5e-4` | RAdam step size (the authors' optimiser, `optax.radam`) |
+| `n_envs` | `128` | parallel environments |
+| `learning_rate` | `5e-4` | RAdam step size (the authors' optimiser, `optax.radam`) |
+| `lr_linear_decay` | `True` | decay the rate linearly to ~0 over the run's gradient steps, as every purejaxql config does |
 | `architecture` | `("128", "relu", "128", "relu")` | hidden layers; each Dense is followed by a LayerNorm |
 | `gamma` | `0.99` | discount |
 | `q_lambda` | `0.65` | the lambda of the Q(lambda) returns |
-| `n_steps` | `128` | rollout length per env |
-| `n_epochs` | `4` | passes over each rollout |
-| `num_minibatches` | `4` | minibatches per pass |
+| `n_steps` | `32` | rollout length per env |
+| `n_epochs` | `2` | passes over each rollout |
+| `num_minibatches` | `32` | minibatches per pass |
 | `epsilon_start`, `epsilon_end` | `1.0`, `0.05` | exploration rate at the start and the end of its decay |
-| `epsilon_decay_frac` | `0.5` | fraction of the run over which epsilon decays |
+| `epsilon_decay_frac` | `0.1` | fraction of the run over which epsilon decays |
 | `reward_scale` | `1.0` | multiplies the rewards in the target |
 | `max_grad_norm` | `10.0` | gradient clipping by global norm (the authors'); `None` turns it off |
 | `normalize_observations`, `normalize_rewards` | `False` | running normalisation |

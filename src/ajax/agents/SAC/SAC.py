@@ -127,7 +127,8 @@ class SAC(
     num_critic_updates: int = 1
     n_step: int = 1
     buffer_size: int = int(1e6)
-    batch_size: int = 256
+    # None: 256 rows, or 64 windows with memory (RecurrentReplayAgent).
+    batch_size: Optional[int] = None  # type: ignore[assignment]
     learning_starts: int = int(1e4)
 
     def check(self) -> None:
@@ -148,9 +149,11 @@ class SAC(
     def make_replay_buffer(self) -> BufferType:
         if self.n_step == 1:
             return super().make_replay_buffer()
+        batch_size = self.batch_size
+        assert batch_size is not None  # resolved before the agent is built
         return get_buffer(
             self.buffer_size,
-            self.batch_size,
+            batch_size,
             self.n_envs,
             n_step=self.n_step,
             gamma=self.gamma,

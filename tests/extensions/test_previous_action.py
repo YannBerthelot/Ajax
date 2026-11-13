@@ -252,6 +252,7 @@ def _recurrent_sac(extensions: tuple) -> Any:
         actor_architecture=("8", "relu"),
         critic_architecture=("8", "relu"),
         learning_starts=64,
+        sequence_length=8,
         extensions=extensions,
     )
 
@@ -289,6 +290,7 @@ def test_asac_trains_with_memory_reading_the_observations_previous_action():
         actor_architecture=("8", "relu"),
         critic_architecture=("8", "relu"),
         learning_starts=64,
+        sequence_length=8,
         batch_size=4,
         extensions=(PreviousAction(),),
     )

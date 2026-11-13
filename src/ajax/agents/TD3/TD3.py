@@ -98,7 +98,8 @@ class TD3(
     target_noise_clip: float = 0.5
     exploration_noise: Schedule = 0.1  # or a function of the timestep
     buffer_size: int = int(1e6)
-    batch_size: int = 256
+    # None: 256 rows, or 64 windows with memory (RecurrentReplayAgent).
+    batch_size: Optional[int] = None  # type: ignore[assignment]
     learning_starts: int = int(25e3)
     #: Collection's action selection, in place of make_gaussian_exploration
     #: (AjaxExperiments' TD3 variants).

@@ -117,7 +117,8 @@ class TQC(
     n_quantiles: int = 25
     top_quantiles_to_drop_per_net: int = 2
     buffer_size: int = int(1e6)
-    batch_size: int = 256
+    # None: 256 rows, or 64 windows with memory (RecurrentReplayAgent).
+    batch_size: Optional[int] = None  # type: ignore[assignment]
     learning_starts: int = 257
 
     def check(self) -> None:

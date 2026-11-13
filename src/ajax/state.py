@@ -230,6 +230,13 @@ class LoadedTrainState(TrainState):
     previous_action_in_observation: bool = struct.field(
         pytree_node=False, default=False
     )
+    # A critic with memory: the observation's columns that hold the previous
+    # step, its action and reward (PreviousAction's, PreviousReward's), as
+    # static (start, stop) ranges. A replayed window starting from a zero
+    # memory zeroes them at its first row, which then reads as an episode's
+    # first, as Ni et al.'s windows start with a[0] = r[0] = 0
+    # (pomdp-baselines e7c19c3, policy_rnn.py:247-257).
+    previous_step_columns: tuple = struct.field(pytree_node=False, default=())
     # The network's running statistics (its BatchRenorm layers'
     # ``batch_stats`` collection), apart from the trained ``params``: the
     # optimiser never steps them. None for a network without any.

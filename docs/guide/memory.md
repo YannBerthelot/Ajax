@@ -175,8 +175,9 @@ positive, otherwise `max(n_steps, batch_size) // min(n_steps, batch_size)`
 
 ## Off-policy: sequence replay
 
-The replay agents (SAC, ASAC, REDQ, TD3) store whole trajectories and learn
-from contiguous sequences, as R2D2 does (Kapturowski et al., 2019):
+The replay agents (SAC, ASAC, REDQ, TD3, TQC, RVI-SAC) store whole
+trajectories and learn from contiguous sequences, as Ni et al. (2022) do,
+with R2D2's burn-in and stored state as options (Kapturowski et al., 2019):
 
 ```python
 from ajax import SAC
@@ -202,8 +203,14 @@ also stores the actor's memory at every step, and the actor starts the
 learned steps from the memory it had when it acted; the critics, which do
 not run while acting, are still burned in from zero. Kapturowski et al.
 found stored state better than a zero start with burn-in at keeping the
-replayed memory close to the one the policy had. The defaults are
-`burn_in=8`, `sequence_length=16`, `stored_state=False`. The agent refuses
+replayed memory close to the one the policy had. The defaults are Ni et
+al.'s: `burn_in=0`, `sequence_length=64`, `stored_state=False`, and
+`batch_size=64` windows (without memory, `batch_size` counts rows: 256).
+A window then starts from a zero memory, and its first row reads no
+previous action or reward, as an episode's first does; Ni et al. sample
+each window inside one finished episode and mask the steps past its end,
+where Ajax's windows may cross an episode's end, the memory restarting
+there, and every step is trained. The agent refuses
 at construction a `learning_starts` that would not leave each copy one
 whole sequence before the first update (`learning_starts // n_envs` must
 exceed `burn_in + sequence_length + 1`), and `stored_state=True` without

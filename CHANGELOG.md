@@ -42,6 +42,13 @@ The next release is 0.6.0: the first item changes results.
   one of these agents trained with memory does not restore into this
   version: its parameters are another network's. Retrain, or pin the
   previous version to use it.
+- **Breaking: their replay takes Ni et al.'s windows**: `burn_in=0` (was 8),
+  `sequence_length=64` (was 16) and, with memory, `batch_size=64` windows
+  (was 256). `batch_size` now defaults to `None`: 256 rows without memory,
+  as before. A window's first row reads no previous action or reward (Ni et
+  al.'s `a[0] = r[0] = 0`), unless the window starts from a stored memory.
+  *Upgrade:* pass `burn_in=8, sequence_length=16, batch_size=256` to train
+  as before.
 - **SAC, TD3, REDQ, TQC, ASAC and RVI-SAC can share a memory.** With
   `share_encoder=True`, `memory=` and `PreviousAction()`, the critic's
   encoder and memory block read the observation and the previous action

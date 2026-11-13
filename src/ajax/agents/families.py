@@ -48,6 +48,8 @@ from ajax.agents.recurrent import (
     NI_LAYOUT,
     NI_MEMORY_INITS,
     NI_MEMORY_WIDTH,
+    NI_WINDOW_STEPS,
+    NI_WINDOWS,
     replayed_window,
     stored_actor_carry_dim,
     unsupported_recurrent_options,
@@ -1066,6 +1068,11 @@ class RecurrentReplayAgent(ReplayAgent):
     and PreviousReward join its extensions where it has none of them (owner,
     2026-11-13: on by default, as Ni et al.'s networks read them).
 
+    Its batch_size counts rows without memory, windows with it; None is
+    256 rows (each agent's reference's) or Ni et al.'s 64 windows. The
+    window defaults are theirs too: 64 trained steps from a zero memory, no
+    burn-in.
+
     Args:
         memory: The networks' memory block (MemoryConfig or its dict form);
             None keeps them feedforward.
@@ -1078,8 +1085,8 @@ class RecurrentReplayAgent(ReplayAgent):
     """
 
     memory: Optional[Union[MemoryConfig, dict]] = None
-    burn_in: int = 8
-    sequence_length: int = 16
+    burn_in: int = 0
+    sequence_length: int = NI_WINDOW_STEPS
     stored_state: bool = False
 
     supports_memory = True
@@ -1087,6 +1094,9 @@ class RecurrentReplayAgent(ReplayAgent):
     def __post_init__(self) -> None:
         # Resolved before the run config records them, so the log keeps
         # what runs.
+        if self.batch_size is None:
+            # 256 rows: every family member's reference (its docstring's).
+            self.batch_size = NI_WINDOWS if self.memory is not None else 256
         if self.memory is not None:
             self.memory = with_reference_defaults(
                 parse_memory_config(self.memory), NI_MEMORY_INITS, NI_MEMORY_WIDTH

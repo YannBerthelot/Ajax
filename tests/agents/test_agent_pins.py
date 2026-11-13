@@ -2244,3 +2244,21 @@ _GOLDEN.update(
         },
     }
 )
+
+# Re-recorded on macOS ARM CPU once recurrent SAC became Ni et al.'s
+# (pomdp-baselines e7c19c3): its networks read the previous action and reward
+# through embeddings, the critics one memory, and the layers after the memory
+# start as rlkit's (biases 0.1); its critics' errors are summed and its
+# temperature steps alpha on the actor loss's log-densities. New layers, so
+# new numbers: actor +69.6%, critic +21.6%, target +71.7%, alpha +0.03%.
+_GOLDEN.update(
+    {
+        "SAC-gru": {
+            "actor": 91.2584457397461,
+            "critic": 150.99508666992188,
+            "target": 90.58779907226562,
+            "n_updates": 0.0,
+            "alpha": 0.9761014580726624,
+        },
+    }
+)

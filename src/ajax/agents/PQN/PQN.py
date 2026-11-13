@@ -89,7 +89,8 @@ class PQN(
     learning_rate: float = 5e-4
     #: purejaxql's LR_LINEAR_DECAY: the rate falls linearly to 1e-20 over the
     #: run's gradient steps (pqn_minatar.py:140-147), true in every PQN
-    #: config; False keeps it constant.
+    #: config; False keeps it constant. A schedule given as learning_rate
+    #: runs as given.
     lr_linear_decay: bool = True
     architecture: Architecture = ("128", "relu", "128", "relu")
     gamma: float = 0.99
@@ -136,11 +137,6 @@ class PQN(
         return {"optimizer": "radam", "eps": 1e-8}
 
     def setup(self) -> None:
-        if self.lr_linear_decay and callable(self.learning_rate):
-            raise ValueError(
-                "PQN's lr_linear_decay decays a constant learning_rate; pass"
-                " lr_linear_decay=False with a schedule of your own."
-            )
         if self.n_steps * self.env_args.n_envs % self.num_minibatches != 0:
             raise ValueError(
                 f"the rollout's n_steps * n_envs ({self.n_steps} *"
@@ -192,7 +188,7 @@ class PQN(
         (pqn_minatar.py:140-147). The schedule counts the optimiser's steps,
         so a run split into calls passes its whole horizon to each."""
         optimizer_args = context.critic_optimizer_args
-        if not self.lr_linear_decay:
+        if not self.lr_linear_decay or callable(self.learning_rate):
             return optimizer_args
         rollout_size = self.n_steps * context.env_args.n_envs
         updates = context.total_timesteps // rollout_size

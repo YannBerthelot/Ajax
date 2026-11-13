@@ -540,7 +540,6 @@ COMPARISONS = {
             # step (240 updates x 16 minibatches x 4 epochs), and halves the
             # squared TD error, which moves where the clip binds.
             "lr_decay": ("linear", 1e-20, 240 * 16 * 4),
-            "lr_linear_decay": False,  # the spec decays the rate itself
             "td_loss": "half_squared",
         },
         unmatched=(
@@ -609,7 +608,6 @@ COMPARISONS = {
             "epsilon_decay_frac": 0.1,
             "max_grad_norm": 10.0,
             "lr_decay": ("linear", 1e-20, 300 * 32 * 2),
-            "lr_linear_decay": False,  # the spec decays the rate itself
             "td_loss": "half_squared",
         },
         unmatched=(

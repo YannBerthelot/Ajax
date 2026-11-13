@@ -13,6 +13,7 @@ sees: the env's columns and the normalised features; the raw features (an
 expert's action) come last and stay raw.
 """
 
+import dataclasses
 from typing import Any, Optional, Tuple
 
 import jax.numpy as jnp
@@ -46,7 +47,9 @@ def seeded_obs_norm(
     )
 
 
-def init_agent_obs_norm(obs_dim: int) -> NormalizationInfo:
+def init_agent_obs_norm(
+    obs_dim: int, clip: Optional[float] = None
+) -> NormalizationInfo:
     """Initialise running stats for an obs vector of size ``obs_dim``.
 
     Stats are stored with leading shape 1 (not ``n_envs``): online_normalize
@@ -54,9 +57,11 @@ def init_agent_obs_norm(obs_dim: int) -> NormalizationInfo:
     same scalar stats anyway, and ``apply_obs_norm`` only needs the
     per-feature mean/var. The size-1 leading axis preserves broadcasting
     against batched obs ``(*, obs_dim)`` while saving an n_envs× memory
-    factor on every checkpoint and vmap broadcast.
+    factor on every checkpoint and vmap broadcast. clip bounds the
+    observations normalised with them (update_obs_norm, normalized_obs).
     """
-    return init_norm_info(batch_size=1, obs_shape=(obs_dim,))
+    stats = init_norm_info(batch_size=1, obs_shape=(obs_dim,))
+    return dataclasses.replace(stats, clip=clip)
 
 
 def _covered(obs: jnp.ndarray, info: NormalizationInfo) -> tuple:
@@ -70,6 +75,18 @@ def _covered(obs: jnp.ndarray, info: NormalizationInfo) -> tuple:
 
 def _joined(normalised: jnp.ndarray, raw: Optional[jnp.ndarray]) -> jnp.ndarray:
     return normalised if raw is None else jnp.concatenate([normalised, raw], -1)
+
+
+def _clipped(
+    normalised: jnp.ndarray, clip: Optional[float], raw_columns: int
+) -> jnp.ndarray:
+    """normalised clipped to +-clip, as baselines' VecNormalize clips its
+    observations (vec_normalize.py, clipob=10), but the env's leading raw
+    columns, which normalisation leaves as they are."""
+    if clip is None:
+        return normalised
+    kept = jnp.clip(normalised[..., raw_columns:], -clip, clip)
+    return jnp.concatenate([normalised[..., :raw_columns], kept], -1)
 
 
 def update_obs_norm(
@@ -100,8 +117,9 @@ def update_obs_norm(
         mean_2=mean_2,
         var=var,
         returns=info.returns,
+        clip=info.clip,
     )
-    return _joined(new_obs, raw), new_info
+    return _joined(_clipped(new_obs, info.clip, raw_columns), raw), new_info
 
 
 def normalized_obs(
@@ -123,7 +141,7 @@ def normalized_obs(
         nan_safe=False,
         raw_columns=raw_columns,
     )[0]
-    return _joined(normalised, raw)
+    return _joined(_clipped(normalised, info.clip, raw_columns), raw)
 
 
 def mirror_obs_norm(agent_state: Any, stats: Optional[NormalizationInfo]) -> Any:

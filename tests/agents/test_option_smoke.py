@@ -161,7 +161,11 @@ ELSEWHERE = {
     "system_class": "agents/APG/test_APG.py",
     "controller_factory": "agents/APG/test_APG.py",
     "alpha_learning_rate": "agents/CrossQ/test_CrossQ.py",
+    "observation_clip": "environments/test_observation_clip.py",
     "share_encoder": "agents/test_share_encoder.py",
+    # None resolves to the reference's, with memory or without.
+    "batch_size": "agents/test_ni_recurrent_replay.py",
+    "policy_delay": "agents/TD3/test_TD3.py",
 }
 #: Each src extension's builder and the agents whose rows take it, in stack
 #: order (cloning seeds the statistics the other pretraining reads).

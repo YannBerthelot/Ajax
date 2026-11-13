@@ -238,6 +238,7 @@ class ActorCritic:
         weight_decay: float = 0.0,
         memory: Optional[Union[MemoryConfig, dict]] = None,
         normalize_observations: bool = False,
+        observation_clip: Optional[float] = None,
         normalize_rewards: bool = False,
         reward_normalization_gamma: Optional[float] = None,
         actor_bias_init: Optional[Union[str, InitializationFunction]] = None,
@@ -322,6 +323,7 @@ class ActorCritic:
             reward_normalization_gamma,
             episode_length,
             action_repeat,
+            observation_clip,
         )
         self.actor_optimizer_args = OptimizerConfig(
             learning_rate=actor_learning_rate,
@@ -367,6 +369,7 @@ class ActorCritic:
         reward_normalization_gamma: Optional[float],
         episode_length: Optional[int],
         action_repeat: int,
+        observation_clip: Optional[float] = None,
     ) -> EnvironmentConfig:
         """The environment the agent trains on, its rewards normalised by
         the env wrapper and its observations by the agent."""
@@ -374,6 +377,12 @@ class ActorCritic:
             raise ValueError(
                 "reward_normalization_gamma sets how normalize_rewards normalises"
                 " the rewards: pass normalize_rewards=True with it."
+            )
+        if observation_clip is not None and self.replays_transitions:
+            raise ValueError(
+                "observation_clip clips the observations an on-policy agent stores"
+                " normalised; a replay agent normalises inside its networks,"
+                " which do not clip."
             )
         if normalize_rewards and reward_normalization_gamma is None:
             # SB3's VecNormalize divides by the spread of the discounted
@@ -408,6 +417,7 @@ class ActorCritic:
             normalize_obs_in_agent=normalize_observations,
             store_normalized_obs=normalize_observations
             and not self.replays_transitions,
+            observation_clip=observation_clip,
         )
 
     def _set_up_extensions(self, extensions: Sequence[Extension]) -> None:

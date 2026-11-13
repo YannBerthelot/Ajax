@@ -211,9 +211,15 @@ class ObservationNormalization:
     Args:
         normalize_observations: Normalise the observations the networks read
             by running statistics.
+        observation_clip: With normalize_observations, clip the normalised
+            observations to +-observation_clip, as baselines' VecNormalize
+            does (clipob=10). An on-policy agent's, stored normalised at
+            collection; a replay agent normalises inside its networks, which
+            do not clip, so it refuses one.
     """
 
     normalize_observations: bool = False
+    observation_clip: Optional[float] = None
 
 
 @dataclass(kw_only=True, eq=False, repr=False)
@@ -232,6 +238,16 @@ class RewardNormalization:
 
     normalize_rewards: bool = False
     reward_normalization_gamma: Optional[float] = None
+
+    def sweepable_fields(self) -> frozenset[str]:
+        # The env wrapper discounts the return it divides by with the gamma
+        # the agent was built with (reward_normalization_gamma None): a
+        # member sweeping gamma would keep that one and train apart from
+        # its separate run.
+        fields: frozenset[str] = super().sweepable_fields()  # type: ignore[misc]
+        if self.normalize_rewards and self.reward_normalization_gamma is None:
+            return fields.difference({"gamma"})
+        return fields
 
 
 @dataclass(kw_only=True, eq=False, repr=False)

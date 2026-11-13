@@ -3182,7 +3182,7 @@ for Weights &amp; Biases or TensorBoard.</p>
 </tr>
 <tr>
 <td><code>policy_update_start</code>, <code>alpha_update_start</code></td>
-<td><code>2_000</code></td>
+<td><code>0</code></td>
 <td>timestep from which the actor and <code>alpha</code> update</td>
 </tr>
 <tr>
@@ -3378,11 +3378,11 @@ compilation) at main <code>a8a13c2</code> (see
 <a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a>    <span class="n">reward_normalization_gamma</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a>    <span class="n">normalize_observations</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
 <a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a>    <span class="n">max_grad_norm</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a>    <span class="n">policy_update_start</span><span class="o">=</span><span class="mi">2000</span><span class="p">,</span>
+<a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a>    <span class="n">policy_update_start</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
 <a id="__codelineno-0-24" name="__codelineno-0-24" href="#__codelineno-0-24"></a>    <span class="n">alpha_learning_rate</span><span class="o">=</span><span class="mf">0.0003</span><span class="p">,</span>
 <a id="__codelineno-0-25" name="__codelineno-0-25" href="#__codelineno-0-25"></a>    <span class="n">alpha_init</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span>
 <a id="__codelineno-0-26" name="__codelineno-0-26" href="#__codelineno-0-26"></a>    <span class="n">target_entropy_per_dim</span><span class="o">=-</span><span class="mf">1.0</span><span class="p">,</span>
-<a id="__codelineno-0-27" name="__codelineno-0-27" href="#__codelineno-0-27"></a>    <span class="n">alpha_update_start</span><span class="o">=</span><span class="mi">2000</span><span class="p">,</span>
+<a id="__codelineno-0-27" name="__codelineno-0-27" href="#__codelineno-0-27"></a>    <span class="n">alpha_update_start</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
 <a id="__codelineno-0-28" name="__codelineno-0-28" href="#__codelineno-0-28"></a>    <span class="n">actor_learning_rate</span><span class="o">=</span><span class="mf">0.0003</span><span class="p">,</span>
 <a id="__codelineno-0-29" name="__codelineno-0-29" href="#__codelineno-0-29"></a>    <span class="n">critic_learning_rate</span><span class="o">=</span><span class="mf">0.0003</span><span class="p">,</span>
 <a id="__codelineno-0-30" name="__codelineno-0-30" href="#__codelineno-0-30"></a>    <span class="n">actor_architecture</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;256&quot;</span><span class="p">,</span> <span class="s2">&quot;relu&quot;</span><span class="p">,</span> <span class="s2">&quot;256&quot;</span><span class="p">,</span> <span class="s2">&quot;relu&quot;</span><span class="p">),</span>
@@ -3443,9 +3443,10 @@ compilation) at main <code>a8a13c2</code> (see
 softlearning): 256-256 ReLU networks, two critics, Adam at 3e-4 with
 TensorFlow's eps 1e-8, tau 0.005, gamma 0.99, a target entropy of -1
 per action dimension, a 1e6 replay, batch 256 and 1e4 warm-up steps.
-The actor's and the temperature's steps wait for 2000 steps
-(policy_update_start, alpha_update_start), inert at that warm-up; updates
-on a dataset before any env step (PriorData) do not wait.</p>
+The actor and the temperature step with the critics from the first
+update, as softlearning's single session.run of all its training ops
+does (a1253bc sac.py:348-353); policy_update_start and
+alpha_update_start can delay them.</p>
 <p>n_step above 1 is Ajax's and not SAC's: the critics' target sums n_step
 rewards before it bootstraps, gamma^n in place of gamma, stopping at an
 episode's end. The return is uncorrected, as Rainbow's is (Hessel et al.

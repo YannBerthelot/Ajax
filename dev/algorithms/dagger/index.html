@@ -3074,9 +3074,9 @@ at the last step (<code>dagger/expert_frac</code>).</p>
 <td>another expert whose return each evaluation logs in place of <code>expert_policy</code>'s</td>
 </tr>
 <tr>
-<td><code>beta_decay</code></td>
-<td>0.0</td>
-<td>the expert acts with probability <code>beta_i = beta_decay ** (i - 1)</code> in iteration <code>i</code>; 0 lets it act in the first iteration only</td>
+<td><code>beta_schedule</code></td>
+<td><code>LinearBetaSchedule(15)</code></td>
+<td>the expert's probability of acting in iteration <code>i</code>: falling linearly from 1 to 0 over 15 iterations, the reference code's; <code>ExponentialBetaSchedule(decay)</code> gives <code>beta_i = decay ** (i - 1)</code></td>
 </tr>
 <tr>
 <td><code>iteration_steps</code></td>
@@ -3139,10 +3139,12 @@ paper's aggregated dataset D. Once the replay holds a batch, each step makes
 one gradient step on a replay batch. The loss is the squared error between
 the policy's action and the expert's (both in <code>[-1, 1]</code>), or the
 cross-entropy of the expert's action for discrete actions.</p>
-<p><code>beta_decay=0</code> is the paper's parameter-free choice, <code>beta_i = I(i = 1)</code>.
-The paper reports that it "often performs best in practice" (Sec. 3). Any
-value in (0, 1] gives its exponential schedule. The guarantee needs only
-that the mean of the <code>beta_i</code> goes to 0.</p>
+<p>The default is the reference code's: <code>beta</code> falls linearly from 1 in the
+first iteration to 0 after 15 (<code>LinearBetaSchedule(15)</code>, imitation's
+<code>dagger.py</code>). The paper prefers its parameter-free <code>beta_i = I(i = 1)</code>,
+which it reports "often performs best in practice" (Sec. 3):
+<code>ExponentialBetaSchedule(0.0)</code>. Any decay in (0, 1] gives its exponential
+schedule. The guarantee needs only that the mean of the <code>beta_i</code> goes to 0.</p>
 <h2 id="dagger-and-imitationloss">DAgger and <code>ImitationLoss</code><a class="headerlink" href="#dagger-and-imitationloss" title="Permanent link">&para;</a></h2>
 <p>A replay agent (SAC, TD3, REDQ, ASAC) given an <code>expert_policy</code> and
 <code>ImitationLoss</code> with the same expert stores the expert's action at every
@@ -3212,7 +3214,7 @@ fit.</p>
 <a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>    <span class="n">eval_expert_policy</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>    <span class="n">normalize_observations</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
 <a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>    <span class="n">max_grad_norm</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>    <span class="n">beta_decay</span><span class="o">=</span><span class="mf">0.0</span><span class="p">,</span>
+<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>    <span class="n">beta_schedule</span><span class="o">=</span><span class="n">LinearBetaSchedule</span><span class="p">(),</span>
 <a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a>    <span class="n">iteration_steps</span><span class="o">=</span><span class="mi">500</span><span class="p">,</span>
 <a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a>    <span class="n">actor_learning_rate</span><span class="o">=</span><span class="mf">0.001</span><span class="p">,</span>
 <a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a>    <span class="n">actor_architecture</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;32&quot;</span><span class="p">,</span> <span class="s2">&quot;tanh&quot;</span><span class="p">,</span> <span class="s2">&quot;32&quot;</span><span class="p">,</span> <span class="s2">&quot;tanh&quot;</span><span class="p">),</span>
@@ -3247,15 +3249,17 @@ fit.</p>
 
         <p>DAgger (Ross, Gordon and Bagnell, AISTATS 2011): imitation of an
 expert by dataset aggregation (the module's program).</p>
-<p>At iteration i the expert acts with probability beta_i = beta_decay **
-(i - 1) at each step, the actor otherwise; every visited state joins
+<p>At iteration i the expert acts with probability beta_i (beta_schedule)
+at each step, the actor otherwise; every visited state joins
 the replay with the expert's action there, and the actor fits those
 actions. It needs no reward and has no critic. The expert follows the
 conventions of the expert guide: it may be stateful; a discrete expert
 returns its action index as an integer (n, 1) column.</p>
-<p>Defaults: the paper's parameter-free beta_i = I(i = 1) (beta_decay=0,
-its Sec. 3: "often performs best in practice"); the rest is the
-reference code's, HumanCompatibleAI/imitation@e5ef188: 500-step
+<p>Defaults are the reference code's, HumanCompatibleAI/imitation@e5ef188:
+beta falling linearly to 0 over 15 iterations (LinearBetaSchedule; the
+paper prefers beta_i = I(i = 1), ExponentialBetaSchedule(0.0), as
+"often performs best in practice", Sec. 3; the code that made the
+reference's numbers ramps); 500-step
 iterations (rollout_round_min_timesteps) and its behaviour cloning's
 batch of 32, 32-32 tanh network and torch Adam (learning rate 1e-3, eps
 1e-8). Its cloning fits a Gaussian by likelihood with an entropy bonus;
@@ -3296,8 +3300,8 @@ error (cross-entropy for discrete actions).</p>
 
     <div class="doc doc-contents ">
 
-        <p>beta_i = beta_decay ** (i - 1) at iteration i = timestep //
-iteration_steps + 1; 0 ** 0 = 1.</p>
+        <p>beta_i at iteration i = timestep // iteration_steps + 1, the
+schedules counting iterations from 0 as the reference's rounds.</p>
 
 
     </div>

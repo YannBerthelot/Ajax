@@ -19,6 +19,7 @@ import optax
 from ajax.agents.recurrent import q_values
 from ajax.extensions.base import ExtensionStack, merge_metrics
 from ajax.log import unevaluated
+from ajax.networks.networks import mirror_shared_encoder
 from ajax.random_keys import EXTENSIONS_KEY_TAG, derive_key, fold_index
 
 #: The keys of the extensions' batches the shared steps below build, which
@@ -454,7 +455,10 @@ def critic_step(
         agent_state.critic_state, total_critic_loss
     )
     metrics = merge_metrics(target_metrics, loss_metrics)
-    return agent_state.replace(critic_state=critic_state), aux, grad_norm, metrics
+    # An actor reading the critic's encoder steps on it as this step left it
+    # (SAC-AE's and DrQ's order: the critic, then the actor).
+    agent_state = mirror_shared_encoder(agent_state.replace(critic_state=critic_state))
+    return agent_state, aux, grad_norm, metrics
 
 
 def bootstrap_cuts(terminated: jax.Array, extensions: ExtensionStack) -> jax.Array:

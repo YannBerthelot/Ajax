@@ -25,11 +25,14 @@ from typing import Any
 import jax
 import jax.numpy as jnp
 import numpy as np
+import optax
 import pytest
 
+import ajax
 from ajax.agents.APO.APO import APO
 from ajax.agents.cloning import pre_train
 from ajax.agents.PPO.PPO import PPO
+from ajax.agents.TD3.TD3 import compute_td3_td_target
 from ajax.agents.update_steps import compute_actor_critic_gradients
 from ajax.checkpoint import restore_into, save_checkpoint
 from ajax.environments.interaction import get_pi
@@ -40,6 +43,7 @@ from ajax.networks.networks import (
     take_actor_encoder,
     with_critic_encoder,
 )
+from ajax.networks.utils import clip_by_member_norm
 from ajax.state import Transition
 
 N_STEPS, N_ENVS = 8, 2
@@ -269,4 +273,141 @@ def test_one_encoder_needs_one_architecture():
     )
 
     with pytest.raises(ValueError, match="actor_architecture and critic_architecture"):
+        _init(agent)
+
+
+# -- Q-critic agents (SAC-AE's and DrQ's rule) ------------------------------
+# Contract (owner, 2026-11-13; SAC-AE, DrQ and SB3's share_features_extractor):
+# the critic's loss trains the shared encoder and the actor reads it detached,
+# as the critic step just left it; the action joins after the encoder; a target
+# actor reads the target critic's encoder; every reference keeps its networks
+# apart, so the default stays separate.
+
+Q_AGENTS = ("SAC", "TD3", "REDQ", "TQC", "ASAC", "RVISAC", "AVG", "IQL")
+Q_SMALL: dict[str, Any] = {
+    "actor_architecture": ("8", "relu"),
+    "critic_architecture": ("8", "relu"),
+}
+REPLAY = {"buffer_size": 256, "batch_size": 8, "learning_starts": 16}
+
+
+def _one_seed(state: Any) -> Any:
+    """A trained state without its leading seed axis."""
+    return jax.tree.map(lambda leaf: leaf[0], state)
+
+
+def _q_agent(name: str, **options: Any) -> Any:
+    kwargs = dict(Q_SMALL)
+    if name != "AVG":
+        kwargs.update(REPLAY)
+    kwargs.update(options)
+    if name == "ASAC":
+        kwargs["max_grad_norm"] = 1.0  # its per-member clip, with a shared encoder
+    if name == "REDQ":
+        kwargs["num_critic_updates"] = 2  # a fast test's few updates, not 20 a step
+    return getattr(ajax, name)(env_id="Pendulum-v1", **kwargs)
+
+
+@pytest.mark.parametrize("name", Q_AGENTS)
+def test_a_q_critic_agent_trains_on_one_encoder_its_actor_reads(name):
+    assert not _q_agent(name).network_args.share_encoder  # the references' default
+    agent = _q_agent(name, share_encoder=True)
+
+    state = _one_seed(agent.train(seed=0, n_timesteps=48)[0])
+
+    copy = dict(state.actor_state.shared_params)["encoder"]
+    same = jax.tree.map(np.array_equal, copy, _critic_encoder(state))
+    assert all(jax.tree.leaves(same))
+    moved = mirror_shared_encoder(_shift_critic_encoder(state, 0.5))
+    assert not np.allclose(_policy_mean(moved), _policy_mean(state))
+
+
+@pytest.mark.parametrize(
+    "critic_learning_rate, encoder_moves", [(0.0, False), (3e-4, True)]
+)
+def test_only_the_critics_loss_trains_the_encoder(critic_learning_rate, encoder_moves):
+    """With the critic's learning rate at 0 an update leaves the encoder as it
+    was, though the actor steps: the actor reads it detached. The actor's
+    copy is the encoder the critic step left, read by the actor step after it."""
+    agent = _q_agent(
+        "SAC", share_encoder=True, critic_learning_rate=critic_learning_rate
+    )
+    state = _one_seed(agent.train(seed=0, n_timesteps=32)[0])
+    _, context = agent.make_context(64)
+
+    updated, _ = agent.update(state, context)
+
+    moved = jax.tree.map(
+        lambda a, b: not np.array_equal(a, b),
+        _critic_encoder(state),
+        _critic_encoder(updated),
+    )
+    assert all(jax.tree.leaves(moved)) == encoder_moves
+    copy = dict(updated.actor_state.shared_params)["encoder"]
+    assert all(
+        jax.tree.leaves(jax.tree.map(np.array_equal, copy, _critic_encoder(updated)))
+    )
+
+
+@pytest.mark.parametrize("target, changes", [(True, True), (False, False)])
+def test_td3s_target_actor_reads_the_target_critics_encoder(target, changes):
+    state, _ = _init(_q_agent("TD3", share_encoder=True))
+    critic = state.critic_state
+    shifted = jax.tree_util.tree_map_with_path(
+        lambda path, w: w + 0.5 if "encoder" in str(path) else w,
+        critic.target_params if target else critic.params,
+    )
+    moved = critic.replace(**{"target_params" if target else "params": shifted})
+    observations, column = OBS, jnp.zeros((4, 1))
+
+    def next_actions(critic_state):
+        _, _, actions, _ = compute_td3_td_target(
+            state.actor_state,
+            critic_state,
+            jax.random.PRNGKey(0),
+            observations,
+            column,
+            column,
+            0.99,
+            0.0,
+            0.5,
+            1.0,
+        )
+        return np.asarray(actions)
+
+    assert (not np.allclose(next_actions(moved), next_actions(critic))) == changes
+
+
+def test_each_member_and_a_shared_encoder_are_clipped_on_their_own():
+    """Members (under "ensemble") clip by their own norms, the shared encoder
+    by its own: norms 5 (3-4), 1 and 10 (6-8), clipped to 2."""
+    updates = {
+        "params": {
+            "encoder": {"kernel": jnp.array([6.0, 8.0])},
+            "ensemble": {"kernel": jnp.array([[3.0, 4.0], [0.6, 0.8]])},
+        }
+    }
+    clipped, _ = clip_by_member_norm(2.0).update(updates, optax.EmptyState())
+
+    np.testing.assert_allclose(
+        clipped["params"]["encoder"]["kernel"], [1.2, 1.6], rtol=1e-6
+    )
+    np.testing.assert_allclose(
+        clipped["params"]["ensemble"]["kernel"], [[1.2, 1.6], [0.6, 0.8]], rtol=1e-6
+    )
+
+
+def test_iqls_state_value_keeps_its_own_encoder():
+    state, _ = _init(_q_agent("IQL", share_encoder=True))
+
+    assert "encoder" in state.critic_state.params["params"]  # shared, the Q critics'
+    assert "encoder" not in state.value_state.params["params"]  # V's, in its ensemble
+
+
+def test_a_shared_memory_with_a_q_critic_is_refused():
+    agent = _q_agent(
+        "SAC", share_encoder=True, memory=MemoryConfig("gru", 8), learning_starts=32
+    )
+
+    with pytest.raises(ValueError, match="previous action"):
         _init(agent)

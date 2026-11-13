@@ -48,6 +48,7 @@ from ajax.agents.centering import (
 )
 from ajax.agents.critics import compute_mean_critic_loss
 from ajax.agents.families import (
+    EncoderSharing,
     EntropyTemperature,
     ExpertGuided,
     GradientClipping,
@@ -103,6 +104,7 @@ class RVISAC(
     ObservationNormalization,
     RewardNormalization,
     ExpertGuided,
+    EncoderSharing,
     RecurrentReplayAgent,
 ):
     """RVI-SAC: SAC on the average reward by RVI Q-learning (the module's

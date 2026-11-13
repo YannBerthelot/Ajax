@@ -37,6 +37,7 @@ from ajax.agents import update_steps
 from ajax.agents.critics import compute_mean_critic_loss
 from ajax.agents.families import (
     BELLMAN_CONTEXT,
+    EncoderSharing,
     EntropyTemperature,
     ExpertGuided,
     GradientClipping,
@@ -75,6 +76,7 @@ class SAC(
     ObservationNormalization,
     RewardNormalization,
     ExpertGuided,
+    EncoderSharing,
     RecurrentReplayAgent,
 ):
     """Soft Actor-Critic with a learned temperature (the module's update).

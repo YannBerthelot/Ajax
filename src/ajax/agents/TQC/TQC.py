@@ -38,6 +38,7 @@ from flax.serialization import to_state_dict
 from ajax.agents import update_steps
 from ajax.agents.families import (
     BELLMAN_CONTEXT,
+    EncoderSharing,
     EntropyTemperature,
     ExpertGuided,
     GradientClipping,
@@ -77,6 +78,7 @@ class TQC(
     ObservationNormalization,
     RewardNormalization,
     ExpertGuided,
+    EncoderSharing,
     RecurrentReplayAgent,
 ):
     """TQC: SAC with num_critics distributional critics, each predicting

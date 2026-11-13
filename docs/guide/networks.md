@@ -188,21 +188,33 @@ state, _ = agent.train(seed=0, n_timesteps=64)
 
 - The critic owns the encoder, and the critic's optimiser steps it, at
   `critic_learning_rate`. The actor keeps a copy, which the training loop
-  refreshes after every update.
-- Both losses train it. Its gradient is the sum of the value loss's and the
-  policy loss's, as in one network trained down the summed loss.
-- One encoder needs one architecture: `actor_architecture` and
+  refreshes after every update and every critic step.
+- PPO and APO train it with both losses: its gradient is the sum of the
+  value loss's and the policy loss's, as in one network trained down the
+  summed loss. One encoder needs one architecture: `actor_architecture` and
   `critic_architecture` must be equal (a CNN replaces both).
+- The off-policy agents (SAC, TD3, REDQ, TQC, ASAC, RVI-SAC, AVG, IQL)
+  train it with the critic's loss alone; the actor reads it without a
+  gradient, as SAC-AE, DrQ and SB3's `share_features_extractor` do. The
+  encoder is `actor_architecture`: the actor's heads read its features, and
+  the critic's `critic_architecture` layers read them with the action. A
+  target actor (TD3's) reads the target critic's encoder, and IQL's state
+  value keeps an encoder of its own.
 - Cloning pretraining (`CloningPretrain`) trains the encoder too, and hands
   it back to the critic.
+- Not yet: a memory shared with a Q-critic (it would read the previous
+  action, which actors do not see yet), and CrossQ, whose batch
+  renormalisation would have both networks' training passes move the
+  shared encoder's running statistics.
 
 `share_encoder=None`, the default, does what the agent's reference code
-does. PPO and APO take it:
+does:
 
 | Agent | MLP | Image (CNN) | Memory |
 | --- | --- | --- | --- |
 | PPO | separate (ppo2 on MuJoCo, CleanRL, PureJaxRL) | shared (ppo2 on Atari, CleanRL) | separate (see below) |
 | APO | separate (its rlpyt model) | - | - |
+| SAC, TD3, REDQ, TQC, ASAC, RVI-SAC, AVG, IQL | separate (each reference) | - | separate (Ni et al. 2022) |
 
 ppo2 also shares MLP networks outside MuJoCo; Ajax keeps them apart, as
 its MuJoCo setting does. With memory, ppo2 and PureJaxRL share the

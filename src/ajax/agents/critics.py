@@ -15,6 +15,7 @@ from ajax.agents.recurrent import RecurrentCarries, q_values
 from ajax.agents.update_steps import gradient_step
 from ajax.extensions.base import ExtensionStack
 from ajax.networks.q_networks import predict_q
+from ajax.networks.utils import in_ensemble
 from ajax.state import LoadedTrainState
 
 
@@ -74,10 +75,15 @@ def ensemble_members(
     if network is None:
         raise ValueError("ensemble_members needs a critic built by its network.")
 
+    def member_rows(path: Any, leaf: jax.Array) -> jax.Array:
+        # An encoder the members share (MultiCritic.share_encoder) is every
+        # member's: kept whole.
+        return leaf[members] if in_ensemble(path) else leaf
+
     def take(variables: Optional[FrozenDict]) -> Optional[FrozenDict]:
         if variables is None:
             return None
-        return jax.tree.map(lambda leaf: leaf[members], variables)
+        return jax.tree_util.tree_map_with_path(member_rows, variables)
 
     return critic_state.replace(
         apply_fn=network.clone(num=members.shape[0]).apply,

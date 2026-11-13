@@ -18,6 +18,7 @@ The actor's weights w and the critics' target y read V after its step.
 
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import dataclass
 from functools import partial
 from typing import Any
@@ -29,6 +30,7 @@ from flax import struct
 from ajax.agents import update_steps
 from ajax.agents.critics import compute_mean_critic_loss
 from ajax.agents.families import (
+    EncoderSharing,
     ExpertGuided,
     GradientClipping,
     ObservationNormalization,
@@ -58,6 +60,7 @@ class IQL(
     ObservationNormalization,
     RewardNormalization,
     ExpertGuided,
+    EncoderSharing,
     ReplayAgent,
 ):
     """Implicit Q-Learning: a state value fitted as an expectile of the
@@ -151,7 +154,12 @@ class IQL(
         actor_state, critic_state = context.make_actor_critic(
             init_key, continuous=True, action_value=True, num_critics=NUM_CRITICS
         )
-        _, value_state = context.make_actor_critic(
+        # V(s) keeps an encoder of its own: the shared one is the actor's
+        # and the Q critics' (share_encoder).
+        separate = context.network_args.replace(share_encoder=False)
+        _, value_state = dataclasses.replace(
+            context, network_args=separate
+        ).make_actor_critic(
             value_key,
             critic_optimizer_args=self.value_optimizer_args,
             continuous=True,

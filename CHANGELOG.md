@@ -27,14 +27,16 @@ The next release is 0.6.0: the first item changes results.
   each array into the memory its skeleton keeps it in, so a resumed run
   keeps the latents on the host.
 - **The actor and the critic can share their encoder; image PPO now does
-  by default.** PPO and APO take `share_encoder`. With `True` the two
-  networks read the observations through one encoder (the hidden layers
-  or the CNN, and the memory block): the critic owns it, both losses train
-  it, and the actor reads a copy refreshed after every update. `None`, the
-  default, follows the agent's reference code: PPO shares its CNN, as
-  ppo2 and CleanRL do on Atari, and keeps MLP networks and memories apart,
-  as before; APO keeps them apart. This changes the results of PPO with
-  `cnn_image_shape`.
+  by default.** PPO, APO, SAC, TD3, REDQ, TQC, ASAC, RVI-SAC, AVG and IQL
+  take `share_encoder`. With `True` the two networks read the observations
+  through one encoder (the hidden layers or the CNN, and with PPO or APO
+  the memory block). The critic owns it, and the actor reads a copy
+  refreshed after every update. PPO and APO train it with both losses, as
+  ppo2's one network; the off-policy agents with the critic's loss alone,
+  the actor reading it without a gradient, as SAC-AE and DrQ do. `None`,
+  the default, follows each agent's reference code: PPO shares its CNN, as
+  ppo2 and CleanRL do on Atari; every other network stays apart, as
+  before. This changes the results of PPO with `cnn_image_shape`.
   - **Upgrade:** to resume an image PPO checkpoint saved before, or to
     keep the earlier networks, pass `share_encoder=False`.
 - **DreamerV3 trains faster on the GPU.** The world model's gradient

@@ -40,6 +40,7 @@ from ajax.agents import update_steps
 from ajax.agents.critics import ensemble_members
 from ajax.agents.families import (
     BELLMAN_CONTEXT,
+    EncoderSharing,
     EntropyTemperature,
     ExpertGuided,
     GradientClipping,
@@ -98,6 +99,7 @@ class REDQ(
     ObservationNormalization,
     RewardNormalization,
     ExpertGuided,
+    EncoderSharing,
     RecurrentReplayAgent,
 ):
     """REDQ: an ensemble of num_critics SAC critics, each target the minimum

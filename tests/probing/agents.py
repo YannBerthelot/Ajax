@@ -35,7 +35,9 @@ _PPO = {**_split(NET), **_NORM, "n_steps": 32, "batch_size": 32, "n_epochs": 4}
 _PPO |= {"n_envs": 1}
 _Q = {"learning_rate": 1e-3, "architecture": NET, "gamma": GAMMA, "n_envs": 1}
 _PROBE = {
-    **dict.fromkeys(("SAC", "TD3", "REDQ"), _SAC),
+    **dict.fromkeys(("TD3", "REDQ"), _SAC),
+    # SAC's cells were calibrated at its 2,000-step start, its default until 11-13.
+    "SAC": {**_SAC, "policy_update_start": 2_000, "alpha_update_start": 2_000},
     "ASAC": {k: v for k, v in _SAC.items() if k != "gamma"},
     "RVISAC": {k: v for k, v in _SAC.items() if k != "gamma"},
     "AVG": {"actor_architecture": NET, "critic_architecture": NET}
@@ -110,7 +112,7 @@ _TINY: dict[str, dict[str, Any]] = {
 PRESETS: Mapping[str, Mapping[str, Mapping[str, Any]]] = MappingProxyType(
     {"probe": _PROBE, "bookkeeping": _BOOKKEEPING, "tiny": _TINY}
 )
-DIGEST = "d9f57cb949a5"
+DIGEST = "9d77d6eee557"
 FAMILY = {"PPO": "v", "APO": "v", "DQN": "dqn", "PQN": "dqn"}
 """Which value an agent's readout reads (others: Q at the mean action)."""
 

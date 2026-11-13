@@ -83,9 +83,10 @@ class SAC(
     softlearning): 256-256 ReLU networks, two critics, Adam at 3e-4 with
     TensorFlow's eps 1e-8, tau 0.005, gamma 0.99, a target entropy of -1
     per action dimension, a 1e6 replay, batch 256 and 1e4 warm-up steps.
-    The actor's and the temperature's steps wait for 2000 steps
-    (policy_update_start, alpha_update_start), inert at that warm-up; updates
-    on a dataset before any env step (PriorData) do not wait.
+    The actor and the temperature step with the critics from the first
+    update, as softlearning's single session.run of all its training ops
+    does (a1253bc sac.py:348-353); policy_update_start and
+    alpha_update_start can delay them.
 
     n_step above 1 is Ajax's and not SAC's: the critics' target sums n_step
     rewards before it bootstraps, gamma^n in place of gamma, stopping at an
@@ -117,8 +118,6 @@ class SAC(
     num_critics: int = 2
     num_critic_updates: int = 1
     n_step: int = 1
-    policy_update_start: int = 2_000
-    alpha_update_start: int = 2_000
     buffer_size: int = int(1e6)
     batch_size: int = 256
     learning_starts: int = int(1e4)

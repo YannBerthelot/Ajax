@@ -201,9 +201,15 @@ class ObservationNormalization:
     Args:
         normalize_observations: Normalise the observations the networks read
             by running statistics.
+        observation_clip: With normalize_observations, clip the normalised
+            observations to +-observation_clip, as baselines' VecNormalize
+            does (clipob=10). An on-policy agent's, stored normalised at
+            collection; a replay agent normalises inside its networks, which
+            do not clip, so it refuses one.
     """
 
     normalize_observations: bool = False
+    observation_clip: Optional[float] = None
 
 
 @dataclass(kw_only=True, eq=False, repr=False)

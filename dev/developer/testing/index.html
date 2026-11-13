@@ -3177,7 +3177,7 @@ an episode with <code>c &gt; 0</code> terminates at <code>t = 3</code>, the othe
 </tr>
 <tr>
 <td><code>tests/agents/test_reward_normalisation.py</code></td>
-<td>every agent taking <code>normalize_rewards</code> hands the normaliser the discount it documents (none by default, <code>reward_normalization_gamma</code> when given) and reports its Train and Eval returns in the env's units (UDRL's Train return is a strict xfail: a known bug)</td>
+<td>every agent taking <code>normalize_rewards</code> hands the normaliser the discount it documents (its own <code>gamma</code> by default, 0.99 without one, <code>reward_normalization_gamma</code> when given) and reports its Train and Eval returns in the env's units (UDRL's Train return is a strict xfail: a known bug); a constant reward is not divided by its zero spread, and rewards divided at replay or evaluation are clipped as collected</td>
 </tr>
 <tr>
 <td><code>tests/agents/test_carry_restart.py</code></td>

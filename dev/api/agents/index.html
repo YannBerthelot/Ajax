@@ -5820,8 +5820,9 @@ None keeps the networks feedforward.</p>
             <td>
               <div class="doc-md-description">
                 <p>divide the rewards the agent learns
-from by a running standard deviation (logged returns stay
-in the env's units). By default the single-step reward's.</p>
+from by the running standard deviation of the discounted
+return and clip them to +-10, as SB3's <code>VecNormalize</code>
+does (logged returns stay in the env's units).</p>
               </div>
             </td>
             <td>
@@ -5838,10 +5839,9 @@ in the env's units). By default the single-step reward's.</p>
             <td>
               <div class="doc-md-description">
                 <p>with
-<code>normalize_rewards</code>, divide by the running standard
-deviation of the discounted return with this discount
-instead, as SB3's <code>VecNormalize</code> (<code>gamma</code>) and
-gymnasium's <code>NormalizeReward</code> do.</p>
+<code>normalize_rewards</code>, that return's discount: the agent's
+<code>gamma</code> if None (0.99 for an agent without one), 0 for
+the single-step reward's standard deviation.</p>
               </div>
             </td>
             <td>
@@ -6621,9 +6621,10 @@ by running statistics.</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>Divide the rewards learned from by a running
-standard deviation (the logged returns stay in the env's units):
-the single step's by default.</p>
+                <p>Divide the rewards learned from by the running
+standard deviation of the discounted return and clip them to
++-10, as SB3's VecNormalize does (the logged returns stay in the
+env's units).</p>
               </div>
             </td>
             <td>
@@ -6639,9 +6640,9 @@ the single step's by default.</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>With normalize_rewards, the discount
-of the return whose running standard deviation divides instead
-(SB3's VecNormalize).</p>
+                <p>With normalize_rewards, that return's
+discount: the agent's gamma if None (0.99 for an agent without
+one), 0 for the single-step reward's standard deviation.</p>
               </div>
             </td>
             <td>
@@ -10273,10 +10274,10 @@ once, its state an argument of the program, not a constant in it.</p>
 
     <div class="doc doc-contents ">
 
-        <p><code>x</code>, a reward or a sum of rewards in the env's units, in the
-agent's: divided by the scale the training env's reward normaliser
-holds (<code>norm_info.reward</code>, frozen), as collection divides each
-reward; unchanged without one.</p>
+        <p><code>x</code>, a reward in the env's units, in the agent's: divided by the
+scale the training env's reward normaliser holds (<code>norm_info.reward</code>,
+frozen) and clipped, as collection does each reward; unchanged without
+one.</p>
 
 
     </div>

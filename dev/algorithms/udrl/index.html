@@ -3181,7 +3181,7 @@ training metrics of those iterations
 <tr>
 <td><code>normalize_observations</code>, <code>normalize_rewards</code>, <code>reward_normalization_gamma</code></td>
 <td>False, False, None</td>
-<td>running normalisation</td>
+<td>running normalisation; the rewards' divisor is the spread of the return discounted by <code>reward_normalization_gamma</code>, <code>gamma</code> if None</td>
 </tr>
 <tr>
 <td><code>cnn_image_shape</code>, <code>cnn_extra_obs_dim</code>, <code>cnn_spec</code></td>

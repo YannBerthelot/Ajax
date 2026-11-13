@@ -53,7 +53,10 @@ def _memory(kind: str) -> MemoryConfig:
     return MemoryConfig(kind, hidden_size=8, window=4)
 
 
-def _critic(kind: str, n_quantiles: int = 1) -> Any:
+def _critic(kind: str, n_quantiles: int = 1, observed: bool = False) -> Any:
+    """observed: the observation carries the previous action in its last
+    column (PreviousAction, as every run with memory observes it), else the
+    replay appends it; the input is as wide either way."""
     critic = MultiCritic(
         input_architecture=("16", "relu"),
         num=2,
@@ -62,7 +65,19 @@ def _critic(kind: str, n_quantiles: int = 1) -> Any:
         n_quantiles=n_quantiles,
     )
     x = jnp.zeros((1, OBS + 2 * ACT))
-    return init_network_state(x, critic, _KEYS[4], optax.sgd(0.1), memory=_memory(kind))
+    state = init_network_state(
+        x, critic, _KEYS[4], optax.sgd(0.1), memory=_memory(kind)
+    )
+    if not observed:
+        return state
+    columns = ((OBS, OBS + ACT),)
+    return state.replace(
+        previous_action_in_observation=True, previous_step_columns=columns
+    )
+
+
+def _observed(obs: jax.Array, before: jax.Array) -> jax.Array:
+    return jnp.concatenate([obs, before], axis=-1)
 
 
 def _actor(kind: str) -> Any:
@@ -81,30 +96,40 @@ def _actor(kind: str) -> Any:
 
 
 def _carries(critic: Any, actor: Any = None, taken: jax.Array = TAKEN) -> Any:
-    """A window whose rows took ``taken``, started from fresh carries."""
+    """A window whose rows took ``taken``, started from fresh carries; its
+    observations carry the previous action where the critic reads it there."""
     hidden = zeros_carry_like(critic.hidden_state, B, batch_axis=1)
     actor_hidden = None if actor is None else zeros_carry_like(actor.hidden_state, B)
     positions = row_positions_with_final_observations(CUT)
+    before = previous_actions(taken, RESETS)
+    observed = critic.previous_action_in_observation
     return RecurrentCarries(
         resets=RESETS,
         next_resets=TERMINATED,
         actor_hidden=actor_hidden,
         critic_hidden=hidden,
         target_critic_hidden=hidden,
-        obs=OBS_SEQ,
+        obs=_observed(OBS_SEQ, before) if observed else OBS_SEQ,
         actions=taken,
-        prev_actions=previous_actions(taken, RESETS),
+        prev_actions=None if observed else before,
         row_positions_with_final_observations=positions,
     )
 
 
+@pytest.mark.parametrize("observed", [False, True], ids=["appended", "observed"])
 @pytest.mark.parametrize("bootstrap", [False, True])
 @pytest.mark.parametrize("kind", MEMORY_KINDS)
 def test_a_queried_action_moves_its_own_rows_value_only(
-    kind: str, bootstrap: bool
+    kind: str, bootstrap: bool, observed: bool
 ) -> None:
-    state = _critic(kind)
+    """Whether the replay appends the previous action or the observation
+    carries it: a next observation carries the row's own taken action, zero
+    after a termination."""
+    state = _critic(kind, observed=observed)
     carries, obs = _carries(state), NEXT_OBS if bootstrap else OBS_SEQ
+    if observed:
+        taken_before = jnp.where(TERMINATED[..., None], 0.0, TAKEN)
+        obs = _observed(obs, taken_before if bootstrap else carries.obs[..., OBS:])
 
     def q(queries: jax.Array) -> jax.Array:
         return q_values(state, state.params, obs, queries, carries, bootstrap=bootstrap)

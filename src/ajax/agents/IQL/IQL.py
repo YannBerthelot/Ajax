@@ -18,17 +18,20 @@ The actor's weights w and the critics' target y read V after its step.
 
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import dataclass
 from functools import partial
-from typing import Any
+from typing import Any, Literal, Optional
 
 import jax
 import jax.numpy as jnp
+import optax
 from flax import struct
 
 from ajax.agents import update_steps
 from ajax.agents.critics import compute_mean_critic_loss
 from ajax.agents.families import (
+    EncoderSharing,
     ExpertGuided,
     GradientClipping,
     ObservationNormalization,
@@ -58,6 +61,7 @@ class IQL(
     ObservationNormalization,
     RewardNormalization,
     ExpertGuided,
+    EncoderSharing,
     ReplayAgent,
 ):
     """Implicit Q-Learning: a state value fitted as an expectile of the
@@ -75,10 +79,9 @@ class IQL(
     tanh mean with one learned log-std per action dimension, clipped to
     [-5, 2], whose samples act clipped to [-1, 1] and are stored clipped
     (learner.py sample_actions, train_finetune.py); batch 256, gamma 0.99, tau
-    0.005. The reference decays the
-    actor's offline learning rate to 0 by a cosine over its updates: pass
-    actor_learning_rate=optax.cosine_decay_schedule(3e-4, n_updates)
-    for that. Its locomotion rewards are scaled by 1000 over the dataset's
+    0.005. The actor's learning rate decays to 0 by a cosine over the run's
+    updates, as the reference Learner's does by default (actor_lr_decay).
+    Its locomotion rewards are scaled by 1000 over the dataset's
     range of returns: reward_scale. normalize_rewards, off by default, is
     Ajax's, not the reference's: it divides them by a running standard
     deviation that counts a dataset's rows and each step collected, as on the
@@ -98,10 +101,23 @@ class IQL(
     buffer_size: int = int(1e6)
     batch_size: int = 256
     learning_starts: int = 0
+    #: "cosine" decays the actor's learning rate to 0 over the run's updates,
+    #: the reference Learner's default (opt_decay_schedule="cosine",
+    #: learner.py:63, :85-86); None keeps it constant, as the reference's
+    #: fine-tuning config does (antmaze_finetune_config.py:21). The cosine
+    #: spans train's total_timesteps, so a run split into calls passes its
+    #: whole horizon to each. An offline run's decayed rate carries into a
+    #: train(initial_state=...) that fine-tunes it: train both with None. A
+    #: schedule given as actor_learning_rate runs as given.
+    actor_lr_decay: Optional[Literal["cosine"]] = "cosine"
 
     def check(self) -> None:
         if not 0.0 < self.expectile < 1.0:
             raise ValueError(f"IQL's expectile is in (0, 1), got {self.expectile}.")
+        if self.actor_lr_decay not in (None, "cosine"):
+            raise ValueError(
+                f"IQL's actor_lr_decay is 'cosine' or None, got {self.actor_lr_decay!r}."
+            )
 
     def actor_critic_args(self) -> dict[str, Any]:
         return {
@@ -148,10 +164,17 @@ class IQL(
         training_key, init_key, value_key, collector_key, evaluation_key = (
             jax.random.split(key, 5)
         )
-        actor_state, critic_state = context.make_actor_critic(
+        actor_state, critic_state = self.with_decayed_actor_rate(
+            context
+        ).make_actor_critic(
             init_key, continuous=True, action_value=True, num_critics=NUM_CRITICS
         )
-        _, value_state = context.make_actor_critic(
+        # V(s) keeps an encoder of its own: the shared one is the actor's
+        # and the Q critics' (share_encoder).
+        separate = context.network_args.replace(share_encoder=False)
+        _, value_state = dataclasses.replace(
+            context, network_args=separate
+        ).make_actor_critic(
             value_key,
             critic_optimizer_args=self.value_optimizer_args,
             continuous=True,
@@ -167,6 +190,27 @@ class IQL(
                 collector_key, include_policy_action=context.executed is not None
             ),
         )
+
+    def with_decayed_actor_rate(self, context: TrainContext) -> TrainContext:
+        """The context whose actor optimiser follows actor_lr_decay: a
+        cosine from actor_learning_rate to 0 over the run's updates: those
+        its extensions' pretrain runs before any env step, then one per
+        timestep offline, one per tick of n_envs online from update_start.
+        The schedule counts the optimiser's steps, so a resumed call of the
+        same run continues it."""
+        peak = context.actor_optimizer_args.learning_rate
+        if self.actor_lr_decay is None or callable(peak):
+            return context
+        if context.offline:
+            updates = context.total_timesteps
+        else:
+            online_steps = max(context.total_timesteps - self.update_start(), 0)
+            updates = online_steps // context.env_args.n_envs
+        for extension in context.extensions.extensions:
+            updates += extension.pretrain_updates()
+        schedule = optax.cosine_decay_schedule(float(peak), max(updates, 1))
+        actor_args = context.actor_optimizer_args.replace(learning_rate=schedule)
+        return dataclasses.replace(context, actor_optimizer_args=actor_args)
 
     def update(
         self, agent_state: IQLState, context: TrainContext

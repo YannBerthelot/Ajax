@@ -36,6 +36,11 @@ _PPO |= {"n_envs": 1}
 _Q = {"learning_rate": 1e-3, "architecture": NET, "gamma": GAMMA, "n_envs": 1}
 # APO's cells were calibrated on its defaults before its reference's (2026-11-13).
 _APO_CALIBRATED = {"num_minibatches": 0, "normalize_advantage": True, "nu": 0.1}
+# PQN's cells were calibrated at its epsilon decay and constant rate before 11-13.
+_PQN_KEPT = {"epsilon_decay_frac": 0.5, "lr_linear_decay": False}
+_PQN_ROLLOUT = {"n_envs": 8, "n_steps": 16, "n_epochs": 4, "num_minibatches": 1}
+# DQN's were calibrated updating every step, its default until CleanRL's (11-13).
+_DQN_CALIBRATED = {"target_update_interval": 100, "train_frequency": 1}
 _PROBE = {
     **dict.fromkeys(("TD3", "REDQ"), _SAC),
     # SAC's cells were calibrated at its 2,000-step start, its default until 11-13.
@@ -46,10 +51,10 @@ _PROBE = {
     | {"gamma": GAMMA, "n_envs": 1},
     "PPO": {**_PPO, "gamma": GAMMA},
     "APO": {**_PPO, **_APO_CALIBRATED},
-    "DQN": {**_Q, **_REPLAY, "target_update_interval": 100},
+    "DQN": {**_Q, **_REPLAY, **_DQN_CALIBRATED},
     # PQN learns from parallel envs, not a replay buffer: with one env the
     # value of the action it stops exploring drifts.
-    "PQN": {**_Q, "n_envs": 8, "n_steps": 16, "n_epochs": 4, "num_minibatches": 1},
+    "PQN": {**_Q, **_PQN_ROLLOUT, **_PQN_KEPT},
     "APG": {"actor_architecture": NET, "n_envs": 64},
     "CrossQ": {"actor_width": 64, "critic_width": 64, **_NORM, **_REPLAY}
     | {"gamma": GAMMA, "n_envs": 1},
@@ -78,8 +83,8 @@ _BOOKKEEPING = {
     "AVG": {**_split(SMALL), "gamma": GAMMA, "learning_starts": 0, "n_envs": 1},
     "PPO": {**_B_PPO, "gamma": GAMMA},
     "APO": {**_B_PPO, **_APO_CALIBRATED},
-    "DQN": {**_B_Q, **_B_REPLAY, "target_update_interval": 100},
-    "PQN": {**_B_Q, "n_steps": 16, "n_epochs": 2, "num_minibatches": 2},
+    "DQN": {**_B_Q, **_B_REPLAY, **_DQN_CALIBRATED},
+    "PQN": {**_B_Q, **_PQN_KEPT, "n_steps": 16, "n_epochs": 2, "num_minibatches": 2},
     "UDRL": {"actor_architecture": SMALL, "n_steps": 32, "batch_size": 32}
     | {"n_updates_per_iter": 4, "n_envs": 1},
     "APG": {"actor_architecture": SMALL, "horizon": 16, "n_envs": 1},
@@ -114,7 +119,7 @@ _TINY: dict[str, dict[str, Any]] = {
 PRESETS: Mapping[str, Mapping[str, Mapping[str, Any]]] = MappingProxyType(
     {"probe": _PROBE, "bookkeeping": _BOOKKEEPING, "tiny": _TINY}
 )
-DIGEST = "2b2d105778c1"
+DIGEST = "ee558656bde4"
 FAMILY = {"PPO": "v", "APO": "v", "DQN": "dqn", "PQN": "dqn"}
 """Which value an agent's readout reads (others: Q at the mean action)."""
 

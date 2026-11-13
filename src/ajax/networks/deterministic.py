@@ -19,7 +19,7 @@ from ajax.extensions.observe import pid_terms_at
 from ajax.modules.pid_actor import PIDLaw, PIDPolicy, check_pid_actor
 from ajax.networks.distributions import Deterministic
 from ajax.networks.memory import MemoryCell, MemoryConfig
-from ajax.networks.networks import get_initialized_actor_critic
+from ajax.networks.networks import Encoder, get_initialized_actor_critic
 from ajax.networks.utils import dense, parse_architecture, uniform_init
 from ajax.state import (
     EnvironmentConfig,
@@ -49,11 +49,20 @@ class DeterministicActor(nn.Module):
     # head recurrent TD3 keeps until Ni et al.'s initialisation is audited.
     kernel_init: Optional[Union[str, InitializationFunction]] = None
     head_kernel_init: Optional[Union[str, InitializationFunction]] = None
+    # The hidden layers as an Encoder, whose parameters a critic sharing it
+    # holds (NetworkConfig.share_encoder).
+    share_encoder: bool = False
 
     def setup(self):
-        self.hidden = nn.Sequential(
-            parse_architecture(self.input_architecture, self.kernel_init)
-        )
+        if self.share_encoder:
+            self.encoder = Encoder(
+                input_architecture=self.input_architecture,
+                kernel_init=self.kernel_init,
+            )
+        else:
+            self.hidden = nn.Sequential(
+                parse_architecture(self.input_architecture, self.kernel_init)
+            )
         if self.memory is not None:
             self.memory_cell = MemoryCell(self.memory)
         self.head = dense(
@@ -65,7 +74,7 @@ class DeterministicActor(nn.Module):
         )
 
     def __call__(self, obs: jax.Array, hidden_state=None, done=None):
-        h = self.hidden(obs)
+        h = self.encoder(obs) if self.share_encoder else self.hidden(obs)
         if self.memory is not None:
             if hidden_state is None or done is None:
                 raise ValueError(
@@ -124,6 +133,7 @@ def get_initialized_td3_actor_critic(
             memory=network_config.memory,
             kernel_init=network_config.encoder_kernel_init,
             head_kernel_init=network_config.mean_kernel_init,
+            share_encoder=network_config.share_encoder,
         )
     return get_initialized_actor_critic(
         key,

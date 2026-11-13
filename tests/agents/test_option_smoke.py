@@ -133,7 +133,10 @@ OPTIONS.update(
         "eval_expert_policy": {"eval_expert_policy": EXPERT},
         "action_pipeline": {"action_pipeline": None},  # TD3's, for the row's actor
         "n_gradient_steps": {"n_gradient_steps": 2},
+        "train_frequency": {"train_frequency": 2},
         "n_epochs": {"n_epochs": 2},
+        "actor_lr_decay": {"actor_lr_decay": None},
+        "lr_linear_decay": {"lr_linear_decay": False},
         "cnn_image_shape": {"cnn_image_shape": None},
         "mlp": {"cnn_image_shape": None},  # the CNN's alternative
         "lr_schedule": {"lr_schedule": "warmup_cosine", "warmup_steps": 2},
@@ -157,6 +160,7 @@ ELSEWHERE = {
     "system_class": "agents/APG/test_APG.py",
     "controller_factory": "agents/APG/test_APG.py",
     "alpha_learning_rate": "agents/CrossQ/test_CrossQ.py",
+    "share_encoder": "agents/test_share_encoder.py",
 }
 #: Each src extension's builder and the agents whose rows take it, in stack
 #: order (cloning seeds the statistics the other pretraining reads).

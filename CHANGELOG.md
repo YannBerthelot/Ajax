@@ -26,6 +26,40 @@ The next release is 0.6.0: the first item changes results.
     `beta_schedule=ExponentialBetaSchedule(d)`; the old default was
     `ExponentialBetaSchedule(0.0)`.
 
+- **APG's in-context controller, IQL and PQN follow their reference code.**
+  - `APG.contextual_controller` builds the reference's transformer layers:
+    no bias outside the input embedding, LayerNorm epsilon 1e-5, and an MLP
+    four times as wide (buswayne/in-context-controller, `--bias False`).
+    `MemoryConfig` gains `bias`, `layer_norm_epsilon` and `mlp_ratio`, whose
+    defaults keep every other memory unchanged. Upgrade: a controller saved
+    before restores with `bias=True, layer_norm_epsilon=1e-6, mlp_ratio=2`.
+  - IQL's actor learning rate decays to 0 by a cosine over the run's
+    updates, its reference Learner's default (`actor_lr_decay="cosine"`).
+    A run split into calls passes its whole horizon (`total_timesteps`) to
+    each. Upgrade: `actor_lr_decay=None` keeps the rate constant, as the
+    reference's fine-tuning config does; pass it to fine-tune a state
+    trained offline.
+  - PQN's defaults are purejaxql's MinAtar config: 128 envs of 32 steps, 2
+    epochs of 32 minibatches, RAdam at 5e-4 decayed linearly over the run
+    (`lr_linear_decay`), epsilon decaying over the first 10% of the run.
+    Upgrade: `n_envs=8, n_steps=128, n_epochs=4, num_minibatches=4,
+    learning_rate=2.5e-4, lr_linear_decay=False, epsilon_decay_frac=0.5`.
+
+- **DQN's defaults are CleanRL's `dqn.py`** (cleanrl `fe8d8a0`), its
+  vector-observation reference: a 120-84 ReLU network (was 128-128), a
+  replay of 10,000 (was 100,000), batches of 128 (was 64), 10,000 warm-up
+  steps (was 1,000), one update every 10 environment steps (was every
+  iteration) and a target refresh every 50 updates (was 500), CleanRL's
+  500 environment steps. The authors' centered RMSProp and Huber loss stay.
+  This changes results. Upgrade: pass `architecture=("128", "relu", "128",
+  "relu"), buffer_size=100_000, batch_size=64, learning_starts=1_000,
+  train_frequency=1, target_update_interval=500` for the old behaviour.
+- **Replay agents take `train_frequency`**, SB3's `train_freq`: from
+  `learning_starts`, an update each time the steps collected reach a
+  multiple of it. The default, 1, updates every iteration, as before, on
+  every agent but DQN. An evaluation between two updates logs the last
+  one's training metrics.
+
 - **APO's defaults are its reference code's MuJoCo config** (xtma/apo,
   `mujoco_appo.py`): rollouts of 10 envs x 200 steps (was 4 x 2,048), 20
   minibatches per epoch (`num_minibatches=20`; was cut by `batch_size`),
@@ -54,6 +88,19 @@ The next release is 0.6.0: the first item changes results.
   of the default; each update is a little slower. A checkpoint restores
   each array into the memory its skeleton keeps it in, so a resumed run
   keeps the latents on the host.
+- **The actor and the critic can share their encoder; image PPO now does
+  by default.** PPO, APO, SAC, TD3, REDQ, TQC, ASAC, RVI-SAC, AVG and IQL
+  take `share_encoder`. With `True` the two networks read the observations
+  through one encoder (the hidden layers or the CNN, and with PPO or APO
+  the memory block). The critic owns it, and the actor reads a copy
+  refreshed after every update. PPO and APO train it with both losses, as
+  ppo2's one network; the off-policy agents with the critic's loss alone,
+  the actor reading it without a gradient, as SAC-AE and DrQ do. `None`,
+  the default, follows each agent's reference code: PPO shares its CNN, as
+  ppo2 and CleanRL do on Atari; every other network stays apart, as
+  before. This changes the results of PPO with `cnn_image_shape`.
+  - **Upgrade:** to resume an image PPO checkpoint saved before, or to
+    keep the earlier networks, pass `share_encoder=False`.
 - **DreamerV3 trains faster on the GPU.** The world model's gradient
   through its 64 filtering steps now takes each RSSM weight's gradient once
   per update, as one product over all steps, instead of adding 64 small

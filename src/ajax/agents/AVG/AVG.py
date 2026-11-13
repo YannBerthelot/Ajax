@@ -35,6 +35,7 @@ from flax.serialization import to_state_dict
 
 from ajax.agents import update_steps
 from ajax.agents.families import (
+    EncoderSharing,
     ExpertGuided,
     GradientClipping,
     IncrementalAgent,
@@ -62,7 +63,9 @@ ORTHOGONAL = "orthogonal(1.0)"
 
 
 @dataclass(kw_only=True, eq=False, repr=False)
-class AVG(PolicyUpdateStart, GradientClipping, ExpertGuided, IncrementalAgent):
+class AVG(
+    PolicyUpdateStart, GradientClipping, ExpertGuided, EncoderSharing, IncrementalAgent
+):
     """AVG: an incremental soft actor-critic whose critic's TD error is
     divided by a running estimate of its scale (the module's update). It
     always normalises its observations, never its rewards, and squashes its

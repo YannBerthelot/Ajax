@@ -77,6 +77,7 @@
    "nu": 1.0,
    "num_minibatches": 20,
    "reward_normalization_gamma": null,
+   "share_encoder": null,
    "vf_coef": 1.0,
    "weight_decay": 0.0
   }
@@ -123,10 +124,12 @@
    "reward_normalization_gamma": null,
    "reward_scale": 1.0,
    "sequence_length": 16,
+   "share_encoder": null,
    "stored_state": false,
    "target_entropy_per_dim": -1.0,
    "tau": 0.005,
    "tau_theta": 0.005,
+   "train_frequency": 1,
    "weight_decay": 0.0
   }
  },
@@ -165,6 +168,7 @@
    "num_critics": 1,
    "policy_update_start": 0,
    "reward_scale": 1.0,
+   "share_encoder": null,
    "weight_decay": 0.0
   }
  },
@@ -199,6 +203,7 @@
    "reward_normalization_gamma": null,
    "reward_scale": 1.0,
    "target_entropy_per_dim": -1.0,
+   "train_frequency": 1,
    "weight_decay": 0.0
   }
  },
@@ -230,6 +235,7 @@
    "max_grad_norm": null,
    "n_envs": 1,
    "normalize_observations": false,
+   "train_frequency": 1,
    "weight_decay": 0.0
   }
  },
@@ -238,13 +244,13 @@
    "action_repeat": 1,
    "algo_name": "DQN",
    "architecture": [
-    "128",
+    "120",
     "relu",
-    "128",
+    "84",
     "relu"
    ],
-   "batch_size": 64,
-   "buffer_size": 100000,
+   "batch_size": 128,
+   "buffer_size": 10000,
    "cnn_extra_obs_dim": 0,
    "cnn_image_shape": null,
    "cnn_spec": null,
@@ -259,7 +265,7 @@
    "extensions": [],
    "gamma": 0.99,
    "learning_rate": 0.00025,
-   "learning_starts": 1000,
+   "learning_starts": 10000,
    "max_grad_norm": null,
    "n_envs": 1,
    "n_gradient_steps": 1,
@@ -268,10 +274,11 @@
    "q_network_cls": null,
    "reward_normalization_gamma": null,
    "reward_scale": 1.0,
-   "target_update_interval": 500,
+   "target_update_interval": 50,
    "tau": 1.0,
    "td_loss_fn": null,
    "td_target_fn": null,
+   "train_frequency": 10,
    "weight_decay": 0.0
   }
  },
@@ -396,6 +403,7 @@
     "relu"
    ],
    "actor_learning_rate": 0.0003,
+   "actor_lr_decay": "cosine",
    "algo_name": "IQL",
    "batch_size": 256,
    "buffer_size": 1000000,
@@ -422,8 +430,10 @@
    "policy_update_start": 0,
    "reward_normalization_gamma": null,
    "reward_scale": 1.0,
+   "share_encoder": null,
    "tau": 0.005,
    "temperature": 3.0,
+   "train_frequency": 1,
    "value_learning_rate": 0.0003,
    "weight_decay": 0.0
   }
@@ -483,6 +493,7 @@
    "num_minibatches": 0,
    "num_resets_per_eval": 0,
    "reward_normalization_gamma": null,
+   "share_encoder": null,
    "squash": false,
    "unroll_length": null,
    "vf_coef": 0.5,
@@ -505,7 +516,7 @@
    "env_id": "CartPole-v1",
    "env_params": null,
    "episode_length": null,
-   "epsilon_decay_frac": 0.5,
+   "epsilon_decay_frac": 0.1,
    "epsilon_end": 0.05,
    "epsilon_start": 1.0,
    "eval_expert_policy": null,
@@ -513,14 +524,15 @@
    "expose_recent_rollout": false,
    "extensions": [],
    "gamma": 0.99,
-   "learning_rate": 0.00025,
+   "learning_rate": 0.0005,
+   "lr_linear_decay": true,
    "max_grad_norm": 10.0,
-   "n_envs": 8,
-   "n_epochs": 4,
-   "n_steps": 128,
+   "n_envs": 128,
+   "n_epochs": 2,
+   "n_steps": 32,
    "normalize_observations": false,
    "normalize_rewards": false,
-   "num_minibatches": 4,
+   "num_minibatches": 32,
    "q_lambda": 0.65,
    "reward_normalization_gamma": null,
    "reward_scale": 1.0,
@@ -571,10 +583,12 @@
    "reward_normalization_gamma": null,
    "reward_scale": 1.0,
    "sequence_length": 16,
+   "share_encoder": null,
    "stored_state": false,
    "subset_size": 2,
    "target_entropy_per_dim": -1.0,
    "tau": 0.005,
+   "train_frequency": 1,
    "weight_decay": 0.0
   }
  },
@@ -639,9 +653,11 @@
    "reward_normalization_gamma": null,
    "reward_scale": 1.0,
    "sequence_length": 16,
+   "share_encoder": null,
    "stored_state": false,
    "target_entropy_per_dim": -1.0,
    "tau": 0.005,
+   "train_frequency": 1,
    "weight_decay": 0.0
   }
  },
@@ -690,9 +706,11 @@
    "reward_normalization_gamma": null,
    "reward_scale": 1.0,
    "sequence_length": 16,
+   "share_encoder": null,
    "stored_state": false,
    "target_entropy_per_dim": -1.0,
    "tau": 0.005,
+   "train_frequency": 1,
    "weight_decay": 0.0
   }
  },
@@ -738,10 +756,12 @@
    "reward_normalization_gamma": null,
    "reward_scale": 1.0,
    "sequence_length": 16,
+   "share_encoder": null,
    "stored_state": false,
    "target_noise_clip": 0.5,
    "target_policy_noise": 0.2,
    "tau": 0.005,
+   "train_frequency": 1,
    "weight_decay": 0.0
   }
  },
@@ -983,10 +1003,12 @@
    "reward_normalization_gamma": null,
    "reward_scale": 1.0,
    "sequence_length": 16,
+   "share_encoder": null,
    "stored_state": false,
    "target_entropy_per_dim": -1.0,
    "tau": 0.005,
    "top_quantiles_to_drop_per_net": 2,
+   "train_frequency": 1,
    "weight_decay": 0.0
   }
  },

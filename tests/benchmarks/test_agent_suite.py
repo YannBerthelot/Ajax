@@ -416,6 +416,7 @@ def test_an_on_policy_run_ends_each_chunk_where_it_is_asked(tmp_path, monkeypatc
     rollouts and no more: on a tiny PQN (rollouts of 2 envs x 8 steps,
     evaluated every 2 of them), each chunk ends where run_seeds asks."""
     options = {"n_envs": 2, "n_steps": 8, "architecture": ("8", "relu")}
+    options.update({"num_minibatches": 4})  # 16 rows a rollout
     tiny = agent_suite.Benchmark("CartPole-v1", 64, 32, "tiny", options)
     monkeypatch.setitem(agent_suite.BENCHMARKS, "PQN", tiny)
     path = tmp_path / "seeds-0-1.jsonl"
@@ -440,8 +441,9 @@ def test_an_on_policy_run_ends_each_chunk_where_it_is_asked(tmp_path, monkeypatc
 def test_time_resumes_past_the_warm_up_and_counts_every_seeds_steps():
     record = agent_suite.time_agent("DQN", n_seeds=2, steps=64)
 
-    # DQN acts on one env (iterations of 1 step) and updates from step 1000.
-    assert record["warm_up_steps"] == 1001
+    # DQN acts on one env (iterations of 1 step) and updates from step
+    # 10,000, its learning_starts (CleanRL's dqn.py:69).
+    assert record["warm_up_steps"] == 10_001
     assert record["measured_steps"] == 64
     assert record["env_steps_per_s"] == pytest.approx(
         2 * record["run_steps_per_s"], rel=1e-2

@@ -33,6 +33,7 @@ from ajax.agents import update_steps
 from ajax.agents.critics import compute_mean_critic_loss
 from ajax.agents.families import (
     BELLMAN_CONTEXT,
+    EncoderSharing,
     ExpertGuided,
     GradientClipping,
     ObservationNormalization,
@@ -46,6 +47,7 @@ from ajax.controller import critic_action_units, leave_unchanged
 from ajax.environments.interaction import Explore, explore_pipeline
 from ajax.extensions.base import merge_metrics
 from ajax.networks.deterministic import get_initialized_td3_actor_critic
+from ajax.networks.networks import with_critic_encoder
 from ajax.networks.utils import TORCH_LINEAR
 from ajax.schedule import Schedule, at
 from ajax.state import BaseAgentState, LoadedTrainState, Transition
@@ -59,6 +61,7 @@ class TD3(
     ObservationNormalization,
     RewardNormalization,
     ExpertGuided,
+    EncoderSharing,
     RecurrentReplayAgent,
 ):
     """Twin Delayed DDPG: twin critics, a smoothed target action and a
@@ -327,9 +330,12 @@ def compute_td3_td_target(
     policy's executed ones, from the expert's stored next actions), and the
     value bootstrapped, min_i Q_target_i(s', a')."""
     rewards = rewards * reward_scale
+    # A target actor sharing the critic's encoder reads the target critic's,
+    # its lagged copy, as targets read only target networks.
+    target_actor = with_critic_encoder(actor_state, critic_state.target_params)
     next_action = actor_dist(
-        actor_state,
-        actor_state.target_params,
+        target_actor,
+        target_actor.target_params,
         next_observations,
         carries,
         bootstrap=True,

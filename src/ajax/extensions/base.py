@@ -357,6 +357,11 @@ class Extension:
         del n_envs
         return 0
 
+    def pretrain_updates(self) -> int:
+        """The agent updates its pretrain runs before any env step
+        (ExpertPrefill's and PriorData's offline_updates); none by default."""
+        return 0
+
     # -- per-iteration transforms (on_target may update its own state) ---
     def on_target(
         self,

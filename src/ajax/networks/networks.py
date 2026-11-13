@@ -25,6 +25,7 @@ from ajax.networks.memory import (
     parse_memory_config,
 )
 from ajax.networks.utils import (
+    SHARED_ENCODER_MODULES,
     TORCH_LINEAR,
     dense,
     get_adam_tx,
@@ -40,7 +41,7 @@ from ajax.state import (
     NetworkConfig,
     OptimizerConfig,
     check_log_std_bounds,
-    with_batch_stats,
+    network_variables,
 )
 from ajax.types import ActivationFunction, InitializationFunction
 
@@ -146,6 +147,23 @@ def _conv(
 
 def _maybe_norm(spec: CNNSpec, x: jax.Array) -> jax.Array:
     return nn.LayerNorm()(x) if spec.layer_norm else x
+
+
+def observation_encoder(network: nn.Module) -> nn.Module:
+    """The layers ``network`` (an Actor, a Critic or a MultiCritic) reads
+    its observations with, before any memory: a :class:`CNNEncoder` for
+    image observations, else the MLP :class:`Encoder`. Built in the
+    network's setup, so it is the network's own submodule."""
+    if network.cnn_image_shape is not None:
+        return CNNEncoder(
+            network.cnn_image_shape, network.cnn_extra_obs_dim, network.cnn_spec
+        )
+    return Encoder(
+        input_architecture=network.input_architecture,
+        penultimate_normalization=network.penultimate_normalization,
+        kernel_init=network.encoder_kernel_init,
+        layer_norm=network.encoder_layer_norm,
+    )
 
 
 class CNNEncoder(nn.Module):
@@ -293,17 +311,7 @@ class Actor(nn.Module):
         check_log_std_bounds(self.log_std_bounds)
         if self.memory is not None:
             self.memory_cell = MemoryCell(self.memory)
-        if self.cnn_image_shape is not None:
-            self.encoder = CNNEncoder(
-                self.cnn_image_shape, self.cnn_extra_obs_dim, self.cnn_spec
-            )
-        else:
-            self.encoder = Encoder(
-                input_architecture=self.input_architecture,
-                penultimate_normalization=self.penultimate_normalization,
-                kernel_init=self.encoder_kernel_init,
-                layer_norm=self.encoder_layer_norm,
-            )
+        self.encoder = observation_encoder(self)
         # Discrete logits start near 0 (a near-uniform policy) unless
         # logits_kernel_init sets them, as in OpenAI Baselines @ea25b9e
         # (common/policies.py:49, init_scale=0.01), CleanRL @fe8d8a0
@@ -434,8 +442,29 @@ class Critic(nn.Module):
     # The head's outputs: one value, or a distributional critic's quantiles
     # of the return (TQC's), whose mean __call__ returns.
     n_quantiles: int = 1
+    # A member of a MultiCritic sharing its encoder (share_encoder): it reads
+    # the encoder's features and is its value layer alone, or, for a
+    # Q-critic (query_dim), the features with the action through a head of
+    # its own architecture, as SAC-AE's critic (the action joins after the
+    # encoder).
+    reads_features: bool = False
 
     def setup(self):
+        if self.reads_features:
+            if self.query_dim:
+                self.head = Encoder(
+                    input_architecture=self.input_architecture,
+                    penultimate_normalization=self.penultimate_normalization,
+                    kernel_init=self.encoder_kernel_init,
+                    layer_norm=self.encoder_layer_norm,
+                )
+            self.model = dense(
+                self.n_quantiles,
+                self.value_kernel_init,
+                self.bias_init,
+                orthogonal(1.0),
+            )
+            return
         if self.memory is not None:
             self.memory_cell = MemoryCell(self.memory)
             if self.query_dim:
@@ -444,17 +473,7 @@ class Critic(nn.Module):
                     kernel_init=self.encoder_kernel_init,
                     layer_norm=self.encoder_layer_norm,
                 )
-        if self.cnn_image_shape is not None:
-            self.encoder = CNNEncoder(
-                self.cnn_image_shape, self.cnn_extra_obs_dim, self.cnn_spec
-            )
-        else:
-            self.encoder = Encoder(
-                input_architecture=self.input_architecture,
-                penultimate_normalization=self.penultimate_normalization,
-                kernel_init=self.encoder_kernel_init,
-                layer_norm=self.encoder_layer_norm,
-            )
+        self.encoder = observation_encoder(self)
         self.model = dense(
             self.n_quantiles, self.value_kernel_init, self.bias_init, orthogonal(1.0)
         )
@@ -471,6 +490,8 @@ class Critic(nn.Module):
 
     def quantiles(self, x: jax.Array, hidden_state=None, done=None):
         """The head's ``n_quantiles`` outputs (and the carry, with memory)."""
+        if self.reads_features:
+            return self.model(self.head(x) if self.query_dim else x)
         if self.memory is None:
             return self.model(self.encoder(x))
         if hidden_state is None or done is None:
@@ -507,14 +528,25 @@ class MultiCritic(nn.Module):
     query_dim: int = 0  # see Critic.query_dim
     value_kernel_init: Optional[Union[str, InitializationFunction]] = None
     n_quantiles: int = 1  # see Critic.n_quantiles
+    # One encoder and memory block for every member, outside the ensemble
+    # (NetworkConfig.share_encoder), its parameters under "encoder" and
+    # "memory_cell" as the actor's would be; the members are value layers
+    # on its features. Its one carry keeps the ensemble layout, with one
+    # member: hidden_state leaves are (1, batch, hidden).
+    share_encoder: bool = False
 
     def setup(self):
+        if self.share_encoder:
+            if self.memory is not None:
+                self.memory_cell = MemoryCell(self.memory)
+            self.encoder = observation_encoder(self)
         # x (and done) are broadcast across the ensemble; the carry is
         # mapped over its leading (num,) axis so each member evolves its
         # own memory. NOTE: the recurrent in_axes spec matches __call__'s
         # 3-arg signature; apply_encoder (1 arg) is only used by
         # ConditioningMetrics, which therefore needs a feedforward critic.
-        in_axes = (None, 0, None) if self.memory is not None else None
+        member_memory = None if self.share_encoder else self.memory
+        in_axes = (None, 0, None) if member_memory is not None else None
         Vmapped = nn.vmap(
             target=Critic,
             in_axes=in_axes,
@@ -534,13 +566,18 @@ class MultiCritic(nn.Module):
             cnn_image_shape=self.cnn_image_shape,
             cnn_extra_obs_dim=self.cnn_extra_obs_dim,
             cnn_spec=self.cnn_spec,
-            memory=self.memory,
+            memory=member_memory,
             query_dim=self.query_dim,
             value_kernel_init=self.value_kernel_init,
             n_quantiles=self.n_quantiles,
+            reads_features=self.share_encoder,
         )
 
     def __call__(self, x: jax.Array, hidden_state=None, done=None):
+        if self.share_encoder:
+            features, hidden_state = self._shared_features(x, hidden_state, done)
+            values = self.ensemble(features)
+            return values if self.memory is None else (values, hidden_state)
         if self.memory is not None:
             # Returns (values, new_hidden_state): values (num, T, B, 1),
             # hidden leaves (num, B, hidden).
@@ -549,13 +586,40 @@ class MultiCritic(nn.Module):
 
     def quantiles(self, x: jax.Array, hidden_state=None, done=None):
         """Every member's quantiles, the ensemble axis first."""
+        if self.share_encoder:
+            features, hidden_state = self._shared_features(x, hidden_state, done)
+            quantiles = self.ensemble.quantiles(features)
+            return quantiles if self.memory is None else (quantiles, hidden_state)
         if self.memory is not None:
             return self.ensemble.quantiles(x, hidden_state, done)
         return self.ensemble.quantiles(x)
 
+    def _shared_features(self, x: jax.Array, hidden_state, done) -> tuple:
+        """The shared encoder's features at x, through the memory block if
+        there is one, and the memory's next carry (None without one). A
+        Q-critic's action (the last query_dim inputs) skips the encoder and
+        joins its features."""
+        if self.query_dim:
+            observations, action = x[..., : -self.query_dim], x[..., -self.query_dim :]
+            features = self.encoder(observations)
+            return jnp.concatenate([features, action], axis=-1), None
+        features = self.encoder(x)
+        if self.memory is None:
+            return features, None
+        if hidden_state is None or done is None:
+            raise ValueError("Recurrent Critic requires hidden_state and done flags.")
+        carry = jax.tree.map(lambda leaf: leaf[0], hidden_state)
+        carry, features = self.memory_cell(carry, features, done)
+        return features, jax.tree.map(lambda leaf: leaf[None], carry)
+
     def apply_encoder_ensemble(self, x: jax.Array) -> jax.Array:
         """Per-ensemble-member encoder features, shape ``(num, ..., d)``
-        (:class:`ajax.extensions.instrumentation.ConditioningMetrics`)."""
+        (:class:`ajax.extensions.instrumentation.ConditioningMetrics`); a
+        shared encoder's, on an ensemble axis of one."""
+        if self.share_encoder:
+            if self.query_dim:
+                x = x[..., : -self.query_dim]
+            return self.encoder(x)[None]
         return self.ensemble.apply_encoder(x)
 
 
@@ -569,6 +633,42 @@ def action_value_input(
     if previous_action is None:
         return jnp.concatenate([obs, action], axis=-1)
     return jnp.concatenate([obs, previous_action, action], axis=-1)
+
+
+def check_share_encoder(network_config: NetworkConfig, action_value: bool) -> None:
+    """Refuse a shared encoder (``network_config.share_encoder``) the
+    networks cannot have."""
+    if not network_config.share_encoder:
+        return
+    if isinstance(network_config.actor_architecture, PIDPolicy):
+        raise ValueError("share_encoder needs an encoder: a PID actor has none.")
+    if action_value and network_config.memory is not None:
+        raise ValueError(
+            "A memory shared with a Q-critic reads the previous action, as the"
+            " critic's does (Ni et al. 2022), and the actor does not read it"
+            " yet: share_encoder takes no memory with a Q-critic."
+        )
+    architectures = (
+        network_config.actor_architecture,
+        network_config.critic_architecture,
+    )
+    if any("batchrenorm" in architecture for architecture in architectures):
+        raise ValueError(
+            "A shared encoder's running statistics are the critic's, which the"
+            " actor's own training pass would also move: share_encoder takes no"
+            " 'batchrenorm' layer."
+        )
+    if action_value:
+        return  # the action joins after the encoder, at the critic's own layers
+    if network_config.cnn_image_shape is None and tuple(
+        network_config.actor_architecture
+    ) != tuple(network_config.critic_architecture):
+        raise ValueError(
+            "With share_encoder one encoder reads for both networks, so"
+            " actor_architecture and critic_architecture must be the same, got"
+            f" {network_config.actor_architecture} and"
+            f" {network_config.critic_architecture}."
+        )
 
 
 def get_initialized_actor_critic(
@@ -599,7 +699,12 @@ def get_initialized_actor_critic(
     actor a :class:`PIDActor` (see :mod:`ajax.modules.pid_actor`). The
     actions are the policy's (:func:`ajax.controller.policy_action_dim`:
     gain mode's gains).
+
+    With ``network_config.share_encoder`` the two read one encoder (and
+    memory block): the critic's, which its optimiser steps; the actor's
+    state holds its heads and a copy of it (``shared_params``).
     """
+    check_share_encoder(network_config, action_value)
     action_dim = policy_action_dim(env_config)
 
     memory = parse_memory_config(network_config.memory)
@@ -671,9 +776,15 @@ def get_initialized_actor_critic(
         cnn_extra_obs_dim=cnn_extra_obs_dim,
         cnn_spec=cnn_spec,
         memory=memory,
-        query_dim=action_dim if action_value and memory is not None else 0,
+        # The action joins after a recurrent or a shared encoder.
+        query_dim=(
+            action_dim
+            if action_value and (memory is not None or network_config.share_encoder)
+            else 0
+        ),
         value_kernel_init=network_config.value_kernel_init,
         n_quantiles=network_config.critic_quantiles,
+        share_encoder=network_config.share_encoder,
     )
 
     actor_tx = get_adam_tx(**to_state_dict(actor_optimizer_config))
@@ -717,6 +828,15 @@ def get_initialized_actor_critic(
         memory=memory,
         n_envs=env_config.n_envs,
     )
+    if network_config.share_encoder:
+        if "encoder" not in actor_state.params["params"]:
+            raise ValueError(
+                "share_encoder needs an actor reading its observations through"
+                f" an encoder; {type(actor).__name__} has none."
+            )
+        actor_state = _borrow_encoder(
+            actor_state, shared_encoder_params(critic_state.params)
+        )
     return actor_state, critic_state
 
 
@@ -761,11 +881,93 @@ def get_initialized_critic(
     )
 
 
+def shared_encoder_params(critic_params: Any) -> FrozenDict:
+    """The parameters of the encoder (and memory block) a critic shares with
+    its actor, taken from the critic's parameters."""
+    owned = critic_params["params"]
+    return FrozenDict(
+        {name: owned[name] for name in SHARED_ENCODER_MODULES if name in owned}
+    )
+
+
+def with_critic_encoder(
+    actor_state: LoadedTrainState, critic_params: Any
+) -> LoadedTrainState:
+    """``actor_state`` reading the encoder in ``critic_params``, for an actor
+    sharing the critic's encoder; an actor with its own is returned as is. A
+    loss differentiated with respect to ``critic_params`` then trains the
+    encoder through the actor too."""
+    if actor_state.shared_params is None:
+        return actor_state
+    return actor_state.replace(shared_params=shared_encoder_params(critic_params))
+
+
+def mirror_shared_encoder(agent_state: Any) -> Any:
+    """``agent_state`` with its actor's copy of the shared encoder taken from
+    the critic as it is now: the training loop calls it after anything that
+    steps the critic (each update, the extensions' pretraining), so acting
+    and evaluating read the current encoder. Unchanged without one."""
+    actor_state: Any = getattr(agent_state, "actor_state", None)
+    if getattr(actor_state, "shared_params", None) is None:
+        return agent_state
+    critic_params = agent_state.critic_state.params
+    return agent_state.replace(
+        actor_state=with_critic_encoder(actor_state, critic_params)
+    )
+
+
+def take_actor_encoder(agent_state: Any) -> Any:
+    """``agent_state`` with the critic's shared encoder replaced by the
+    actor's copy, after something trained the encoder through the actor
+    alone (cloning pretraining); the target critic's too, which starts as
+    the critic. Unchanged without a shared encoder."""
+    actor_state = agent_state.actor_state
+    if actor_state.shared_params is None:
+        return agent_state
+    critic_state = agent_state.critic_state
+
+    def with_encoder(params: Any) -> FrozenDict:
+        owned = {**params["params"], **actor_state.shared_params}
+        return FrozenDict({**params, "params": owned})
+
+    critic_state = critic_state.replace(
+        params=with_encoder(critic_state.params),
+        target_params=with_encoder(critic_state.target_params),
+    )
+    return agent_state.replace(critic_state=critic_state)
+
+
+def _borrow_encoder(
+    actor_state: LoadedTrainState, encoder: FrozenDict
+) -> LoadedTrainState:
+    """``actor_state`` without its own encoder, reading ``encoder`` instead:
+    its parameters, and its optimiser's state, rebuilt on what it still
+    owns (its heads)."""
+    own = {
+        name: value
+        for name, value in actor_state.params["params"].items()
+        if name not in encoder
+    }
+    params: FrozenDict = FrozenDict({**actor_state.params, "params": own})
+    return LoadedTrainState.create(
+        params=params,
+        tx=actor_state.tx,
+        apply_fn=actor_state.apply_fn,
+        hidden_state=actor_state.hidden_state,
+        target_params=params,
+        batch_stats=actor_state.batch_stats,
+    ).replace(shared_params=encoder)
+
+
 def init_network_carry(network, memory: MemoryConfig, key: jax.Array, batch_size: int):
     """Fresh carry for ``network``. Ensembles (modules exposing ``num``)
-    get one carry per member, stacked on a leading (num,) axis."""
+    get one carry per member, stacked on a leading (num,) axis; members
+    sharing one memory block (MultiCritic.share_encoder) have one carry,
+    on an axis of one."""
     carry = init_carry(memory, key, batch_size)
     num = getattr(network, "num", None)
+    if getattr(network, "share_encoder", False):
+        num = 1
     if num is not None:
         carry = jax.tree.map(lambda x: jnp.repeat(x[None], num, axis=0), carry)
     return carry
@@ -889,7 +1091,7 @@ def predict_value_sequence(
     """
     x = _apply_critic_obs_norm(critic_state, x)
     return critic_state.apply_fn(
-        with_batch_stats(critic_state, critic_params),
+        network_variables(critic_state, critic_params),
         x,
         hidden_state=initial_hidden,
         done=resets,
@@ -919,7 +1121,7 @@ def predict_value(
     units (TD3's, in the env's). ``quantiles``: a distributional critic's
     quantiles (last axis) in place of their mean, the value."""
     x = critic_input(critic_state, x)
-    variables = with_batch_stats(critic_state, critic_params)
+    variables = network_variables(critic_state, critic_params)
     if quantiles:
         return critic_state.apply_fn(variables, x, method="quantiles")
     return critic_state.apply_fn(variables, x)

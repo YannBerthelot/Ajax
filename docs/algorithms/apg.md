@@ -114,7 +114,12 @@ stages = [  # the nominal pendulum first, then the whole family
 8 layers, 4 heads, width 128, context 100, one system per update
 (`n_envs=1`), horizon 100, betas (0.9, 0.95) with `weight_decay=0` (plain
 Adam), 5,000 warmup updates then cosine decay to a tenth of the rate, no
-gradient clipping (`max_grad_norm=None`), and a PID output layer. Its `final_norm=False` rebuilds a controller saved before
+gradient clipping (`max_grad_norm=None`), a PID output layer, and the
+reference's transformer layers: no bias outside the input embedding,
+LayerNorm epsilon 1e-5 and an MLP four times as wide (`bias=False`,
+`layer_norm_epsilon=1e-5`, `mlp_ratio=4`). A controller saved before
+2026-11-13 restores with `bias=True, layer_norm_epsilon=1e-6, mlp_ratio=2`.
+Its `final_norm=False` rebuilds a controller saved before
 the transformer ended with its final LayerNorm (see
 [Memory](../guide/memory.md)). Such a controller's parameters also map onto
 the new network, which computes the same outputs:
@@ -137,15 +142,11 @@ the parameters only, so a resumed training state must restart its optimizer.
   which trained markedly worse under the bounded action (fresh-system M-RMSE
   0.33 against 0.25). These runs predate the mapping of actions onto the
   environment's bounds: the pendulum's torque was then capped at 1 of its
-  2. Not backed by runs: the transformer's LayerNorms, its final one
-  included, keep a bias and an epsilon of 1e-6, where the reference's have
-  no bias and 1e-5 (buswayne/in-context-controller at 7eb094ce17:
-  `transformer_onestep.py:33` and `:156`, `train_onestep_lin_CL.py:103`).
-  The paper trains each curriculum stage to a loss tolerance; Ajax gives
+  2. The paper trains each curriculum stage to a loss tolerance; Ajax gives
   each stage a fixed `n_timesteps`.
 - **Initialisation.** A transformer memory starts as the reference's GPT:
   kernels from N(0, 0.02²), the residual projections at 0.02/√(2 `n_layers`),
-  zero biases (`transformer_onestep.py:162-166`, `:189-195`;
+  zero biases where it has any (`transformer_onestep.py:162-166`, `:189-195`;
   `MemoryConfig(init="nanogpt")`). Other memory kinds keep flax's.
 - **Curriculum.** `train_curriculum` resumes each stage from the previous
   one's parameters and, by default, restarts the optimizer and its schedule

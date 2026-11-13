@@ -227,6 +227,13 @@ class LoadedTrainState(TrainState):
     # ``batch_stats`` collection), apart from the trained ``params``: the
     # optimiser never steps them. None for a network without any.
     batch_stats: Optional[flax.core.FrozenDict] = None
+    # An actor's copy of the encoder it shares with the critic
+    # (NetworkConfig.share_encoder): the critic's ``encoder`` and
+    # ``memory_cell`` parameters, which the critic's optimiser steps and the
+    # training loop copies here after every update (mirror_shared_encoder),
+    # so that acting reads the network as the critic left it. None for a
+    # network with its own encoder.
+    shared_params: Optional[flax.core.FrozenDict] = None
 
     def soft_update(self, tau):
         new_target_params = optax.incremental_update(
@@ -243,25 +250,30 @@ class LoadedTrainState(TrainState):
         return instance.replace(hidden_state=hidden_state, recurrent=recurrent)
 
     def apply(self, params, *args, **kwargs):
-        """The network at ``params``, reading its running statistics."""
-        return self.apply_fn(with_batch_stats(self, params), *args, **kwargs)
+        """The network at ``params``, reading its running statistics and its
+        shared encoder."""
+        return self.apply_fn(network_variables(self, params), *args, **kwargs)
 
     def apply_train(self, params, *args, **kwargs):
         """The network in training at ``params``: ``(out, batch_stats)``,
         its running statistics after this pass (None without any)."""
         if self.batch_stats is None:
-            return self.apply_fn(params, *args, **kwargs), None
+            return self.apply_fn(network_variables(self, params), *args, **kwargs), None
         out, updates = self.apply_fn(
-            with_batch_stats(self, params), *args, mutable=["batch_stats"], **kwargs
+            network_variables(self, params), *args, mutable=["batch_stats"], **kwargs
         )
         # Frozen as init stores them: a state's structure stays one type.
         return out, flax.core.FrozenDict(updates["batch_stats"])
 
 
-def with_batch_stats(train_state: Any, params: Any) -> Any:
-    """The variables a forward pass at ``params`` reads: ``params`` and the
-    train state's running statistics, if it has any
-    (:attr:`LoadedTrainState.batch_stats`)."""
+def network_variables(train_state: Any, params: Any) -> Any:
+    """The variables a forward pass at ``params`` reads: ``params``, the
+    encoder the network shares with another, if it does
+    (:attr:`LoadedTrainState.shared_params`), and the train state's running
+    statistics, if it has any (:attr:`LoadedTrainState.batch_stats`)."""
+    shared_params = getattr(train_state, "shared_params", None)
+    if shared_params is not None:
+        params = {**params, "params": {**shared_params, **params["params"]}}
     batch_stats = getattr(train_state, "batch_stats", None)
     if batch_stats is None:
         return params
@@ -307,9 +319,16 @@ class BaseAgentState(Replaceable):
     # None for every other agent; the training loop gives it its structure,
     # NaN, before the first update (TrainLoop.off_policy).
     last_actor_metrics: Optional[Any] = None
-    # A checkpoint saved before the field was added restores it as NaN
+    # The metrics of the last update, which a run updating every few steps
+    # (a replay agent's train_frequency) logs at the evaluations between two
+    # updates (TrainLoop.maybe_update): None for every other run; the
+    # training loop gives it its structure, NaN, before the first update.
+    last_update_metrics: Optional[Any] = None
+    # A checkpoint saved before the fields were added restores them as NaN
     # (ajax.checkpoint).
-    added_fields: ClassVar[frozenset[str]] = frozenset({"last_actor_metrics"})
+    added_fields: ClassVar[frozenset[str]] = frozenset(
+        {"last_actor_metrics", "last_update_metrics"}
+    )
 
     def get_keys_and_new_state(self, n: int = 1) -> tuple:
         """Draw n fresh random keys from the updates' key (rng).
@@ -406,6 +425,11 @@ class NetworkConfig(Replaceable):
     # ``log_std_bounds`` bounding the log-variance, as an agent whose
     # reference does (AVG's) sets it.
     log_variance_head: bool = False
+    # One encoder (and memory block) for the actor and the critic, which
+    # the critic owns and both losses train (get_initialized_actor_critic);
+    # False: each network has its own. Static: it decides the networks'
+    # structure.
+    share_encoder: bool = flax.struct.field(pytree_node=False, default=False)
 
     def __post_init__(self):
         check_log_std_bounds(self.log_std_bounds)

@@ -19,6 +19,7 @@ import optax
 from ajax.agents.recurrent import q_values
 from ajax.extensions.base import ExtensionStack, merge_metrics
 from ajax.log import unevaluated
+from ajax.networks.networks import mirror_shared_encoder
 from ajax.random_keys import EXTENSIONS_KEY_TAG, derive_key, fold_index
 
 #: The keys of the extensions' batches the shared steps below build, which
@@ -167,6 +168,17 @@ def reached(start: int, timestep: Any) -> Union[bool, jax.Array]:
     return timestep >= start
 
 
+def reaches_multiple(every: int, before: Any, count: int) -> Union[bool, Any]:
+    """Whether a tick taking the env steps collected from before to before +
+    count reaches a multiple of every, the rule of Ajax's other step
+    schedules (log_frequency, JSRLCurriculum's gate): the Python True, with
+    nothing traced, when every tick does (every <= count). before may be an
+    int, a NumPy or a JAX array."""
+    if every <= count:
+        return True
+    return (before + count) // every > before // every
+
+
 def all_of(*conditions: Union[bool, jax.Array]) -> Union[bool, jax.Array]:
     """Whether every condition holds; the Python Trues among them (no gate)
     add nothing to the program, and with nothing else left it is True."""
@@ -235,6 +247,36 @@ def compute_gradients(
     value puts it in aux.
     """
     return jax.grad(loss, has_aux=True)(params)
+
+
+def compute_actor_critic_gradients(
+    policy_loss: Callable[[Any, Any], tuple[jax.Array, Any]],
+    value_loss: Callable[[Any], tuple[jax.Array, Any]],
+    actor: Any,
+    critic: Any,
+) -> tuple[Any, Any, Any, Any]:
+    """Each network's gradient of the summed loss policy_loss + value_loss
+    at their parameters, then what each loss returns beside its value.
+
+    value_loss takes the critic's parameters; policy_loss the actor's, then
+    the critic's, from which an actor sharing the critic's encoder reads it
+    (networks.with_critic_encoder). Without a shared encoder the networks
+    share no parameter, so each network's gradient is that of its own loss.
+    With one, the encoder is the critic's: its gradient is the value loss's
+    plus the policy loss's, as in ppo2's one network (ppo2/model.py:75-107).
+    """
+    value_grads, value_aux = compute_gradients(value_loss, critic.params)
+    if actor.shared_params is None:
+        policy_grads, policy_aux = compute_gradients(
+            lambda actor_params: policy_loss(actor_params, critic.params),
+            actor.params,
+        )
+        return policy_grads, value_grads, policy_aux, value_aux
+    (policy_grads, encoder_grads), policy_aux = jax.grad(
+        policy_loss, argnums=(0, 1), has_aux=True
+    )(actor.params, critic.params)
+    critic_grads = jax.tree.map(jnp.add, value_grads, encoder_grads)
+    return policy_grads, critic_grads, policy_aux, value_aux
 
 
 def gradient_step(train_state: Any, loss_fn: Callable) -> tuple[Any, Any, jax.Array]:
@@ -424,7 +466,10 @@ def critic_step(
         agent_state.critic_state, total_critic_loss
     )
     metrics = merge_metrics(target_metrics, loss_metrics)
-    return agent_state.replace(critic_state=critic_state), aux, grad_norm, metrics
+    # An actor reading the critic's encoder steps on it as this step left it
+    # (SAC-AE's and DrQ's order: the critic, then the actor).
+    agent_state = mirror_shared_encoder(agent_state.replace(critic_state=critic_state))
+    return agent_state, aux, grad_norm, metrics
 
 
 def bootstrap_cuts(terminated: jax.Array, extensions: ExtensionStack) -> jax.Array:

@@ -437,6 +437,7 @@
 "ajax.agents.loop:with_actor_metrics_slot",
 "ajax.agents.loop:with_horizon",
 "ajax.agents.loop:with_obs_norm",
+"ajax.agents.loop:with_update_metrics_slot",
 "ajax.agents.minibatch:RolloutSplit",
 "ajax.agents.minibatch:check_rollout_split",
 "ajax.agents.minibatch:choose_rollout_split",

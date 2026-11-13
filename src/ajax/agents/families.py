@@ -791,8 +791,8 @@ def reads_last_rollout(extensions: Iterable[Extension]) -> bool:
 class ReplayAgent(DeclaredAgent):
     """An off-policy agent on a replay of transitions
     (TrainLoop.off_policy): one step per env per iteration and, from
-    learning_starts, one update; offline (train_offline) one
-    update per iteration on a replay of the dataset.
+    learning_starts, one update every train_frequency steps; offline
+    (train_offline) one update per iteration on a replay of the dataset.
 
     Beyond DeclaredAgent's names, the family reads
     buffer_size, batch_size and learning_starts, which every
@@ -807,11 +807,17 @@ class ReplayAgent(DeclaredAgent):
         batch_size: The rows each update samples.
         learning_starts: The env steps collected before the first update
             (0: none).
+        train_frequency: The env steps between updates, as SB3's train_freq
+            and CleanRL's (dqn.py:195): from learning_starts, an update on
+            each tick whose steps collected reach a multiple of it
+            (update_steps.reaches_multiple); 1, the default, every tick. An
+            evaluation between two updates logs the last one's metrics.
     """
 
     buffer_size: int
     batch_size: int
     learning_starts: int
+    train_frequency: int = 1
 
     replays_transitions = True
     # A dataset's next action, which its replay keeps for a reader (TargetBC);
@@ -1001,6 +1007,7 @@ class ReplayAgent(DeclaredAgent):
             pretrain_update=lambda agent_state, _transition: offline.update(
                 agent_state, context
             ),
+            update_every=self.train_frequency,
         )
 
     def extension_values(self, configs: dict[str, Any]) -> dict[str, Any]:

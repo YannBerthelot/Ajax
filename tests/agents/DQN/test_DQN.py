@@ -1,3 +1,5 @@
+from dataclasses import dataclass
+
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -6,9 +8,10 @@ import pytest
 from ajax.agents.critics import compute_huber_1_td_loss, make_huber_td_loss
 from ajax.agents.DQN.DQN import DQN, compute_double_dqn_td_target
 from ajax.buffers.utils import get_batch_from_buffer
-from ajax.extensions.base import ExtensionContext
+from ajax.extensions.base import Extension, ExtensionContext
 from ajax.extensions.expert import ExpertValueMetrics, ExpertWarmup
 from ajax.extensions.pretrain import ExpertPrefill
+from ajax.logging.wandb_logging import LoggingConfig
 from ajax.networks.networks import MINATAR_CNN, MNIH_CNN, CNNEncoder, CNNSpec
 from ajax.networks.q_networks import (
     DuelingQNetwork,
@@ -36,6 +39,83 @@ def test_dqn_variants_smoke():
         q_network_cls=DuelingQNetwork,
     )
     agent.train(seed=42, n_timesteps=128)
+
+
+@dataclass(frozen=True)
+class UpdateRecord(Extension):
+    """After each update, at the step it came after: that it updated, and
+    whether the target network is the Q-network (tau=1: just refreshed)."""
+
+    n_steps: int = 0
+    name: str = "update_record"
+
+    def init_state(self, agent_state, rng):
+        never = jnp.zeros(self.n_steps + 1, bool)
+        return never, never
+
+    def post_update(self, agent_state, ext_state, context):
+        updated, refreshed = ext_state
+        q_state = agent_state.actor_state
+        same = jax.tree.map(jnp.array_equal, q_state.params, q_state.target_params)
+        refresh = jnp.all(jnp.array(jax.tree.leaves(same)))
+        updated = updated.at[context.step].set(True)
+        return agent_state, (updated, refreshed.at[context.step].set(refresh))
+
+
+def test_dqn_updates_and_refreshes_its_target_at_cleanrl_s_steps():
+    """CleanRL's loop (dqn.py:194-215, cleanrl @fe8d8a0) updates at each
+    global_step past learning_starts that train_frequency divides, then
+    refreshes the target where target_network_frequency divides it. At 5 and
+    20 (4 updates) from learning_starts 20, on 120 steps: updates at 25, 30,
+    ..., 120 and refreshes at 40, 60, ..., 120, Ajax's step n being
+    CleanRL's global_step n (the DQN docstring); Ajax also updates and
+    refreshes at 20 itself. An update every tick, or a refresh counted from
+    another start, fails."""
+    record = UpdateRecord(n_steps=120)
+    schedule = {
+        "learning_starts": 20,
+        "train_frequency": 5,
+        "target_update_interval": 4,
+    }
+    agent = DQN(env_id="CartPole-v1", batch_size=16, extensions=(record,), **schedule)
+    state, _ = agent.train(seed=0, n_timesteps=120)
+    updated, refreshed = (np.asarray(x[0]) for x in state.ext_state[0])
+    np.testing.assert_array_equal(np.flatnonzero(updated), np.arange(20, 121, 5))
+    np.testing.assert_array_equal(np.flatnonzero(refreshed), np.arange(20, 121, 20))
+
+
+def test_an_evaluation_between_updates_logs_the_last_update_s_metrics():
+    """A skipped update logs the last real step, not NaN (owner, 2026-10-24).
+    Updating every 10 steps from step 10, epsilon falling from 1 by 0.95/30 a
+    step: the evaluations at 15 and 25 log the updates' at 10 and 20 (0.6833,
+    0.3667), not their own step's (0.525, 0.2083); the one at 5, before any
+    update, logs none."""
+    logging = LoggingConfig(log_frequency=5, backends=())
+    agent = DQN(
+        env_id="CartPole-v1",
+        architecture=("16", "relu"),
+        learning_starts=10,
+        batch_size=8,
+        epsilon_decay_frac=1.0,
+    )
+    _, out = agent.train(
+        seed=0, n_timesteps=30, num_episode_test=1, logging_config=logging
+    )
+    np.testing.assert_array_equal(np.ravel(out["timestep"]), [5, 10, 15, 20, 25, 30])
+    expected = [np.nan, 0.683333, 0.683333, 0.366667, 0.366667, 0.05]
+    np.testing.assert_allclose(np.ravel(out["policy/epsilon"]), expected, rtol=1e-5)
+
+
+def test_dqn_defaults_are_cleanrl_s():
+    """CleanRL's dqn.py Args (lines 47-71) and QNetwork (95-99): a default
+    drifting from the reference fails. Its 500-step target refresh is 50
+    updates at one update every 10 steps."""
+    agent = DQN(env_id="CartPole-v1")
+    assert agent.architecture == ("120", "relu", "84", "relu")
+    assert (agent.buffer_size, agent.batch_size) == (10_000, 128)
+    assert (agent.learning_starts, agent.train_frequency) == (10_000, 10)
+    assert agent.target_update_interval * agent.train_frequency == 500
+    assert (agent.learning_rate, agent.gamma, agent.tau) == (2.5e-4, 0.99, 1.0)
 
 
 @pytest.mark.parametrize("batch_size", [32, 64])

@@ -71,10 +71,11 @@ _TDMPC2_PRESET = {
     "iterations": 2,
 }
 
-# SAC, TD3, REDQ and ASAC default to learning_starts=10_000, past the end of
-# the TIMESTEPS-step run: their rows timed collection alone. 1,000 is DQN's
-# default, so the replay agents share one warm-up (CrossQ, TQC and IQL too,
-# whose defaults of 5,000, 257 and 0 would time other shares of updates;
+# SAC, ASAC and DQN default to learning_starts=10_000 and TD3 to 25,000,
+# past the end of the TIMESTEPS-step run: their rows timed collection alone.
+# 1,000, DQN's default until CleanRL's (2026-11-13), is the replay agents'
+# one warm-up (REDQ, CrossQ, TQC and IQL too, whose defaults of 5,000, 5,000,
+# 257 and 0 would time other shares of updates;
 # DAgger's is its batch size, not an option): the updates start an
 # eighth into the run and cover the other seven eighths, past SAC's
 # policy_update_start and alpha_update_start (2,000), with more stored steps
@@ -94,7 +95,7 @@ _WARMUP_INSIDE_RUN = {"learning_starts": 1000}
 AGENTS: dict[str, tuple[str, dict]] = {
     "SAC": ("Pendulum-v1", _WARMUP_INSIDE_RUN),
     "PPO": ("CartPole-v1", {}),
-    "DQN": ("CartPole-v1", {}),
+    "DQN": ("CartPole-v1", _WARMUP_INSIDE_RUN),
     "PQN": ("CartPole-v1", {}),
     "TD3": ("Pendulum-v1", _WARMUP_INSIDE_RUN),
     "REDQ": ("Pendulum-v1", _WARMUP_INSIDE_RUN),

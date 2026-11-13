@@ -207,6 +207,8 @@ _CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
             "actor_architecture": ("32", "relu"),
             "batch_size": 16,
             "buffer_size": 400,
+            # Fits at 100 and 200: the default fit runs once per iteration.
+            "iteration_steps": 100,
             "expert_policy": _push,
             "extensions": (ActorNudge(),),
         },
@@ -2269,6 +2271,21 @@ _GOLDEN.update(
             "critic": 87.35801696777344,
             "target": 88.98634338378906,
             "n_updates": 4.0,
+        },
+    }
+)
+
+# Re-recorded on macOS ARM CPU once DAgger's fit became its reference code's
+# (IterationFit): a Gaussian actor cloned for 4 epochs over the whole replay
+# at the end of each iteration. The case's iterations are 100 steps, so it
+# fits at 100 and 200 (2 updates of 6 and 12 minibatches an epoch; was 93
+# online steps). Its unused critic and actor target are not pinned.
+_GOLDEN.update(
+    {
+        "DAgger-nudge": {
+            "actor": 4.547504901885986,
+            "n_updates": 2.0,
+            "nudge": 0.8891514539718628,
         },
     }
 )

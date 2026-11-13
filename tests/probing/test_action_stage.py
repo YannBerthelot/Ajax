@@ -40,7 +40,7 @@ import numpy as np
 import pytest
 from scipy.stats import norm
 
-from ajax.agents.DAgger.DAgger import ExponentialBetaSchedule
+from ajax.agents.DAgger.DAgger import ExponentialBetaSchedule, OnlineFit
 from ajax.extensions.expert import JSRLCurriculum
 from ajax.extensions.exploration import EDGEExploration
 from ajax.extensions.target_mods import IBRL
@@ -169,6 +169,7 @@ _UNBOOTSTRAPPED = {"the expert's step not bootstrapped": A_E}
 SMOOTHED = 1.0 - 0.2 * (norm.pdf(0.0) - norm.pdf(2.5)) - 0.5 * norm.cdf(-2.5)
 DAGGER = {"actor_architecture": agents.NET, "batch_size": 64, "buffer_size": 10_000}
 DAGGER.update({"beta_schedule": ExponentialBetaSchedule(0.0), "iteration_steps": WARM})
+DAGGER.update({"fit": OnlineFit()})  # the fit the cells were calibrated on
 CASES["q7-jsrl-TD3"] = Case(
     "q7-jsrl-TD3",
     (

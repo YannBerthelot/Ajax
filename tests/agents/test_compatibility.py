@@ -82,9 +82,10 @@ WARMUP = (
     " seed phase yet, and it takes no expert_policy"
 )
 OWN_STORE = "the agent's own collector does not run choose_replay_action yet"
+ROLLOUT_REWARD = "APG's closed-loop rollout passes the features no reward yet"
 FEATURES = (
     "ExpertActionInput ExpertStateInput TrainingProgressInput PIDTermsInput"
-    " PreviousAction".split()
+    " PreviousAction PreviousReward".split()
 )
 # The expert features cannot reach a world model's imagined steps; the
 # training progress and PID terms join the observations it collects, and
@@ -171,6 +172,7 @@ GAPS: dict[str, dict[str, str]] = {
     MEMORY: {"memory": "APO APO/discrete DQN PQN DAgger DAgger/discrete IQL"},
     DEFERRED: {"memory": "AVG CrossQ UDRL UDRL/discrete"},
     WARMUP: {"ExpertWarmup": "TDMPC2"},
+    ROLLOUT_REWARD: {"PreviousReward": "APG"},
     REWARD: {
         "AdversarialReward": "SAC TD3 REDQ TQC CrossQ ASAC RVISAC AVG APG APO UDRL DAgger"
         " IQL DreamerV3"

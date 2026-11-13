@@ -17,6 +17,13 @@ The next release is 0.6.0: the first item changes results.
   Q-critic then reads it from the observation instead of appending its
   own. It is opt-in: default runs do not change. Observation features
   read the action through `ObserveInputs.previous_action`.
+- **`PreviousReward()` appends the reward paid for the action executed
+  before each observation** (`ajax.extensions.observe`), raw, zero at an
+  episode's first observation, as Ni et al.'s recurrent networks read it.
+  Collection stores it, evaluation appends it, and `agent.policy`'s `act`
+  reads the reward it is given (it refuses `done` without `reward`).
+  Features read it through `ObserveInputs.previous_reward`. APG refuses it:
+  its closed-loop rollout passes the features no reward yet.
 - **SAC, TD3, REDQ, TQC, ASAC and RVI-SAC can share a memory.** With
   `share_encoder=True`, `memory=` and `PreviousAction()`, the critic's
   encoder and memory block read the observation and the previous action

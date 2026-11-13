@@ -98,13 +98,15 @@ from . import readouts as R
 # faults/ + 4, test_framework + 4.
 # DAgger's online fit kept: test_imitation + 1, test_action_stage + 1, this + 1.
 # The one-program sweep's: faults/ + 1, test_framework + 1.
+# The memory probes' power with the observed previous step (P0b's one-step
+# first episode): test_memory + 5, test_framework + 3.
 CAPS = {"verdict.py": 255, "envs.py": 255, "agents.py": 171, "runs.py": 250}
 CAPS.update({"readouts.py": 220, "oracles.py": 198, "faults.py": 152, "faults/": 421})
 CAPS.update({"test_average_reward.py": 186})
-CAPS.update({"test_framework.py": 329, "test_value_chains.py": 1051})
+CAPS.update({"test_framework.py": 332, "test_value_chains.py": 1051})
 CAPS.update({"test_episode_ends.py": 1050, "test_bookkeeping.py": 1013})
 CAPS.update({"test_extensions.py": 855, "test_p4_split_run.py": 360})
-CAPS.update({"test_memory.py": 446, "test_world_models.py": 452})
+CAPS.update({"test_memory.py": 451, "test_world_models.py": 452})
 CAPS.update({"test_action_box.py": 207, "test_imitation.py": 192})
 CAPS.update({"test_offline.py": 300, "test_action_stage.py": 414})
 
@@ -295,14 +297,15 @@ def test_the_directory_keeps_to_its_budget() -> None:
     kept as calibrated and train_frequency's four faults, 3 for DAgger's
     calibrated online fit, 2 for the one-program sweep's fault and note, 57 for
     the memory probes reading the previous step Ni et al.'s networks read and
-    their recalibration, and 3 for these notes."""
+    their recalibration, 8 for P0b's one-step first episode, and 3 for these
+    notes."""
     cmd = ["git", "ls-files", "--cached", "--others", "--exclude-standard"]
     out = subprocess.run(
         [*cmd, "tests/probing"], cwd=faults.REPO, capture_output=True, text=True
     )
     files = [f for f in out.stdout.split() if f.count("/") == 2 or "/faults/" in f]
     total = sum(_lines(os.path.join(faults.REPO, f)) for f in files)
-    assert total <= 8806, total
+    assert total <= 8814, total
 
 
 def test_every_fault_names_the_fast_tests_that_catch_it() -> None:

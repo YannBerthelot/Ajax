@@ -38,7 +38,9 @@ ANSWER_DIGEST = "a8d332864bd1"  # verdict.digest(CASES): every answer, pinned
 # blanks after) and pays 1 - (1 - 2 c a)^2 at step 2, a clipped to [-1, 1]:
 # 1 at a = c / 2, inside the box (the action-range probes own its bounds),
 # and 0 at any action after no cue. Read at the last step of a second episode
-# after one with a known cue, from a fresh carry (the actor stepped, the
+# after a one-step episode showing a known cue (cut there, so a carry never
+# restarted holds a cue 3 steps old; a whole episode's, 5 steps old, can be
+# forgotten by its age alone), from a fresh carry (the actor stepped, the
 # critic over the sequence at its actions): a(+1) - a(-1) = 1 and V = 1,
 # margins: PPO's V is 1 - 4 sigma^2 at its best mean, and a max-entropy
 # actor's tanh(mu) sits within 0.013 of 1/2 at any temperature from 0.001 to
@@ -73,8 +75,8 @@ SCALAR_CUE = dataclasses.replace(
 )
 # Each read: its (first, second) episode cues, read as +1, -1, none | +1, none | -1.
 PAIRS = jnp.array([(-1.0, 1.0), (1.0, -1.0), (1.0, 0.0), (-1.0, 0.0)])
-STARTS = jnp.broadcast_to((jnp.arange(6) % 3 == 0)[:, None], (6, 4))
-CUE_OBS = _sign(jnp.repeat(PAIRS.T, 3, 0) * STARTS)  # (T, B, 2)
+STARTS = jnp.broadcast_to(jnp.array([True, True, False, False])[:, None], (4, 4))
+CUE_OBS = _sign(jnp.concatenate([PAIRS.T, jnp.zeros((2, 4))]))  # (T, B, 2)
 NO_MEMORY = "no memory (the cue forgotten by the last step)"
 LEAK = "carry not restarted (the previous episode's cue read as this one's)"
 P0B = (
@@ -156,6 +158,9 @@ def _p0b_agent(agent: str, spec: envs.Spec = CUE, kind: str = "gru", **kw: Any) 
 # 30/32; TD3 28/32 at 7500, 29/32 at 10,000 and 26/32 at 15,000, its actor
 # saturated at a bound on two seeds whatever the budget: kept at 10,000 with
 # the shortfall (owner), Ni's learning rate 3e-4 left to a follow-up.
+# The first episode cut after its cue (2026-11-13) leaves a restarting agent's
+# readings as they were; a carry never restarted then reads V(none | c) 0.28
+# in SAC (seeds 0-7), whose whole first episode's cue it forgot by its age.
 P0B_CELLS: dict[tuple[str, str], tuple[int, tuple[float, ...]]] = {
     ("PPO", "gru"): (20_000, (0.4, 0.325, 0.317, 0.054, 0.054, 0.02)),
     ("PPO", "lstm"): (20_000, (0.381, 0.296, 0.282, 0.045, 0.045, 0.02)),

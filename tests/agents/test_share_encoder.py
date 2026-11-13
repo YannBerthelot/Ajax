@@ -446,6 +446,7 @@ SHARED_MEMORY: dict[str, Any] = {
     "share_encoder": True,
     "memory": MemoryConfig("gru", 8),
     "learning_starts": 64,
+    "sequence_length": 8,
     "extensions": (PreviousAction(),),
 }
 
@@ -527,8 +528,9 @@ def test_only_the_critics_loss_trains_the_shared_memory(
 @pytest.mark.parametrize("target, changes", [(True, True), (False, False)])
 def test_td3s_target_actor_warms_up_through_the_target_critics_memory(target, changes):
     """The target actor's warmed-up memory moves with the target critic's
-    memory block, not with the online critic's."""
-    agent = _q_agent("TD3", **SHARED_MEMORY)
+    memory block, not with the online critic's (a window warmed up by a
+    burn-in: Ni et al.'s default has none)."""
+    agent = _q_agent("TD3", **SHARED_MEMORY, burn_in=4)
     state = _one_seed(agent.train(seed=0, n_timesteps=64)[0])
     _, context = agent.make_context(128)
     critic = state.critic_state

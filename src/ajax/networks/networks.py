@@ -899,6 +899,22 @@ def embedding_parts(
     return tuple(parts)
 
 
+def previous_step_columns(env_config: EnvironmentConfig) -> Tuple[Tuple[int, int], ...]:
+    """The observation's columns the PreviousAction and PreviousReward
+    features append (those reading the previous action or reward), as
+    (start, stop) ranges."""
+    env_width = get_state_action_shapes(env_config.env)[0][-1]
+    layout = observation_layout(env_width, env_config.observers, env_config)
+    columns = []
+    for feature in env_config.observers:
+        if getattr(feature, "reads_previous_action", False) or getattr(
+            feature, "reads_previous_reward", False
+        ):
+            found = layout.slice(feature.name)
+            columns.append((found.start, found.stop))
+    return tuple(columns)
+
+
 def get_initialized_actor_critic(
     key: jax.Array,
     env_config: EnvironmentConfig,
@@ -1081,7 +1097,12 @@ def get_initialized_actor_critic(
         memory=memory,
         n_envs=env_config.n_envs,
     )
-    critic_state = critic_state.replace(previous_action_in_observation=in_observation)
+    critic_state = critic_state.replace(
+        previous_action_in_observation=in_observation,
+        previous_step_columns=(
+            previous_step_columns(env_config) if memory is not None else ()
+        ),
+    )
     if network_config.share_encoder:
         if "encoder" not in actor_state.params["params"]:
             raise ValueError(

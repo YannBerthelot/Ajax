@@ -148,7 +148,8 @@ class REDQ(
     num_critics: int = 10
     subset_size: int = 2
     buffer_size: int = int(1e6)
-    batch_size: int = 256
+    # None: 256 rows, or 64 windows with memory (RecurrentReplayAgent).
+    batch_size: Optional[int] = None  # type: ignore[assignment]
     # start_steps=5000 uniform actions, and updates that wait as long
     # (delay_update_steps='auto'): redq_sac.py:34, :85.
     learning_starts: int = 5_000

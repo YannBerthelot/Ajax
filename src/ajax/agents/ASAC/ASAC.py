@@ -135,7 +135,8 @@ class ASAC(
     fixed_alpha: bool = True
     p_0: float = 20
     buffer_size: int = int(1e6)
-    batch_size: int = 256
+    # None: 256 rows, or 64 windows with memory (RecurrentReplayAgent).
+    batch_size: Optional[int] = None  # type: ignore[assignment]
     learning_starts: int = int(1e4)
 
     def actor_critic_args(self) -> dict[str, Any]:

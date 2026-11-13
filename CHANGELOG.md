@@ -124,6 +124,17 @@ The next release is 0.6.0: the first item changes results.
   before. This changes the results of PPO with `cnn_image_shape`.
   - **Upgrade:** to resume an image PPO checkpoint saved before, or to
     keep the earlier networks, pass `share_encoder=False`.
+- **Recurrent PPO's heads each read the memory through a layer of their
+  own**, as PureJaxRL's recurrent PPO does (`ppo_rnn.py`: a Dense(128) and
+  a ReLU per head, orthogonal with gain 2). The new
+  `NetworkConfig.head_architecture` gives any agent's networks such hidden
+  layers after the encoder and the memory block, and `head_kernel_init`
+  their initialiser. This changes the results of PPO with `memory`. Its
+  actor and critic keep separate memories: a shared one fails the memory
+  probe, even with these layers.
+  - **Upgrade:** to resume a recurrent PPO checkpoint saved before, or to
+    keep the earlier networks, set
+    `agent.network_args = agent.network_args.replace(head_architecture=())`.
 - **DreamerV3 trains faster on the GPU.** The world model's gradient
   through its 64 filtering steps now takes each RSSM weight's gradient once
   per update, as one product over all steps, instead of adding 64 small

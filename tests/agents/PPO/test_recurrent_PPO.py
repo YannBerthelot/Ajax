@@ -46,6 +46,16 @@ def test_recurrent_ppo_trains_without_nans(kind):
     )
 
 
+def test_recurrent_ppos_heads_are_purejaxrls():
+    """PureJaxRL @31756b1 (ppo_rnn.py:59-75): each head reads the GRU through
+    a Dense(128) + ReLU of its own, kernel orthogonal(2). PPO's feedforward
+    heads stay linear, as its references' are."""
+    recurrent = PPO(env_id="CartPole-v1", memory=MemoryConfig("gru", 8))
+    assert recurrent.network_args.head_architecture == ("128", "relu")
+    assert recurrent.network_args.head_kernel_init == "orthogonal(2)"
+    assert PPO(env_id="CartPole-v1").network_args.head_architecture == ()
+
+
 def test_recurrent_ppo_continuous_env():
     state = _train_smoke(MemoryConfig(kind="gru", hidden_size=8), env_id="Pendulum-v1")
     for leaf in jax.tree.leaves(state.actor_state.params):

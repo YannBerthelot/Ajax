@@ -217,12 +217,25 @@ class PPO(
         owner left aside (2026-11-13).
 
         With memory the references share too (common/policies.py:165;
-        PureJaxRL ppo_rnn.py:51-57), but PureJaxRL gives each head a
-        128-unit layer after the GRU (ppo_rnn.py:59-75), which Ajax's heads
-        lack: on CartPole's raw returns the value then swamps the one memory
-        (return 23 against 260 apart, 100k steps). Recurrent PPO keeps its
-        networks apart until those layers exist (owner, 2026-11-13)."""
+        PureJaxRL ppo_rnn.py:51-57; popjaxrl @12e5d42 ppo_gru.py:45-50), but
+        Ajax's shared memory fails the masked-CartPole memory probe, even
+        with the references' per-head layers (network_settings): GRU returns
+        37, 33 and 12 over 3 seeds, against 211, 194 and 500 apart. Recurrent
+        PPO keeps its networks apart until that is understood (owner,
+        2026-11-13)."""
         return self.cnn_image_shape is not None
+
+    def network_settings(self) -> dict[str, Any]:
+        """With memory, each head reads the memory through a 128-unit ReLU
+        layer of its own, started orthogonal(2), as PureJaxRL's do
+        (ppo_rnn.py:59-75; popjaxrl's ppo_gru.py:53-66 has two, of leaky
+        ReLU)."""
+        if self.memory is None:
+            return {}
+        return {
+            "head_architecture": ("128", "relu"),
+            "head_kernel_init": "orthogonal(2)",
+        }
 
     def optimizer_settings(self) -> dict[str, Any]:
         # ppo2's Adam (model.py:100-107) with eps 1e-5; its one clip over both

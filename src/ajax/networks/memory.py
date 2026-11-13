@@ -100,6 +100,16 @@ class MemoryConfig:
     # per gate, zero biases, and mamba's step-size bias -3. The others are
     # references' (gate_block_orthogonal, _dense_init, _dt_bias_init).
     init: Optional[str] = None
+    # transformer: biases in the attention and MLP layers and the LayerNorms
+    # (nanoGPT's config.bias); the input embedding keeps its own either way,
+    # as nanoGPT's wte does.
+    bias: bool = True
+    # transformer, mamba: the LayerNorms' epsilon. flax's 1e-6 by default;
+    # GPT-2, nanoGPT and Mamba use torch's 1e-5.
+    layer_norm_epsilon: float = 1e-6
+    # transformer: the MLP's hidden width, in multiples of hidden_size
+    # (GPT-2 and nanoGPT: 4).
+    mlp_ratio: int = 2
 
     def __post_init__(self):
         if self.kind not in MEMORY_KINDS:
@@ -115,6 +125,12 @@ class MemoryConfig:
             raise ValueError(f"hidden_size must be positive, got {self.hidden_size}")
         if self.num_layers <= 0:
             raise ValueError(f"num_layers must be positive, got {self.num_layers}")
+        if self.layer_norm_epsilon <= 0:
+            raise ValueError(
+                f"layer_norm_epsilon must be positive, got {self.layer_norm_epsilon}"
+            )
+        if self.mlp_ratio < 1:
+            raise ValueError(f"mlp_ratio must be >= 1, got {self.mlp_ratio}")
         if self.kind == "transformer":
             if self.window < 1:
                 raise ValueError(f"window must be >= 1, got {self.window}")
@@ -388,13 +404,16 @@ class _TransformerCore(nn.Module):
     residual adds, and a final LayerNorm (``ln_f``) on the output, which
     keeps the stream's scale, growing with depth, out of the heads. GTrXL
     (Parisotto et al. 2020, arXiv:1910.06764) instead gates its residuals
-    and describes no final norm; this core does not gate. Its LayerNorms keep
-    flax's epsilon, 1e-6, where the references use 1e-5. Busetto et al.'s
-    contextual controller (buswayne/in-context-controller at 7eb094ce17),
-    which ``APG.contextual_controller`` builds on this core, also leaves the
-    bias out of its LayerNorms, ``ln_f`` included; these keep one. There,
-    ``transformer_onestep.py:33`` normalises with epsilon 1e-5, ``:156``
-    builds ``ln_f = LayerNorm(n_embd, bias=config.bias)`` and
+    and describes no final norm; this core does not gate. By default its
+    LayerNorms keep flax's epsilon, 1e-6, where the references use 1e-5, and
+    its MLP is 2x wide where GPT-2's is 4x; ``layer_norm_epsilon`` and
+    ``mlp_ratio`` take the references' values. Busetto et al.'s contextual
+    controller (buswayne/in-context-controller at 7eb094ce17), which
+    ``APG.contextual_controller`` builds on this core with ``bias=False``,
+    leaves the bias out of its attention and MLP layers and its LayerNorms,
+    ``ln_f`` included: ``transformer_onestep.py:33`` normalises with epsilon
+    1e-5, ``:44-46`` and ``:93-95`` build its Linears with
+    ``bias=config.bias``, ``:156`` builds ``ln_f`` the same way, and
     ``train_onestep_lin_CL.py:103`` defaults ``--bias`` to False.
 
     Per layer the carry holds the last ``window - 1`` layer INPUTS and
@@ -425,6 +444,10 @@ class _TransformerCore(nn.Module):
 
         dense = functools.partial(nn.Dense, kernel_init=_dense_init(cfg))
         hidden = dense(H, name="embed")(x)  # (T, B, H)
+        layer_dense = functools.partial(dense, use_bias=cfg.bias)
+        layer_norm = functools.partial(
+            nn.LayerNorm, epsilon=cfg.layer_norm_epsilon, use_bias=cfg.bias
+        )
 
         # Query position t / key position p masks, key stream = cache ++ chunk.
         t_idx = jnp.arange(T)
@@ -442,10 +465,10 @@ class _TransformerCore(nn.Module):
         new_carry = []
         for layer in range(cfg.num_layers):
             h_bt = jnp.swapaxes(hidden, 0, 1)  # (B, T, H) — layer input
-            norm = nn.LayerNorm(name=f"ln_attn_{layer}")
-            query_layer = dense(H, name=f"q_{layer}")
-            key_layer = dense(H, name=f"k_{layer}")
-            value_layer = dense(H, name=f"v_{layer}")
+            norm = layer_norm(name=f"ln_attn_{layer}")
+            query_layer = layer_dense(H, name=f"q_{layer}")
+            key_layer = layer_dense(H, name=f"k_{layer}")
+            value_layer = layer_dense(H, name=f"v_{layer}")
             if self.cache_keys_values:
                 # Only the chunk's rows are normalised and projected; the
                 # cached rows' keys and values were computed when they came.
@@ -487,15 +510,14 @@ class _TransformerCore(nn.Module):
             attn = jax.nn.softmax(logits, axis=-1)
             out = jnp.einsum("bhqk,bkhd->bqhd", attn, v).reshape(B, T, H)
             residual = _dense_init(cfg, residual=True)
-            h_bt = h_bt + nn.Dense(H, kernel_init=residual, name=f"attn_out_{layer}")(
-                out
+            output_layer = functools.partial(
+                nn.Dense, H, kernel_init=residual, use_bias=cfg.bias
             )
+            h_bt = h_bt + output_layer(name=f"attn_out_{layer}")(out)
 
-            mlp_in = nn.LayerNorm(name=f"ln_mlp_{layer}")(h_bt)
-            mlp = dense(2 * H, name=f"mlp_up_{layer}")(mlp_in)
-            mlp = nn.Dense(H, kernel_init=residual, name=f"mlp_down_{layer}")(
-                nn.gelu(mlp)
-            )
+            mlp_in = layer_norm(name=f"ln_mlp_{layer}")(h_bt)
+            mlp = layer_dense(cfg.mlp_ratio * H, name=f"mlp_up_{layer}")(mlp_in)
+            mlp = output_layer(name=f"mlp_down_{layer}")(nn.gelu(mlp))
             h_bt = h_bt + mlp
 
             # New cache: last C entries of the input stream, valid only if
@@ -514,7 +536,7 @@ class _TransformerCore(nn.Module):
             hidden = jnp.swapaxes(h_bt, 0, 1)  # (T, B, H) for the next layer
 
         if cfg.final_norm:
-            hidden = nn.LayerNorm(name="ln_f")(hidden)
+            hidden = layer_norm(name="ln_f")(hidden)
         return tuple(new_carry), hidden
 
 
@@ -534,7 +556,8 @@ class _MambaCore(nn.Module):
     norm (its ``norm_f``, here ``ln_f``) after the last residual add. Every
     norm is a LayerNorm, MixerModel's default (``rms_norm=False``); its
     ``MambaConfig`` and released checkpoints use RMSNorm. The LayerNorms
-    keep flax's epsilon, 1e-6, where Mamba uses 1e-5.
+    take ``layer_norm_epsilon``, flax's 1e-6 by default, where Mamba uses
+    1e-5.
     """
 
     config: MemoryConfig
@@ -555,7 +578,7 @@ class _MambaCore(nn.Module):
         for layer in range(cfg.num_layers):
             conv_tail, ssm_state = carry[layer]
             inp = hidden
-            z = nn.LayerNorm(name=f"ln_{layer}")(inp)
+            z = nn.LayerNorm(epsilon=cfg.layer_norm_epsilon, name=f"ln_{layer}")(inp)
             u, gate = jnp.split(
                 nn.Dense(2 * d_inner, name=f"in_proj_{layer}")(z), 2, axis=-1
             )  # each (T, B, d_inner)
@@ -641,7 +664,7 @@ class _MambaCore(nn.Module):
             new_carry.append((new_conv_tail, h[-1]))
 
         if cfg.final_norm:
-            hidden = nn.LayerNorm(name="ln_f")(hidden)
+            hidden = nn.LayerNorm(epsilon=cfg.layer_norm_epsilon, name="ln_f")(hidden)
         return tuple(new_carry), hidden
 
 

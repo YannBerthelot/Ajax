@@ -149,17 +149,23 @@ def _maybe_norm(spec: CNNSpec, x: jax.Array) -> jax.Array:
     return nn.LayerNorm()(x) if spec.layer_norm else x
 
 
-def observation_encoder(network: nn.Module) -> nn.Module:
+def observation_encoder(
+    network: nn.Module,
+    architecture: Optional[Sequence[Union[str, ActivationFunction]]] = None,
+) -> nn.Module:
     """The layers ``network`` (an Actor, a Critic or a MultiCritic) reads
     its observations with, before any memory: a :class:`CNNEncoder` for
-    image observations, else the MLP :class:`Encoder`. Built in the
-    network's setup, so it is the network's own submodule."""
+    image observations, else the MLP :class:`Encoder` of ``architecture``
+    (None: the network's ``input_architecture``). Built in the network's
+    setup, so it is the network's own submodule."""
     if network.cnn_image_shape is not None:
         return CNNEncoder(
             network.cnn_image_shape, network.cnn_extra_obs_dim, network.cnn_spec
         )
     return Encoder(
-        input_architecture=network.input_architecture,
+        input_architecture=(
+            network.input_architecture if architecture is None else architecture
+        ),
         penultimate_normalization=network.penultimate_normalization,
         kernel_init=network.encoder_kernel_init,
         layer_norm=network.encoder_layer_norm,
@@ -534,12 +540,16 @@ class MultiCritic(nn.Module):
     # on its features. Its one carry keeps the ensemble layout, with one
     # member: hidden_state leaves are (1, batch, hidden).
     share_encoder: bool = False
+    # The shared encoder's layers: the actor's architecture, which the actor
+    # reads it with. A Q-critic's members keep input_architecture for their
+    # heads over its features and the action. None: input_architecture.
+    encoder_architecture: Optional[Sequence[Union[str, ActivationFunction]]] = None
 
     def setup(self):
         if self.share_encoder:
             if self.memory is not None:
                 self.memory_cell = MemoryCell(self.memory)
-            self.encoder = observation_encoder(self)
+            self.encoder = observation_encoder(self, self.encoder_architecture)
         # x (and done) are broadcast across the ensemble; the carry is
         # mapped over its leading (num,) axis so each member evolves its
         # own memory. NOTE: the recurrent in_axes spec matches __call__'s
@@ -659,7 +669,9 @@ def check_share_encoder(network_config: NetworkConfig, action_value: bool) -> No
             " 'batchrenorm' layer."
         )
     if action_value:
-        return  # the action joins after the encoder, at the critic's own layers
+        # The encoder is the actor's architecture; the critic's own layers
+        # read its features with the action.
+        return
     if network_config.cnn_image_shape is None and tuple(
         network_config.actor_architecture
     ) != tuple(network_config.critic_architecture):
@@ -765,6 +777,13 @@ def get_initialized_actor_critic(
             network_config.squash_log_det_eps,
             network_config.squash_sigma_point_mean,
         )
+    # A shared encoder is the actor's (check_share_encoder refuses a PID actor).
+    actor_architecture = network_config.actor_architecture
+    shared_architecture = (
+        None
+        if isinstance(actor_architecture, PIDPolicy) or not network_config.share_encoder
+        else actor_architecture
+    )
     critic = MultiCritic(
         input_architecture=network_config.critic_architecture,
         penultimate_normalization=network_config.penultimate_normalization,
@@ -785,6 +804,7 @@ def get_initialized_actor_critic(
         value_kernel_init=network_config.value_kernel_init,
         n_quantiles=network_config.critic_quantiles,
         share_encoder=network_config.share_encoder,
+        encoder_architecture=shared_architecture,
     )
 
     actor_tx = get_adam_tx(**to_state_dict(actor_optimizer_config))

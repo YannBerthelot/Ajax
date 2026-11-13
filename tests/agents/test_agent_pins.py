@@ -2206,6 +2206,34 @@ _GOLDEN.update(
     }
 )
 
+# Re-recorded on macOS ARM CPU once PPO stepped TensorFlow 1's Adam, ppo2's
+# (eps before the bias correction): PPO-mcc actor -0.11%, critic -0.02%;
+# PPO-flat actor -0.04%; PPO-discrete-nudge actor +2.8%, critic +0.07%.
+# Recurrent PPO and unroll_length keep optax's Adam, and their pins stay.
+_GOLDEN.update(
+    {
+        "PPO-mcc": {
+            "actor": 4.034129619598389,
+            "critic": 5.009683132171631,
+            "target": 4.000099182128906,
+            "n_updates": 2.0,
+        },
+        "PPO-flat": {
+            "actor": 6.001730442047119,
+            "critic": 7.137869834899902,
+            "target": 6.0001020431518555,
+            "n_updates": 2.0,
+        },
+        "PPO-discrete-nudge": {
+            "actor": 7.543189525604248,
+            "critic": 8.977977752685547,
+            "target": 8.000201225280762,
+            "n_updates": 4.0,
+            "nudge": 0.8760150671005249,
+        },
+    }
+)
+
 # Re-recorded on macOS ARM CPU once DQN's defaults became CleanRL's dqn.py:
 # the cases keep their network, replay and warm-up, and now update every 10
 # env steps (train_frequency): 11 updates of 128 steps from step 20, at 20,

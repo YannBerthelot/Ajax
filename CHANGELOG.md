@@ -8,6 +8,23 @@ PyPI as `ajax-rl`.
 
 The next release is 0.6.0: the first item changes results.
 
+- **PPO clips its value loss, as ppo2 does.** Each squared value error is
+  the larger of its own and that of the value clipped to `clip_range`
+  around the value the rollout was collected with (Baselines' ppo2,
+  `model.py:66-75`; PureJaxRL's recurrent PPO does the same). The new
+  `clip_value_loss` turns it off; by default (`None`) PPO clips, except
+  with `unroll_length`, Brax's PPO, which does not. PPO's results change.
+  Upgrade: pass `clip_value_loss=False` for the old loss.
+
+- **PPO steps TensorFlow 1's Adam, as ppo2 does.** ppo2's
+  `tf.train.AdamOptimizer` adds epsilon to the square root of the second
+  moment before the bias correction; optax's Adam adds it after, an
+  epsilon 32 times smaller at the first step and about the same after a
+  few thousand. The new update rule `"tf1_adam"` (`OptimizerConfig`,
+  `ajax.networks.utils.scale_by_tf1_adam`) is PPO's; with `memory` or
+  `unroll_length` PPO keeps optax's Adam, as PureJaxRL and Brax use it.
+  PPO's results change.
+
 - **`PreviousAction()` appends the action executed before each
   observation** (`ajax.extensions.observe`): zero at an episode's first
   observation, in agent units, a discrete action one-hot, never

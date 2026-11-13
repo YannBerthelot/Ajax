@@ -66,6 +66,31 @@ def clip_by_member_norm(max_norm: float) -> optax.GradientTransformation:
     return optax.GradientTransformation(lambda _: optax.EmptyState(), update_fn)
 
 
+def scale_by_tf1_adam(b1: float, b2: float, eps: float) -> optax.GradientTransformation:
+    """TensorFlow 1's Adam (tf.compat.v1.train.AdamOptimizer, "epsilon hat"
+    in its docstring): eps joins sqrt(v) before the bias correction, which
+    scales the step instead, lr * sqrt(1 - b2^t) / (1 - b1^t) * m / (sqrt(v)
+    + eps). optax's (and torch's) adds eps to the corrected sqrt(v_hat); in
+    those terms TF 1's eps is eps / sqrt(1 - b2^t), 32 times larger at the
+    first step, about eps after a few thousand. The moments and the state
+    are optax's Adam's."""
+    adam = optax.scale_by_adam(b1=b1, b2=b2, eps=eps)
+
+    def update(
+        updates: optax.Updates, state: optax.OptState, params: Any = None
+    ) -> tuple[optax.Updates, optax.OptState]:
+        # optax's moments and count; its own step, unused, is left to XLA.
+        _, state = adam.update(updates, state, params)
+        adam_state = cast(optax.ScaleByAdamState, state)
+        t = adam_state.count.astype(jnp.result_type(float))
+        step = jnp.sqrt(1 - b2**t) / (1 - b1**t)
+        return jax.tree.map(
+            lambda m, v: step * m / (jnp.sqrt(v) + eps), adam_state.mu, adam_state.nu
+        ), state
+
+    return optax.GradientTransformation(adam.init, update)
+
+
 def learning_rate_scale(
     learning_rate: Union[float, jax.Array, Callable[[int], float]],
 ) -> optax.GradientTransformation:
@@ -112,7 +137,8 @@ def get_adam_tx(
             and the learning rate as ``optax.adamw`` places it; ``0`` leaves
             it out, so ``"adam"`` is ``optax.adam``.
         optimizer: The update rule (``OptimizerConfig.optimizer``):
-            ``"adam"``, ``"radam"`` or ``"centered_rmsprop"``.
+            ``"adam"``, ``"tf1_adam"`` (:func:`scale_by_tf1_adam`),
+            ``"radam"`` or ``"centered_rmsprop"``.
         vector_learning_rate: A fixed rate for the parameters of fewer than
             two dimensions (OptimizerConfig.vector_learning_rate); None steps
             them at learning_rate.
@@ -125,6 +151,7 @@ def get_adam_tx(
         raise ValueError(f"weight_decay must be non-negative, got {weight_decay}")
     rules = {
         "adam": lambda: optax.scale_by_adam(b1=beta_1, b2=beta_2, eps=eps),
+        "tf1_adam": lambda: scale_by_tf1_adam(beta_1, beta_2, eps),
         "radam": lambda: optax.scale_by_radam(b1=beta_1, b2=beta_2, eps=eps),
         "centered_rmsprop": lambda: optax.scale_by_stddev(decay=beta_2, eps=eps),
     }

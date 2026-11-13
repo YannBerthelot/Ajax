@@ -471,7 +471,9 @@ class OptimizerConfig(Replaceable):
     # parameter by ``1 - lr * weight_decay``: a time constant of
     # ``1 / (lr * weight_decay)`` steps. 0 keeps plain Adam.
     weight_decay: float = 0.0
-    # The update rule. "adam" (Kingma & Ba 2015); "radam" (Liu et al. 2020,
+    # The update rule. "adam" (Kingma & Ba 2015); "tf1_adam", TensorFlow 1's
+    # Adam, whose eps joins sqrt(v) before the bias correction
+    # (networks.utils.scale_by_tf1_adam); "radam" (Liu et al. 2020,
     # optax.radam: Adam with its variance rectified while few gradients are
     # averaged); "centered_rmsprop" (Graves 2013, optax.rmsprop with
     # centered=True): the gradient over sqrt(E[g^2] - E[g]^2 + eps), both

@@ -3622,6 +3622,33 @@
 <td>not yet</td>
 </tr>
 <tr>
+<td><code>PreviousReward</code></td>
+<td>yes</td>
+<td>yes</td>
+<td>yes</td>
+<td>yes</td>
+<td>yes</td>
+<td>yes</td>
+<td>yes</td>
+<td>yes</td>
+<td>yes</td>
+<td>not yet</td>
+<td>yes</td>
+<td>yes</td>
+<td>yes</td>
+<td>yes</td>
+<td>yes</td>
+<td>yes</td>
+<td>yes</td>
+<td>yes</td>
+<td>yes</td>
+<td>yes</td>
+<td>yes</td>
+<td>yes</td>
+<td>yes</td>
+<td>not yet</td>
+</tr>
+<tr>
 <td><code>PriorData</code></td>
 <td>yes</td>
 <td>yes</td>
@@ -4227,11 +4254,12 @@
 <li>no form for this agent yet (cross-entropy for discrete actors; a policy's encoder): <code>CloningPretrain</code> on PPO/discrete APO/discrete UDRL/discrete DAgger/discrete DreamerV3/discrete; <code>ImitationLoss</code> on PPO/discrete APO/discrete UDRL/discrete DAgger/discrete DreamerV3/discrete; <code>ConditioningMetrics</code> on UDRL UDRL/discrete DAgger DAgger/discrete</li>
 <li>world models fold no loss phase for extensions and build their own encoders: <code>CriticBlend</code> on TDMPC2 TDMPC2MultiTask; <code>IBRL</code> on TDMPC2 TDMPC2MultiTask; <code>KernelRepulsion</code> on TDMPC2 TDMPC2MultiTask; <code>LCBGatedBootstrap</code> on TDMPC2 TDMPC2MultiTask; <code>MCVarianceCorrection</code> on TDMPC2 TDMPC2MultiTask; <code>OnlineBC</code> on TDMPC2 TDMPC2MultiTask; <code>ValueBox</code> on TDMPC2 TDMPC2MultiTask; <code>ExpertValueMetrics</code> on TDMPC2 TDMPC2MultiTask; <code>ImitationLoss(q_filter=True)</code> on TDMPC2 TDMPC2MultiTask; <code>ImitationLoss(target='replay', alpha=2.5)</code> on TDMPC2 TDMPC2MultiTask; <code>ConservativeQ</code> on TDMPC2 TDMPC2MultiTask; <code>CalQL</code> on TDMPC2 TDMPC2MultiTask; <code>TargetBC</code> on TDMPC2 TDMPC2MultiTask; <code>JSRLCurriculum</code> on TDMPC2 DreamerV3 DreamerV3/discrete TDMPC2MultiTask; <code>MCPretrain</code> on TDMPC2 DreamerV3 DreamerV3/discrete TDMPC2MultiTask; <code>BiasVorePenalty</code> on TDMPC2 DreamerV3 DreamerV3/discrete TDMPC2MultiTask; <code>cnn</code> on TDMPC2 DreamerV3 DreamerV3/discrete TDMPC2MultiTask; <code>EDGEExploration</code> on TDMPC2 DreamerV3 TDMPC2MultiTask; <code>EpsilonGreedyPresample</code> on TDMPC2 DreamerV3 TDMPC2MultiTask; <code>BellmanPretrain</code> on TDMPC2 TDMPC2MultiTask; <code>CloningPretrain</code> on TDMPC2 DreamerV3 TDMPC2MultiTask; <code>ImitationLoss</code> on TDMPC2 DreamerV3 TDMPC2MultiTask</li>
 <li>imagination has no observation for the expert to read: inherent, refused as unwired: <code>ExpertActionInput</code> on TDMPC2 DreamerV3 DreamerV3/discrete TDMPC2MultiTask; <code>ExpertStateInput</code> on TDMPC2 DreamerV3 DreamerV3/discrete TDMPC2MultiTask</li>
-<li>it trains offline on logged observations, which hold no feature columns: inherent, refused as unwired: <code>TrainingProgressInput</code> on TDMPC2MultiTask; <code>PIDTermsInput</code> on TDMPC2MultiTask; <code>PreviousAction</code> on TDMPC2MultiTask</li>
+<li>it trains offline on logged observations, which hold no feature columns: inherent, refused as unwired: <code>TrainingProgressInput</code> on TDMPC2MultiTask; <code>PIDTermsInput</code> on TDMPC2MultiTask; <code>PreviousAction</code> on TDMPC2MultiTask; <code>PreviousReward</code> on TDMPC2MultiTask</li>
 <li>the cnn options are not on this agent yet (batch network-reach): <code>cnn</code> on SAC TD3 REDQ TQC CrossQ ASAC RVISAC AVG APG APO APO/discrete DAgger DAgger/discrete IQL</li>
 <li>memory is not wired on this agent yet (batch network-reach): <code>memory</code> on APO APO/discrete DQN PQN DAgger DAgger/discrete IQL</li>
 <li>memory on this agent has no published form (deferred): <code>memory</code> on AVG CrossQ UDRL UDRL/discrete</li>
 <li>TD-MPC2's own collector does not run the choose_warmup_action phase in its seed phase yet, and it takes no expert_policy: <code>ExpertWarmup</code> on TDMPC2</li>
+<li>APG's closed-loop rollout passes the features no reward yet: <code>PreviousReward</code> on APG</li>
 <li>only PPO folds the reward phase (GAIL's AdversarialReward): <code>AdversarialReward</code> on SAC TD3 REDQ TQC CrossQ ASAC RVISAC AVG APG APO UDRL DAgger IQL DreamerV3 TDMPC2 TDMPC2MultiTask</li>
 <li>the agent's own collector does not run choose_replay_action yet: <code>StorePolicyAction</code> on DreamerV3 DreamerV3/discrete TDMPC2 TDMPC2MultiTask</li>
 <li>the agent's own replay is not handed to its pretraining yet: <code>PriorData</code> on UDRL UDRL/discrete DAgger DAgger/discrete TDMPC2 DreamerV3 DreamerV3/discrete TDMPC2MultiTask; <code>ExpertPrefill</code> on UDRL UDRL/discrete DAgger DAgger/discrete TDMPC2 DreamerV3 DreamerV3/discrete TDMPC2MultiTask; <code>RLPD</code> on UDRL UDRL/discrete DAgger DAgger/discrete TDMPC2 DreamerV3 DreamerV3/discrete TDMPC2MultiTask; <code>RetainedDemonstrations</code> on UDRL UDRL/discrete DAgger DAgger/discrete TDMPC2 DreamerV3 DreamerV3/discrete TDMPC2MultiTask</li>

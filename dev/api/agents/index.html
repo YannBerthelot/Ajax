@@ -3627,6 +3627,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#ajax.agents.families.with_ni_features" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        with_ni_features
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -5291,6 +5302,17 @@
     <span class="md-ellipsis">
       
         reads_last_rollout
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.agents.families.with_ni_features" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        with_ni_features
       
     </span>
   </a>
@@ -8563,8 +8585,8 @@ carries, context) -&gt; (agent_state, aux with critic_loss, metrics).</p>
 <a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>    <span class="n">learning_starts</span><span class="p">,</span>
 <a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>    <span class="n">train_frequency</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
 <a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>    <span class="n">memory</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>    <span class="n">burn_in</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span>
-<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>    <span class="n">sequence_length</span><span class="o">=</span><span class="mi">16</span><span class="p">,</span>
+<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>    <span class="n">burn_in</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>    <span class="n">sequence_length</span><span class="o">=</span><span class="n">NI_WINDOW_STEPS</span><span class="p">,</span>
 <a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>    <span class="n">stored_state</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
 <a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a><span class="p">)</span>
 </code></pre></div>
@@ -8584,6 +8606,16 @@ carries, context) -&gt; (agent_state, aux with critic_loss, metrics).</p>
 windows of burn_in + sequence_length + 1 steps with R2D2's burn-in
 (ajax.agents.recurrent), and its learning_starts must give
 each env more steps than a window.</p>
+<p>Its networks with memory are Ni et al. (2022)'s (ajax.agents.recurrent:
+NI_LAYOUT, NI_MEMORY_WIDTH, NI_MEMORY_INITS, ni_initialisation, which
+the agent's actor_critic_args takes). They read the previous action and
+the previous reward, so a run with memory observes both: PreviousAction
+and PreviousReward join its extensions where it has none of them (owner,
+2026-11-13: on by default, as Ni et al.'s networks read them).</p>
+<p>Its batch_size counts rows without memory, windows with it; None is
+256 rows (each agent's reference's) or Ni et al.'s 64 windows. The
+window defaults are theirs too: 64 trained steps from a zero memory, no
+burn-in.</p>
 
 
 <p><span class="doc-section-title">Parameters:</span></p>
@@ -8633,7 +8665,7 @@ window's trained steps.</p>
               </div>
             </td>
             <td>
-                  <code>8</code>
+                  <code>0</code>
             </td>
           </tr>
           <tr class="doc-section-item">
@@ -8649,7 +8681,7 @@ window's trained steps.</p>
               </div>
             </td>
             <td>
-                  <code>16</code>
+                  <code><span title="ajax.agents.recurrent.NI_WINDOW_STEPS">NI_WINDOW_STEPS</span></code>
             </td>
           </tr>
           <tr class="doc-section-item">
@@ -9965,6 +9997,28 @@ then keeps.</p>
 
 </div>
 
+<div class="doc doc-object doc-function">
+
+
+<h3 id="ajax.agents.families.with_ni_features" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">with_ni_features</span>
+
+
+<a href="#ajax.agents.families.with_ni_features" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">with_ni_features</span><span class="p">(</span><span class="n">extensions</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>extensions with the features Ni et al.'s recurrent networks read,
+the previous action and the previous reward (PreviousAction,
+PreviousReward), each appended where none is there.</p>
+
+
+    </div>
+
+</div>
+
 
 
   </div>
@@ -10185,7 +10239,8 @@ action, carry = policy.act(obs, carry, done, reward)
 done is True where obs starts a new episode, the last action having
 ended one (None: nowhere); the memory, the expert's state, the
 observation features and the command restart there. reward is what the
-last action earned, which a command-conditioned agent (UDRL) reads. key
+last action earned, which a command-conditioned agent (UDRL) and a
+PreviousReward feature read. key
 is the step's key for the policy's draws (a chooser's, a world model's
 sampling); None draws it from the carry's own stream. act is compiled
 once, its state an argument of the program, not a constant in it.</p>

@@ -3121,8 +3121,8 @@ updated in 2019, not the paper's: see <a href="#notes">Notes</a>.</p>
 </tr>
 <tr>
 <td><code>batch_size</code></td>
-<td><code>256</code></td>
-<td>replay minibatch</td>
+<td><code>None</code></td>
+<td>replay minibatch: 256 rows, or 64 windows with <code>memory=</code></td>
 </tr>
 <tr>
 <td><code>learning_starts</code></td>
@@ -3141,8 +3141,8 @@ updated in 2019, not the paper's: see <a href="#notes">Notes</a>.</p>
 </tr>
 <tr>
 <td><code>policy_delay</code></td>
-<td><code>2</code></td>
-<td>critic steps per actor and target update</td>
+<td><code>None</code></td>
+<td>critic steps per actor and target update: 2, or 1 with <code>memory=</code></td>
 </tr>
 <tr>
 <td><code>exploration_noise</code></td>
@@ -3176,7 +3176,7 @@ updated in 2019, not the paper's: see <a href="#notes">Notes</a>.</p>
 </tr>
 <tr>
 <td><code>memory</code>, <code>burn_in</code>, <code>sequence_length</code>, <code>stored_state</code></td>
-<td><code>None</code>, <code>8</code>, <code>16</code>, <code>False</code></td>
+<td><code>None</code>, <code>0</code>, <code>64</code>, <code>False</code></td>
 <td>recurrent memory (see <a href="../../guide/memory/">Memory</a>)</td>
 </tr>
 <tr>
@@ -3219,8 +3219,11 @@ Train it with <code>train_offline</code> (<a href="#td3bc-offline">TD3+BC</a>).<
 <li><strong>Actor.</strong> A deterministic MLP ending in <code>tanh</code>. As in the authors' code,
   every layer of the actor and the critics, the actor's last included,
   starts as torch's <code>nn.Linear</code> does: kernel and bias uniform in
-  <code>±1/sqrt(fan_in)</code> (not DDPG's <code>±3e-3</code> last layer, which TD3 keeps with
-  <code>memory=</code> until Ni et al.'s initialisation is audited). Actions lie in
+  <code>±1/sqrt(fan_in)</code> (not DDPG's <code>±3e-3</code> last layer). With <code>memory=</code>, TD3
+  is Ni et al. (2022)'s recurrent TD3: their networks and initialisation,
+  an actor maximising min(Q1, Q2) at every update (<code>policy_delay</code> 1), and
+  critics reading the <code>[-1, 1]</code> actions (see <a href="../../guide/memory/">Memory</a>).
+  Actions lie in
   <code>[-1, 1]</code>, and Ajax maps them onto the environment's bounds, so the noise
   levels are in those <code>[-1, 1]</code> units: on gymnax Pendulum (torque in
   <code>[-2, 2]</code>) an <code>exploration_noise</code> of 0.1 is a torque noise of standard
@@ -3368,12 +3371,12 @@ execution (1,961 with compilation) at main <code>a8a13c2</code> (see
 <a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>    <span class="n">action_repeat</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
 <a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>    <span class="n">extensions</span><span class="o">=</span><span class="p">(),</span>
 <a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>    <span class="n">buffer_size</span><span class="o">=</span><span class="nb">int</span><span class="p">(</span><span class="mf">1000000.0</span><span class="p">),</span>
-<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>    <span class="n">batch_size</span><span class="o">=</span><span class="mi">256</span><span class="p">,</span>
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>    <span class="n">batch_size</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>    <span class="n">learning_starts</span><span class="o">=</span><span class="nb">int</span><span class="p">(</span><span class="mf">25000.0</span><span class="p">),</span>
 <a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>    <span class="n">train_frequency</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
 <a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>    <span class="n">memory</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>    <span class="n">burn_in</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span>
-<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>    <span class="n">sequence_length</span><span class="o">=</span><span class="mi">16</span><span class="p">,</span>
+<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>    <span class="n">burn_in</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>    <span class="n">sequence_length</span><span class="o">=</span><span class="n">NI_WINDOW_STEPS</span><span class="p">,</span>
 <a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>    <span class="n">stored_state</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
 <a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a>    <span class="n">share_encoder</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a>    <span class="n">expert_policy</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
@@ -3392,7 +3395,7 @@ execution (1,961 with compilation) at main <code>a8a13c2</code> (see
 <a id="__codelineno-0-32" name="__codelineno-0-32" href="#__codelineno-0-32"></a>    <span class="n">tau</span><span class="o">=</span><span class="mf">0.005</span><span class="p">,</span>
 <a id="__codelineno-0-33" name="__codelineno-0-33" href="#__codelineno-0-33"></a>    <span class="n">reward_scale</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span>
 <a id="__codelineno-0-34" name="__codelineno-0-34" href="#__codelineno-0-34"></a>    <span class="n">num_critics</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
-<a id="__codelineno-0-35" name="__codelineno-0-35" href="#__codelineno-0-35"></a>    <span class="n">policy_delay</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+<a id="__codelineno-0-35" name="__codelineno-0-35" href="#__codelineno-0-35"></a>    <span class="n">policy_delay</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-36" name="__codelineno-0-36" href="#__codelineno-0-36"></a>    <span class="n">target_policy_noise</span><span class="o">=</span><span class="mf">0.2</span><span class="p">,</span>
 <a id="__codelineno-0-37" name="__codelineno-0-37" href="#__codelineno-0-37"></a>    <span class="n">target_noise_clip</span><span class="o">=</span><span class="mf">0.5</span><span class="p">,</span>
 <a id="__codelineno-0-38" name="__codelineno-0-38" href="#__codelineno-0-38"></a>    <span class="n">exploration_noise</span><span class="o">=</span><span class="mf">0.1</span><span class="p">,</span>
@@ -3447,13 +3450,13 @@ delayed actor (the module's equations).</p>
 ade6260), not the paper's 400-300, lr 1e-3, batch 100 and 1e4 warm-up:
 256-256 ReLU plain MLPs; Adam at 3e-4 with torch's eps 1e-8; tau 0.005,
 gamma 0.99; exploration N(0, 0.1); target noise N(0, 0.2) clipped to
-0.5; policy delay 2; a 1e6 replay, batch 256, 25e3 warm-up steps. Its
+0.5; policy delay 2 (1 with memory, Ni et al.'s); a 1e6 replay, batch
+256, 25e3 warm-up steps. Its
 layers keep torch's nn.Linear initialisation (bc98e62 TD3.py:24-26,
 :43-50), kernel and bias uniform in +-1/sqrt(fan_in), the actor's last
 layer included (DDPG's uniform(+-3e-3) is in neither), and its critics
-read the env's units, max_action * tanh. With memory, TD3 keeps
-Ajax's previous initialisation until Ni et al.'s reference
-(pomdp-baselines) is audited, as SAC, REDQ and ASAC do.</p>
+read the env's units, max_action * tanh. With memory, TD3 is Ni et
+al.'s recurrent TD3 (ajax.agents.recurrent).</p>
 
 
 

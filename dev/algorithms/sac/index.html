@@ -3142,8 +3142,8 @@ for Weights &amp; Biases or TensorBoard.</p>
 </tr>
 <tr>
 <td><code>batch_size</code></td>
-<td><code>256</code></td>
-<td>replay minibatch</td>
+<td><code>None</code></td>
+<td>replay minibatch: 256 rows, or 64 windows with <code>memory=</code></td>
 </tr>
 <tr>
 <td><code>learning_starts</code></td>
@@ -3207,7 +3207,7 @@ for Weights &amp; Biases or TensorBoard.</p>
 </tr>
 <tr>
 <td><code>memory</code>, <code>burn_in</code>, <code>sequence_length</code>, <code>stored_state</code></td>
-<td><code>None</code>, <code>8</code>, <code>16</code>, <code>False</code></td>
+<td><code>None</code>, <code>0</code>, <code>64</code>, <code>False</code></td>
 <td>recurrent memory (see <a href="../../guide/memory/">Memory</a>)</td>
 </tr>
 <tr>
@@ -3268,7 +3268,8 @@ only SAC supports.</p>
   kernels and zero biases in every layer. They draw the mean and the
   log-std from one output layer; Ajax's two heads each take Glorot's bound
   for their own width (about 1% wider with 256 inputs). With <code>memory=</code>, SAC
-  keeps its previous initialisation until Ni et al.'s is audited.</li>
+  is Ni et al. (2022)'s recurrent SAC, networks and initialisation included
+  (see <a href="../../guide/memory/">Memory</a>).</li>
 <li><strong>Standard deviation.</strong> The log-std is clipped to <code>[-20, 2]</code> and the
   standard deviation is its exponential, as in <code>haarnoja/sac</code> and in
   <code>softlearning</code> at the time of the learned-temperature paper. Later
@@ -3287,9 +3288,12 @@ only SAC supports.</p>
   <code>alpha_update_start</code> hold the actor and <code>alpha</code> back until those
   timesteps; with the default <code>learning_starts=10_000</code> they change nothing.
   The target-entropy ramp and the expert options above are research features.</li>
-<li><strong>Memory.</strong> With <code>memory=</code>, SAC replays sequences in the R2D2 way
-  (Kapturowski et al. 2019): <code>burn_in</code> steps warm the memory up, then
-  <code>sequence_length</code> steps are learned from. It refuses extensions and
+<li><strong>Memory.</strong> With <code>memory=</code>, SAC replays windows as Ni et al. (2022) do:
+  64 windows of <code>sequence_length</code> 64 steps, each from a zero memory, with
+  R2D2's <code>burn_in</code> and <code>stored_state</code> as options (Kapturowski et al. 2019).
+  It sums its critics' squared errors and steps the temperature (alpha, not
+  its log) on the actor loss's own log-densities, as Ni et al.'s SAC does.
+  It refuses extensions other than observation features, and
   <code>expert_policy</code>.</li>
 </ul>
 <h2 id="cql-and-cal-ql-offline">CQL and Cal-QL: offline<a class="headerlink" href="#cql-and-cal-ql-offline" title="Permanent link">&para;</a></h2>
@@ -3366,12 +3370,12 @@ compilation) at main <code>a8a13c2</code> (see
 <a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>    <span class="n">action_repeat</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
 <a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>    <span class="n">extensions</span><span class="o">=</span><span class="p">(),</span>
 <a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>    <span class="n">buffer_size</span><span class="o">=</span><span class="nb">int</span><span class="p">(</span><span class="mf">1000000.0</span><span class="p">),</span>
-<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>    <span class="n">batch_size</span><span class="o">=</span><span class="mi">256</span><span class="p">,</span>
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>    <span class="n">batch_size</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>    <span class="n">learning_starts</span><span class="o">=</span><span class="nb">int</span><span class="p">(</span><span class="mf">10000.0</span><span class="p">),</span>
 <a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>    <span class="n">train_frequency</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
 <a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>    <span class="n">memory</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>    <span class="n">burn_in</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span>
-<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>    <span class="n">sequence_length</span><span class="o">=</span><span class="mi">16</span><span class="p">,</span>
+<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>    <span class="n">burn_in</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>    <span class="n">sequence_length</span><span class="o">=</span><span class="n">NI_WINDOW_STEPS</span><span class="p">,</span>
 <a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>    <span class="n">stored_state</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
 <a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a>    <span class="n">share_encoder</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a>    <span class="n">expert_policy</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
@@ -3707,7 +3711,9 @@ which the actor-loss extensions (OnlineBC, ImitationLoss) read as
 their clone target. Also returns the log-probs of a fresh
 sample of the stepped actor, which the temperature's step reads
 (CleanRL's order: vwxyzjn/cleanrl@fe8d8a0,
-cleanrl/sac_continuous_action.py:279-292).</p>
+cleanrl/sac_continuous_action.py:279-292); with memory, the mean of
+the loss's own, before the step, as Ni et al.'s recurrent SAC
+(policy_rnn.py:180-216).</p>
 
 
     </div>

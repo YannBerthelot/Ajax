@@ -3048,8 +3048,8 @@ termination a learned penalty.</p>
 </tr>
 <tr>
 <td><code>batch_size</code></td>
-<td><code>256</code></td>
-<td>replay minibatch</td>
+<td><code>None</code></td>
+<td>replay minibatch: 256 rows, or 64 windows with <code>memory=</code></td>
 </tr>
 <tr>
 <td><code>learning_starts</code></td>
@@ -3113,7 +3113,7 @@ termination a learned penalty.</p>
 </tr>
 <tr>
 <td><code>memory</code>, <code>burn_in</code>, <code>sequence_length</code>, <code>stored_state</code></td>
-<td><code>None</code>, <code>8</code>, <code>16</code>, <code>False</code></td>
+<td><code>None</code>, <code>0</code>, <code>64</code>, <code>False</code></td>
 <td>recurrent memory (see <a href="../../guide/memory/">Memory</a>)</td>
 </tr>
 <tr>
@@ -3238,8 +3238,9 @@ minimised) has no preset: Ajax runs v5.</p>
 <li><strong>Initialisation.</strong> As the authors' code (stable-baselines3's SAC actor
   and plain torch critics): every layer, the mean and log-std heads
   included, starts as torch's <code>nn.Linear</code> does, its kernel and bias
-  uniform in <code>±1/sqrt(fan_in)</code>. With <code>memory=</code>, ASAC keeps its previous
-  initialisation until Ni et al.'s is audited.</li>
+  uniform in <code>±1/sqrt(fan_in)</code>. With <code>memory=</code>, ASAC builds Ni et al.
+  (2022)'s recurrent networks and their initialisation, by analogy with
+  their SAC (see <a href="../../guide/memory/">Memory</a>).</li>
 <li><strong>Actions and evaluation.</strong> As SAC: a <code>tanh</code>-squashed Gaussian in
   <code>[-1, 1]</code>, mapped onto the environment's bounds; evaluation uses the mean
   action. Its log-probability subtracts <code>log(1 - tanh(u)^2 + 1e-6)</code>, as the
@@ -3288,12 +3289,12 @@ updates from step 1,000) ASAC ran at 1,254 steps per second of execution
 <a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>    <span class="n">action_repeat</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
 <a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>    <span class="n">extensions</span><span class="o">=</span><span class="p">(),</span>
 <a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>    <span class="n">buffer_size</span><span class="o">=</span><span class="nb">int</span><span class="p">(</span><span class="mf">1000000.0</span><span class="p">),</span>
-<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>    <span class="n">batch_size</span><span class="o">=</span><span class="mi">256</span><span class="p">,</span>
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>    <span class="n">batch_size</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>    <span class="n">learning_starts</span><span class="o">=</span><span class="nb">int</span><span class="p">(</span><span class="mf">10000.0</span><span class="p">),</span>
 <a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>    <span class="n">train_frequency</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
 <a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>    <span class="n">memory</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>    <span class="n">burn_in</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span>
-<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>    <span class="n">sequence_length</span><span class="o">=</span><span class="mi">16</span><span class="p">,</span>
+<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>    <span class="n">burn_in</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>    <span class="n">sequence_length</span><span class="o">=</span><span class="n">NI_WINDOW_STEPS</span><span class="p">,</span>
 <a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>    <span class="n">stored_state</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
 <a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a>    <span class="n">share_encoder</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a>    <span class="n">expert_policy</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>

@@ -2911,10 +2911,32 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#ajax.agents.recurrent.ni_initialisation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ni_initialisation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#ajax.agents.recurrent.previous_actions" class="md-nav__link">
     <span class="md-ellipsis">
       
         previous_actions
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.agents.recurrent.zero_columns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        zero_columns
       
     </span>
   </a>
@@ -3522,10 +3544,32 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#ajax.agents.recurrent.ni_initialisation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ni_initialisation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#ajax.agents.recurrent.previous_actions" class="md-nav__link">
     <span class="md-ellipsis">
       
         previous_actions
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.agents.recurrent.zero_columns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        zero_columns
       
     </span>
   </a>
@@ -4642,9 +4686,11 @@ recomputed from the rows.</p>
 transformer or Mamba; a network's memory is also called its carry).</p>
 <p>Two kinds of agent use it:
 - The off-policy agents with a Q-critic (families.RecurrentReplayAgent) train
-  on windows of consecutive steps from one environment, as R2D2 does
-  (Kapturowski et al. 2019): sample_and_burnin_sequences draws the windows,
-  and actor_dist and q_values run the networks over them.
+  on windows of consecutive steps from one environment, as Ni et al. (2022)
+  do, with R2D2's burn-in and stored state as options (Kapturowski et al.
+  2019): sample_and_burnin_sequences draws the windows, and actor_dist and
+  q_values run the networks over them. Their networks are Ni et al.'s (the
+  section below).
 - PPO computes its values on a rollout with compute_rollout_values, and its
   losses run its networks with get_policy_on_minibatch and
   predict_values_on_minibatch, each for a network with or without memory
@@ -4655,7 +4701,9 @@ transformer or Mamba; a network's memory is also called its carry).</p>
 2. Warm up ("burn in") each network's memory: start it from zero and run
    the network over the first burn_in steps with the current parameters.
    Training does not change these warmed-up memories (no gradient flows
-   back into them).
+   back into them). Ni et al. burn in nothing (burn_in 0, the default):
+   the trained steps start from a zero memory, at a first row that reads
+   no previous action or reward, as an episode's first does.
 3. Train on the next sequence_length steps, backpropagating through time.
    The window's last step is never trained on: each row already stores the
    next observation its target looks ahead to (interaction.bootstrap_obs).</p>
@@ -4664,15 +4712,14 @@ bootstrap. With memory, that value must come from the memory that has read
 the rows up to the current one. Where a time limit cut an episode, that
 needs the time-limit section below.</p>
 <p>A critic's memory reads each row's observation together with the action
-taken before it: appended to its input from the replay, or already in the
-observation where a PreviousAction feature puts it there, the actor's too.
-The action a loss asks about (the taken one, or one the
-policy samples) enters after the memory, at a head between the memory and
-the output layer, so asking about another action never changes the memory
-(Critic.query_dim). Ni et al. (2022)'s recurrent critic does the same: its
-RNN reads the previous action, reward and observation, and the current
-action joins the RNN's output before the Q-heads (twni2016/pomdp-baselines
-at e7c19c3, policies/models/recurrent_critic.py:129-139 and 165-186).</p>
+taken before it and the reward it earned, which the PreviousAction and
+PreviousReward features put in the observation (a run with memory adds
+them; without PreviousAction, the replay appends the action). The action a
+loss asks about (the taken one, or one the policy samples) enters after the
+memory, at a head between the memory and the output layer, so asking about
+another action never changes the memory (Critic.query_dim), as in Ni et al.
+(2022)'s recurrent critic (twni2016/pomdp-baselines at e7c19c3,
+policies/models/recurrent_critic.py:129-139 and 165-186).</p>
 
 
 
@@ -4750,6 +4797,31 @@ time-limit section).</p>
 <div class="doc doc-object doc-function">
 
 
+<h3 id="ajax.agents.recurrent.ni_initialisation" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">ni_initialisation</span>
+
+
+<a href="#ajax.agents.recurrent.ni_initialisation" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">ni_initialisation</span><span class="p">(</span><span class="n">deterministic</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Ni et al.'s initialisation of the layers after the memory, as an
+agent's ActorCritic arguments: rlkit's Mlp, hidden layers uniform in
++-1/sqrt(fan_out) with biases 0.1 (torchkit/networks.py:53-57), output
+layers uniform in +-3e-3, kernel and bias (:66-68), the actor's in
++-1e-3 (policies/models/actor.py:22, :103), its log-std layer's too
+(:118-121). deterministic: TD3's actor, which has no log-std layer.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
 <h3 id="ajax.agents.recurrent.previous_actions" class="doc doc-heading">
             <span class="doc doc-object-name doc-function-name">previous_actions</span>
 
@@ -4762,6 +4834,26 @@ time-limit section).</p>
 
         <p>Each step's previous action in its episode, (T, B, A): zero at
 an episode start (resets) and at the sequence's first step.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="ajax.agents.recurrent.zero_columns" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">zero_columns</span>
+
+
+<a href="#ajax.agents.recurrent.zero_columns" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">zero_columns</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">ranges</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>x with its columns in ranges set to zero.</p>
 
 
     </div>

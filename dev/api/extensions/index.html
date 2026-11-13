@@ -5369,6 +5369,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#ajax.extensions.observe.PreviousReward" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        PreviousReward
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#ajax.extensions.observe.TrainingProgressInput" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -8467,6 +8478,17 @@
     <span class="md-ellipsis">
       
         PreviousAction
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.extensions.observe.PreviousReward" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        PreviousReward
       
     </span>
   </a>
@@ -16670,6 +16692,66 @@ deployed controller has. Ni et al. (2022)'s recurrent actor reads the
 previous action with the observation (twni2016/pomdp-baselines at
 e7c19c3, policies/models/policy_rnn.py:23-91), as their critic does
 (ajax.agents.recurrent).</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h3 id="ajax.extensions.observe.PreviousReward" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">PreviousReward</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-dataclass"><code>dataclass</code></small>
+  </span>
+
+<a href="#ajax.extensions.observe.PreviousReward" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">PreviousReward</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s1">&#39;previous_reward&#39;</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+            <p class="doc doc-class-bases">
+              Bases: <code><a class="autorefs autorefs-internal" title="Extension (ajax.extensions.base.Extension)" href="#ajax.extensions.base.Extension">Extension</a></code></p>
+
+
+
+        <p>The reward the environment paid for the action executed just before
+the observation, raw: zero at an episode's first observation
+(:func:<code>ajax.controller.previous_reward_input</code>).</p>
+<p>Ni et al. (2022)'s recurrent actor and critic read it beside the
+observation and the previous action, r[0] = 0 at an episode's start
+(twni2016/pomdp-baselines at e7c19c3, policies/models/policy_rnn.py:126-
+131, recurrent_actor.py:101-109, recurrent_critic.py:129-135). A
+deployed policy then needs each reward: agent.policy's act reads it.</p>
 
 
 

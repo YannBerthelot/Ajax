@@ -3,12 +3,10 @@ restart at the episode's end (P0b memory cue), and its critic must value the
 actions actually taken (Q2 delayed echo). Ids name the memory kind: CI
 shards select by it.
 
-The off-policy agents with memory observe the previous step, its action and
-its reward (PreviousAction, PreviousReward), as Ni et al.'s networks read
-them: the readouts append them as collection does, the action clipped to
-the box and zero at an episode's start, the reward zero in every read here,
-since both envs pay at an episode's last step, which no read observation
-follows.
+The off-policy agents with memory observe the previous action and reward,
+as Ni et al.'s networks read them: the readouts append them as collection
+does, zero at an episode start, the reward zero throughout (both envs pay
+at an episode's last step, which no read observation follows).
 """
 
 from __future__ import annotations
@@ -100,27 +98,20 @@ def _q_input(obs: jax.Array, a: jax.Array, starts: jax.Array) -> jax.Array:
     return action_value_input(_with_previous_step(obs, a, starts), a)
 
 
-def _step_actor_with_previous_step(
-    n: R.Nets, obs: jax.Array, starts: jax.Array
-) -> jax.Array:
-    """(T, B, act) mean actions stepped one at a time through (T, B, obs),
-    each observation read with the action before it, clipped, as collection
-    runs the actor (R.step_actor, with the previous step)."""
+def _step_actor_with_previous_step(n: R.Nets, obs: jax.Array, starts: jax.Array) -> Any:
+    """R.step_actor, each observation read with the clipped action before it
+    and a zero reward (one action column, as one reward's)."""
 
     def step(carry: Any, x: tuple) -> tuple:
-        hidden, before = carry
-        observation, start = x
-        before = jnp.where(start[:, None], 0.0, before)
-        reward = jnp.zeros_like(before[:, :1])
-        observed = jnp.concatenate([observation, before, reward], axis=-1)
-        actor = n.actor.replace(hidden_state=hidden)
-        p, stepped = get_pi(actor, actor.params, observed, start, recurrent=True)
-        action = p.mean()[0]
-        return (stepped.hidden_state, jnp.clip(action, -1.0, 1.0)), action
+        before = jnp.where(x[1][:, None], 0.0, carry[1])
+        seen = jnp.concatenate([x[0], before, jnp.zeros_like(before)], axis=-1)
+        actor = n.actor.replace(hidden_state=carry[0])
+        p, stepped = get_pi(actor, actor.params, seen, x[1], recurrent=True)
+        return (stepped.hidden_state, jnp.clip(p.mean()[0], -1, 1)), p.mean()[0]
 
     hidden = zeros_carry_like(n.actor.hidden_state, obs.shape[1], batch_axis=0)
-    before = jnp.zeros((obs.shape[1], 1))
-    return jax.lax.scan(step, (hidden, before), (obs, starts))[1]
+    first = (hidden, jnp.zeros((obs.shape[1], 1)))
+    return jax.lax.scan(step, first, (obs, starts))[1]
 
 
 def _p0b_read(agent: str) -> Callable:

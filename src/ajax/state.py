@@ -319,9 +319,16 @@ class BaseAgentState(Replaceable):
     # None for every other agent; the training loop gives it its structure,
     # NaN, before the first update (TrainLoop.off_policy).
     last_actor_metrics: Optional[Any] = None
-    # A checkpoint saved before the field was added restores it as NaN
+    # The metrics of the last update, which a run updating every few steps
+    # (a replay agent's train_frequency) logs at the evaluations between two
+    # updates (TrainLoop.maybe_update): None for every other run; the
+    # training loop gives it its structure, NaN, before the first update.
+    last_update_metrics: Optional[Any] = None
+    # A checkpoint saved before the fields were added restores them as NaN
     # (ajax.checkpoint).
-    added_fields: ClassVar[frozenset[str]] = frozenset({"last_actor_metrics"})
+    added_fields: ClassVar[frozenset[str]] = frozenset(
+        {"last_actor_metrics", "last_update_metrics"}
+    )
 
     def get_keys_and_new_state(self, n: int = 1) -> tuple:
         """Draw n fresh random keys from the updates' key (rng).

@@ -134,6 +134,7 @@ OPTIONS.update(
         "eval_expert_policy": {"eval_expert_policy": EXPERT},
         "action_pipeline": {"action_pipeline": None},  # TD3's, for the row's actor
         "n_gradient_steps": {"n_gradient_steps": 2},
+        "train_frequency": {"train_frequency": 2},
         "n_epochs": {"n_epochs": 2},
         "actor_lr_decay": {"actor_lr_decay": None},
         "lr_linear_decay": {"lr_linear_decay": False},

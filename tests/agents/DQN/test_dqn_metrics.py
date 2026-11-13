@@ -77,8 +77,10 @@ def test_a_q_step_reports_the_td_error_size_and_gradient_norm() -> None:
 def test_the_logged_epsilon_is_the_schedules_at_each_evaluation(agent, lag) -> None:
     """Epsilon falls from 1 to 0.05 over the first half of 256 steps; PQN
     reads it once per update, at its rollout's start (``lag`` steps before
-    the log, purejaxql's reading)."""
-    logging = LoggingConfig(log_frequency=32, backends=())
+    the log, purejaxql's reading). The log every 40 steps falls on DQN's
+    updates, every 10 steps (its train_frequency): an evaluation between
+    two logs the last one's."""
+    logging = LoggingConfig(log_frequency=40, backends=())
     _, out = agent().train(
         seed=0, n_timesteps=256, num_episode_test=1, logging_config=logging
     )

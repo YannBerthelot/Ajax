@@ -61,6 +61,22 @@ The next release is 0.6.0: the first item changes results.
     (`lr_linear_decay`), epsilon decaying over the first 10% of the run.
     Upgrade: `n_envs=8, n_steps=128, n_epochs=4, num_minibatches=4,
     learning_rate=2.5e-4, lr_linear_decay=False, epsilon_decay_frac=0.5`.
+
+- **DQN's defaults are CleanRL's `dqn.py`** (cleanrl `fe8d8a0`), its
+  vector-observation reference: a 120-84 ReLU network (was 128-128), a
+  replay of 10,000 (was 100,000), batches of 128 (was 64), 10,000 warm-up
+  steps (was 1,000), one update every 10 environment steps (was every
+  iteration) and a target refresh every 50 updates (was 500), CleanRL's
+  500 environment steps. The authors' centered RMSProp and Huber loss stay.
+  This changes results. Upgrade: pass `architecture=("128", "relu", "128",
+  "relu"), buffer_size=100_000, batch_size=64, learning_starts=1_000,
+  train_frequency=1, target_update_interval=500` for the old behaviour.
+- **Replay agents take `train_frequency`**, SB3's `train_freq`: from
+  `learning_starts`, an update each time the steps collected reach a
+  multiple of it. The default, 1, updates every iteration, as before, on
+  every agent but DQN. An evaluation between two updates logs the last
+  one's training metrics.
+
 - **APO's defaults are its reference code's MuJoCo config** (xtma/apo,
   `mujoco_appo.py`): rollouts of 10 envs x 200 steps (was 4 x 2,048), 20
   minibatches per epoch (`num_minibatches=20`; was cut by `batch_size`),

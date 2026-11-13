@@ -787,6 +787,21 @@ stretch on one thread while the others wait, where per array its small pieces
 ran beside the matrix products. On Linux with 4 cores IQL does not lose, and
 on one core the joined rule is faster. REDQ's 3-5% on Linux is not explained.
 
+## DQN on CleanRL's defaults (2026-11-13)
+
+DQN's defaults became CleanRL's dqn.py: a 120-84 network, batches of 128 and
+one update every 10 env steps (`train_frequency`, a new option of every
+replay agent), where it updated every tick on batches of 64 with a 128-128
+network. The bench's DQN row keeps the replay agents' 1,000-step warm-up
+(its new default, 10,000, outlasts the run): 700 updates of the 8,000 steps
+on 4 envs, where it made 1,750. Back to back on the same Mac, five trials
+each, main (085cded4) then the change, execution steps per second (medians):
+21,988 to 25,515 (+16%; trials 21,353-22,594 and 17,296-27,413, on a Mac
+running other jobs). An update every 10 steps adds a gate on the tick;
+its skipping branch passes the replay through without a copy (checked on
+the optimised HLO), and at `train_frequency=1` the program is unchanged.
+DQN's baseline rows are re-recorded from that run.
+
 ## JAX 0.11 and flax 0.12 (PR #199, 2026-10-19)
 
 The lock moves from JAX 0.7.2 / flax 0.10.7 to JAX 0.11.2 / flax 0.12.10;

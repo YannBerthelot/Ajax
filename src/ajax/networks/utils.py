@@ -91,6 +91,24 @@ def scale_by_tf1_adam(b1: float, b2: float, eps: float) -> optax.GradientTransfo
     return optax.GradientTransformation(adam.init, update)
 
 
+def learning_rate_scale(
+    learning_rate: Union[float, jax.Array, Callable[[int], float]],
+) -> optax.GradientTransformation:
+    """optax.scale_by_learning_rate, but a rate given as an array is kept in
+    the optimiser's state, as data (optax.inject_hyperparams).
+
+    A sweep member's rates are arrays, traced (ActorCritic.member). optax
+    closes over a rate, and the train state keeps its optimiser as static
+    data, so the state a sweep returns would hold a value of the finished
+    trace and could not step again (a resumed sweep). A number or a schedule
+    is scaled as before, its state unchanged."""
+    if isinstance(learning_rate, jax.Array):
+        return optax.inject_hyperparams(optax.scale_by_learning_rate)(
+            learning_rate=learning_rate
+        )
+    return optax.scale_by_learning_rate(learning_rate)
+
+
 def get_adam_tx(
     learning_rate: Union[float, Callable[[int], float]] = 1e-3,
     max_grad_norm: Optional[float] = None,
@@ -141,7 +159,7 @@ def get_adam_tx(
         raise ValueError(f"optimizer must be one of {sorted(rules)}, got {optimizer!r}")
     decay = [optax.add_decayed_weights(weight_decay)] if weight_decay > 0 else []
     if vector_learning_rate is None:
-        scale = optax.scale_by_learning_rate(learning_rate)
+        scale = learning_rate_scale(learning_rate)
     else:
         scale = scale_by_learning_rate_per_rank(learning_rate, vector_learning_rate)
     # The rule acts on each coordinate alone, so it runs on the gradients

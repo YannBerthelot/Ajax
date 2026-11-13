@@ -223,6 +223,10 @@ def warp_scratch_megabytes(text: str) -> float:
     raise ValueError(f"no CPU peak in the report:\n{text}")
 
 
+@pytest.mark.skipif(
+    jax.default_backend() != "cpu",
+    reason="on a GPU, Warp replays a captured CUDA graph: no allocation to count",
+)
 def test_a_pusher_physics_call_on_warp_allocates_scratch_for_its_pairs_only():
     """Catches the convex-collision scratch sized for the whole contact
     buffer: MuJoCo Warp sizes it for 49,152 collisions unless told, and

@@ -105,9 +105,11 @@ moved 1.3e-3 away.
 
 Warp keeps one contact buffer for all the worlds a run steps at once,
 seeds times envs. The `"mujoco:"` tasks give it room for 49,152 contacts,
-1,024 worlds of 48; Playground's tasks set their own. A step that runs out
-of contact or constraint room stops the run with an error, rather than going
-on with dropped contacts.
+1,024 worlds of 48, and give the buffer of its convex (GJK/EPA) collisions a
+slot for each of the task's geom pairs in those 1,024 worlds; Playground's
+tasks set their own. A step that runs out of contact, convex-collision or
+constraint room stops the run with an error, rather than going on with
+dropped contacts.
 
 Warp runs only on an NVIDIA GPU, and nothing can be differentiated through
 it: it refuses a CPU, `differentiable_reset=True` and APG.

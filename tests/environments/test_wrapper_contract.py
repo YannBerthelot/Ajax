@@ -86,6 +86,8 @@ class WarpCounters:
     naconmax: jax.Array
     nefc: jax.Array
     njmax: jax.Array
+    overflow: jax.Array
+    naccdmax: jax.Array
 
 
 @struct.dataclass
@@ -106,7 +108,13 @@ class WarpIdentity(BraxIdentity):
         state = super()._state(x, before, reward, done, info)
         one = jnp.ones(1, jnp.int32)
         counters = WarpCounters(
-            one, one, jnp.asarray(48), jnp.asarray(4), jnp.asarray(64)
+            one,
+            one,
+            jnp.asarray(48),
+            jnp.asarray(4),
+            jnp.asarray(64),
+            jnp.zeros(1, jnp.int32),
+            jnp.asarray(48),
         )
         return state.replace(data=WarpIdentityData(x, counters))
 

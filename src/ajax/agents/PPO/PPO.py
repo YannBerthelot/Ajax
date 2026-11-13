@@ -12,7 +12,9 @@ function below::
         r_t = pi(a_t | s_t) / pi_old(a_t | s_t)
         L_clip = -mean min(r_t A_t, clip(r_t, 1 - eps, 1 + eps) A_t)
                  - ent_coef mean H(pi(. | s_t))              compute_policy_loss
-        L_V = vf_coef mean (V(s_t) - V_targ)^2 / 2            compute_value_loss
+        L_V = vf_coef mean max((V(s_t) - V_targ)^2,
+                  (V_old + clip(V(s_t) - V_old, -eps, eps) - V_targ)^2) / 2
+                                                              compute_value_loss
         one Adam step of each network down its own loss, the two
         gradients clipped together to max_grad_norm         PPO.minibatch_step
 
@@ -103,7 +105,9 @@ class PPO(
     Defaults are ppo2's (ppo2/ppo2.py:22, model.py:75, :91,
     :100-107): Adam at 3e-4 with eps 1e-5, its gradient clipped to 0.5
     over both networks at once, vf_coef 0.5 on half the squared value
-    error, clip 0.2, gamma 0.99, lambda 0.95, the advantages normalised per
+    error, each value kept within the clip of the one that collected the
+    rollout (model.py:66-75), clip 0.2, gamma 0.99, lambda 0.95, the
+    advantages normalised per
     minibatch; the Gaussian's log-std one learned parameter per action
     dimension starting at 0 (std 1), never clipped (the Actor in
     networks.py cites it). The 128-128 tanh layers are Ajax's.
@@ -131,6 +135,13 @@ class PPO(
     #: The critic's loss is vf_coef * 0.5 * MSE: ppo2's vf_coef 0.5 on its
     #: 0.5 * MSE (ppo2/ppo2.py:22, model.py:75, :91).
     vf_coef: float = 0.5
+    #: ppo2's clipped value loss (ppo2/model.py:66-75): the larger of the
+    #: squared error and that of the value clipped to clip_range around the
+    #: value the rollout was collected with, so that the loss stops pulling
+    #: a value once it has moved clip_range towards its target. None is the
+    #: reference's: clipped, but with unroll_length, as brax's PPO does not
+    #: clip (brax 0.14.2 ppo/train.py:207, clipping_epsilon_value=None).
+    clip_value_loss: Optional[bool] = None
     #: Opts into brax's minibatches: the (n_steps, n_envs) rollout is cut
     #: into fragments of unroll_length steps, each in time order, shuffled
     #: into the minibatches, and GAE, recomputed in each minibatch,
@@ -196,6 +207,20 @@ class PPO(
         (return 23 against 260 apart, 100k steps). Recurrent PPO keeps its
         networks apart until those layers exist (owner, 2026-11-13)."""
         return self.cnn_image_shape is not None
+
+    def clips_value_loss(self) -> bool:
+        """clip_value_loss, or the reference's choice where it is None."""
+        if self.clip_value_loss is None:
+            return self.unroll_length is None
+        return self.clip_value_loss
+
+    def check(self) -> None:
+        if self.clip_value_loss and self.unroll_length is not None:
+            raise ValueError(
+                "clip_value_loss clips each value around the one the rollout was"
+                " collected with; with unroll_length (brax's PPO, which does not clip"
+                " it) the minibatches carry no such values."
+            )
 
     def optimizer_settings(self) -> dict[str, Any]:
         # ppo2's Adam (model.py:100-107) with eps 1e-5; its one clip over both
@@ -316,6 +341,10 @@ class PPO(
             )
             agent_state = agent_state.replace(ext_state=ext_state)
             batch.update({"targets": value_targets, "gae": gae})
+            if self.clips_value_loss():
+                # The values the rollout was collected with, which the clip
+                # keeps each new value near (ppo2's OLDVPRED).
+                batch["values"] = values
 
         def cut_rollout_into_minibatches(epoch_key: jax.Array) -> dict:
             """One epoch's partition of the rollout, each minibatch with a key
@@ -439,6 +468,10 @@ class PPO(
         else:
             gae, value_targets = minibatch["gae"], minibatch["targets"]
 
+        value_clip_range = None
+        if self.clips_value_loss():
+            value_clip_range = at(self.clip_range, agent_state.collector_state.timestep)
+
         def value_loss(critic_params: FrozenDict) -> tuple:
             return compute_value_loss(
                 critic_params,
@@ -447,6 +480,7 @@ class PPO(
                 value_targets,
                 vf_coef=self.vf_coef,
                 compute_extensions_loss=compute_extensions_critic_loss,
+                clip_range=value_clip_range,
             )
 
         def policy_loss(actor_params: FrozenDict, critic_params: FrozenDict) -> tuple:
@@ -568,13 +602,22 @@ def compute_value_loss(
     value_targets: jax.Array,
     vf_coef: float = 1.0,
     compute_extensions_loss: Optional[Callable] = None,
+    clip_range: Optional[float] = None,
 ) -> Tuple[jax.Array, Tuple[ValueAuxiliaries, dict]]:
     """vf_coef * 0.5 * MSE(V(s), value_targets) over the minibatch's
     observations (obs), plus the extensions' term (compute_extensions_loss),
-    with the metrics and the extensions' ({} without them). A critic with
-    memory replays the minibatch's sequences (predict_values_on_minibatch)."""
+    with the metrics and the extensions' ({} without them). With clip_range,
+    each squared error is the larger of its own and that of V(s) clipped to
+    clip_range around the minibatch's collected values (ppo2's,
+    model.py:66-75). A critic with memory replays the minibatch's sequences
+    (predict_values_on_minibatch)."""
     value_preds = predict_values_on_minibatch(critic_state, critic_params, minibatch)
-    loss = vf_coef * 0.5 * jnp.mean((value_preds - value_targets) ** 2)
+    squared_errors = (value_preds - value_targets) ** 2
+    if clip_range is not None:
+        collected = minibatch["values"]
+        clipped = collected + jnp.clip(value_preds - collected, -clip_range, clip_range)
+        squared_errors = jnp.maximum(squared_errors, (clipped - value_targets) ** 2)
+    loss = vf_coef * 0.5 * jnp.mean(squared_errors)
     metrics: dict = {}
     if compute_extensions_loss is not None:
         extensions_loss, metrics = compute_extensions_loss(

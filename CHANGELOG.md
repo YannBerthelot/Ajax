@@ -8,6 +8,14 @@ PyPI as `ajax-rl`.
 
 The next release is 0.6.0: the first item changes results.
 
+- **PPO clips its value loss, as ppo2 does.** Each squared value error is
+  the larger of its own and that of the value clipped to `clip_range`
+  around the value the rollout was collected with (Baselines' ppo2,
+  `model.py:66-75`; PureJaxRL's recurrent PPO does the same). The new
+  `clip_value_loss` turns it off; by default (`None`) PPO clips, except
+  with `unroll_length`, Brax's PPO, which does not. PPO's results change.
+  Upgrade: pass `clip_value_loss=False` for the old loss.
+
 - **Three defaults now come from the agents' reference code.** An audit of
   every agent's defaults against its original code found these without a
   source:

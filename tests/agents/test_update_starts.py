@@ -35,15 +35,12 @@ NETS: dict[type, dict[str, Any]] = {
         "fixed_alpha": False,
     },
 }
-#: SAC waits 2000 steps by default; the others not at all.
-NO_WAIT = {"policy_update_start": 0, "alpha_update_start": 0}
 STEPS = 24
 
 
 def _train(cls: Any, steps: int = STEPS, **kwargs: Any) -> Any:
-    waits = {key: 0 for key in NO_WAIT if cls is SAC and key not in kwargs}
     tiny = {key: value for key, value in TINY.items() if key in cls.field_names()}
-    agent = cls(**{**tiny, **NETS[cls], **waits, **kwargs})
+    agent = cls(**{**tiny, **NETS[cls], **kwargs})
     return agent.train(seed=0, n_timesteps=steps)[0]
 
 

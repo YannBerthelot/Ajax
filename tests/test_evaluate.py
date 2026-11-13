@@ -311,7 +311,7 @@ def test_the_update_reads_the_stateful_experts_actions_from_the_buffer():
     given holds what the expert played there, -0.9 or -0.8 in turn (in
     agent units, -0.45 or -0.4): the run goes as Pendulum observing them
     itself."""
-    # The actor steps from the first update, not after SAC's 2000 steps.
+    # The actor steps from step 8, after the first updates.
     options = {"log": True, "policy_update_start": 8}
     augmented = run(
         Pendulum(),

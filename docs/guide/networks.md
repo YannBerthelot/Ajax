@@ -98,7 +98,9 @@ directly. `head_architecture` puts hidden layers in between, written as
 `actor_architecture` is. Each network gets its own copy, and so does each
 critic of an ensemble. With a shared encoder, the actor and the critic
 separate after it. `head_kernel_init` sets their initialiser; `None` uses
-the encoder's. Agents read it from the network configuration:
+the encoder's. Recurrent PPO sets PureJaxRL's by default (see
+[A shared encoder](#a-shared-encoder)). The other agents read it from the
+network configuration:
 
 ```python
 from ajax import SAC
@@ -231,18 +233,18 @@ does:
 
 | Agent | MLP | Image (CNN) | Memory |
 | --- | --- | --- | --- |
-| PPO | separate (ppo2 on MuJoCo, CleanRL, PureJaxRL) | shared (ppo2 on Atari, CleanRL) | separate (see below) |
+| PPO | separate (ppo2 on MuJoCo, CleanRL, PureJaxRL) | shared (ppo2 on Atari, CleanRL) | separate, a layer per head (see below) |
 | APO | separate (its rlpyt model) | - | - |
 | SAC, TD3, REDQ, TQC, ASAC, RVI-SAC, AVG, IQL | separate (each reference) | - | separate (Ni et al. 2022) |
 
 ppo2 also shares MLP networks outside MuJoCo; Ajax keeps them apart, as
 its MuJoCo setting does. With memory, ppo2 and PureJaxRL share the
-encoder and the memory block, but PureJaxRL gives each head its own
-hidden layer after the memory, which Ajax's heads do not have. Without
-those layers, large value targets (CartPole's undiscounted returns) take
-over the one memory, so PPO keeps separate memories by default. With
-`share_encoder=True` and memory, normalise the rewards
-(`normalize_rewards=True`).
+encoder and the memory block. PureJaxRL also gives each head a hidden layer
+of its own after the memory: a Dense(128) and a ReLU, orthogonal with gain 2.
+Recurrent PPO has those layers by default ([layers per head](#layers-per-head)),
+but keeps separate memories. With one memory, it fails the memory probe
+(CartPole with the velocities hidden) even with the layers and with
+normalised rewards, while separate memories pass it.
 
 ## The PID policy
 

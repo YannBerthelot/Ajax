@@ -86,9 +86,11 @@ time limit cut an episode, the value it bootstraps on is the critic's on the
 episode's final observation, read with the memory that episode built, as
 sb3-contrib's `RecurrentPPO` does.
 
-PPO's actor and critic keep separate memories by default.
-`share_encoder=True` gives them one, as ppo2's recurrent policies and
-PureJaxRL do; normalise the rewards with it (see the networks guide).
+PPO's actor and critic keep separate memories by default, and each reads
+its memory through a 128-unit ReLU layer, as PureJaxRL's heads do.
+`share_encoder=True` gives them one memory, as ppo2's recurrent policies and
+PureJaxRL do; in Ajax that memory does not yet learn what the observation
+hides (see the networks guide).
 The off-policy agents keep separate memories, as Ni et al. (2022) do.
 
 ### The libraries disagree on the length

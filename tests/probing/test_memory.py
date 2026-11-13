@@ -205,7 +205,8 @@ def test_p0b_recurrent_sac_trains_on_a_one_feature_observation() -> None:
 # faults: a target critic whose carry is fed the policy's samples after the
 # window's first row reads 1/L of the slope, and an actor loss feeding its
 # own fresh actions to the critic's carry credits a0 again through the next
-# Q; L = 1 hides both and is the control. Every cell trains 64 positions per
+# Q; L = 1 hides both and is the control, after one burn-in step (a window's
+# first row reads no previous action, as Ni et al.'s). Every cell trains 64 positions per
 # update (64 // L windows); the actor is judged for SAC and REDQ only:
 # ASAC's double count (2/16 + 2 15/16) equals its right slope, 2, and both
 # faults only scale TD3's quadratic, so its a0 is 0.5 either way.
@@ -322,6 +323,8 @@ def _q2_agent(agent: str, kind: str, length: int, batch: int = 0) -> Any:
     if agent == "TD3":
         kw = {"exploration_noise": 0.3}
     kw |= {"sequence_length": length, "batch_size": batch or 64 // length}
+    if length == 1:
+        kw["burn_in"] = 1
     spec = QUADRATIC_ECHO if agent == "TD3" else ECHO
     memory = MemoryConfig(kind, 32)
     return agents.make(agent, *spec.make(), memory=memory, buffer_size=20_000, **kw)

@@ -80,6 +80,21 @@ Cloning an expert into the actor before training is the `CloningPretrain`
 extension; a cloning term during training is `ImitationLoss`
 ([Expert guidance](../guide/expert-guidance.md)).
 
+## Presets
+
+`REDQ.preset(task, env_id)` sets MBPO's target entropy for the task, its
+official code's default (watchernyu/REDQ@`7b5d1bf`, `redq/algos/core.py:11-13`;
+[Presets](../guide/training.md#presets)), as `target_entropy_per_dim`: the whole action's value over the task's
+action dimensions.
+
+| Preset | Whole action | Action dimensions | `target_entropy_per_dim` |
+| --- | --- | --- | --- |
+| `Hopper` | -1 | 3 | -1/3 |
+| `HalfCheetah` | -3 | 6 | -0.5 |
+| `Walker2d` | -3 | 6 | -0.5 |
+| `Ant` | -4 | 8 | -0.5 |
+| `Humanoid` | -2 | 17 | -2/17 |
+
 ## Notes
 
 - **One update.** `num_critic_updates` critic steps, each on a fresh replay

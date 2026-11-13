@@ -73,6 +73,19 @@ and the critics (`value/value_loss`, `value/actor_loss`,
 | `expert_policy` | `None` | an expert the collector tracks (online): its actions feed the observation features and a residual policy (`ResidualPolicy`), and the evaluation reports its return next to the agent's |
 | `extensions` | `()` | research features (see [Extensions](../guide/extensions.md)) |
 
+## Presets
+
+`IQL.preset("AntMaze", env_id)` takes the reference's AntMaze config,
+`expectile=0.9` and `temperature=10` (ikostrikov/implicit_q_learning@`09d7002`,
+`configs/antmaze_config.py:15-16`; [Presets](../guide/training.md#presets)). The reference also preprocesses each
+dataset's rewards, which a preset cannot do:
+
+- on AntMaze it subtracts 1 from them (`train_offline.py:68-69`): shift your
+  dataset's rewards before training;
+- on the locomotion tasks it scales them by 1000 over the range of the
+  dataset's episode returns (`:35-52`): pass
+  `reward_scale=1000 / (max_return - min_return)`, computed from your dataset.
+
 ## How it works
 
 Each update samples one replay batch and runs, in the reference's order:

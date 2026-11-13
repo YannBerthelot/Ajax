@@ -1,3 +1,5 @@
+from functools import partial
+
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
@@ -6,12 +8,14 @@ import optax
 import pytest
 from flax.linen.initializers import orthogonal, variance_scaling
 from flax.serialization import to_state_dict
+from jax.flatten_util import ravel_pytree
 
 from ajax.networks.utils import (
     clip_by_member_norm,
     dense,
     get_adam_tx,
     get_initializer,
+    map_optimizer_moments,
     parse_activation,
     parse_function_string,
     parse_initialization,
@@ -181,15 +185,29 @@ def _steps(tx, n=3):
     ],
 )
 def test_each_update_rule_is_optaxs(ours, reference):
-    """Built from optax's parts, each rule steps as optax's alias does; Adam
-    and AdamW keep the alias's state tree too, so saved states restore."""
+    """Built from optax's parts, each rule steps as optax's alias does. Adam
+    and AdamW hold the alias's state with each moment raveled into one
+    vector, as optax.flatten joins the parameters (jax's order); a state
+    saved with a moment per array restores into it (test_checkpoint).
+
+    The rule runs on the gradients raveled into one vector: XLA computes
+    that vector with other instructions than the small arrays (vector lanes,
+    fused multiply-adds), which can move a float32 result by an ulp or two.
+    rtol 1e-6 is about eight float32 ulps."""
     (got, got_state), (want, want_state) = (
         _steps(get_adam_tx(1e-2, **ours)),
         _steps(reference),
     )
-    jax.tree.map(np.testing.assert_array_equal, got, want)
+    close = partial(np.testing.assert_allclose, rtol=1e-6)
+    jax.tree.map(close, got, want)
     if ours.get("optimizer", "adam") == "adam":
-        assert jax.tree.structure(got_state) == jax.tree.structure(want_state)
+        adam = want_state[0]
+        raveled = adam._replace(
+            mu=ravel_pytree(adam.mu)[0], nu=ravel_pytree(adam.nu)[0]
+        )
+        want_flat = (raveled, *want_state[1:])
+        assert jax.tree.structure(got_state) == jax.tree.structure(want_flat)
+        jax.tree.map(close, got_state, want_flat)
 
 
 def test_centered_rmsprop_is_mnih_et_als_update():
@@ -211,6 +229,49 @@ def test_centered_rmsprop_is_mnih_et_als_update():
 def test_an_unknown_update_rule_is_refused():
     with pytest.raises(ValueError, match="optimizer must be one of"):
         get_adam_tx(1e-3, optimizer="sgd")
+
+
+def test_a_moment_edit_reaches_the_same_entries_in_either_layout():
+    """A per-unit edit of the moments (ReDo resets a recycled neuron's) lands
+    on that unit's entries and nowhere else, whether the optimiser holds each
+    moment as one vector (get_adam_tx) or per array (optax.adam). Catches an
+    edit that skips the joined vector (the reset silently lost) or cuts it at
+    the wrong offsets (another unit's moments reset). rtol: as
+    test_each_update_rule_is_optaxs, the two layouts step an ulp or two apart."""
+    params = {
+        "hidden": {"kernel": jnp.ones((3, 2)), "bias": jnp.ones(2)},
+        "out": {"kernel": jnp.ones((2, 1))},
+    }
+    grads = jax.tree.map(
+        lambda leaf: jnp.arange(1.0, leaf.size + 1.0).reshape(leaf.shape), params
+    )
+
+    def reset_unit_one(moment):
+        hidden = moment["hidden"]
+        return {
+            "hidden": {
+                "kernel": hidden["kernel"].at[:, 1].set(0.0),
+                "bias": hidden["bias"].at[1].set(0.0),
+            },
+            "out": moment["out"],
+        }
+
+    def edited_adam_state(tx):
+        _, state = tx.update(grads, tx.init(params), params)
+        return map_optimizer_moments(state, params, reset_unit_one)[0]
+
+    _, per_array = optax.adam(1e-2).update(grads, optax.adam(1e-2).init(params))
+    joined, apart = (
+        edited_adam_state(get_adam_tx(1e-2)),
+        edited_adam_state(optax.adam(1e-2)),
+    )
+    for name in ("mu", "nu"):
+        want = reset_unit_one(getattr(per_array[0], name))
+        np.testing.assert_allclose(
+            getattr(joined, name), ravel_pytree(want)[0], rtol=1e-6
+        )
+        jax.tree.map(np.testing.assert_array_equal, getattr(apart, name), want)
+    assert joined.count == apart.count == 1
 
 
 # ------------------------

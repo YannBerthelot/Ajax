@@ -86,12 +86,12 @@ def to_ajax(template: Any, arrays: dict, total_it: int, dtype: Any) -> Any:
             return jnp.asarray(total_it, x.dtype)
         return jnp.asarray(x, dtype) if jnp.issubdtype(x.dtype, jnp.floating) else x
 
-    return jax.tree_util.tree_map_with_path(put, template)
+    return kit.map_with_path(put, template)
 
 
 def to_sfujim(state: Any) -> dict:
     out = {}
-    for path, x in jax.tree_util.tree_leaves_with_path(state):
+    for path, x in kit.leaves_with_path(state):
         found = sfujim_names(path)
         if found is None:
             continue

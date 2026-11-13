@@ -327,6 +327,84 @@ def recording_key_uses() -> Iterator[KeyUses]:
         jax.clear_caches()
 
 
+# --- optimiser moments -----------------------------------------------------------------------------
+# get_adam_tx holds each Adam moment as one vector over its train state's parameters (optax.flatten:
+# jax's leaf order, each array raveled in C order). The originals hold a moment per
+# array, and the kits name Ajax's leaves by their paths, so they walk the state with each joined
+# moment shown per array.
+
+
+def _is_train_state(node: Any) -> bool:
+    return hasattr(node, "params") and hasattr(node, "opt_state")
+
+
+def _joined_moments(train_state: Any) -> tuple[Callable[[Any], bool], Callable]:
+    """Whether an optimiser-state leaf of train_state is a joined moment, and the function that
+    shapes one as the parameters, in its own dtype (a float64 check keeps float32 parameters)."""
+    leaves, structure = jax.tree.flatten(train_state.params)
+    sizes = [np.size(leaf) for leaf in leaves]
+
+    def is_joined(leaf: Any) -> bool:
+        floating = jnp.issubdtype(getattr(leaf, "dtype", np.int32), jnp.floating)
+        return floating and np.shape(leaf) == (sum(sizes),)
+
+    def per_array(vector: Any) -> Any:
+        pieces = jnp.split(vector, np.cumsum(sizes)[:-1])
+        shaped = [
+            p.reshape(np.shape(leaf)) for p, leaf in zip(pieces, leaves, strict=True)
+        ]
+        return jax.tree.unflatten(structure, shaped)
+
+    return is_joined, per_array
+
+
+def _joined(moment: Any) -> jax.Array:
+    return jnp.concatenate([jnp.ravel(leaf) for leaf in jax.tree.leaves(moment)])
+
+
+def moments_per_array(state: Any) -> Any:
+    """state with each joined moment shaped as its train state's parameters."""
+
+    def per_array(node: Any) -> Any:
+        if not _is_train_state(node):
+            return node
+        is_joined, unravel = _joined_moments(node)
+        opt_state = jax.tree.map(
+            lambda leaf: unravel(leaf) if is_joined(leaf) else leaf, node.opt_state
+        )
+        return node.replace(opt_state=opt_state)
+
+    return jax.tree.map(per_array, state, is_leaf=_is_train_state)
+
+
+def moments_joined(state: Any, like: Any) -> Any:
+    """moments_per_array's inverse: state's moments joined where like holds them joined."""
+
+    def joined(node: Any, original: Any) -> Any:
+        if not _is_train_state(original):
+            return node
+        is_joined, _ = _joined_moments(original)
+        opt_state = jax.tree.map(
+            lambda leaf, moment: _joined(moment) if is_joined(leaf) else moment,
+            original.opt_state,
+            node.opt_state,
+        )
+        return node.replace(opt_state=opt_state)
+
+    return jax.tree.map(joined, state, like, is_leaf=_is_train_state)
+
+
+def map_with_path(put: Callable, template: Any) -> Any:
+    """jax.tree_util.tree_map_with_path(put, template), put seeing each moment per array."""
+    filled = jax.tree_util.tree_map_with_path(put, moments_per_array(template))
+    return moments_joined(filled, template)
+
+
+def leaves_with_path(state: Any) -> list:
+    """jax.tree_util.tree_leaves_with_path(state), each moment per array."""
+    return jax.tree_util.tree_leaves_with_path(moments_per_array(state))
+
+
 # --- steps -----------------------------------------------------------------------------------------
 
 

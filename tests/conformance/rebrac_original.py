@@ -91,12 +91,12 @@ def to_ajax(template: Any, arrays: dict, update: int, dtype: Any) -> Any:
             )  # TD3 counts the update before its test
         return jnp.asarray(x, dtype) if jnp.issubdtype(x.dtype, jnp.floating) else x
 
-    return jax.tree_util.tree_map_with_path(put, template)
+    return kit.map_with_path(put, template)
 
 
 def to_rebrac(state: Any) -> dict:
     out = {}
-    for path, x in jax.tree_util.tree_leaves_with_path(state):
+    for path, x in kit.leaves_with_path(state):
         name = rebrac_name(path)
         if name is not None:
             out[name] = np.asarray(

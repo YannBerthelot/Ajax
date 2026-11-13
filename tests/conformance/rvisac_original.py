@@ -135,14 +135,14 @@ def to_ajax(template: Any, arrays: dict, dtype: Any) -> Any:
             from_reference(value, how, is_kernel).reshape(x.shape), dtype
         )
 
-    return jax.tree_util.tree_map_with_path(put, template)
+    return kit.map_with_path(put, template)
 
 
 def to_reference(state: Any) -> dict:
     """Ajax's state in their names; their output layer reassembled from the two heads."""
     out: dict = {}
     halves: dict = {}
-    for path, x in jax.tree_util.tree_leaves_with_path(state):
+    for path, x in kit.leaves_with_path(state):
         found = reference_name(path)
         if found is None or found[1] == "count":
             continue

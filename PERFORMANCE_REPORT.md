@@ -752,6 +752,41 @@ alternated in one process: 15.1 s against 14.2 s of execution per trial
 the training loop around it; it is within the 10% tolerance and was not
 traced further.
 
+## Adam's moments as one vector (2026-11-12)
+
+`get_adam_tx` runs its update rule (Adam, AdamW, RMSProp) on the gradients
+raveled into one vector (`optax.flatten`), so each moment is one vector over
+every parameter. The maths is the same; XLA computes the vector with other
+instructions, which can move a float32 result by an ulp or two. A checkpoint
+saved with a moment per array restores into it, and code that edits the
+moments per unit (a neuron reset) goes through `map_optimizer_moments`.
+
+agent_bench, main (4d73ff38) against the change, execution steps per second,
+one fresh process per trial, the two alternating; per-round ratios, median
+[min, max]. GPU: one L40S with no other process, 3 rounds. CPU: Linux, pinned
+to 4 cores, 5 rounds (CrossQ and REDQ at 3,000 steps).
+
+| Agent | GPU | CPU |
+| --- | --- | --- |
+| AVG | +16% [+13, +34] | +8% [-19, +74] |
+| CrossQ | +14% [+13, +14] | +49% [+41, +64] |
+| DQN | | +5% [-24, +6] |
+| IQL | +6% [+4, +6] | +7% [-3, +25] |
+| PPO | +7% [+4, +8] | -5% [-19, +40] |
+| REDQ | +17% [+16, +17] | -3% [-8, -2] |
+| SAC | +7% [+5, +11] | +3% [-20, +22] |
+| TD3 | +7% [+3, +10] | +8% [-13, +12] |
+
+On the GPU each update launches fewer, larger kernels, and these small runs
+wait on launches. Where the physics dominates, nothing changes: SAC on MuJoCo
+Warp Hopper (10 seeds, the same GPU, 3 rounds) +0.3%, inside the 1.5% spread
+between rounds. On the CPU, CrossQ gains most: per array, Adam's arithmetic
+on its 2,048-unit layers took 16.6 of 38 worker seconds; joined, 3.6. On a Mac
+(14 threads), IQL is 17% slower: XLA's CPU runtime runs the joined rule as one
+stretch on one thread while the others wait, where per array its small pieces
+ran beside the matrix products. On Linux with 4 cores IQL does not lose, and
+on one core the joined rule is faster. REDQ's 3-5% on Linux is not explained.
+
 ## JAX 0.11 and flax 0.12 (PR #199, 2026-10-19)
 
 The lock moves from JAX 0.7.2 / flax 0.10.7 to JAX 0.11.2 / flax 0.12.10;

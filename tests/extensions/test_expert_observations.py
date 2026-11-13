@@ -13,6 +13,7 @@ import numpy as np
 import pytest
 from flax import struct
 from gymnax.environments import environment, spaces
+from jax.flatten_util import ravel_pytree
 
 import ajax.agents.recurrent
 import ajax.evaluate
@@ -203,7 +204,10 @@ def assert_trained_on_column(
     its first layer's kernel row there has value times the bias's gradient
     (of_column's row's), and so Adam's running means of them."""
     optimiser = jax.tree.leaves(network_state.opt_state, is_leaf=_is_adam)
-    means = next(state for state in optimiser if _is_adam(state)).mu
+    joined = next(state for state in optimiser if _is_adam(state)).mu
+    # get_adam_tx joins each moment into one vector over the parameters, raveled
+    # in jax's leaf order (test_each_update_rule_is_optaxs).
+    means = ravel_pytree(network_state.params)[1](joined)
     layer = means["params"]["encoder"]["network"]["layers_0"]
     kernel, bias = np.asarray(layer["kernel"]), np.asarray(layer["bias"])
     reference = bias if of_column is None else kernel[of_column]

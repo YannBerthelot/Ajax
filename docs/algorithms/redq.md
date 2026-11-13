@@ -60,7 +60,7 @@ Defaults are read from `REDQ.__init__`.
 | `gamma` | `0.99` | discount |
 | `buffer_size` | `1_000_000` | replay capacity |
 | `batch_size` | `256` | replay minibatch |
-| `learning_starts` | `10_000` | steps of uniform random actions before the first update |
+| `learning_starts` | `5_000` | steps of uniform random actions before the first update |
 | `tau` | `0.005` | Polyak rate of the target critics |
 | `num_critics` | `10` | critics in the ensemble |
 | `subset_size` | `2` | target critics the target takes the minimum over |

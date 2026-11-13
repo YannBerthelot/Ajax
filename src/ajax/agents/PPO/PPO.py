@@ -57,6 +57,7 @@ from ajax.agents.minibatch import (
     get_actions_and_log_probs,
     run_epochs,
 )
+from ajax.agents.presets import Preset
 from ajax.agents.recurrent import (
     compute_rollout_values,
     get_policy_on_minibatch,
@@ -87,6 +88,27 @@ from ajax.types import Architecture, FloatOrCallable, InitializationFunction
 #: (ppo_rnn.py:53-55) and popjaxrl @12e5d42 (ppo_gru.py:45-47), whose GRU
 #: keeps flax's defaults (ppo_rnn.py:35, ppo_gru.py:30), as Ajax's does.
 PPO_HIDDEN_INIT = "orthogonal(np.sqrt(2))"
+#: ppo2's Atari config (openai/baselines@ea25b9e, ppo2/defaults.py:15-22),
+#: its rate kept constant as the defaults keep MuJoCo's (owner, 2026-10-18),
+#: the networks shared as its value_network default leaves them (MuJoCo's
+#: copies them, :12). The 8 envs are the PPO paper's actors (Schulman et
+#: al., 2017, Table 5); ppo2 runs one per CPU (run.py:87-89).
+PRESETS = {
+    "Atari": Preset(
+        {
+            "n_envs": 8,
+            "n_steps": 128,
+            "num_minibatches": 4,
+            "n_epochs": 4,
+            "actor_learning_rate": 2.5e-4,
+            "critic_learning_rate": 2.5e-4,
+            "clip_range": 0.1,
+            "ent_coef": 0.01,
+            "share_encoder": True,
+        },
+        "openai/baselines@ea25b9e ppo2/defaults.py:15-22",
+    )
+}
 
 
 @dataclass(kw_only=True, eq=False, repr=False)
@@ -100,20 +122,25 @@ class PPO(
 ):
     """Proximal Policy Optimization, for discrete and continuous actions.
 
-    Defaults are ppo2's (ppo2/ppo2.py:22, model.py:75, :91,
-    :100-107): Adam at 3e-4 with eps 1e-5, its gradient clipped to 0.5
-    over both networks at once, vf_coef 0.5 on half the squared value
-    error, clip 0.2, gamma 0.99, lambda 0.95, the advantages normalised per
+    Defaults are ppo2's MuJoCo run (ppo2/defaults.py:1-12 mujoco(),
+    ppo2/ppo2.py:22, model.py:75, :91, :100-107): one env (run.py:113,
+    num_env or 1) of 2048 steps cut into 32 minibatches of 64 for 10
+    epochs, 64-64 tanh layers (common/models.py:75, mlp's defaults), Adam
+    at 3e-4 with eps 1e-5, its gradient clipped to 0.5 over both networks
+    at once, vf_coef 0.5 on half the squared value error, clip 0.2, no
+    entropy bonus, gamma 0.99, lambda 0.95, the advantages normalised per
     minibatch; the Gaussian's log-std one learned parameter per action
     dimension starting at 0 (std 1), never clipped (the Actor in
-    networks.py cites it). The 128-128 tanh layers are Ajax's.
+    networks.py cites it). Not taken: mujoco()'s linear decay of the rate
+    (owner, 2026-10-18), and run.py:115-116's VecNormalize of observations
+    and returns (normalize_observations, normalize_rewards stay off).
     """
 
-    n_envs: int = 4
+    n_envs: int = 1
     actor_learning_rate: FloatOrCallable = 3e-4
     critic_learning_rate: FloatOrCallable = 3e-4
-    actor_architecture: Architecture = ("128", "tanh", "128", "tanh")
-    critic_architecture: Architecture = ("128", "tanh", "128", "tanh")
+    actor_architecture: Architecture = ("64", "tanh", "64", "tanh")
+    critic_architecture: Architecture = ("64", "tanh", "64", "tanh")
     gamma: float = 0.99
     #: ppo2's clip: one global norm over both networks' gradients
     #: (ppo2/model.py:105-107); None leaves them unclipped.

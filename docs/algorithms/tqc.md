@@ -51,7 +51,7 @@ Defaults are read from `TQC.__init__`, the authors' `main.py` and `tqc/`.
 | `critic_architecture` | three `"512", "relu"` | each critic's hidden layers |
 | `num_critics` | `5` | distributional critics |
 | `n_quantiles` | `25` | quantiles each critic predicts |
-| `top_quantiles_to_drop_per_net` | `2` | pooled target quantiles dropped per critic; the paper tunes it per task (5 on Hopper, 0 on HalfCheetah, 2 on the others) |
+| `top_quantiles_to_drop_per_net` | `2` | pooled target quantiles dropped per critic; the paper tunes it per task: [Presets](#presets) |
 | `gamma` | `0.99` | discount |
 | `tau` | `0.005` | target networks' Polyak rate |
 | `buffer_size` | `1_000_000` | replay capacity |
@@ -66,6 +66,17 @@ Defaults are read from `TQC.__init__`, the authors' `main.py` and `tqc/`.
 | `expert_policy` | `None` | an expert whose return the evaluation reports next to the agent's |
 | `episode_length`, `action_repeat` | `None`, `1` | simulator steps per episode and per agent step, on Brax and Playground |
 | `extensions` | `()` | research features (see [Extensions](../guide/extensions.md)) |
+
+## Presets
+
+`TQC.preset(task, env_id)` drops the authors' number of quantiles for the
+task (bayesgroup/tqc_pytorch, `README.md:42-48`; the paper's Table 6; [Presets](../guide/training.md#presets)).
+
+| Preset | `top_quantiles_to_drop_per_net` |
+| --- | --- |
+| `Hopper` | 5 |
+| `HalfCheetah` | 0 |
+| `Walker2d`, `Ant`, `Humanoid` | 2 |
 
 ## Notes
 

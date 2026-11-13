@@ -42,16 +42,33 @@ from ajax.agents.families import (
     RewardNormalization,
     TrainContext,
 )
+from ajax.agents.presets import Preset
 from ajax.agents.recurrent import RecurrentCarries, actor_dist, q_values, sample_replay
 from ajax.controller import critic_action_units, leave_unchanged
 from ajax.environments.interaction import Explore, explore_pipeline
 from ajax.extensions.base import merge_metrics
+from ajax.extensions.expert import ImitationLoss
 from ajax.networks.deterministic import get_initialized_td3_actor_critic
 from ajax.networks.networks import with_critic_encoder
 from ajax.networks.utils import TORCH_LINEAR
 from ajax.schedule import Schedule, at
 from ajax.state import BaseAgentState, LoadedTrainState, Transition
 from ajax.types import Architecture
+
+#: TD3+BC (Fujimoto and Gu, 2021) on the D4RL datasets, trained with
+#: train_offline: the actor's loss TD3+BC's at alpha 2.5, cloning the
+#: dataset's actions, on observations normalised by the dataset's statistics
+#: (sfujim/TD3_BC@8791ad7, TD3_BC.py:76, main.py:56-57, :106-107).
+#: ImitationLoss says how Ajax's term and normalisation match them.
+PRESETS = {
+    "D4RL": Preset(
+        {
+            "extensions": (ImitationLoss(None, target="replay", alpha=2.5),),
+            "normalize_observations": True,
+        },
+        "sfujim/TD3_BC@8791ad7 TD3_BC.py:76, main.py:56-57,106-107",
+    )
+}
 
 
 @dataclass(kw_only=True, eq=False, repr=False)

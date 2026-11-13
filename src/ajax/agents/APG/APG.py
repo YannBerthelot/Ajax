@@ -64,6 +64,7 @@ from ajax.controller import (
     init_observers,
     observe_features,
     policy_action_dim,
+    previous_action_input,
     reads_agent_expert,
     restart_observers,
 )
@@ -268,7 +269,13 @@ class APG(GradientClipping, ExpertGuided, OwnIterationAgent):
         Defaults follow the paper (Table 2: 8 layers, 4 heads, context 100,
         width 128, b=1 system per iteration, N=100 horizon) and the
         reference code (AdamW betas (0.9, 0.95), eps 1e-8, 5k-step warmup
-        then cosine decay to lr/10, no gradient clipping). Deviations,
+        then cosine decay to lr/10, no gradient clipping). The sizes are the
+        paper's, the owner's choice (2026-11-13): no closed-loop run's
+        arguments are recorded, the closed-loop script's argparse defaults
+        are a sequence of 500 and width 32 (train_onestep_lin_CL.py:85,
+        :99), and the repository's one checkpoint, from the open-loop
+        script (out/ckpt_onestep_lin.pt), ran sequences of 800, width 32,
+        batch 32. Deviations,
         each backed by runs on the pendulum tracking test bed: actions are
         tanh-bounded (Ajax convention; the reference leaves u unbounded),
         and the PID head starts at the identity rather than the reference's
@@ -703,15 +710,19 @@ def make_step_through_expert(
     transform: Any,
     expert_policy: Any,
     n_systems: int,
-    env_width: Optional[int] = None,
+    env_args: Optional[EnvironmentConfig] = None,
 ) -> Callable:
     """policy_step acting through the run's transform (residual RL, gain
     mode) and the tracked expert, whose state rides in the carry, (actor
-    carry, expert state, then the observers' states with features, whose
-    observations hold env_width columns of the env's own first). The expert
-    is called every step its state is read, as collection calls it (None:
+    carry, expert state, then, with env_args's features, the observers'
+    states and the executed action a feature reads next step, the
+    observations holding the env's own columns first). The expert is
+    called every step its state is read, as collection calls it (None:
     nothing reads it). The return's gradient runs through the expert too:
     it is part of the loop the controller acts in."""
+    env_width = None
+    if env_args is not None:
+        env_width = get_state_action_shapes(env_args.env)[0][-1]
 
     def step(carry, obs, resets):
         actor_carry, expert_state, *observed = carry
@@ -730,6 +741,12 @@ def make_step_through_expert(
                 n_systems,
                 stop_gradient=False,
             )
+        if env_args is not None:
+            observer_states, _ = observed
+            previous_action = previous_action_input(
+                env_args.observers, action, n_systems, env_args.env, env_args.env_params
+            )
+            observed = [observer_states, previous_action]
         return action, (actor_carry, expert_state, *observed)
 
     return step
@@ -744,12 +761,13 @@ def make_rollout_observer(
 ) -> Callable:
     """(carry, obs, resets) -> (policy observation, carry) for
     closed_loop_rollout: obs with the observers' features at the timestep
-    and horizon the rollout holds, their states and the expert's in the
-    carry (actor carry, expert state, observer states), fresh at each
+    and horizon the rollout holds, their states, the expert's and the last
+    executed action in the carry (actor carry, expert state, observer
+    states, previous action: make_step_through_expert's), fresh at each
     episode start. The features keep their gradient."""
 
     def observe(carry, obs, resets):
-        actor_carry, expert_state, observer_states = carry
+        actor_carry, expert_state, observer_states, previous_action = carry
         observer_states, expert_state = restart_observers(
             resets, observers, observer_states, expert_policy, expert_state, n_systems
         )
@@ -760,11 +778,17 @@ def make_rollout_observer(
             timestep=timestep,
             horizon=horizon,
             differentiable=True,
+            previous_action=previous_action,
         )
         observation, observer_states = observe_features(
             obs, inputs, observers, observer_states
         )
-        return observation, (actor_carry, expert_state, observer_states)
+        return observation, (
+            actor_carry,
+            expert_state,
+            observer_states,
+            previous_action,
+        )
 
     return observe
 
@@ -852,9 +876,11 @@ def make_closed_loop_policy(
         if hasattr(expert_policy, "init_state"):
             expert_state = expert_policy.init_state(n_systems)
         carry = (carry, expert_state)
-        env_width = None
         if observers:
-            carry = (*carry, init_observers(observers, n_systems))
+            previous_action = previous_action_input(
+                observers, None, n_systems, env_args.env, env_args.env_params
+            )
+            carry = (*carry, init_observers(observers, n_systems), previous_action)
             collector = agent_state.collector_state
             observe = make_rollout_observer(
                 observers,
@@ -863,9 +889,12 @@ def make_closed_loop_policy(
                 collector.timestep,
                 collector.max_timesteps,
             )
-            env_width = get_state_action_shapes(env_args.env)[0][-1]
         policy_step = make_step_through_expert(
-            policy_step, transform, expert_policy, n_systems, env_width
+            policy_step,
+            transform,
+            expert_policy,
+            n_systems,
+            env_args if observers else None,
         )
     return carry, policy_step, observe
 

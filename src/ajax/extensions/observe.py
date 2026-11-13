@@ -174,6 +174,46 @@ def pid_terms_at(env_args: Any, n_errors: int) -> int:
 
 
 @dataclass(frozen=True)
+class PreviousAction(Extension):
+    """The action executed just before the observation, in agent units:
+    zero at an episode's first observation, a discrete action one-hot
+    (:func:`ajax.controller.previous_action_input`). Raw, since it is an
+    action.
+
+    An agent whose memory reads it acts on its own past commands, which a
+    deployed controller has. Ni et al. (2022)'s recurrent actor reads the
+    previous action with the observation (twni2016/pomdp-baselines at
+    e7c19c3, policies/models/policy_rnn.py:23-91), as their critic does
+    (ajax.agents.recurrent)."""
+
+    name: str = "previous_action"
+    observes_normalised: ClassVar[bool] = False
+    #: It reads ObserveInputs.previous_action, which the callers then fill.
+    reads_previous_action: ClassVar[bool] = True
+
+    def observation_width(self, env_args: Any) -> int:
+        return get_action_dim(env_args.env, env_args.env_params)
+
+    def init_observer(self, n_envs: int) -> jax.Array:
+        # Per env: whether its episode has had an observation, so an
+        # action came before this one.
+        return jnp.zeros((n_envs,), jnp.bool_)
+
+    def observe(
+        self, inputs: ObserveInputs, state: jax.Array
+    ) -> tuple[jax.Array, jax.Array]:
+        if inputs.previous_action is None:
+            raise ValueError(
+                "PreviousAction reads ObserveInputs.previous_action, which this"
+                " caller does not pass (ajax.controller.previous_action_input)."
+            )
+        action = jnp.where(state[:, None], inputs.previous_action, 0.0)
+        if not inputs.differentiable:
+            action = jax.lax.stop_gradient(action)
+        return action, jnp.ones_like(state)
+
+
+@dataclass(frozen=True)
 class TrainingProgressInput(Extension):
     """The share of the run done (:func:`ajax.schedule.progress`), the same
     for every env: evaluation holds the collector's, as the deployed policy

@@ -55,7 +55,7 @@ Defaults are those of the constructor.
 
 | Argument | Default | What it does |
 | --- | --- | --- |
-| `n_envs` | 4 | environments stepped in parallel |
+| `n_envs` | 1 | environments stepped in parallel (ppo2's MuJoCo runs use one) |
 | `n_steps` | 2048 | steps per environment in each rollout |
 | `batch_size` | 64 | sets the number of minibatches (see the notes) |
 | `num_minibatches` | 0 | when positive, the number of minibatches, as in Brax |
@@ -69,7 +69,7 @@ Defaults are those of the constructor.
 | `vf_coef` | 0.5 | critic loss weight, on half the squared error (ppo2's) |
 | `max_grad_norm` | 0.5 | one gradient clip by global norm over both networks (`None` turns it off) |
 | `normalize_advantage` | True | advantages standardised in each minibatch |
-| `actor_architecture`, `critic_architecture` | `("128", "tanh", "128", "tanh")` | hidden layers, as width and activation strings |
+| `actor_architecture`, `critic_architecture` | `("64", "tanh", "64", "tanh")` | hidden layers, as width and activation strings (ppo2's MLP) |
 | `normalize_observations`, `normalize_rewards` | False | running normalisation, as SB3's `VecNormalize` |
 | `reward_normalization_gamma` | None | with `normalize_rewards`, divide by the spread of the discounted return |
 | `memory`, `bptt_length` | None | memory block, and the length of the replayed chunks (by default the longest that split into the minibatches; see the notes) |
@@ -83,6 +83,16 @@ Defaults are those of the constructor.
 | `expose_recent_rollout` | False | keep the last rollout on the state even when no extension reads it |
 | `expert_policy` | `None` | an expert the collector tracks: its actions feed the observation features and a residual policy (`ResidualPolicy`), and the evaluation reports its return next to the agent's |
 | `extensions` | `()` | research features (see [Extensions](../guide/extensions.md)) |
+
+## Presets
+
+`PPO.preset("Atari", env_id)` takes ppo2's Atari config
+(openai/baselines@`ea25b9e`, `ppo2/defaults.py:15-22`; [Presets](../guide/training.md#presets)): 8 environments
+(the paper's actors; ppo2 runs one per CPU) of 128 steps, 4 minibatches, 4
+epochs, learning rates `2.5e-4`, `clip_range=0.1`, `ent_coef=0.01` and one
+network shared by the actor and the critic. The learning rate stays constant,
+as the defaults keep MuJoCo's. Atari's frame skip, frame stack and reward
+clipping are the environment's.
 
 ## Notes
 

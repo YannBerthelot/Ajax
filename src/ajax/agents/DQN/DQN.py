@@ -45,6 +45,7 @@ from ajax.agents.families import (
     TrainContext,
 )
 from ajax.agents.loop import LOOP_PHASES
+from ajax.agents.presets import Preset
 from ajax.agents.update_steps import (
     bootstrap_cuts,
     derive_extensions_key,
@@ -70,6 +71,31 @@ from ajax.networks.utils import TORCH_LINEAR
 from ajax.schedule import linear
 from ajax.state import BaseAgentState, LoadedTrainState
 from ajax.types import Architecture
+
+#: Mnih et al.'s Atari config (google-deepmind/dqn@9d9b1d1, run_gpu:12-32):
+#: one update every 4 steps after 50,000, the target refreshed every 10,000
+#: steps (NeuralQLearner.lua:341-342, :356), so every 2,500 updates. Its
+#: epsilon reaches 0.1 at step 1,050,000, a million steps after the warm-up
+#: (:370-371): here that step's fraction of its 50M-step run, so a shorter
+#: run decays faster. Atari's frame skip and stack, no-op starts and reward
+#: clipping are the env's.
+PRESETS = {
+    "Atari": Preset(
+        {
+            "learning_rate": 2.5e-4,
+            "gamma": 0.99,
+            "buffer_size": 1_000_000,
+            "batch_size": 32,
+            "learning_starts": 50_000,
+            "train_frequency": 4,
+            "target_update_interval": 2_500,
+            "epsilon_start": 1.0,
+            "epsilon_end": 0.1,
+            "epsilon_decay_frac": 1_050_000 / 50_000_000,
+        },
+        "google-deepmind/dqn@9d9b1d1 run_gpu:12-32, NeuralQLearner.lua:341-371",
+    )
+}
 
 
 @dataclass(kw_only=True, eq=False, repr=False)

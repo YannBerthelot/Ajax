@@ -13,6 +13,7 @@ from ajax.controller import (
     call_expert,
     init_observers,
     observe_features,
+    previous_action_input,
 )
 from ajax.environments.interaction import (
     APPLIED_ACTION_KEY,
@@ -523,6 +524,9 @@ def step_environment(
                 expert=expert_policy,
                 expert_state=new_expert_state if expert_is_stateful else None,
                 progress=progress_now,
+                previous_action=previous_action_input(
+                    controller.observers, actions, obs.shape[0], env, env_params
+                ),
             )
             obs, observer_states = observe_features(
                 obs, inputs, controller.observers, observer_states
@@ -729,6 +733,9 @@ def _start_rollout(
             expert=expert_policy,
             expert_state=expert_state if stateful else None,
             progress=frozen_progress(agent_state),
+            previous_action=previous_action_input(
+                controller.observers, None, num_episodes, env, env_params
+            ),
         )
         first_obs, observer_states = observe_features(
             first_obs,
@@ -1101,13 +1108,24 @@ def evaluate_policy(
     key, obs, env_state = _reset_envs(env, mode, env_params, num_episodes, key)
     observers, progress_now = env_args.observers, frozen_progress(agent_state)
 
-    def observe(obs: jax.Array, states: Any) -> tuple[jax.Array, Any]:
-        inputs = ObserveInputs(obs.astype(jnp.float32), progress=progress_now)
+    def observe(
+        obs: jax.Array, states: Any, action: Optional[jax.Array]
+    ) -> tuple[jax.Array, Any]:
+        """obs with the features, after action (None: a reset)."""
+        previous_action = previous_action_input(
+            observers, action, num_episodes, env, env_params
+        )
+        inputs = ObserveInputs(
+            obs.astype(jnp.float32),
+            progress=progress_now,
+            previous_action=previous_action,
+        )
         return observe_features(obs, inputs, observers, states)
 
     observer_states = None
     if observers:
-        obs, observer_states = observe(obs, init_observers(observers, num_episodes))
+        fresh = init_observers(observers, num_episodes)
+        obs, observer_states = observe(obs, fresh, None)
 
     def body(carry, _):
         (
@@ -1137,7 +1155,7 @@ def evaluate_policy(
         done = done | (terminated > 0) | (truncated > 0)
         # Each env runs one episode, masked after its end: its features need no restart.
         if observers:
-            obs, observer_states = observe(obs, observer_states)
+            obs, observer_states = observe(obs, observer_states, action)
         return (
             obs,
             env_state,

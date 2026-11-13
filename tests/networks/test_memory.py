@@ -61,6 +61,10 @@ def test_config_validates_kind_specific_knobs():
         MemoryConfig(kind="transformer", window=0)
     with pytest.raises(ValueError, match="d_state"):
         MemoryConfig(kind="mamba", d_conv=0)
+    with pytest.raises(ValueError, match="layer_norm_epsilon"):
+        MemoryConfig(kind="transformer", layer_norm_epsilon=0.0)
+    with pytest.raises(ValueError, match="mlp_ratio"):
+        MemoryConfig(kind="transformer", mlp_ratio=0)
 
 
 def test_config_refuses_an_init_of_another_kind():
@@ -329,6 +333,21 @@ def test_output_ends_with_a_layer_norm(kind, num_layers):
     assert "ln_f" not in raw_params["params"]["core"]
     _, y_raw = raw.apply(raw_params, carry, 50.0 * x, resets)
     assert not jnp.allclose(y_raw.var(-1), 1.0, atol=0.1)
+
+
+def test_a_transformer_without_bias_keeps_only_its_embeddings():
+    """bias=False is nanoGPT's config.bias: no bias in the attention and MLP
+    layers or the LayerNorms, ln_f included; the input embedding keeps one,
+    as nanoGPT's wte does. mlp_ratio sets the MLP's width (GPT-2's 4)."""
+    _, params, *_ = make_cell("transformer", bias=False, mlp_ratio=4, num_layers=2)
+    core = params["params"]["core"]
+    for name in ("q_0", "k_1", "v_0", "attn_out_1", "mlp_up_0", "mlp_down_1"):
+        assert set(core[name]) == {"kernel"}, name
+    for name in ("ln_attn_0", "ln_mlp_1", "ln_f"):
+        assert set(core[name]) == {"scale"}, name
+    assert set(core["embed"]) == {"kernel", "bias"}
+    assert core["mlp_up_0"]["kernel"].shape == (8, 32)
+    assert core["mlp_down_0"]["kernel"].shape == (32, 8)
 
 
 # ---------------------------------------------------------------- init

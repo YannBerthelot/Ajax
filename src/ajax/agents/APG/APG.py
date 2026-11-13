@@ -250,6 +250,9 @@ class APG(GradientClipping, ExpertGuided, OwnIterationAgent):
         d_model: int = 128,
         context: int = 100,
         final_norm: bool = True,
+        bias: bool = False,
+        layer_norm_epsilon: float = 1e-5,
+        mlp_ratio: int = 4,
         learning_rate: float = 5e-4,
         weight_decay: float = 0.0,
         warmup_steps: int = 5000,
@@ -276,14 +279,13 @@ class APG(GradientClipping, ExpertGuided, OwnIterationAgent):
         alone: the biases, LayerNorm scales and PID gains keep the peak
         rate. Not reproduced: the reference decays only tensors of two or
         more dimensions (transformer_onestep_CL.py:72-77; moot at
-        weight_decay=0). Not
-        backed by runs: the LayerNorms, ln_f included, keep a bias and
-        flax's epsilon 1e-6, where the reference's have no bias and epsilon
-        1e-5 (buswayne/in-context-controller at 7eb094ce17:
-        transformer_onestep.py:33 calls F.layer_norm with 1e-5, :156 builds
-        ln_f = LayerNorm(n_embd, bias=config.bias), and
-        train_onestep_lin_CL.py:103 defaults --bias to False). The
-        transformer starts as the reference's GPT does (APG_MEMORY_INITS).
+        weight_decay=0). The transformer's layers are the reference's: no
+        bias in its attention and MLP layers or its LayerNorms, LayerNorm
+        epsilon 1e-5 and an MLP 4x wide (transformer_onestep.py:33, :44-46,
+        :93-95, :156; train_onestep_lin_CL.py:103 defaults --bias to False),
+        and it starts as the reference's GPT does (APG_MEMORY_INITS). A
+        checkpoint saved before 2026-11-13 restores with bias=True,
+        layer_norm_epsilon=1e-6 and mlp_ratio=2, the layers Ajax had then.
         final_norm=False rebuilds the transformer without its final
         LayerNorm, only to restore a checkpoint saved before it (see
         MemoryConfig); an expand-then-contract shim (CLAUDE.md, refactoring
@@ -308,6 +310,9 @@ class APG(GradientClipping, ExpertGuided, OwnIterationAgent):
                 num_heads=n_heads,
                 window=context,
                 final_norm=final_norm,
+                bias=bias,
+                layer_norm_epsilon=layer_norm_epsilon,
+                mlp_ratio=mlp_ratio,
             ),
             pid=pid,
             system_class=system_class,

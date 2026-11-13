@@ -2257,3 +2257,18 @@ _GOLDEN.update(
         },
     }
 )
+
+# Re-recorded on macOS ARM CPU once recurrent PPO's heads each read the
+# memory through a 128-unit ReLU layer of their own, as PureJaxRL's do
+# (ppo_rnn.py:59-75): new layers, so new numbers (actor +56%, critic +60%,
+# target +56%, about the new layers' squared norm).
+_GOLDEN.update(
+    {
+        "PPO-gru": {
+            "actor": 89.11834716796875,
+            "critic": 87.35801696777344,
+            "target": 88.98634338378906,
+            "n_updates": 4.0,
+        },
+    }
+)

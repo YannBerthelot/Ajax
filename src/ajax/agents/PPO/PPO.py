@@ -59,6 +59,7 @@ from ajax.agents.minibatch import (
     get_actions_and_log_probs,
     run_epochs,
 )
+from ajax.agents.presets import Preset
 from ajax.agents.recurrent import (
     compute_rollout_values,
     get_policy_on_minibatch,
@@ -89,6 +90,27 @@ from ajax.types import Architecture, FloatOrCallable, InitializationFunction
 #: (ppo_rnn.py:53-55) and popjaxrl @12e5d42 (ppo_gru.py:45-47), whose GRU
 #: keeps flax's defaults (ppo_rnn.py:35, ppo_gru.py:30), as Ajax's does.
 PPO_HIDDEN_INIT = "orthogonal(np.sqrt(2))"
+#: ppo2's Atari config (openai/baselines@ea25b9e, ppo2/defaults.py:15-22),
+#: its rate kept constant as the defaults keep MuJoCo's (owner, 2026-10-18),
+#: the networks shared as its value_network default leaves them (MuJoCo's
+#: copies them, :12). The 8 envs are the PPO paper's actors (Schulman et
+#: al., 2017, Table 5); ppo2 runs one per CPU (run.py:87-89).
+PRESETS = {
+    "Atari": Preset(
+        {
+            "n_envs": 8,
+            "n_steps": 128,
+            "num_minibatches": 4,
+            "n_epochs": 4,
+            "actor_learning_rate": 2.5e-4,
+            "critic_learning_rate": 2.5e-4,
+            "clip_range": 0.1,
+            "ent_coef": 0.01,
+            "share_encoder": True,
+        },
+        "openai/baselines@ea25b9e ppo2/defaults.py:15-22",
+    )
+}
 
 
 @dataclass(kw_only=True, eq=False, repr=False)
@@ -207,11 +229,12 @@ class PPO(
         owner left aside (2026-11-13).
 
         With memory the references share too (common/policies.py:165;
-        PureJaxRL ppo_rnn.py:51-57), but PureJaxRL gives each head a
-        128-unit layer after the GRU (ppo_rnn.py:59-75), which Ajax's heads
-        lack: on CartPole's raw returns the value then swamps the one memory
-        (return 23 against 260 apart, 100k steps). Recurrent PPO keeps its
-        networks apart until those layers exist (owner, 2026-11-13)."""
+        PureJaxRL ppo_rnn.py:51-57; popjaxrl @12e5d42 ppo_gru.py:45-50), but
+        Ajax's shared memory fails the masked-CartPole memory probe, even
+        with the references' per-head layers (network_settings): GRU returns
+        37, 33 and 12 over 3 seeds, against 211, 194 and 500 apart. Recurrent
+        PPO keeps its networks apart until that is understood (owner,
+        2026-11-13)."""
         return self.cnn_image_shape is not None
 
     def clips_value_loss(self) -> bool:
@@ -227,6 +250,18 @@ class PPO(
                 " collected with; with unroll_length (brax's PPO, which does not clip"
                 " it) the minibatches carry no such values."
             )
+
+    def network_settings(self) -> dict[str, Any]:
+        """With memory, each head reads the memory through a 128-unit ReLU
+        layer of its own, started orthogonal(2), as PureJaxRL's do
+        (ppo_rnn.py:59-75; popjaxrl's ppo_gru.py:53-66 has two, of leaky
+        ReLU)."""
+        if self.memory is None:
+            return {}
+        return {
+            "head_architecture": ("128", "relu"),
+            "head_kernel_init": "orthogonal(2)",
+        }
 
     def optimizer_settings(self) -> dict[str, Any]:
         # ppo2's Adam (model.py:100-107), TensorFlow 1's tf.train.AdamOptimizer,

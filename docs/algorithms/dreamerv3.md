@@ -61,6 +61,14 @@ agent = DreamerV3("CheetahRun", model_size="12m", n_envs=16, train_ratio=512,
 state, _ = agent.train(seed=0, n_timesteps=250_000)  # 500K env frames
 ```
 
+## Presets
+
+`DreamerV3.preset("DMC", env_id)` builds that configuration, the
+reference's `dmc_proprio` (danijar/dreamerv3@`29eb964`, `configs.yaml:44`,
+`:84`, `:232-236`; [Presets](../guide/training.md#presets)): `model_size="12m"`, `train_ratio=512`, `n_envs=16`
+and `action_repeat=2`. The reference's other domains (Atari, Crafter, DMLab,
+Procgen) observe images, which Ajax's DreamerV3 does not encode yet.
+
 ## Key hyperparameters
 
 Every default is the paper-era value.

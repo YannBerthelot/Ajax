@@ -40,6 +40,7 @@ from ajax.agents.families import (
     RewardNormalization,
     TrainContext,
 )
+from ajax.agents.presets import Preset
 from ajax.agents.recurrent import q_values, sample_replay
 from ajax.controller import executed_fn
 from ajax.environments.interaction import get_pi
@@ -52,6 +53,17 @@ from ajax.types import Architecture, FloatOrCallable
 ORTHOGONAL_SQRT2 = "orthogonal(np.sqrt(2))"
 #: The reference's twin critics, whose losses it sums (critic.py update_q).
 NUM_CRITICS = 2
+#: The reference's AntMaze config; its locomotion config is the defaults.
+#: Its preprocessing of the datasets is not here: AntMaze's rewards minus 1
+#: (train_offline.py:68-69) have no field, and the locomotion rewards' scale,
+#: 1000 over the dataset's range of returns (:35-52), is reward_scale
+#: computed from each dataset, not a constant of the task.
+PRESETS = {
+    "AntMaze": Preset(
+        {"expectile": 0.9, "temperature": 10.0},
+        "ikostrikov/implicit_q_learning@09d7002 configs/antmaze_config.py:15-16",
+    )
+}
 
 
 @dataclass(kw_only=True, eq=False, repr=False)
@@ -73,7 +85,7 @@ class IQL(
 
     Defaults are the reference code's (configs/mujoco_config.py,
     learner.py, policy.py): expectile 0.7 and temperature 3
-    (locomotion; antmaze takes 0.9 and 10); 256-256 ReLU networks,
+    (locomotion; antmaze takes 0.9 and 10, PRESETS); 256-256 ReLU networks,
     orthogonal(sqrt 2) initialisation; Adam at 3e-4 with optax's eps 1e-8
     for the actor, the critics and the value; the actor a Gaussian on a
     tanh mean with one learned log-std per action dimension, clipped to

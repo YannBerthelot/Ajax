@@ -85,6 +85,16 @@ Defaults are those of the constructor.
 | `expert_policy` | `None` | an expert the collector tracks: its actions feed the observation features and a residual policy (`ResidualPolicy`), and the evaluation reports its return next to the agent's |
 | `extensions` | `()` | research features (see [Extensions](../guide/extensions.md)) |
 
+## Presets
+
+`PPO.preset("Atari", env_id)` takes ppo2's Atari config
+(openai/baselines@`ea25b9e`, `ppo2/defaults.py:15-22`; [Presets](../guide/training.md#presets)): 8 environments
+(the paper's actors; ppo2 runs one per CPU) of 128 steps, 4 minibatches, 4
+epochs, learning rates `2.5e-4`, `clip_range=0.1`, `ent_coef=0.01` and one
+network shared by the actor and the critic. The learning rate stays constant,
+as the defaults keep MuJoCo's. Atari's frame skip, frame stack and reward
+clipping are the environment's.
+
 ## Notes
 
 - **`batch_size` sets the number of minibatches, not their size.** Unless

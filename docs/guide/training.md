@@ -51,6 +51,54 @@ constructor argument by name (`TDMPC2MultiTask` leaves out its dataset and
 evaluation environments), plus `algo_name`. The loggers store it with each
 run ([Logging](logging.md)).
 
+### Presets
+
+An agent's defaults are its reference code's general configuration. Where
+the reference tunes some values for one task (a temperature for Humanoid, a
+discount for Swimmer, a whole configuration for Atari), the agent keeps them
+in a preset, named after the task:
+
+```python
+from ajax import TQC
+
+agent = TQC.preset("Hopper", "hopper")  # brax's Hopper
+print(agent.top_quantiles_to_drop_per_net)  # 5, the authors' Hopper setting
+print(agent.config["preset"])  # Hopper: the run config records it
+
+# The arguments you give win over the preset's.
+agent = TQC.preset("Hopper", "hopper", top_quantiles_to_drop_per_net=3)
+```
+
+A preset is named after its task, not an environment id, so it applies to
+the gymnasium, Brax and Playground versions of the task alike. An unknown
+name raises and lists the agent's presets. Each agent module keeps its
+presets in a `PRESETS` table, each entry the values and where they come
+from:
+
+```python
+from ajax.agents.TQC.TQC import PRESETS
+
+print(PRESETS["Hopper"].citation)  # bayesgroup/tqc_pytorch@65114eb README.md:42-48
+```
+
+A preset sets every value its reference varies across tasks, even one that
+equals the default today. It sets the agent's fields only: the environment's
+own settings (Atari's frame skip or reward clipping) and a dataset's
+preprocessing stay yours.
+
+| Agent | Presets | Source |
+| --- | --- | --- |
+| [ASAC](../algorithms/asac.md#presets) | the ten Gymnasium MuJoCo tasks | the authors' tuned runs |
+| [CrossQ](../algorithms/crossq.md#presets) | `Swimmer` | the authors' `train.py` |
+| [DreamerV3](../algorithms/dreamerv3.md#presets) | `DMC` | `configs.yaml` |
+| [DQN](../algorithms/dqn.md#presets) | `Atari` | Mnih et al.'s `run_gpu` |
+| [IQL](../algorithms/iql.md#presets) | `AntMaze` | `antmaze_config.py` |
+| [PPO](../algorithms/ppo.md#presets) | `Atari` | ppo2's `defaults.py` |
+| [PQN](../algorithms/pqn.md#presets) | `CartPole`, `Atari` | purejaxql's configs |
+| [REDQ](../algorithms/redq.md#presets) | `Hopper`, `HalfCheetah`, `Walker2d`, `Ant`, `Humanoid` | MBPO's target entropies |
+| [TD3](../algorithms/td3.md#presets) | `D4RL` (TD3+BC) | TD3_BC's `main.py` |
+| [TQC](../algorithms/tqc.md#presets) | `Hopper`, `HalfCheetah`, `Walker2d`, `Ant`, `Humanoid` | the authors' README |
+
 ## `train`
 
 ```python

@@ -109,6 +109,15 @@ The next release is 0.6.0: the first item changes results.
   num_minibatches=0, batch_size=64, normalize_advantage=True, nu=0.1`. The
   benchmark's APO entry runs 500 such rollouts, evaluated every 20,000
   steps, as the reference.
+- **Per-task presets.** `Agent.preset(name, env_id, **overrides)` builds an
+  agent with the values its reference code tunes for one task, named after
+  the task ("Hopper", "AntMaze", "Atari") rather than an env id; the
+  arguments given win, and the run config records the name under
+  `"preset"`. Each agent module keeps its presets, with their sources, in a
+  `PRESETS` table: ASAC's ten Gymnasium MuJoCo tasks, TQC's and REDQ's five
+  MuJoCo tasks, CrossQ's Swimmer, IQL's AntMaze, TD3's D4RL (TD3+BC), PPO's,
+  PQN's and DQN's Atari, PQN's CartPole, and DreamerV3's DMC, whose values the
+  world-model paper protocol now reads. No default changes.
 - **DreamerV3 can keep its replay latents in host memory.** With
   `replay_on_host=True`, the posterior latents stored with each replay row
   (about 99% of the replay's bytes: 8 GB per seed for 2^20 rows at 12M) stay
@@ -132,6 +141,17 @@ The next release is 0.6.0: the first item changes results.
   before. This changes the results of PPO with `cnn_image_shape`.
   - **Upgrade:** to resume an image PPO checkpoint saved before, or to
     keep the earlier networks, pass `share_encoder=False`.
+- **Recurrent PPO's heads each read the memory through a layer of their
+  own**, as PureJaxRL's recurrent PPO does (`ppo_rnn.py`: a Dense(128) and
+  a ReLU per head, orthogonal with gain 2). The new
+  `NetworkConfig.head_architecture` gives any agent's networks such hidden
+  layers after the encoder and the memory block, and `head_kernel_init`
+  their initialiser. This changes the results of PPO with `memory`. Its
+  actor and critic keep separate memories: a shared one fails the memory
+  probe, even with these layers.
+  - **Upgrade:** to resume a recurrent PPO checkpoint saved before, or to
+    keep the earlier networks, set
+    `agent.network_args = agent.network_args.replace(head_architecture=())`.
 - **DreamerV3 trains faster on the GPU.** The world model's gradient
   through its 64 filtering steps now takes each RSSM weight's gradient once
   per update, as one product over all steps, instead of adding 64 small

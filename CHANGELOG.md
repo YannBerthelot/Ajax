@@ -8,6 +8,23 @@ PyPI as `ajax-rl`.
 
 The next release is 0.6.0: the first item changes results.
 
+- **`PreviousAction()` appends the action executed before each
+  observation** (`ajax.extensions.observe`): zero at an episode's first
+  observation, in agent units, a discrete action one-hot, never
+  normalised. Collection stores it, and evaluation and `agent.policy`
+  append it as collection does, so an actor with memory can read its own
+  past actions, as Ni et al. (2022)'s recurrent actor does; a recurrent
+  Q-critic then reads it from the observation instead of appending its
+  own. It is opt-in: default runs do not change. Observation features
+  read the action through `ObserveInputs.previous_action`.
+- **SAC, TD3, REDQ, TQC, ASAC and RVI-SAC can share a memory.** With
+  `share_encoder=True`, `memory=` and `PreviousAction()`, the critic's
+  encoder and memory block read the observation and the previous action
+  for both networks, as Ni et al.'s shared recurrent network does; the
+  action the critic is asked about joins after the memory. The critic's
+  loss trains it and the actor reads it without a gradient. Without
+  `PreviousAction()` the agent refuses a shared memory.
+
 - **Three defaults now come from the agents' reference code.** An audit of
   every agent's defaults against its original code found these without a
   source:

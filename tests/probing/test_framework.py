@@ -100,7 +100,7 @@ from . import readouts as R
 CAPS = {"verdict.py": 255, "envs.py": 255, "agents.py": 171, "runs.py": 250}
 CAPS.update({"readouts.py": 220, "oracles.py": 198, "faults.py": 152, "faults/": 421})
 CAPS.update({"test_average_reward.py": 186})
-CAPS.update({"test_framework.py": 326, "test_value_chains.py": 1051})
+CAPS.update({"test_framework.py": 328, "test_value_chains.py": 1051})
 CAPS.update({"test_episode_ends.py": 1050, "test_bookkeeping.py": 1013})
 CAPS.update({"test_extensions.py": 855, "test_p4_split_run.py": 360})
 CAPS.update({"test_memory.py": 440, "test_world_models.py": 452})

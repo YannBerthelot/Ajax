@@ -123,7 +123,7 @@ check.
 | TQC | bayesgroup/tqc_pytorch (PyTorch, from Software Heritage) | `tests/conformance/test_tqc_original.py` |
 | ReBRAC (TD3 with TD3+BC's term and `TargetBC`) | tinkoff-ai/ReBRAC (JAX, the oldest flax that runs) | `tests/conformance/test_rebrac_original.py` |
 | PPO, MLP and CNN (shared encoder) | openai/baselines ppo2 (TensorFlow 1.15) | `tests/conformance/test_ppo2_original.py` |
-| Recurrent PPO (shared encoder), its parameters only | luchris429/purejaxrl `ppo_rnn.py` (JAX) | `tests/conformance/test_purejaxrl_rnn.py` (expected to fail until Ajax's heads gain PureJaxRL's hidden layers) |
+| Recurrent PPO (shared encoder), its parameters only | luchris429/purejaxrl `ppo_rnn.py` (JAX) | `tests/conformance/test_purejaxrl_rnn.py` |
 
 The world models were checked against their originals before this kit
 existed, by parity tests that run with the other tests: TD-MPC2 against the

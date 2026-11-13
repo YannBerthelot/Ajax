@@ -10,9 +10,9 @@ lacks, an encoder kept twice) leaves a parameter without its counterpart.
 
 PureJaxRL's parameters are read off its source, with shapes on CartPole (4 features, 2 actions):
 the file is not run (its GRUCell API predates flax 0.12, see the vendor README). A one-update
-comparison, as test_ppo2_original.py makes with ppo2, needs these to match first. They differ on
-each head's hidden layer, which Ajax lacks: the check is expected to fail (strict) until it lands,
-then the mark goes and the one-update comparison follows.
+comparison, as test_ppo2_original.py makes with ppo2, needs these to match first, and an
+environment where ppo_rnn.py runs. Recurrent PPO keeps its networks apart by default (the owner's
+call while a shared memory fails the memory probe): the check names share_encoder=True.
 """
 
 from typing import Any
@@ -41,15 +41,21 @@ REFERENCE: dict[str, tuple[dict, tuple[str, str] | None]] = {
     ),
     # :35, :59, the GRU both heads read
     "ScannedRNN_0/GRUCell_0": (GRU, ("critic_state", "memory_cell/core/gru_0")),
-    # :61-64, the actor's hidden layer
-    "Dense_1": ({"kernel": (128, 128), "bias": (128,)}, None),
+    # :61-64, the actor's hidden layer (NetworkConfig.head_architecture)
+    "Dense_1": (
+        {"kernel": (128, 128), "bias": (128,)},
+        ("actor_state", "head_layers/layers_0"),
+    ),
     # :65-67, the logits
     "Dense_2": (
         {"kernel": (128, 2), "bias": (2,)},
         ("actor_state", "model/layers_0"),
     ),
     # :71-74, the critic's hidden layer
-    "Dense_3": ({"kernel": (128, 128), "bias": (128,)}, None),
+    "Dense_3": (
+        {"kernel": (128, 128), "bias": (128,)},
+        ("critic_state", "head_layers/layers_0"),
+    ),
     # :75-77, the value
     "Dense_4": ({"kernel": (128, 1), "bias": (1,)}, ("critic_state", "model")),
 }
@@ -116,11 +122,6 @@ def differences(ours: dict, reference: dict) -> list[str]:
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Ajax's heads lack PureJaxRL's hidden layer per head after the GRU (Dense_1,"
-    " Dense_3; owner, 2026-11-13: expected to fail until they land)",
-)
 def test_shared_recurrent_networks_hold_purejaxrls_parameters():
     found = differences(ajax_leaves(share_encoder=True), reference_leaves())
     assert not found, "\n".join(found)

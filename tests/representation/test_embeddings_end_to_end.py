@@ -70,6 +70,7 @@ def test_an_agent_without_a_critic_ensemble_gets_its_figures(tmp_path, monkeypat
         "CartPole-v1",
         n_envs=2,
         n_steps=8,
+        num_minibatches=4,  # 16 rows a rollout
         architecture=NET,
         extensions=(RepresentationProbe(directory, 8, n_states=128),),
     )

@@ -2691,6 +2691,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#ajax.environments.mujoco.tasks.GymnasiumTask.warp_convex_room" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        warp_convex_room
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#ajax.environments.mujoco.tasks.GymnasiumTask.initial_state" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4046,6 +4057,17 @@
     <span class="md-ellipsis">
       
         set_state
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.mujoco.tasks.GymnasiumTask.warp_convex_room" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        warp_convex_room
       
     </span>
   </a>
@@ -5696,6 +5718,34 @@ stream: a reset is a sample of the same initial-state distribution.</p>
 <div class="doc doc-object doc-function">
 
 
+<h4 id="ajax.environments.mujoco.tasks.GymnasiumTask.warp_convex_room" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">warp_convex_room</span>
+
+
+<a href="#ajax.environments.mujoco.tasks.GymnasiumTask.warp_convex_room" class="headerlink" title="Permanent link">&para;</a></h4>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">warp_convex_room</span><span class="p">()</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Slots in MuJoCo Warp's buffer for convex (GJK/EPA) collisions,
+which every world of a batch shares: one for each geom pair that can
+collide, in each of WARP_WORLDS worlds, and no more than the contact
+buffer, as MuJoCo Warp requires. None on pure JAX.</p>
+<p>MuJoCo Warp's default is the whole contact buffer, and each physics
+call allocates about 6.5 kB of scratch per slot: 320 MB a call on
+Pusher, which has 7 pairs. Warp keeps a CUDA graph of a call for each
+new set of XLA buffer addresses, up to 32 per function, each with its
+scratch, and PPO on Pusher ran out of memory on an 11 GB GPU.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
 <h4 id="ajax.environments.mujoco.tasks.GymnasiumTask.initial_state" class="doc doc-heading">
             <span class="doc doc-object-name doc-function-name">initial_state</span>
 
@@ -7099,11 +7149,13 @@ key, so this adapter bridges the two conventions.</p>
         <p>Stops a run whose MuJoCo Warp physics ran out of room.</p>
 <p>MuJoCo Warp keeps one contact buffer for every world of a batch (all the
 seeds and envs stepped at once), sized when the task makes its data
-(<code>naconmax</code>), and room for <code>njmax</code> constraint rows in each world. A
-step needing more drops the rest, prints a warning and goes on with
-wrong physics: a body sinks through the floor. This raises instead,
-after each reset and step, from Warp's own counters, which describe the
-step's last physics substep. Goes directly over a raw Warp env.</p>
+(<code>naconmax</code>), one buffer for the geom pairs its convex (GJK/EPA)
+collision code handles (<code>naccdmax</code>), and room for <code>njmax</code> constraint
+rows in each world. A step needing more drops the rest, prints a warning
+and goes on with wrong physics: a body sinks through the floor. This
+raises instead, after each reset and step, from Warp's own counters,
+which describe the step's last physics substep, and from its convex
+overflow flag, which no counter shows. Goes directly over a raw Warp env.</p>
 
 
 

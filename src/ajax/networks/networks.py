@@ -598,19 +598,23 @@ class MultiCritic(nn.Module):
         """The shared encoder's features at x, through the memory block if
         there is one, and the memory's next carry (None without one). A
         Q-critic's action (the last query_dim inputs) skips the encoder and
-        joins its features."""
+        the memory and joins their features, so asking about another action
+        never changes the memory (Critic.query_dim)."""
+        action = None
         if self.query_dim:
-            observations, action = x[..., : -self.query_dim], x[..., -self.query_dim :]
-            features = self.encoder(observations)
-            return jnp.concatenate([features, action], axis=-1), None
+            x, action = x[..., : -self.query_dim], x[..., -self.query_dim :]
         features = self.encoder(x)
-        if self.memory is None:
-            return features, None
-        if hidden_state is None or done is None:
-            raise ValueError("Recurrent Critic requires hidden_state and done flags.")
-        carry = jax.tree.map(lambda leaf: leaf[0], hidden_state)
-        carry, features = self.memory_cell(carry, features, done)
-        return features, jax.tree.map(lambda leaf: leaf[None], carry)
+        if self.memory is not None:
+            if hidden_state is None or done is None:
+                raise ValueError(
+                    "Recurrent Critic requires hidden_state and done flags."
+                )
+            carry = jax.tree.map(lambda leaf: leaf[0], hidden_state)
+            carry, features = self.memory_cell(carry, features, done)
+            hidden_state = jax.tree.map(lambda leaf: leaf[None], carry)
+        if action is not None:
+            features = jnp.concatenate([features, action], axis=-1)
+        return features, hidden_state
 
     def apply_encoder_ensemble(self, x: jax.Array) -> jax.Array:
         """Per-ensemble-member encoder features, shape ``(num, ..., d)``
@@ -635,18 +639,22 @@ def action_value_input(
     return jnp.concatenate([obs, previous_action, action], axis=-1)
 
 
-def check_share_encoder(network_config: NetworkConfig, action_value: bool) -> None:
+def check_share_encoder(
+    network_config: NetworkConfig, action_value: bool, observers: Sequence = ()
+) -> None:
     """Refuse a shared encoder (``network_config.share_encoder``) the
-    networks cannot have."""
+    networks cannot have, the run's observation features being
+    ``observers``."""
     if not network_config.share_encoder:
         return
     if isinstance(network_config.actor_architecture, PIDPolicy):
         raise ValueError("share_encoder needs an encoder: a PID actor has none.")
-    if action_value and network_config.memory is not None:
+    memory = network_config.memory is not None
+    if action_value and memory and not reads_previous_action(observers):
         raise ValueError(
             "A memory shared with a Q-critic reads the previous action, as the"
-            " critic's does (Ni et al. 2022), and the actor does not read it"
-            " yet: share_encoder takes no memory with a Q-critic."
+            " critic's does (Ni et al. 2022), so the actor must read it too:"
+            " add PreviousAction() (ajax.extensions.observe) to the extensions."
         )
     architectures = (
         network_config.actor_architecture,
@@ -704,7 +712,7 @@ def get_initialized_actor_critic(
     memory block): the critic's, which its optimiser steps; the actor's
     state holds its heads and a copy of it (``shared_params``).
     """
-    check_share_encoder(network_config, action_value)
+    check_share_encoder(network_config, action_value, env_config.observers)
     action_dim = policy_action_dim(env_config)
 
     memory = parse_memory_config(network_config.memory)

@@ -63,6 +63,7 @@ from ajax.networks.networks import (
     in_critic_units,
     predict_value,
     predict_value_sequence,
+    with_critic_encoder,
 )
 from ajax.state import BaseAgentState, LoadedTrainState, Transition
 from ajax.types import BufferType
@@ -181,11 +182,11 @@ def sample_and_burnin_sequences(
         agent_state.critic_state.hidden_state, batch_size, batch_axis=1
     )
 
-    def burn_actor(params: Any) -> Any:
+    def burn_actor(actor_state: LoadedTrainState, params: Any) -> Any:
         if burn_in == 0:
             return actor_template
         return get_pi_sequence(
-            agent_state.actor_state,
+            actor_state,
             params,
             window_obs[:burn_in],
             window_resets[:burn_in],
@@ -210,18 +211,24 @@ def sample_and_burnin_sequences(
         # still zero them at episode starts.
         actor_carry = unflatten_carry(window["actor_carry"][burn_in], actor_template)
     else:
-        actor_carry = burn_actor(agent_state.actor_state.params)
+        actor_carry = burn_actor(
+            agent_state.actor_state, agent_state.actor_state.params
+        )
     target_actor_carry = None
     if burn_target_actor:
         # TD3's target asks its target actor for the next action, so the
         # target actor needs a warmed-up memory of its own. With stored
         # memories, the online actor's are reused for it, though the online
         # actor produced them: the usual staleness of stored memories (R2D2
-        # stores one memory per step).
+        # stores one memory per step). A target actor sharing the critic's
+        # encoder and memory reads the target critic's, as its target does.
+        target_actor = with_critic_encoder(
+            agent_state.actor_state, agent_state.critic_state.target_params
+        )
         target_actor_carry = (
             actor_carry
             if stored_state
-            else burn_actor(agent_state.actor_state.target_params)
+            else burn_actor(target_actor, target_actor.target_params)
         )
     rows = slice(burn_in, -1)
     terminated = window["terminated"][rows].squeeze(-1) > 0

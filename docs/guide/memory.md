@@ -213,7 +213,9 @@ observation feature for it to read the action taken before each
 observation too, as Ni et al.'s recurrent actor does: the feature joins
 every observation, in collection, evaluation and `agent.policy`, zero at an
 episode's first. The critic then reads the previous action from the
-observation instead of adding its own, in the agent's [-1, 1] units.
+observation instead of adding its own, in the agent's [-1, 1] units. With
+the feature, `share_encoder=True` gives the actor and the critic one memory,
+the critic's ([Networks](networks.md)).
 
 ```python
 from ajax import SAC

@@ -128,6 +128,7 @@ OPTIONS.update(
         "weight_decay": {"weight_decay": 1e-2},
         "unroll_length": {"unroll_length": 8},
         "normalize_advantage": {"normalize_advantage": False},
+        "clip_value_loss": {"clip_value_loss": False},
         **{k: {k: None} for k in NEGATED},
         "expert_policy": {"expert_policy": EXPERT},
         "eval_expert_policy": {"eval_expert_policy": EXPERT},

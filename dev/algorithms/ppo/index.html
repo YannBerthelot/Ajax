@@ -3065,8 +3065,8 @@ Optimization Algorithms</em>, 2017 (<a href="https://arxiv.org/abs/1707.06347">a
 <tbody>
 <tr>
 <td><code>n_envs</code></td>
-<td>4</td>
-<td>environments stepped in parallel</td>
+<td>1</td>
+<td>environments stepped in parallel (ppo2's MuJoCo runs use one)</td>
 </tr>
 <tr>
 <td><code>n_steps</code></td>
@@ -3135,8 +3135,8 @@ Optimization Algorithms</em>, 2017 (<a href="https://arxiv.org/abs/1707.06347">a
 </tr>
 <tr>
 <td><code>actor_architecture</code>, <code>critic_architecture</code></td>
-<td><code>("128", "tanh", "128", "tanh")</code></td>
-<td>hidden layers, as width and activation strings</td>
+<td><code>("64", "tanh", "64", "tanh")</code></td>
+<td>hidden layers, as width and activation strings (ppo2's MLP)</td>
 </tr>
 <tr>
 <td><code>normalize_observations</code>, <code>normalize_rewards</code></td>
@@ -3353,7 +3353,7 @@ compilation) at main <code>a8a13c2</code>
 <div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">PPO</span><span class="p">(</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">env_id</span><span class="p">,</span>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="o">*</span><span class="p">,</span>
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    <span class="n">n_envs</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    <span class="n">n_envs</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
 <a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="n">env_params</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="n">weight_decay</span><span class="o">=</span><span class="mf">0.0</span><span class="p">,</span>
 <a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    <span class="n">episode_length</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
@@ -3374,8 +3374,8 @@ compilation) at main <code>a8a13c2</code>
 <a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a>    <span class="n">normalize_observations</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
 <a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a>    <span class="n">actor_learning_rate</span><span class="o">=</span><span class="mf">0.0003</span><span class="p">,</span>
 <a id="__codelineno-0-24" name="__codelineno-0-24" href="#__codelineno-0-24"></a>    <span class="n">critic_learning_rate</span><span class="o">=</span><span class="mf">0.0003</span><span class="p">,</span>
-<a id="__codelineno-0-25" name="__codelineno-0-25" href="#__codelineno-0-25"></a>    <span class="n">actor_architecture</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;128&quot;</span><span class="p">,</span> <span class="s2">&quot;tanh&quot;</span><span class="p">,</span> <span class="s2">&quot;128&quot;</span><span class="p">,</span> <span class="s2">&quot;tanh&quot;</span><span class="p">),</span>
-<a id="__codelineno-0-26" name="__codelineno-0-26" href="#__codelineno-0-26"></a>    <span class="n">critic_architecture</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;128&quot;</span><span class="p">,</span> <span class="s2">&quot;tanh&quot;</span><span class="p">,</span> <span class="s2">&quot;128&quot;</span><span class="p">,</span> <span class="s2">&quot;tanh&quot;</span><span class="p">),</span>
+<a id="__codelineno-0-25" name="__codelineno-0-25" href="#__codelineno-0-25"></a>    <span class="n">actor_architecture</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;64&quot;</span><span class="p">,</span> <span class="s2">&quot;tanh&quot;</span><span class="p">,</span> <span class="s2">&quot;64&quot;</span><span class="p">,</span> <span class="s2">&quot;tanh&quot;</span><span class="p">),</span>
+<a id="__codelineno-0-26" name="__codelineno-0-26" href="#__codelineno-0-26"></a>    <span class="n">critic_architecture</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;64&quot;</span><span class="p">,</span> <span class="s2">&quot;tanh&quot;</span><span class="p">,</span> <span class="s2">&quot;64&quot;</span><span class="p">,</span> <span class="s2">&quot;tanh&quot;</span><span class="p">),</span>
 <a id="__codelineno-0-27" name="__codelineno-0-27" href="#__codelineno-0-27"></a>    <span class="n">gamma</span><span class="o">=</span><span class="mf">0.99</span><span class="p">,</span>
 <a id="__codelineno-0-28" name="__codelineno-0-28" href="#__codelineno-0-28"></a>    <span class="n">max_grad_norm</span><span class="o">=</span><span class="mf">0.5</span><span class="p">,</span>
 <a id="__codelineno-0-29" name="__codelineno-0-29" href="#__codelineno-0-29"></a>    <span class="n">ent_coef</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
@@ -3439,13 +3439,18 @@ compilation) at main <code>a8a13c2</code>
 
 
         <p>Proximal Policy Optimization, for discrete and continuous actions.</p>
-<p>Defaults are ppo2's (ppo2/ppo2.py:22, model.py:75, :91,
-:100-107): Adam at 3e-4 with eps 1e-5, its gradient clipped to 0.5
-over both networks at once, vf_coef 0.5 on half the squared value
-error, clip 0.2, gamma 0.99, lambda 0.95, the advantages normalised per
+<p>Defaults are ppo2's MuJoCo run (ppo2/defaults.py:1-12 mujoco(),
+ppo2/ppo2.py:22, model.py:75, :91, :100-107): one env (run.py:113,
+num_env or 1) of 2048 steps cut into 32 minibatches of 64 for 10
+epochs, 64-64 tanh layers (common/models.py:75, mlp's defaults), Adam
+at 3e-4 with eps 1e-5, its gradient clipped to 0.5 over both networks
+at once, vf_coef 0.5 on half the squared value error, clip 0.2, no
+entropy bonus, gamma 0.99, lambda 0.95, the advantages normalised per
 minibatch; the Gaussian's log-std one learned parameter per action
 dimension starting at 0 (std 1), never clipped (the Actor in
-networks.py cites it). The 128-128 tanh layers are Ajax's.</p>
+networks.py cites it). Not taken: mujoco()'s linear decay of the rate
+(owner, 2026-10-18), and run.py:115-116's VecNormalize of observations
+and returns (normalize_observations, normalize_rewards stay off).</p>
 
 
 

@@ -71,28 +71,6 @@ def test_td3_starts_every_layer_as_torch_nn_linear():
             np.testing.assert_allclose(kernel.var(), bound**2 / 3, rtol=0.3)
 
 
-def test_recurrent_td3_keeps_its_previous_initialisation():
-    """With memory, TD3 keeps Ajax's previous initialisation until Ni et
-    al.'s is audited: orthogonal(1.0) hidden layers and DDPG's uniform(+-3e-3)
-    last layer with a zero bias."""
-    from ajax.networks.memory import MemoryConfig
-
-    agent = TD3(env_id="Pendulum-v1", memory=MemoryConfig("gru", 16))
-    actor_state, _ = get_initialized_td3_actor_critic(
-        jax.random.PRNGKey(0),
-        agent.env_args,
-        agent.actor_optimizer_args,
-        agent.critic_optimizer_args,
-        agent.network_args,
-    )
-    actor = actor_state.params["params"]
-    hidden = np.asarray(actor["hidden"]["layers_2"]["kernel"])
-    np.testing.assert_allclose(hidden.T @ hidden, np.eye(256), atol=1e-4)
-    head = np.asarray(actor["head"]["kernel"])
-    assert 1e-3 < np.abs(head).max() <= 3e-3
-    np.testing.assert_array_equal(actor["head"]["bias"], 0.0)
-
-
 def test_the_behaviour_policy_adds_its_exploration_noise():
     """clip(mu(s) + N(0, sigma^2), -1, 1) after the warm-up (Fujimoto et al.,
     2018): at sigma = 0.3 the executed action is off the actor's mean by

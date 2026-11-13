@@ -36,7 +36,9 @@ AGENTS: dict[str, tuple[type, dict[str, Any]]] = {
         {"actor_architecture": ("32", "relu"), "critic_architecture": ("32", "relu")},
     ),
 }
-CRITICS = {"ASAC": 2, "REDQ": 3}  # an ensemble's carry keeps its critics' axis
+# The critics read one memory (Ni et al.'s qf1 and qf2 on one RNN), whose
+# carry keeps the ensemble's axis with one member.
+CRITICS = {"ASAC": 1, "REDQ": 1}
 TRAINS = [pytest.param("SAC", kind, marks=pytest.mark.slow) for kind in MEMORY_KINDS]
 TRAINS += [pytest.param("ASAC", "lstm"), pytest.param("REDQ", "mamba")]
 TRAINS.append(pytest.param("TD3", "transformer"))

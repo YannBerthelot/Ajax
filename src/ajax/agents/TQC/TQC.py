@@ -48,7 +48,12 @@ from ajax.agents.families import (
     RewardNormalization,
     TrainContext,
 )
-from ajax.agents.recurrent import RecurrentCarries, q_values, sample_replay
+from ajax.agents.recurrent import (
+    RecurrentCarries,
+    ni_initialisation,
+    q_values,
+    sample_replay,
+)
 from ajax.agents.SAC.SAC import (
     compute_soft_bellman_target,
     compute_soft_policy_loss,
@@ -132,10 +137,11 @@ class TQC(
     def actor_critic_args(self) -> dict[str, Any]:
         # The authors' layers are torch's nn.Linear at its default
         # initialisation, biases included (structures.py:36-58, "TODO:
-        # initialization"). Recurrent TQC (memory set) keeps Ajax's, as
-        # recurrent SAC, REDQ and ASAC do until Ni et al.'s is audited.
+        # initialization"). Recurrent TQC (memory set) starts as Ni et al.'s
+        # recurrent SAC, as the other recurrent off-policy agents do.
         args: dict[str, Any] = {"squash": True}
         if self.memory is not None:
+            args.update(ni_initialisation())
             return args
         init = ("encoder_kernel_init", "mean_kernel_init", "log_std_kernel_init")
         args.update(dict.fromkeys((*init, "value_kernel_init"), TORCH_LINEAR))

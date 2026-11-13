@@ -8,7 +8,10 @@ shows next, [t, c]. With the actor's parameters held fixed (no update
 runs: the off-policy agents stay in their warm-up, PPO steps at learning
 rate 0), the live carry a run ends with must be the actor's run from a
 fresh carry over the current episode's observations alone: every earlier
-episode, ended by a termination or a time limit, is forgotten.
+episode, ended by a termination or a time limit, is forgotten. The
+off-policy agents' observations also carry the previous action and reward
+(their networks read them, as Ni et al.'s do), which the replay keeps: their
+episode is replayed from it.
 
 APG's controller has its own test (tests/agents/APG/test_episode_ends.py),
 PPO's forced reset too (tests/agents/PPO/test_PPO.py), and the row
@@ -89,6 +92,20 @@ ROWS = [
 ]
 
 
+def _episode(state: Any, seed: int, env: int, t: int, shown: np.ndarray) -> Any:
+    """The current episode's t observations and the one shown next, (t + 1,
+    1, width): rebuilt from the one shown ([0, c], ..., [t, c]) where the
+    observation is the env's alone (PPO's), else read from the replay, whose
+    rows hold the features (written in order, the ring never full here)."""
+    if shown.shape[-1] == 2:
+        c = shown[seed, env, 1]
+        return jnp.stack([jnp.arange(t + 1.0), jnp.full(t + 1, c)], -1)[:, None]
+    buffer = state.collector_state.buffer_state
+    end = int(buffer.current_index[seed])
+    stored = buffer.experience["obs"][seed, env, end - t : end]
+    return jnp.concatenate([stored, shown[seed, env][None]])[:, None]
+
+
 @pytest.mark.parametrize("name, kind", ROWS)
 def test_the_actor_remembers_only_its_current_episode(name: str, kind: str) -> None:
     """Read through the next action: a transformer's cache keeps the entries
@@ -106,10 +123,10 @@ def test_the_actor_remembers_only_its_current_episode(name: str, kind: str) -> N
     for s in range(len(SEEDS)):
         live, params = _at(actor.hidden_state, s), _at(actor.params, s)
         for b in range(2):
-            t, c = int(shown[s, b, 0]), shown[s, b, 1]
+            t = int(shown[s, b, 0])
             if t == 0:  # the episode acted in ended: its observations are gone
                 continue
-            obs = jnp.stack([jnp.arange(t + 1.0), jnp.full(t + 1, c)], -1)[:, None]
+            obs = _episode(state, s, b, t, shown)
             starts = jnp.zeros((t, 1), bool).at[0].set(True)
             fresh = zeros_carry_like(live, 1)
             _, replayed = actor.apply(params, obs[:-1], hidden_state=fresh, done=starts)
@@ -144,6 +161,9 @@ def test_the_next_action_reads_the_carry(name: str, kind: str) -> None:
     fresh = zeros_carry_like(_at(actor.hidden_state, 0), 1)
     t = 4
     obs = jnp.stack([jnp.arange(t + 1.0), jnp.full(t + 1, 0.7)], -1)[:, None]
+    # The features' columns (the previous action and reward), zero.
+    width = jax.tree.leaves(state.collector_state.last_obs)[0].shape[-1]
+    obs = jnp.pad(obs, ((0, 0), (0, 0), (0, width - 2)))
     starts = jnp.zeros((t, 1), bool).at[0].set(True)
     _, carry = actor.apply(params, obs[:-1], hidden_state=fresh, done=starts)
     live = np.asarray(_next_action(actor, params, obs[-1:], carry))

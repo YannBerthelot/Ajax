@@ -224,12 +224,13 @@ state, _ = agent.train(seed=0, n_timesteps=64)
   value keeps an encoder of its own.
 - Cloning pretraining (`CloningPretrain`) trains the encoder too, and hands
   it back to the critic.
-- With memory, the off-policy agents share the memory block too, as Ni
-  et al. (2022)'s shared recurrent network does. It reads the observation
-  and the previous action, so these agents need the `PreviousAction()`
-  feature, which puts the previous action in the observation both
-  networks read ([Memory](memory.md)); the action the critic is asked
-  about joins after the memory. A target actor (TD3's) warms its memory up
+- With memory, the off-policy agents share the input embeddings and the
+  memory block too, as Ni et al. (2022)'s shared recurrent network does.
+  They read the observation, the previous action and the previous reward,
+  which a run with memory observes (`PreviousAction()`,
+  `PreviousReward()`; [Memory](memory.md)); each network keeps its own
+  shortcut and layers after the memory, and the action the critic is
+  asked about joins there. A target actor (TD3's) warms its memory up
   through the target critic's.
 - Not yet: CrossQ, whose batch renormalisation would have both networks'
   training passes move the shared encoder's running statistics.

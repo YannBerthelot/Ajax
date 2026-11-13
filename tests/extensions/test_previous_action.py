@@ -256,23 +256,26 @@ def _recurrent_sac(extensions: tuple) -> Any:
     )
 
 
-def _input_width(params: Any) -> int:
-    """The width of what a network's encoder reads (its first layer's
-    kernel's input axis, after any seed and ensemble axes)."""
-    kernel = params["params"].get("ensemble", params["params"])["encoder"]
-    return int(jax.tree.leaves(kernel)[-1].shape[-2])
+def _embedded_widths(params: Any) -> dict[str, int]:
+    """The width each part of a network's input embedding reads (its
+    kernel's input axis, after the seed axis)."""
+    encoder = params["params"]["encoder"]
+    return {part: int(layer["kernel"].shape[-2]) for part, layer in encoder.items()}
 
 
 @pytest.mark.parametrize("with_feature", [False, True])
 def test_a_recurrent_q_critic_reads_the_previous_action_once(with_feature):
-    """Pendulum: 3 observation columns and 1 action. The critic's memory
-    reads the observation and the previous action, 4 columns, whether the
-    replay appends it or the observation carries it (the feature); the
-    actor reads the previous action only with the feature."""
+    """Pendulum: 3 observation columns and 1 action. A run with memory
+    observes the previous action whether or not it was given the feature (its
+    networks read it, as Ni et al.'s do; owner, 2026-11-13): the critic and
+    the actor embed it once, from the observation, which the replay does
+    not append to."""
     agent = _recurrent_sac((PreviousAction(),) if with_feature else ())
     state, _ = agent.train(seed=0, n_timesteps=0)
-    assert _input_width(state.critic_state.params) == 3 + 1
-    assert _input_width(state.actor_state.params) == 3 + int(with_feature)
+    assert state.critic_state.previous_action_in_observation
+    for params in (state.critic_state.params, state.actor_state.params):
+        widths = _embedded_widths(params)
+        assert widths == {"previous_action": 1, "previous_reward": 1, "observation": 3}
 
 
 def test_asac_trains_with_memory_reading_the_observations_previous_action():

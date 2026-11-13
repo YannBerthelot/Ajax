@@ -65,8 +65,69 @@ from ajax.networks.networks import (
     predict_value_sequence,
     with_critic_encoder,
 )
+from ajax.networks.utils import RLKIT_FANIN, TORCH_LINEAR
 from ajax.state import BaseAgentState, LoadedTrainState, Transition
 from ajax.types import BufferType
+
+# ----------------------------------------------------------------------------
+# Ni et al. (2022)'s recurrent networks, which the off-policy agents with
+# memory build (twni2016/pomdp-baselines @e7c19c3; its MuJoCo POMDP configs,
+# configs/pomdp/{ant,cheetah,hopper,walker}_blt/{p,v}/rnn.yml, agree on
+# every setting below). SAC and TD3 are Ni et al.'s own; REDQ, ASAC, TQC and
+# RVI-SAC have no recurrent reference and take theirs by analogy.
+# ----------------------------------------------------------------------------
+
+#: The memory's width, rnn_hidden_size (rnn.yml:36).
+NI_MEMORY_WIDTH = 128
+#: Each memory kind's initialisation: Ni et al.'s GRU and LSTM, every weight
+#: orthogonal over the stacked gates and zero biases (recurrent_actor.py:
+#: 67-74); Memory-RL's GPT-2 (owner, 2026-10-17); Mamba's own.
+NI_MEMORY_INITS = {
+    "gru": "stacked_orthogonal",
+    "lstm": "stacked_orthogonal",
+    "transformer": "gpt2",
+    "mamba": "mamba",
+}
+#: The networks' layout (NetworkConfig's Ni et al. fields). The memory reads
+#: the previous action, the previous reward and the observation, each
+#: through its own Linear and ReLU of 16, 16 and 32 units (rnn.yml:33-35),
+#: joined in that order (recurrent_actor.py:106-109, recurrent_critic.py:
+#: 132-135); the actor's shortcut embeds the observation in 32 units
+#: (recurrent_actor.py:77-80), the critic's the observation and the action
+#: in the memory's input width, 64 (recurrent_critic.py:71-76); the
+#: embeddings are torch's nn.Linear (utils/helpers.py:213-218); the two
+#: Q-networks read one RNN (recurrent_critic.py:95-99).
+NI_LAYOUT: dict[str, Any] = {
+    "input_embedding": (
+        ("previous_action", 16),
+        ("previous_reward", 16),
+        ("observation", 32),
+    ),
+    "shortcut_widths": (32, 16 + 16 + 32),
+    "embedding_kernel_init": TORCH_LINEAR,
+    "critics_share_encoder": True,
+}
+
+
+def ni_initialisation(deterministic: bool = False) -> dict[str, Any]:
+    """Ni et al.'s initialisation of the layers after the memory, as an
+    agent's ActorCritic arguments: rlkit's Mlp, hidden layers uniform in
+    +-1/sqrt(fan_out) with biases 0.1 (torchkit/networks.py:53-57), output
+    layers uniform in +-3e-3, kernel and bias (:66-68), the actor's in
+    +-1e-3 (policies/models/actor.py:22, :103), its log-std layer's too
+    (:118-121). deterministic: TD3's actor, which has no log-std layer."""
+    actor_head = "symmetric_uniform(1e-3)"
+    args = {
+        "encoder_kernel_init": RLKIT_FANIN,
+        "value_kernel_init": "symmetric_uniform(3e-3)",
+        "critic_bias_init": "symmetric_uniform(3e-3)",
+        "mean_kernel_init": actor_head,
+        "actor_bias_init": actor_head,
+    }
+    if not deterministic:
+        args.update({"log_std_kernel_init": actor_head, "log_std_init": actor_head})
+    return args
+
 
 # ----------------------------------------------------------------------------
 # Replayed windows for the off-policy agents: sampling them and warming up

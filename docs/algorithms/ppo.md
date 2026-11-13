@@ -61,7 +61,7 @@ Defaults are those of the constructor.
 | `num_minibatches` | 0 | when positive, the number of minibatches, as in Brax |
 | `n_epochs` | 10 | passes over the rollout per update, each reshuffled |
 | `actor_learning_rate`, `critic_learning_rate` | 3e-4 | Adam step sizes (each a float or a schedule) |
-| `adam_eps` | 1e-5 | Adam's epsilon (ppo2's) |
+| `adam_eps` | 1e-5 | Adam's epsilon (ppo2's), added as TensorFlow 1's Adam adds it (see the notes) |
 | `gamma` | 0.99 | discount |
 | `gae_lambda` | 0.95 | GAE's lambda |
 | `clip_range` | 0.2 | the ratio clip; a float or a schedule of the timestep |
@@ -140,7 +140,12 @@ Defaults are those of the constructor.
   separate, unlike ppo2 and PureJaxRL (see the networks guide).
   `share_encoder` overrides the default. As ppo2's one optimizer, their gradients are clipped together to one
   global norm, then each takes an Adam step (Adam is per coordinate, so
-  the two are one Adam over the whole model). As ppo2's, the value loss
+  the two are one Adam over the whole model). It is ppo2's,
+  TensorFlow 1's Adam, whose epsilon joins the square root of the second
+  moment before the bias correction (`optimizer="tf1_adam"`); optax's adds
+  it after, a 32 times smaller epsilon at the first step, about the same
+  after a few thousand. With memory or `unroll_length` PPO takes optax's
+  Adam, as PureJaxRL and Brax do. As ppo2's, the value loss
   is clipped (`ppo2/model.py:66-75`): each squared error is the larger of
   its own and that of the value clipped to `clip_range` around the value
   that collected the rollout, so the loss stops pulling a value once it

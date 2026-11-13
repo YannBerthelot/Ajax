@@ -103,7 +103,8 @@ class PPO(
     """Proximal Policy Optimization, for discrete and continuous actions.
 
     Defaults are ppo2's (ppo2/ppo2.py:22, model.py:75, :91,
-    :100-107): Adam at 3e-4 with eps 1e-5, its gradient clipped to 0.5
+    :100-107): TensorFlow 1's Adam at 3e-4 with eps 1e-5 (optax's with
+    memory or unroll_length, as their references), its gradient clipped to 0.5
     over both networks at once, vf_coef 0.5 on half the squared value
     error, each value kept within the clip of the one that collected the
     rollout (model.py:66-75), clip 0.2, gamma 0.99, lambda 0.95, the
@@ -223,10 +224,15 @@ class PPO(
             )
 
     def optimizer_settings(self) -> dict[str, Any]:
-        # ppo2's Adam (model.py:100-107) with eps 1e-5; its one clip over both
-        # networks is minibatch_step's (update_steps.apply_gradients_clipped_together),
-        # so neither network's own optimiser clips.
-        return {"eps": self.adam_eps, "max_grad_norm": None}
+        # ppo2's Adam (model.py:100-107), TensorFlow 1's tf.train.AdamOptimizer,
+        # with eps 1e-5. Recurrent PPO's reference (PureJaxRL @31756b1
+        # ppo_rnn.py:124-132) and brax's PPO, which unroll_length follows,
+        # step optax's Adam. ppo2's one clip over both networks is
+        # minibatch_step's (update_steps.apply_gradients_clipped_together), so
+        # neither network's own optimiser clips.
+        tf1 = self.memory is None and self.unroll_length is None
+        rule = "tf1_adam" if tf1 else "adam"
+        return {"eps": self.adam_eps, "max_grad_norm": None, "optimizer": rule}
 
     def setup(self) -> None:
         # Checked here, not in check(): n_envs and the memory are known once built.

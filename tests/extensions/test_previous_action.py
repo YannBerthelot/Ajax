@@ -23,13 +23,14 @@ every collected row), and hand-computed columns for previous_action_input.
 from __future__ import annotations
 
 from types import SimpleNamespace
+from typing import Any
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from ajax import DQN, PPO, SAC
+from ajax import ASAC, DQN, PPO, SAC
 from ajax.controller import (
     ObserveInputs,
     observation_layout,
@@ -238,3 +239,59 @@ def test_the_policy_appends_it_as_the_evaluation_does(name):
     acted = evaluation_return(agent, agent.policy(state))
 
     np.testing.assert_allclose(float(acted), logged, rtol=RTOL)
+
+
+# -- A recurrent Q-critic --------------------------------------------------------
+
+
+def _recurrent_sac(extensions: tuple) -> Any:
+    return SAC(
+        "Pendulum-v1",
+        n_envs=2,
+        memory=MemoryConfig(kind="gru", hidden_size=4),
+        actor_architecture=("8", "relu"),
+        critic_architecture=("8", "relu"),
+        learning_starts=64,
+        extensions=extensions,
+    )
+
+
+def _input_width(params: Any) -> int:
+    """The width of what a network's encoder reads (its first layer's
+    kernel's input axis, after any seed and ensemble axes)."""
+    kernel = params["params"].get("ensemble", params["params"])["encoder"]
+    return int(jax.tree.leaves(kernel)[-1].shape[-2])
+
+
+@pytest.mark.parametrize("with_feature", [False, True])
+def test_a_recurrent_q_critic_reads_the_previous_action_once(with_feature):
+    """Pendulum: 3 observation columns and 1 action. The critic's memory
+    reads the observation and the previous action, 4 columns, whether the
+    replay appends it or the observation carries it (the feature); the
+    actor reads the previous action only with the feature."""
+    agent = _recurrent_sac((PreviousAction(),) if with_feature else ())
+    state, _ = agent.train(seed=0, n_timesteps=0)
+    assert _input_width(state.critic_state.params) == 3 + 1
+    assert _input_width(state.actor_state.params) == 3 + int(with_feature)
+
+
+def test_asac_trains_with_memory_reading_the_observations_previous_action():
+    """ASAC's target also asks its critic about the origin, (0, 0) at an
+    episode start: with the feature, the zero observation carries the zero
+    previous action."""
+    agent = ASAC(
+        "Pendulum-v1",
+        n_envs=2,
+        memory=MemoryConfig(kind="gru", hidden_size=4),
+        actor_architecture=("8", "relu"),
+        critic_architecture=("8", "relu"),
+        learning_starts=64,
+        batch_size=4,
+        extensions=(PreviousAction(),),
+    )
+    start, _ = agent.train(seed=0, n_timesteps=0)
+    state, _ = agent.train(seed=0, n_timesteps=128)
+    before = jax.tree.leaves(start.critic_state.params)
+    after = jax.tree.leaves(state.critic_state.params)
+    assert all(np.isfinite(np.asarray(leaf)).all() for leaf in after)
+    assert any(not np.array_equal(a, b) for a, b in zip(after, before, strict=True))

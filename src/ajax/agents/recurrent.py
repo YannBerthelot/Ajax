@@ -28,7 +28,9 @@ the rows up to the current one. Where a time limit cut an episode, that
 needs the time-limit section below.
 
 A critic's memory reads each row's observation together with the action
-taken before it. The action a loss asks about (the taken one, or one the
+taken before it: appended to its input from the replay, or already in the
+observation where a PreviousAction feature puts it there, the actor's too.
+The action a loss asks about (the taken one, or one the
 policy samples) enters after the memory, at a head between the memory and
 the output layer, so asking about another action never changes the memory
 (Critic.query_dim). Ni et al. (2022)'s recurrent critic does the same: its
@@ -96,8 +98,10 @@ class RecurrentCarries:
     obs: jax.Array  # (S, B, observation size)
     actions: jax.Array  # (S, B, action size): the actions taken
     # What the critics' memory reads with each row's observation: the
-    # action taken before it (previous_actions).
-    prev_actions: jax.Array  # (S, B, action size)
+    # action taken before it (previous_actions), (S, B, action size); None
+    # where the observation carries it
+    # (critic_state.previous_action_in_observation).
+    prev_actions: Optional[jax.Array]
     # (S, B): each row's position once the final observations of the
     # episodes a time limit cut are inserted (the time-limit section).
     row_positions_with_final_observations: jax.Array
@@ -161,7 +165,9 @@ def sample_and_burnin_sequences(
         [jnp.zeros_like(window_dones[:1]), window_dones[:-1]], axis=0
     ).astype(bool)
     batch_size = window_obs.shape[1]
-    window_previous_actions = previous_actions(window_actions, window_resets)
+    window_previous_actions = None
+    if not agent_state.critic_state.previous_action_in_observation:
+        window_previous_actions = previous_actions(window_actions, window_resets)
     # The warm-ups only need the memories: the asked-about actions are never
     # read, so zeros stand in for them.
     window_critic_inputs = action_value_input(
@@ -229,7 +235,11 @@ def sample_and_burnin_sequences(
             target_critic_hidden=burn_critic(agent_state.critic_state.target_params),
             obs=window_obs[rows],
             actions=window_actions[rows],
-            prev_actions=window_previous_actions[rows],
+            prev_actions=(
+                None
+                if window_previous_actions is None
+                else window_previous_actions[rows]
+            ),
             row_positions_with_final_observations=row_positions_with_final_observations(
                 cut_by_time_limit
             ),
@@ -412,18 +422,22 @@ def q_values(
     - bootstrap True: the target critic, from its warmed-up memory, at each
       row's next observation (obs are those next observations, actions the
       next actions the target asks about), see the time-limit section.
-    The memory reads each observation with the action taken before it; the
-    asked-about action enters at the output layer. Every action reaches the
-    critic in its own units (in_critic_units; predict_value converts a
-    critic without memory's).
+    The memory reads each observation with the action taken before it,
+    appended from carries.prev_actions or, where those are None, in the
+    observation (PreviousAction, in agent units); the asked-about action
+    enters at the output layer. Every appended action reaches the critic in
+    its own units (in_critic_units; predict_value converts a critic without
+    memory's).
     """
     if carries is None:
         critic_input = action_value_input(obs, actions)
         return predict_value(critic_state, params, critic_input, quantiles=quantiles)
     actions = in_critic_units(critic_state, actions)
-    previous_actions_in_critic_units = in_critic_units(
-        critic_state, carries.prev_actions
-    )
+    previous_actions_in_critic_units = None
+    if carries.prev_actions is not None:
+        previous_actions_in_critic_units = in_critic_units(
+            critic_state, carries.prev_actions
+        )
     if not bootstrap:
         critic_input = action_value_input(
             obs, actions, previous_actions_in_critic_units
@@ -441,11 +455,13 @@ def q_values(
     # the row, except after a real termination: the next step then starts a
     # new episode, with no action before it.
     rows = action_value_input(carries.obs, actions, previous_actions_in_critic_units)
-    action_taken_before = jnp.where(
-        carries.next_resets[..., None],
-        0.0,
-        in_critic_units(critic_state, carries.actions),
-    )
+    action_taken_before = None
+    if previous_actions_in_critic_units is not None:
+        action_taken_before = jnp.where(
+            carries.next_resets[..., None],
+            0.0,
+            in_critic_units(critic_state, carries.actions),
+        )
     sequence_inputs, resets = _insert_final_observations(
         carries, rows, action_value_input(obs, actions, action_taken_before)
     )

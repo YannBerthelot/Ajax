@@ -13,9 +13,10 @@ The next release is 0.6.0: the first item changes results.
   observation, in agent units, a discrete action one-hot, never
   normalised. Collection stores it, and evaluation and `agent.policy`
   append it as collection does, so an actor with memory can read its own
-  past actions, as Ni et al. (2022)'s recurrent actor does. It is opt-in:
-  default runs do not change. Observation features now read the action
-  through `ObserveInputs.previous_action`.
+  past actions, as Ni et al. (2022)'s recurrent actor does; a recurrent
+  Q-critic then reads it from the observation instead of appending its
+  own. It is opt-in: default runs do not change. Observation features
+  read the action through `ObserveInputs.previous_action`.
 
 - **Three defaults now come from the agents' reference code.** An audit of
   every agent's defaults against its original code found these without a

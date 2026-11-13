@@ -203,6 +203,25 @@ taken before it. The action the loss asks about joins after the memory, at
 the critic's head, so asking about another action does not change what the
 critic remembers (the recurrent off-policy critic of Ni et al., 2022).
 
+The actor reads the observation alone. Add the `PreviousAction()`
+observation feature for it to read the action taken before each
+observation too, as Ni et al.'s recurrent actor does: the feature joins
+every observation, in collection, evaluation and `agent.policy`, zero at an
+episode's first. The critic then reads the previous action from the
+observation instead of adding its own, in the agent's [-1, 1] units.
+
+```python
+from ajax import SAC
+from ajax.extensions.observe import PreviousAction
+from ajax.networks.memory import MemoryConfig
+
+agent = SAC(
+    "Pendulum-v1",
+    memory=MemoryConfig(kind="gru", hidden_size=64),
+    extensions=(PreviousAction(),),
+)
+```
+
 With memory, SAC, TD3 and REDQ accept no expert policy and no extensions
 (behaviour cloning included, which is the `CloningPretrain` extension), and
 ASAC, RVI-SAC and PPO no extensions, yet: they raise an error when training starts

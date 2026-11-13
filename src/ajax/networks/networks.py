@@ -11,7 +11,7 @@ from flax.core import FrozenDict
 from flax.linen.initializers import constant, lecun_normal, orthogonal
 from flax.serialization import to_state_dict
 
-from ajax.controller import feature_width, policy_action_dim
+from ajax.controller import feature_width, policy_action_dim, reads_previous_action
 from ajax.environments.obs_norm import apply_obs_norm
 from ajax.environments.utils import get_state_action_shapes
 from ajax.extensions.observe import pid_terms_at
@@ -703,10 +703,15 @@ def get_initialized_actor_critic(
         memory=memory,
         n_envs=env_config.n_envs,
     )
+    # A recurrent Q-critic's memory reads the action taken before each
+    # observation: in the observation where it carries it (PreviousAction),
+    # else appended to it.
+    in_observation = reads_previous_action(env_config.observers)
+    appends_previous_action = action_value and memory is not None and not in_observation
     critic_state = init_network_state(
         init_x=(
             action_value_input(
-                init_obs, init_action, None if memory is None else init_action
+                init_obs, init_action, init_action if appends_previous_action else None
             )
             if action_value
             else init_obs
@@ -717,6 +722,7 @@ def get_initialized_actor_critic(
         memory=memory,
         n_envs=env_config.n_envs,
     )
+    critic_state = critic_state.replace(previous_action_in_observation=in_observation)
     return actor_state, critic_state
 
 

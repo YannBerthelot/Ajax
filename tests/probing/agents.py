@@ -34,6 +34,8 @@ _SAC = {**_split(NET), **_NORM, **_REPLAY, "gamma": GAMMA, "n_envs": 1}
 _PPO = {**_split(NET), **_NORM, "n_steps": 32, "batch_size": 32, "n_epochs": 4}
 _PPO |= {"n_envs": 1}
 _Q = {"learning_rate": 1e-3, "architecture": NET, "gamma": GAMMA, "n_envs": 1}
+# APO's cells were calibrated on its defaults before its reference's (2026-11-13).
+_APO_CALIBRATED = {"num_minibatches": 0, "normalize_advantage": True, "nu": 0.1}
 _PROBE = {
     **dict.fromkeys(("TD3", "REDQ"), _SAC),
     # SAC's cells were calibrated at its 2,000-step start, its default until 11-13.
@@ -43,7 +45,7 @@ _PROBE = {
     "AVG": {"actor_architecture": NET, "critic_architecture": NET}
     | {"gamma": GAMMA, "n_envs": 1},
     "PPO": {**_PPO, "gamma": GAMMA},
-    "APO": _PPO,
+    "APO": {**_PPO, **_APO_CALIBRATED},
     "DQN": {**_Q, **_REPLAY, "target_update_interval": 100},
     # PQN learns from parallel envs, not a replay buffer: with one env the
     # value of the action it stops exploring drifts.
@@ -75,7 +77,7 @@ _BOOKKEEPING = {
     # AVG always normalises observations and never rewards (AVG.py:80-93).
     "AVG": {**_split(SMALL), "gamma": GAMMA, "learning_starts": 0, "n_envs": 1},
     "PPO": {**_B_PPO, "gamma": GAMMA},
-    "APO": _B_PPO,
+    "APO": {**_B_PPO, **_APO_CALIBRATED},
     "DQN": {**_B_Q, **_B_REPLAY, "target_update_interval": 100},
     "PQN": {**_B_Q, "n_steps": 16, "n_epochs": 2, "num_minibatches": 2},
     "UDRL": {"actor_architecture": SMALL, "n_steps": 32, "batch_size": 32}
@@ -112,7 +114,7 @@ _TINY: dict[str, dict[str, Any]] = {
 PRESETS: Mapping[str, Mapping[str, Mapping[str, Any]]] = MappingProxyType(
     {"probe": _PROBE, "bookkeeping": _BOOKKEEPING, "tiny": _TINY}
 )
-DIGEST = "9d77d6eee557"
+DIGEST = "2b2d105778c1"
 FAMILY = {"PPO": "v", "APO": "v", "DQN": "dqn", "PQN": "dqn"}
 """Which value an agent's readout reads (others: Q at the mean action)."""
 

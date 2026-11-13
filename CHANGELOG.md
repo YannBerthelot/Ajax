@@ -26,6 +26,16 @@ The next release is 0.6.0: the first item changes results.
     `beta_schedule=ExponentialBetaSchedule(d)`; the old default was
     `ExponentialBetaSchedule(0.0)`.
 
+- **APO's defaults are its reference code's MuJoCo config** (xtma/apo,
+  `mujoco_appo.py`): rollouts of 10 envs x 200 steps (was 4 x 2,048), 20
+  minibatches per epoch (`num_minibatches=20`; was cut by `batch_size`),
+  advantages not normalised (was normalised) and `nu=1.0` (was 0.1). This
+  changes results. A rollout's `n_steps * n_envs` must now be a multiple of
+  `num_minibatches`; `num_minibatches=0` cuts it by `batch_size` as before.
+  To reproduce earlier runs, pass `n_envs=4, n_steps=2048,
+  num_minibatches=0, batch_size=64, normalize_advantage=True, nu=0.1`. The
+  benchmark's APO entry runs 500 such rollouts, evaluated every 20,000
+  steps, as the reference.
 - **DreamerV3 can keep its replay latents in host memory.** With
   `replay_on_host=True`, the posterior latents stored with each replay row
   (about 99% of the replay's bytes: 8 GB per seed for 2^20 rows at 12M) stay

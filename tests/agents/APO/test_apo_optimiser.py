@@ -137,7 +137,7 @@ def test_APO_steps_its_whole_model_with_one_clipped_adam(options: dict) -> None:
     the actor's and the critic's parameters together, clipped to their
     joint norm, down the summed loss computed by hand. Clipping each
     network on its own, or dropping ``vf_coef``, moves the parameters."""
-    agent = APO(env_id="Pendulum-v1", n_envs=2, n_steps=8, batch_size=8, **options)
+    agent = APO(env_id="Pendulum-v1", n_envs=2, n_steps=8, num_minibatches=1, **options)
     _, context = agent.make_context(1)
     state = agent.init(jax.random.PRNGKey(0), context)
     actor, critic = state.actor_state, state.critic_state

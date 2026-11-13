@@ -195,7 +195,7 @@ def _half_torque(obs):
 # SAC clones with its observation layout: the training fraction and the
 # expert's action appended.
 _FEATURES = {"SAC": (TrainingProgressInput(), ExpertActionInput())}
-_LAYOUT = {"APO": {"n_steps": 8, "batch_size": 8}}
+_LAYOUT = {"APO": {"n_steps": 8, "num_minibatches": 1}}
 
 
 @pytest.mark.parametrize("agent_name", ["APO", "ASAC", "AVG", "REDQ", "SAC", "TD3"])

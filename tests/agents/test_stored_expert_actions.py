@@ -83,7 +83,12 @@ AGENTS: dict[str, tuple[type, dict]] = {
     "AVG": (AVG, {"learning_starts": 16}),
     "APO": (
         APO,
-        {"n_steps": 16, "batch_size": 8, "n_epochs": 1, "expose_recent_rollout": True},
+        {
+            "n_steps": 16,
+            "num_minibatches": 2,
+            "n_epochs": 1,
+            "expose_recent_rollout": True,
+        },
     ),
 }
 #: The agents keeping a trajectory to re-run: AVG keeps only the step it

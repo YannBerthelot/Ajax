@@ -50,7 +50,7 @@ AGENTS: dict[str, tuple[type, dict[str, Any]]] = {
     "REDQ": (REDQ, {**_CONTINUOUS, **_NETS, **_REPLAY, "num_critic_updates": 2}),
     "TD3": (TD3, {**_CONTINUOUS, **_NETS, **_REPLAY}),
     "AVG": (AVG, {**_CONTINUOUS, **_NETS, "learning_starts": 8}),
-    "APO": (APO, {**_CONTINUOUS, **_NETS, **_ROLLOUT}),
+    "APO": (APO, {**_CONTINUOUS, **_NETS, **_ROLLOUT, "num_minibatches": 1}),
     "PPO": (PPO, {**_CONTINUOUS, **_NETS, **_ROLLOUT}),
     "DQN": (DQN, {**_DISCRETE, **_REPLAY}),
     "PQN": (PQN, {**_DISCRETE, "n_steps": 8, "num_minibatches": 2}),

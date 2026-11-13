@@ -144,7 +144,7 @@ def test_a_playground_env_restarts_its_physics(monkeypatch):
 @pytest.mark.parametrize(
     ("agent_class", "options"),
     [
-        (APO, {"n_steps": 8, "batch_size": 8, "n_epochs": 1}),
+        (APO, {"n_steps": 8, "num_minibatches": 1, "n_epochs": 1}),
         (PPO, {"n_steps": 8, "batch_size": 8, "n_epochs": 1}),
         (SAC, {"learning_starts": 2, "batch_size": 4, "buffer_size": 40}),
     ],

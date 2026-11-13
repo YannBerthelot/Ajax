@@ -356,7 +356,7 @@ _CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
             **_PENDULUM,
             "n_envs": 2,
             "n_steps": 32,
-            "batch_size": 16,
+            "num_minibatches": 2,
             "extensions": (Nudge(),),
         },
         256,
@@ -2185,6 +2185,23 @@ _GOLDEN.update(
             "target": 8.0,
             "n_updates": 91.0,
             "nudge": 1.0078387260437012,
+        },
+    }
+)
+
+# Re-recorded on macOS ARM CPU once APO's defaults became its reference
+# code's MuJoCo config: advantages not normalised (was normalised) and nu 1.0
+# (was 0.1); the case cuts its rollout into the same two minibatches. Relative
+# shifts: APO-nudge actor +0.90%, critic -0.05%; target, n_updates and nudge
+# unchanged.
+_GOLDEN.update(
+    {
+        "APO-nudge": {
+            "actor": 9.22077751159668,
+            "critic": 8.006710052490234,
+            "target": 9.211957931518555,
+            "n_updates": 4.0,
+            "nudge": 0.8760150671005249,
         },
     }
 )

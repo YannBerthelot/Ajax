@@ -168,7 +168,13 @@ CASES = {
         rollout=1,  # AVG learns from each step as it comes
         alpha=True,
     ),
-    "APO": Case(APO, ON_POLICY, CONTINUOUS + DISCRETE, rollout=16, n_timesteps=128),
+    "APO": Case(
+        APO,
+        {**ON_POLICY, "num_minibatches": 2},
+        CONTINUOUS + DISCRETE,
+        rollout=16,
+        n_timesteps=128,
+    ),
     "PPO": Case(
         PPO,
         ON_POLICY,

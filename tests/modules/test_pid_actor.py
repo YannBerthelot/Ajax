@@ -302,7 +302,7 @@ AGENTS = {
     "AVG": ("AVG", {}, 64),
     "PPO": ("PPO", _ROLLOUT, 64),
     "PPO-norm": ("PPO", {**_ROLLOUT, "normalize_observations": True}, 64),
-    "APO": ("APO", _ROLLOUT, 64),
+    "APO": ("APO", {**_ROLLOUT, "num_minibatches": 2}, 64),
 }
 
 

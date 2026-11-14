@@ -5,8 +5,16 @@ only contains positions, so the policy must integrate over time to
 recover velocities. A feedforward PPO plateaus around 40-60 return;
 a recurrent PPO reaches several hundred (max 500) with the same budget.
 
-Calibration on CPU (200k steps, ~10s per run): feedforward ≈ 41,
-GRU ≈ 450. The thresholds below leave a wide margin on both sides.
+The trained policy is scored as the agent's evaluation acts (agent.policy):
+PPO normalises its observations by default (#451), and an evaluation fed
+the env's raw observations scores a recurrent PPO that solves the task
+near 10.
+
+Calibration with PPO's defaults (normalised observations and returns, the
+clipped value loss), on x86 Linux CPU, 200k steps, seed 0: feedforward 45,
+gru 500, lstm 500, transformer 451, mamba 500; seeds 1-3 gru, lstm and
+mamba 500, transformer 364-500. The thresholds below leave a wide margin on
+both sides.
 """
 
 import jax
@@ -15,7 +23,6 @@ import pytest
 from gymnax.environments.classic_control.cartpole import CartPole
 
 from ajax.agents.PPO.PPO import PPO
-from ajax.evaluate import evaluate
 from ajax.networks.memory import MemoryConfig
 
 
@@ -37,17 +44,33 @@ def _train_and_eval(memory, n_timesteps=200_000, seed=0):
         memory=memory,
     )
     state, _ = agent.train(seed=seed, n_timesteps=n_timesteps)
-    actor_state = jax.tree.map(lambda x: x[0], state.actor_state)  # unvmap seed
-    rewards, *_ = evaluate(
-        env,
-        actor_state=actor_state,
-        num_episodes=20,
-        rng=jax.random.PRNGKey(1),
-        env_params=env.default_params,
-        recurrent=memory is not None,
-        max_eval_steps=500,
-    )
-    return float(rewards.mean())
+    return _policy_return(agent, state, env)
+
+
+def _policy_return(agent, state, env, num_episodes=20):
+    """The trained policy's mean return over num_episodes episodes of env,
+    each counted to its first done (CartPole's 500 steps at most)."""
+    policy = agent.policy(state)
+    params = env.default_params
+    reset_keys = jax.random.split(jax.random.PRNGKey(1), num_episodes)
+    obs, env_state = jax.vmap(env.reset, in_axes=(0, None))(reset_keys, params)
+    env_step = jax.vmap(env.step, in_axes=(0, 0, 0, None))
+
+    def body(carry, key):
+        obs, env_state, policy_carry, ended, total = carry
+        action, policy_carry = policy.act(obs, policy_carry)
+        env_keys = jax.random.split(key, num_episodes)
+        stepped = env_step(env_keys, env_state, action.reshape(num_episodes), params)
+        obs, env_state, reward, terminated, truncated, _ = stepped
+        total = total + jnp.where(ended, 0.0, reward)
+        ended = ended | terminated | truncated
+        return (obs, env_state, policy_carry, ended, total), None
+
+    no, zeros = jnp.zeros(num_episodes, bool), jnp.zeros(num_episodes)
+    first = (obs, env_state, policy.reset(num_episodes), no, zeros)
+    step_keys = jax.random.split(jax.random.PRNGKey(2), params.max_steps_in_episode)
+    final, _ = jax.lax.scan(body, first, step_keys)
+    return float(final[-1].mean())
 
 
 @pytest.fixture(scope="module")
@@ -55,9 +78,6 @@ def feedforward_baseline():
     return _train_and_eval(None)
 
 
-# Calibrated finals on CPU with this budget: gru 450, lstm ~4xx,
-# transformer 463, mamba 500 — vs feedforward 41. With the transformer's
-# and mamba's final LayerNorm: transformer 414, mamba 493, feedforward 42.
 MEMORIES = [
     MemoryConfig(kind="gru", hidden_size=32),
     MemoryConfig(kind="lstm", hidden_size=32),

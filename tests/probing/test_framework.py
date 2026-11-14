@@ -105,10 +105,11 @@ from . import readouts as R
 # The shipped defaults, DAgger's iteration fit (one fault): + 21.
 # The shipped defaults, DQN's spaced updates (one fault): + 24.
 # The shipped defaults, PQN's decayed rate (one fault): + 33.
+# The shipped defaults, the shared encoder (one fault): + 84.
 CAPS = {"verdict.py": 255, "envs.py": 255, "agents.py": 171, "runs.py": 250}
-CAPS.update({"readouts.py": 220, "oracles.py": 198, "faults.py": 152, "faults/": 427})
+CAPS.update({"readouts.py": 220, "oracles.py": 198, "faults.py": 152, "faults/": 428})
 CAPS.update({"test_average_reward.py": 186})
-CAPS.update({"test_framework.py": 340, "test_value_chains.py": 1082})
+CAPS.update({"test_framework.py": 342, "test_value_chains.py": 1163})
 CAPS.update({"test_episode_ends.py": 1138, "test_bookkeeping.py": 1013})
 CAPS.update({"test_extensions.py": 855, "test_p4_split_run.py": 360})
 CAPS.update({"test_memory.py": 522, "test_world_models.py": 452})
@@ -306,14 +307,15 @@ def test_the_directory_keeps_to_its_budget() -> None:
     for TD3's memory cells at Ni's rate, 3 for SAC's windows of two at 6000, and
     3 for these notes.
     The shipped defaults' cells, faults and notes (2026-11-14): 61 for PPO's,
-    35 for APO's, 21 for DAgger's, 24 for DQN's, 33 for PQN's."""
+    35 for APO's, 21 for DAgger's, 24 for DQN's, 33 for PQN's, 84 for the
+    shared encoder's."""
     cmd = ["git", "ls-files", "--cached", "--others", "--exclude-standard"]
     out = subprocess.run(
         [*cmd, "tests/probing"], cwd=faults.REPO, capture_output=True, text=True
     )
     files = [f for f in out.stdout.split() if f.count("/") == 2 or "/faults/" in f]
     total = sum(_lines(os.path.join(faults.REPO, f)) for f in files)
-    assert total <= 9059, total
+    assert total <= 9143, total
 
 
 def test_every_fault_names_the_fast_tests_that_catch_it() -> None:

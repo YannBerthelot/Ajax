@@ -94,13 +94,25 @@ def restore_into(skeleton: Any, path: str) -> Any:
     state_dict = _with_new_empty_fields(skeleton_dict, state_dict)
     if _took_a_joint_clip(skeleton):
         state_dict = _without_own_gradient_clip(skeleton_dict, state_dict)
+    state_dict = _with_flat_moments(skeleton_dict, state_dict)
     state_dict = _with_agent_obs_stats(skeleton, state_dict)
+    state_dict = _with_carry_template(skeleton, state_dict)
     restored = serialization.from_state_dict(skeleton, state_dict)
     _check_leaf_shapes(skeleton, restored)
     if saved_format < 2:
         restored = _with_collection_stream(restored)
-    return jax.tree.map(
-        lambda x: jax.device_put(x) if isinstance(x, np.ndarray) else x,
+    # Each array goes where the skeleton keeps it (a ring the agent holds in
+    # host memory is restored there, never staged on the device); a field
+    # the skeleton lacks goes to the default device.
+    placements = {
+        path: leaf.sharding
+        for path, leaf in jax.tree_util.tree_leaves_with_path(skeleton)
+        if isinstance(leaf, jax.Array)
+    }
+    return jax.tree_util.tree_map_with_path(
+        lambda path, x: (
+            jax.device_put(x, placements.get(path)) if isinstance(x, np.ndarray) else x
+        ),
         restored,
     )
 
@@ -357,6 +369,73 @@ def _children(node: Any) -> Iterator[tuple[str, Any]]:
             yield jax.tree_util.keystr(path, simple=True), child
 
 
+def _with_flat_moments(skeleton: Any, saved: Any) -> Any:
+    """Give an optimiser state saved with one moment array per parameter
+    array the layout of get_adam_tx's, whose rule runs on the parameters
+    raveled into one vector (optax.flatten): each moment's arrays, behind
+    any leading seed axes, raveled and joined in the parameters' order.
+    They are read as flax reads a state: by the parameters' keys, any other
+    ignored, a missing one refused; an empty entry is a parameter another
+    transformation steps (an optax.multi_transform group).
+
+    Expand-then-contract shim (CLAUDE.md, refactoring rule 10).
+    """
+    if not isinstance(skeleton, dict) or not isinstance(saved, dict):
+        return saved
+    out = dict(saved)
+    for key, value in skeleton.items():
+        if key not in out:
+            continue
+        if key == "opt_state" and "params" in skeleton:
+            out[key] = _joined_moments(value, out[key], skeleton["params"])
+        else:
+            out[key] = _with_flat_moments(value, out[key])
+    return out
+
+
+def _joined_moments(skeleton: Any, saved: Any, params: Any) -> Any:
+    """``saved`` with every moment held per array where ``skeleton`` holds
+    one vector joined into that vector (_with_flat_moments)."""
+    if isinstance(skeleton, dict) and isinstance(saved, dict):
+        return {
+            key: _joined_moments(skeleton[key], value, params)
+            if key in skeleton
+            else value
+            for key, value in saved.items()
+        }
+    if isinstance(skeleton, dict) or not isinstance(saved, dict):
+        return saved
+    seed_axes = np.shape(skeleton)[:-1]
+    parts: list[np.ndarray] = []
+    for path, _ in jax.tree_util.tree_flatten_with_path(params)[0]:
+        entry = saved
+        for key in path:
+            if not isinstance(entry, dict) or key.key not in entry:
+                raise ValueError(
+                    "The checkpoint's optimiser state has no moment for the "
+                    f"parameter {jax.tree_util.keystr(path)}: it was saved by"
+                    " an agent with other networks."
+                )
+            entry = entry[key.key]
+            if isinstance(entry, dict) and not entry:  # another group's
+                break
+        if isinstance(entry, dict):
+            continue
+        if np.shape(entry)[: len(seed_axes)] != seed_axes:
+            raise ValueError(
+                f"The checkpoint holds {np.shape(entry)[: len(seed_axes)]} seeds"
+                f" of moments for {jax.tree_util.keystr(path)}, this agent"
+                f" {seed_axes}."
+            )
+        parts.append(np.reshape(entry, (*seed_axes, -1)))
+    if not parts:
+        raise ValueError(
+            "The checkpoint's optimiser state holds no moment for this"
+            " agent's parameters: it was saved by an agent with other networks."
+        )
+    return np.concatenate(parts, axis=-1)
+
+
 def _without_own_gradient_clip(skeleton: Any, saved: Any) -> Any:
     """Give an optimiser state saved when its optimiser clipped the
     gradient first (get_adam_tx's max_grad_norm: a chain whose clip holds an
@@ -377,27 +456,31 @@ def _without_own_gradient_clip(skeleton: Any, saved: Any) -> Any:
         if key not in out:
             continue
         old = out[key]
-        if key == "opt_state" and _behind_a_clip(value, old):
+        if key == "opt_state" and _behind_a_clip(value, old, skeleton.get("params")):
             out[key] = old["1"]
         else:
             out[key] = _without_own_gradient_clip(value, old)
     return out
 
 
-def _behind_a_clip(new: Any, old: Any) -> bool:
+def _behind_a_clip(new: Any, old: Any, params: Any = None) -> bool:
     """Whether ``old`` is ``new``'s layout chained after a clip's empty
-    state."""
+    state; a moment held per array in ``old`` stands for one vector in
+    ``new`` when it nests the keys of ``params`` (_with_flat_moments)."""
     if not isinstance(old, dict) or old.keys() != {"0", "1"}:
         return False
     empty = isinstance(old["0"], dict) and not old["0"]
-    return empty and _same_keys(new, old["1"])
+    return empty and _same_keys(new, old["1"], params)
 
 
-def _same_keys(a: Any, b: Any) -> bool:
-    """Whether two state dicts nest the same keys."""
+def _same_keys(a: Any, b: Any, params: Any = None) -> bool:
+    """Whether two state dicts nest the same keys, a leaf of ``a`` matching
+    a dict of ``b`` nesting the keys of ``params``, when given."""
+    if params is not None and not isinstance(a, dict) and isinstance(b, dict):
+        return _same_keys(params, b)
     if not isinstance(a, dict) or not isinstance(b, dict):
         return not isinstance(a, dict) and not isinstance(b, dict)
-    return a.keys() == b.keys() and all(_same_keys(a[k], b[k]) for k in a)
+    return a.keys() == b.keys() and all(_same_keys(a[k], b[k], params) for k in a)
 
 
 def _check_memory_final_norm(skeleton: Any, saved: Any) -> None:
@@ -434,6 +517,31 @@ def _check_memory_final_norm(skeleton: Any, saved: Any) -> None:
     for key, value in skeleton.items():
         if key in saved:
             _check_memory_final_norm(value, saved[key])
+
+
+def _with_carry_template(skeleton: Any, saved: Any) -> Any:
+    """Give a checkpoint whose actor carry template has another layout the
+    skeleton's: an APG checkpoint saved before its transformer memory cached
+    keys and values held each layer's inputs and validity flags, where the
+    skeleton holds keys, values and flags. A state class whose actor carry
+    is only the zero carry its rollouts start from (``actor_carry_is_template``,
+    a ``ClassVar[bool]``: APG) has nothing in it to restore, so the
+    skeleton's template is the right one; any other actor carry is live
+    state and still has to match.
+
+    Expand-then-contract shim (CLAUDE.md, refactoring rule 10): delete it
+    once no APG checkpoint with a transformer memory saved before
+    2026-11-12 remains.
+    """
+    if not getattr(skeleton, "actor_carry_is_template", False):
+        return saved
+    actor = saved.get("actor_state") if isinstance(saved, dict) else None
+    if not isinstance(actor, dict) or "hidden_state" not in actor:
+        return saved
+    template = serialization.to_state_dict(skeleton.actor_state.hidden_state)
+    if _same_keys(template, actor["hidden_state"]):
+        return saved
+    return {**saved, "actor_state": {**actor, "hidden_state": template}}
 
 
 def _check_log_std_head(skeleton: Any, saved: Any) -> None:

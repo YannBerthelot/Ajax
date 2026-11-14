@@ -25,7 +25,7 @@ makes the critics score the executed actions, from the expert's stored ones.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable, Optional, Union
+from typing import Any, Callable, ClassVar, Optional, Union
 
 import jax
 import jax.numpy as jnp
@@ -34,9 +34,10 @@ from flax.core import FrozenDict
 from flax.serialization import to_state_dict
 
 from ajax.agents import update_steps
-from ajax.agents.critics import compute_mean_critic_loss, critic_value_readers
+from ajax.agents.critics import compute_mean_critic_loss
 from ajax.agents.families import (
     BELLMAN_CONTEXT,
+    EncoderSharing,
     EntropyTemperature,
     ExpertGuided,
     GradientClipping,
@@ -46,13 +47,19 @@ from ajax.agents.families import (
     RewardNormalization,
     TrainContext,
 )
-from ajax.agents.recurrent import RecurrentCarries, actor_dist, q_values, sample_replay
+from ajax.agents.recurrent import (
+    RecurrentCarries,
+    actor_dist,
+    ni_initialisation,
+    q_values,
+    sample_replay,
+)
 from ajax.agents.temperature import (
     SoftActorCriticState,
     TemperatureAuxiliaries,
     create_alpha_train_state,
     get_alpha,
-    update_temperature,
+    keep_actor_then_update_temperature,
 )
 from ajax.buffers.utils import get_buffer
 from ajax.controller import leave_unchanged
@@ -75,6 +82,7 @@ class SAC(
     ObservationNormalization,
     RewardNormalization,
     ExpertGuided,
+    EncoderSharing,
     RecurrentReplayAgent,
 ):
     """Soft Actor-Critic with a learned temperature (the module's update).
@@ -83,9 +91,10 @@ class SAC(
     softlearning): 256-256 ReLU networks, two critics, Adam at 3e-4 with
     TensorFlow's eps 1e-8, tau 0.005, gamma 0.99, a target entropy of -1
     per action dimension, a 1e6 replay, batch 256 and 1e4 warm-up steps.
-    The actor's and the temperature's steps wait for 2000 steps
-    (policy_update_start, alpha_update_start), inert at that warm-up; updates
-    on a dataset before any env step (PriorData) do not wait.
+    The actor and the temperature step with the critics from the first
+    update, as softlearning's single session.run of all its training ops
+    does (a1253bc sac.py:348-353); policy_update_start and
+    alpha_update_start can delay them.
 
     n_step above 1 is Ajax's and not SAC's: the critics' target sums n_step
     rewards before it bootstraps, gamma^n in place of gamma, stopping at an
@@ -117,11 +126,24 @@ class SAC(
     num_critics: int = 2
     num_critic_updates: int = 1
     n_step: int = 1
-    policy_update_start: int = 2_000
-    alpha_update_start: int = 2_000
     buffer_size: int = int(1e6)
-    batch_size: int = 256
+    # None: 256 rows, or 64 windows with memory (RecurrentReplayAgent).
+    batch_size: Optional[int] = None  # type: ignore[assignment]
     learning_starts: int = int(1e4)
+
+    #: The numbers a sweep may vary in one program (ActorCritic.train's sweep).
+    sweepable: ClassVar[frozenset[str]] = frozenset(
+        {
+            "actor_learning_rate",
+            "critic_learning_rate",
+            "alpha_learning_rate",
+            "alpha_init",
+            "target_entropy_per_dim",
+            "gamma",
+            "tau",
+            "reward_scale",
+        }
+    )
 
     def check(self) -> None:
         if self.n_step < 1:
@@ -132,6 +154,13 @@ class SAC(
                 " memory replays windows of its own, so it takes n_step=1."
             )
 
+    def sweepable_fields(self) -> frozenset[str]:
+        # An n-step replay sums its rewards with the gamma it was built with.
+        fields = super().sweepable_fields()
+        if self.n_step > 1:
+            return fields.difference({"gamma"})
+        return fields
+
     def run_capabilities(self) -> frozenset[str]:
         capabilities = super().run_capabilities()
         if self.n_step == 1:
@@ -141,9 +170,11 @@ class SAC(
     def make_replay_buffer(self) -> BufferType:
         if self.n_step == 1:
             return super().make_replay_buffer()
+        batch_size = self.batch_size
+        assert batch_size is not None  # resolved before the agent is built
         return get_buffer(
             self.buffer_size,
-            self.batch_size,
+            batch_size,
             self.n_envs,
             n_step=self.n_step,
             gamma=self.gamma,
@@ -171,11 +202,10 @@ class SAC(
         # default at tensorflow 2.4.1, its requirements'). Both draw the
         # mean and the log-std from one output layer; here each head
         # takes Glorot's bound for its own width.
-        # Recurrent SAC (memory set) keeps Ajax's previous initialisation
-        # until Ni et al.'s, its reference (pomdp-baselines), is audited: at
-        # the feedforward reference's, its memory cells' actors read 25-28/32.
+        # Recurrent SAC (memory set) starts as its reference, Ni et al.'s.
         args: dict[str, Any] = {"squash": True}
         if self.memory is not None:
+            args.update(ni_initialisation())
             return args
         args.update(
             {
@@ -257,28 +287,23 @@ class SAC(
         stepped, policy_aux, log_probs, policy_metrics = self.update_actor(
             agent_state, batch, carries, context
         )
-        # The actor step runs from the first update, since its log-probs feed
-        # the temperature's, and is kept from policy_update_start.
-        timestep = agent_state.collector_state.timestep
-        agent_state, (policy_aux, policy_metrics) = update_steps.run_actor_if(
-            self.policy_update_due(timestep),
-            lambda _: (stepped, (policy_aux, policy_metrics)),
-            agent_state,
-        )
-        # The temperature's loss is computed for its logs; its step is kept
-        # from alpha_update_start, never with fixed_alpha (alpha stays at
-        # alpha_init).
-        tempered, temperature_aux = update_temperature(
-            agent_state,
-            log_probs,
-            self.target_entropy_at(timestep),
-            compute_temperature_loss,
-        )
-        temperature_due = jnp.logical_and(
-            not self.fixed_alpha, self.temperature_update_due(timestep)
-        )
-        agent_state = update_steps.run_if(
-            temperature_due, lambda _: tempered, agent_state
+        agent_state, (policy_aux, policy_metrics), temperature_aux = (
+            keep_actor_then_update_temperature(
+                self,
+                agent_state,
+                stepped,
+                (policy_aux, policy_metrics),
+                log_probs,
+                context.extensions,
+                # Ni et al.'s recurrent SAC steps alpha, not log alpha
+                # (policies/rl/sac.py:38-47).
+                (
+                    compute_alpha_temperature_loss
+                    if self.memory is not None
+                    else compute_temperature_loss
+                ),
+                self.fixed_alpha,
+            )
         )
         agent_state = update_steps.update_target_networks(agent_state, tau=self.tau)
         return agent_state, AuxiliaryLogs(
@@ -314,15 +339,14 @@ class SAC(
             rewards=batch.reward,
             gamma=gamma,
             alpha=get_alpha(agent_state),
-            rng=critic_key,
-            recurrent=context.recurrent,
+            key=critic_key,
             reward_scale=self.reward_scale,
             map_next_actions=scored.map_next_actions,
             carries=carries,
         )
 
         def critic_loss(params: FrozenDict, target_q: jax.Array) -> tuple:
-            return compute_mean_critic_loss(
+            loss, aux = compute_mean_critic_loss(
                 params,
                 agent_state.critic_state,
                 batch.obs,
@@ -330,10 +354,12 @@ class SAC(
                 target_q,
                 carries=carries,
             )
+            if self.memory is None:
+                return loss, aux
+            # Ni et al.'s recurrent SAC sums its critics' squared errors,
+            # which train their one memory (policy_rnn.py:171-178).
+            return loss * self.num_critics, aux
 
-        predictions, target_value_at = critic_value_readers(
-            agent_state.critic_state, batch.obs, batch.action
-        )
         agent_state, aux, grad_norm, metrics = update_steps.critic_step(
             agent_state,
             batch,
@@ -348,8 +374,6 @@ class SAC(
             reward_scale=self.reward_scale,
             next_actions=next_actions,
             next_values=next_values,
-            predictions=predictions,
-            target_value_at=target_value_at,
         )
         value_aux = ValueAuxiliaries(
             critic_loss=aux.critic_loss,
@@ -371,7 +395,10 @@ class SAC(
         which the actor-loss extensions (OnlineBC, ImitationLoss) read as
         their clone target. Also returns the log-probs of a fresh
         sample of the stepped actor, which the temperature's step reads
-        (CleanRL's SAC order; cited from memory, unverified)."""
+        (CleanRL's order: vwxyzjn/cleanrl@fe8d8a0,
+        cleanrl/sac_continuous_action.py:279-292); with memory, the mean of
+        the loss's own, before the step, as Ni et al.'s recurrent SAC
+        (policy_rnn.py:180-216)."""
         actor_key, sample_key = split_by_index(
             update_steps.derive_actor_key(agent_state), 2
         )
@@ -406,8 +433,13 @@ class SAC(
             batch,
             agent_state.critic_state,
         )
-        policy = actor_dist(actor_state, actor_state.params, batch.obs, carries)
-        _, log_probs = policy.sample_and_log_prob(seed=sample_key)
+        if self.memory is not None:
+            # The loss's log-density, summed over the action's dimensions,
+            # as one column the temperature's step sums (update_temperature).
+            log_probs = aux.log_pi.reshape(1)
+        else:
+            policy = actor_dist(actor_state, actor_state.params, batch.obs, carries)
+            _, log_probs = policy.sample_and_log_prob(seed=sample_key)
         return (
             agent_state.replace(actor_state=actor_state),
             aux.replace(grad_norm=grad_norm),
@@ -422,6 +454,7 @@ class SAC(
             "actor",
             "critic_ensemble",
             "discounted",
+            "entropy_temperature",
             "next_action_target",
             "obs_networks",
             "off_policy",
@@ -472,8 +505,7 @@ def compute_td_target(
     rewards: jax.Array,
     gamma: Union[float, jax.Array],
     alpha: jax.Array,
-    rng: jax.Array,
-    recurrent: bool,
+    key: jax.Array,
     reward_scale: float = 1.0,
     map_next_actions: Callable[[jax.Array], jax.Array] = leave_unchanged,
     carries: Optional[RecurrentCarries] = None,
@@ -490,10 +522,9 @@ def compute_td_target(
     (ajax.controller.make_scored_actions): the bootstrap is queried where
     the critic was trained, clip(a_expert(s') + scale * pi(s'), -1, 1).
     Without it the target Q is out of distribution and training diverges.
-    The carries (sequence replay) are set exactly when recurrent.
+    The carries are set for sequence replay alone.
     """
-    del recurrent
-    sample_key, rng = jax.random.split(rng)
+    sample_key, _ = jax.random.split(key)
     next_actions, log_probs = sample_next_actions(
         actor_state, next_observations, sample_key, carries, map_next_actions
     )
@@ -536,7 +567,7 @@ def compute_soft_policy_loss(
     critic_state: LoadedTrainState,
     observations: jax.Array,
     alpha: jax.Array,
-    rng: jax.Array,
+    key: jax.Array,
     carries: Optional[RecurrentCarries] = None,
     q_reduce: Callable[..., jax.Array] = jnp.min,
     map_actions: Callable[[jax.Array], jax.Array] = leave_unchanged,
@@ -555,7 +586,7 @@ def compute_soft_policy_loss(
         critic_state,
         observations,
         alpha,
-        rng,
+        key,
         carries,
         q_reduce,
         map_actions,
@@ -567,14 +598,14 @@ def compute_soft_policy_objective(
     critic_state: LoadedTrainState,
     observations: jax.Array,
     alpha: jax.Array,
-    rng: jax.Array,
+    key: jax.Array,
     carries: Optional[RecurrentCarries] = None,
     q_reduce: Callable[..., jax.Array] = jnp.min,
     map_actions: Callable[[jax.Array], jax.Array] = leave_unchanged,
 ) -> tuple[jax.Array, tuple[jax.Array, jax.Array, Any]]:
     """compute_soft_policy_loss on the policy at observations, however
     the agent computed it (CrossQ's actor in training)."""
-    sample_key, rng = jax.random.split(rng)
+    sample_key, _ = jax.random.split(key)
     actions, log_probs = policy.sample_and_log_prob(seed=sample_key)
     actions = map_actions(actions)
     reduced_q_values = q_reduce(
@@ -627,7 +658,7 @@ def compute_alpha_temperature_loss(
     )
 
 
-# -- State, logged metrics and the legacy view --------------------------------
+# -- State and logged metrics -------------------------------------------------
 @struct.dataclass(kw_only=True)
 class SACState(SoftActorCriticState):
     """SAC's state, with the frozen expert critic phi* its extensions fill."""

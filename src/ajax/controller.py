@@ -18,8 +18,12 @@ import jax
 import jax.numpy as jnp
 
 from ajax.environments.obs_norm import normalized_obs
+from ajax.environments.utils import (
+    check_if_environment_has_continuous_actions,
+    get_action_dim,
+    raw_obs_columns,
+)
 from ajax.environments.utils import critic_action_units as env_critic_action_units
-from ajax.environments.utils import get_action_dim, raw_obs_columns
 from ajax.extensions.base import extension_key_names
 from ajax.networks.memory import flatten_carry, tree_where_reset
 from ajax.types import NormalizationInfo
@@ -80,8 +84,11 @@ class ObserveInputs(NamedTuple):
     there starts from, the collector's timestep (None in evaluation, which
     passes its frozen ``progress``), the run's horizon (None where the
     collector keeps none), in evaluation the training progress it holds,
-    and whether the features' gradient flows back to what they read (APG's
-    differentiable rollout); elsewhere they are held constant."""
+    whether the features' gradient flows back to what they read (APG's
+    differentiable rollout; elsewhere they are held constant), the action
+    executed just before the observation (:func:`previous_action_input`) and
+    the reward the environment paid for it (:func:`previous_reward_input`),
+    each None unless a feature reads it."""
 
     raw_obs: jax.Array
     expert: Any = None
@@ -90,6 +97,8 @@ class ObserveInputs(NamedTuple):
     horizon: Any = None
     progress: Any = None
     differentiable: bool = False
+    previous_action: Optional[jax.Array] = None
+    previous_reward: Optional[jax.Array] = None
 
 
 @dataclass(frozen=True)
@@ -361,6 +370,58 @@ def reads_progress(env_args: Any) -> bool:
     """Whether a feature of ``env_args.observers`` reads the training
     progress, whose horizon the collector then keeps (``max_timesteps``)."""
     return any(getattr(e, "reads_progress", False) for e in env_args.observers)
+
+
+def reads_previous_action(observers: Any) -> bool:
+    """Whether a feature among ``observers`` reads the action executed
+    before each observation (``ObserveInputs.previous_action``)."""
+    return any(getattr(e, "reads_previous_action", False) for e in observers)
+
+
+def previous_action_input(
+    observers: Any,
+    action: Optional[jax.Array],
+    n_envs: int,
+    env: Any,
+    env_params: Any,
+) -> Optional[jax.Array]:
+    """``ObserveInputs.previous_action``: ``action``, the action the envs
+    executed, in agent units, as an observation's columns: a continuous
+    action clipped to [-1, 1], as the environment and the replay take it,
+    a discrete action one-hot over the env's action count. Zeros where no
+    action was executed yet (``action`` None: a reset). None, and nothing
+    computed, unless a feature among ``observers`` reads it."""
+    if not reads_previous_action(observers):
+        return None
+    width = get_action_dim(env, env_params)
+    if action is None:
+        return jnp.zeros((n_envs, width), jnp.float32)
+    if check_if_environment_has_continuous_actions(env, env_params):
+        return jnp.clip(action, -1.0, 1.0).astype(jnp.float32)
+    # A discrete action arrives as an (n_envs,) index or an (n_envs, 1) column.
+    index = action.reshape(n_envs, -1)[:, 0].astype(jnp.int32)
+    return jax.nn.one_hot(index, width)
+
+
+def reads_previous_reward(observers: Any) -> bool:
+    """Whether a feature among ``observers`` reads the reward paid for the
+    action executed before each observation (``ObserveInputs.previous_reward``)."""
+    return any(getattr(e, "reads_previous_reward", False) for e in observers)
+
+
+def previous_reward_input(
+    observers: Any, reward: Optional[jax.Array], n_envs: int
+) -> Optional[jax.Array]:
+    """``ObserveInputs.previous_reward``: ``reward``, what the environment paid
+    for the action executed before the observation, as one column, raw as
+    the environment pays it. Zeros where no action was executed yet
+    (``reward`` None: a reset). None, and nothing computed, unless a feature
+    among ``observers`` reads it."""
+    if not reads_previous_reward(observers):
+        return None
+    if reward is None:
+        return jnp.zeros((n_envs, 1), jnp.float32)
+    return reward.reshape(n_envs, 1).astype(jnp.float32)
 
 
 def reads_agent_expert(env_args: Any) -> bool:

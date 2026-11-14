@@ -4,12 +4,14 @@ plumbing (trajectory buffer, burn-in carries, sequence losses, R2D2 stored
 state), not performance.
 
 Their recurrent code never branches on the memory kind; the kinds' own
-contract is pinned cell by cell in ``tests/networks/test_memory.py``. So SAC,
+contract is pinned cell by cell in tests/networks/test_memory.py. So SAC,
 the lineage's reference, trains every kind, and ASAC, REDQ and TD3 each train
 two kinds, one plain and one with stored state: each agent meets two carry
 structures, and each kind runs once through the stored-state path. TD3's
 own path (a deterministic actor, a target actor's carry) meets a lone array
-(gru) and a windowed float-and-bool carry (transformer).
+(gru) and a windowed float-and-bool carry (transformer). SAC's rows of the
+finiteness check run in the slow tier: test_carry_restart and
+test_recurrent_replay check recurrent SAC with real oracles in the fast one.
 """
 
 from typing import Any
@@ -34,12 +36,12 @@ AGENTS: dict[str, tuple[type, dict[str, Any]]] = {
         {"actor_architecture": ("32", "relu"), "critic_architecture": ("32", "relu")},
     ),
 }
-CRITICS = {"ASAC": 2, "REDQ": 3}  # an ensemble's carry keeps its critics' axis
-TRAINS = [("SAC", kind) for kind in MEMORY_KINDS] + [
-    ("ASAC", "lstm"),
-    ("REDQ", "mamba"),
-    ("TD3", "transformer"),
-]
+# The critics read one memory (Ni et al.'s qf1 and qf2 on one RNN), whose
+# carry keeps the ensemble's axis with one member.
+CRITICS = {"ASAC": 1, "REDQ": 1}
+TRAINS = [pytest.param("SAC", kind, marks=pytest.mark.slow) for kind in MEMORY_KINDS]
+TRAINS += [pytest.param("ASAC", "lstm"), pytest.param("REDQ", "mamba")]
+TRAINS.append(pytest.param("TD3", "transformer"))
 STORED = [("SAC", "transformer"), ("ASAC", "mamba"), ("REDQ", "lstm"), ("TD3", "gru")]
 
 

@@ -39,8 +39,8 @@ from flax.core import FrozenDict
 from flax.serialization import to_state_dict
 
 from ajax.agents import update_steps
-from ajax.agents.critics import critic_value_readers
 from ajax.agents.families import (
+    EncoderSharing,
     EntropyTemperature,
     ExpertGuided,
     GradientClipping,
@@ -50,7 +50,13 @@ from ajax.agents.families import (
     RewardNormalization,
     TrainContext,
 )
-from ajax.agents.recurrent import RecurrentCarries, q_values, sample_replay
+from ajax.agents.presets import Preset
+from ajax.agents.recurrent import (
+    RecurrentCarries,
+    ni_initialisation,
+    q_values,
+    sample_replay,
+)
 from ajax.agents.SAC.SAC import (
     compute_soft_policy_loss,
     compute_temperature_loss,
@@ -61,7 +67,8 @@ from ajax.agents.temperature import (
     TemperatureAuxiliaries,
     create_alpha_train_state,
     get_alpha,
-    update_temperature,
+    keep_actor_then_update_temperature,
+    update_soft_actor,
 )
 from ajax.controller import leave_unchanged
 from ajax.extensions.base import merge_metrics
@@ -79,6 +86,37 @@ from ajax.types import Architecture
 #: and the actor read.
 NUM_CRITICS = 2
 
+#: The authors' tuned config of each Gymnasium v5 task (BobMak/asac
+#: @4b68862, hparams/<task>-v5/asac.yaml, which experiments/finetuned_runs.py
+#: :67-76 reads): the four settings they vary across tasks, the temperature
+#: 1 / beta (darer/ASAC.py:56-57). Swimmer-v3's config is not here: Ajax
+#: runs v5, and v3's averaged critics have no field.
+TUNED_TASKS = (
+    # task, beta, tau_theta, learning_starts, buffer_size
+    ("Ant", 5, 0.005, 10_000, 1_000_000),
+    ("HalfCheetah", 5, 0.005, 10_000, 1_000_000),
+    ("Hopper", 5, 0.001, 10_000, 1_000_000),
+    ("Humanoid", 20, 0.001, 10_000, 1_000_000),
+    ("InvertedDoublePendulum", 5, 0.001, 0, 1_000_000),
+    ("InvertedPendulum", 5, 0.005, 0, 1_000_000),
+    ("Pusher", 5, 0.005, 10_000, 1_000_000),
+    ("Reacher", 5, 0.005, 10_000, 100_000),
+    ("Swimmer", 20, 0.005, 10_000, 1_000_000),
+    ("Walker2d", 5, 0.0005, 10_000, 1_000_000),
+)
+PRESETS = {
+    task: Preset(
+        {
+            "alpha_init": 1 / beta,
+            "tau_theta": tau_theta,
+            "learning_starts": learning_starts,
+            "buffer_size": buffer_size,
+        },
+        f"BobMak/asac@4b68862 hparams/{task}-v5/asac.yaml:3,5,9,12",
+    )
+    for task, beta, tau_theta, learning_starts, buffer_size in TUNED_TASKS
+}
+
 
 @dataclass(kw_only=True, eq=False, repr=False)
 class ASAC(
@@ -88,6 +126,7 @@ class ASAC(
     ObservationNormalization,
     RewardNormalization,
     ExpertGuided,
+    EncoderSharing,
     RecurrentReplayAgent,
 ):
     """ASAC: SAC on the average reward, its targets differential (the
@@ -102,14 +141,14 @@ class ASAC(
 
     Args:
         tau_theta: Rate of the theta and penalty averages (darer/ASAC.py:188,
-            :213). The authors tune it per environment, 0.0005 to 0.1; 0.005
-            is their default (darer/BaseAgent.py:80) and six of their 11
-            configs'.
+            :213). The authors tune it per environment, 0.0005 to 0.1
+            (PRESETS); 0.005 is their default (darer/BaseAgent.py:80) and six
+            of their 11 configs'.
         alpha_init: The temperature, or its initial value when fixed_alpha
             is False.
         fixed_alpha: Keep the temperature at alpha_init. The authors'
             published runs fix it at 1/beta: 0.2, and 0.05 for Humanoid and
-            Swimmer (hparams/*/asac.yaml, darer/ASAC.py:56-57,
+            Swimmer (PRESETS; hparams/*/asac.yaml, darer/ASAC.py:56-57,
             experiments/finetuned_runs.py:67-76). False learns it towards
             the target entropy, as SAC does.
         p_0: The termination penalty's scale (darer/ASAC.py:187).
@@ -128,7 +167,8 @@ class ASAC(
     fixed_alpha: bool = True
     p_0: float = 20
     buffer_size: int = int(1e6)
-    batch_size: int = 256
+    # None: 256 rows, or 64 windows with memory (RecurrentReplayAgent).
+    batch_size: Optional[int] = None  # type: ignore[assignment]
     learning_starts: int = int(1e4)
 
     def actor_critic_args(self) -> dict[str, Any]:
@@ -138,11 +178,10 @@ class ASAC(
         # at v2.4.0) and its critics from Qsa (darer/Models.py:409-411),
         # all torch nn.Linear layers at torch's default initialisation:
         # "torch_linear", whose layers draw their biases too.
-        # Recurrent ASAC (memory set) keeps Ajax's previous initialisation
-        # until Ni et al.'s, its recurrent reference (pomdp-baselines), is
-        # audited, as SAC and REDQ do.
+        # Recurrent ASAC (memory set) starts as Ni et al.'s recurrent SAC.
         args: dict[str, Any] = {"squash": True}
         if self.memory is not None:
+            args.update(ni_initialisation())
             return args
         init = ("encoder_kernel_init", "mean_kernel_init", "log_std_kernel_init")
         args.update(dict.fromkeys((*init, "value_kernel_init"), TORCH_LINEAR))
@@ -218,27 +257,21 @@ class ASAC(
         )
         # The temperature and theta read the actor's own sample, drawn before
         # its step, as the authors' code does (darer/ASAC.py:146-213).
-        timestep = agent_state.collector_state.timestep
         stepped, policy_aux, log_probs, policy_metrics = self.update_actor(
             agent_state, batch, carries, context
         )
-        agent_state, (policy_aux, policy_metrics) = update_steps.run_actor_if(
-            self.policy_update_due(timestep),
-            lambda _: (stepped, (policy_aux, policy_metrics)),
-            agent_state,
-        )
-        # fixed_alpha drops the temperature's step but keeps its logs, as
-        # SAC's does.
-        tempered, temperature_aux = update_temperature(
-            agent_state,
-            log_probs,
-            self.target_entropy_at(timestep),
-            compute_temperature_loss,
-        )
-        if not self.fixed_alpha:
-            agent_state = update_steps.run_if(
-                self.temperature_update_due(timestep), lambda _: tempered, agent_state
+        agent_state, (policy_aux, policy_metrics), temperature_aux = (
+            keep_actor_then_update_temperature(
+                self,
+                agent_state,
+                stepped,
+                (policy_aux, policy_metrics),
+                log_probs,
+                context.extensions,
+                compute_temperature_loss,
+                self.fixed_alpha,
             )
+        )
         # In the target's units: the reward rate theta is subtracted from the
         # scaled rewards there. It averages the rewards without the penalty,
         # as the authors' code (darer/ASAC.py:191).
@@ -302,9 +335,6 @@ class ASAC(
             )
 
         # ASAC is average-reward: no gamma, None tells the extensions so.
-        predictions, target_value_at = critic_value_readers(
-            agent_state.critic_state, batch.obs, batch.action
-        )
         agent_state, aux, _, metrics = update_steps.critic_step(
             agent_state,
             batch,
@@ -319,8 +349,6 @@ class ASAC(
             reward_scale=self.reward_scale,
             next_actions=next_actions,
             next_values=next_values,
-            predictions=predictions,
-            target_value_at=target_value_at,
         )
         return agent_state, aux, metrics
 
@@ -334,38 +362,13 @@ class ASAC(
         """The actor step on alpha log pi(a|s) - min_i Q_i(s, a), the
         critics scoring a residual policy's executed actions; also returns
         its sample's log-probs (the temperature and theta read them)."""
-        actor_key = update_steps.derive_actor_key(agent_state)
-        alpha = get_alpha(agent_state)
-        critic_state = agent_state.critic_state
-        scored = context.make_scored_actions(batch)
-
-        def policy_loss(params: FrozenDict) -> tuple[jax.Array, Any, jax.Array]:
-            loss, (log_probs, q_values, policy) = compute_soft_policy_loss(
-                params,
-                agent_state.actor_state,
-                critic_state,
-                batch.obs,
-                alpha,
-                actor_key,
-                carries,
-                jnp.min,
-                scored.map_actions,
-            )
-            return loss, (loss, log_probs, q_values), policy.mean()
-
-        actor_state, (loss, log_probs, q_min), _, metrics = update_steps.actor_step(
-            agent_state,
-            policy_loss,
-            context.extensions,
-            actor_key,
-            context.total_timesteps,
-            batch,
-            critic_state,
+        agent_state, loss, log_probs, q_min, metrics = update_soft_actor(
+            agent_state, batch, carries, context, compute_soft_policy_loss, jnp.min
         )
         aux = PolicyAuxiliaries(
             policy_loss=loss, log_pi=log_probs.mean(), q_min=q_min.mean()
         )
-        return agent_state.replace(actor_state=actor_state), aux, log_probs, metrics
+        return agent_state, aux, log_probs, metrics
 
     # -- What extensions may rely on (ajax.extensions.capabilities) ----------
     name = "ASAC"
@@ -373,6 +376,7 @@ class ASAC(
         {
             "actor",
             "critic_ensemble",
+            "entropy_temperature",
             "next_action_target",
             "obs_networks",
             "off_policy",
@@ -426,7 +430,7 @@ def uniform_log_prob(action_dim: int) -> float:
 def compute_asac_td_target(
     actor_state: LoadedTrainState,
     critic_states: LoadedTrainState,
-    rng: jax.Array,
+    key: jax.Array,
     next_observations: jax.Array,
     dones: jax.Array,
     rewards: jax.Array,
@@ -447,7 +451,7 @@ def compute_asac_td_target(
     bootstrapped before the cut.
     """
     rewards = rewards * reward_scale
-    sample_key, _ = jax.random.split(rng)
+    sample_key, _ = jax.random.split(key)
     next_actions, log_probs = sample_next_actions(
         actor_state, next_observations, sample_key, carries, map_next_actions
     )
@@ -473,7 +477,11 @@ def compute_asac_td_target(
         shift_value, _ = predict_value_sequence(
             critic_state=critic_states,
             critic_params=critic_states.target_params,
-            x=action_value_input(zero_observation, zero_action, zero_action)[None],
+            x=action_value_input(
+                zero_observation,
+                zero_action,
+                None if carries.prev_actions is None else zero_action,
+            )[None],
             resets=jnp.zeros((1, 1), dtype=bool),
             initial_hidden=zeros_carry_like(
                 carries.target_critic_hidden, 1, batch_axis=1
@@ -531,7 +539,7 @@ def update_theta(
     return agent_state.replace(theta=theta)
 
 
-# -- State, logged metrics and the legacy view --------------------------------
+# -- State and logged metrics -------------------------------------------------
 @struct.dataclass(kw_only=True)
 class ASACState(SoftActorCriticState):
     """ASAC's state: a soft actor-critic's plus the reward rate and the

@@ -23,9 +23,11 @@ Two prefixes choose a source outright: `"mujoco:<id>"` for
 [Gymnasium's MuJoCo tasks in JAX](#gymnasiums-mujoco-tasks-in-jax), and
 `"gymnasium:<id>"` for [Gymnasium environments](#gymnasium-environments).
 
-Brax and Playground ids need Ajax's `brax` or `playground` extra
+Brax and Playground ids need Ajax's `brax` or `playground` extra, and
+`"mujoco:"` ids the `gymnasium-mjx` extra
 ([Installation](../getting-started/installation.md#extras)). An unknown id
-raises `ValueError`, naming the extras that are not installed. The agent
+raises `ValueError`, naming the extras that are not installed; a `"mujoco:"`
+id without its package raises `ImportError`, naming the extra. The agent
 builds `n_envs` copies, which step in parallel.
 
 ```python
@@ -45,9 +47,8 @@ Every agent takes `episode_length` and `action_repeat` for an environment
 built from a Brax or Playground id. `episode_length` counts simulator steps,
 1,000 by default; gymnax environments keep their own time limit, set in
 their parameters (below). Playground environments run MJX's pure-JAX
-implementation, on a CPU or a GPU. `build_env_from_id(..., physics="warp")`
-selects Warp, Playground's own default, which needs a GPU and which Ajax's
-training loop does not run on yet.
+implementation, on a CPU or a GPU. On an NVIDIA GPU they can run on MuJoCo
+Warp instead (below).
 
 Playground draws a new initial state for every episode (`fresh_reset=True`),
 as dm_control does. Runs made before this became the default restarted every
@@ -80,6 +81,40 @@ Results are the same up to floating-point rounding; training ran 8 to 15%
 slower on a CPU. A single seed compiles without it. The same happens on a GPU, where
 the workaround does not combine with `--xla_gpu_deterministic_ops=true`:
 such runs compile only without deterministic operations.
+
+### MuJoCo Warp on a GPU
+
+On an NVIDIA GPU, Playground tasks and the `"mujoco:"` tasks (below) can run
+on MuJoCo Warp, Playground's own default, instead of MJX's pure-JAX physics.
+On an L40S, SAC and PPO trained about five times faster on it
+([Performance](performance.md)). Build the environment with
+`physics="warp"` and pass it to the agent with the same `n_envs`; evaluation
+runs on the same physics:
+
+```python
+# doc: skip (needs an NVIDIA GPU and the gymnasium-mjx extra)
+from ajax import SAC
+from ajax.environments.create import build_env_from_id
+
+env, _ = build_env_from_id("mujoco:Hopper-v5", n_envs=4, physics="warp")
+agent = SAC(env, n_envs=4)
+```
+
+The two physics do not give the same runs. After 15 steps from the same
+state, on `mujoco:Hopper-v5` both stayed within 2e-6 of C MuJoCo's joint
+positions; on `mujoco:Walker2d-v5`, Warp stayed within 2e-6 and pure JAX
+moved 1.3e-3 away.
+
+Warp keeps one contact buffer for all the worlds a run steps at once,
+seeds times envs. The `"mujoco:"` tasks give it room for 49,152 contacts,
+1,024 worlds of 48, and give the buffer of its convex (GJK/EPA) collisions a
+slot for each of the task's geom pairs in those 1,024 worlds; Playground's
+tasks set their own. A step that runs out of contact, convex-collision or
+constraint room stops the run with an error, rather than going on with
+dropped contacts.
+
+Warp runs only on an NVIDIA GPU, and nothing can be differentiated through
+it: it refuses a CPU, `differentiable_reset=True` and APG.
 
 ### Gymnasium's MuJoCo tasks in JAX
 
@@ -395,11 +430,13 @@ pooled over the `n_envs` copies:
 
 - `normalize_observations=True`: each observation dimension to mean 0 and
   variance 1.
-- `normalize_rewards=True`: divides rewards by a running standard
-  deviation, by default of the single-step reward. With
-  `reward_normalization_gamma=0.99` it uses the standard deviation of the
-  discounted return instead, as Stable-Baselines3's `VecNormalize` and
-  Gymnasium's `NormalizeReward` do.
+- `normalize_rewards=True`: divides rewards by the running standard
+  deviation of the discounted return and clips them to ±10, as
+  Stable-Baselines3's `VecNormalize` does. The return is discounted by
+  the agent's `gamma`, or by 0.99 for an agent without one (APO, ASAC,
+  RVI-SAC); `reward_normalization_gamma` sets another discount, and 0
+  divides by the standard deviation of the single-step reward. A constant
+  reward, such as CartPole's, has a single-step standard deviation of 0.
 
 The logged returns stay in the environment's units. Evaluation normalises
 observations with the training statistics, frozen, and never normalises

@@ -36,7 +36,7 @@ import jax.numpy as jnp
 from ajax.agents.recurrent import actor_dist
 from ajax.extensions.base import Extension, ExtensionContext
 from ajax.networks.networks import action_value_input, predict_value
-from ajax.state import with_batch_stats
+from ajax.state import network_variables
 
 # Public metric keys — duplicated here so Ajax callers don't need to
 # import from EVAREST. The strings are identical so dashboards built on
@@ -179,7 +179,7 @@ def critic_takes_action(
         except ValueError:
             continue
         # The init builds every collection: the running statistics too.
-        if built == shapes(with_batch_stats(critic_state, critic_state.params)):
+        if built == shapes(network_variables(critic_state, critic_state.params)):
             return takes_action
     raise ValueError(
         "The critic's parameters fit neither the observation nor the"
@@ -198,7 +198,7 @@ def _critic_kind(
     if _is_ensemble_critic(critic_state):
         return "q" if critic_takes_action(critic_state, obs, act, rng) else "v"
     actor = agent_state.actor_state
-    if hasattr(actor.apply_fn(with_batch_stats(actor, actor.params), obs), "q_values"):
+    if hasattr(actor.apply_fn(network_variables(actor, actor.params), obs), "q_values"):
         return "qnet"
     raise ValueError(
         f"{type(agent_state).__name__} has neither an ensemble critic on"
@@ -212,7 +212,7 @@ def _encoder_features_ppo_sac(critic_state: Any, x: jax.Array) -> jax.Array:
     Returns ``(num_critics, batch, d)``.
     """
     return critic_state.apply_fn(
-        with_batch_stats(critic_state, critic_state.params),
+        network_variables(critic_state, critic_state.params),
         x,
         method="apply_encoder_ensemble",
     )
@@ -220,7 +220,7 @@ def _encoder_features_ppo_sac(critic_state: Any, x: jax.Array) -> jax.Array:
 
 def _encoder_features_qnet(actor_state: Any, x: jax.Array) -> jax.Array:
     """Penultimate features sown by DQN / PQN Q-networks. ``(1, batch, d)``."""
-    variables = with_batch_stats(actor_state, actor_state.params)
+    variables = network_variables(actor_state, actor_state.params)
     _, mv = actor_state.apply_fn(variables, x, mutable=["intermediates"])
     if "encoder_features" not in mv.get("intermediates", {}):
         raise ValueError(

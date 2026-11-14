@@ -10,7 +10,7 @@ each line one method below or one of the equations under it::
                                 update_step_statistics, compute_td_error_scaling
     a' ~ pi(. | s'), log pi(a' | s')                  sample_next_actions (SAC's)
     y = scale r + gamma (1 - d) (min_i Q_i(s', a') - alpha log pi(a' | s'))
-                                                         compute_avg_td_target
+                     compute_avg_td_target, compute_soft_bellman_target (SAC's)
     Q <- argmin ((Q(s, a) - y) / scale of the TD error)^2
                                                   update_critic, compute_critic_loss
     actor <- argmin alpha log pi(a | s) - Q(s, a) at the action taken
@@ -34,8 +34,8 @@ from flax.core import FrozenDict
 from flax.serialization import to_state_dict
 
 from ajax.agents import update_steps
-from ajax.agents.critics import critic_value_readers
 from ajax.agents.families import (
+    EncoderSharing,
     ExpertGuided,
     GradientClipping,
     IncrementalAgent,
@@ -43,7 +43,7 @@ from ajax.agents.families import (
     TrainContext,
 )
 from ajax.agents.recurrent import q_values
-from ajax.agents.SAC.SAC import sample_next_actions
+from ajax.agents.SAC.SAC import compute_soft_bellman_target, sample_next_actions
 from ajax.agents.temperature import (
     SoftActorCriticState,
     TemperatureAuxiliaries,
@@ -63,7 +63,9 @@ ORTHOGONAL = "orthogonal(1.0)"
 
 
 @dataclass(kw_only=True, eq=False, repr=False)
-class AVG(PolicyUpdateStart, GradientClipping, ExpertGuided, IncrementalAgent):
+class AVG(
+    PolicyUpdateStart, GradientClipping, ExpertGuided, EncoderSharing, IncrementalAgent
+):
     """AVG: an incremental soft actor-critic whose critic's TD error is
     divided by a running estimate of its scale (the module's update). It
     always normalises its observations, never its rewards, and squashes its
@@ -270,9 +272,6 @@ class AVG(PolicyUpdateStart, GradientClipping, ExpertGuided, IncrementalAgent):
                 agent_state.scaling_coef,
             )
 
-        predictions, target_value_at = critic_value_readers(
-            critic_state, transition.obs, executed.action
-        )
         agent_state, aux, _, metrics = update_steps.critic_step(
             agent_state,
             executed,
@@ -287,8 +286,6 @@ class AVG(PolicyUpdateStart, GradientClipping, ExpertGuided, IncrementalAgent):
             reward_scale=self.reward_scale,
             next_actions=next_actions,
             next_values=next_values,
-            predictions=predictions,
-            target_value_at=target_value_at,
         )
         return agent_state, aux, metrics
 
@@ -344,6 +341,7 @@ class AVG(PolicyUpdateStart, GradientClipping, ExpertGuided, IncrementalAgent):
             "actor",
             "critic_ensemble",
             "discounted",
+            "entropy_temperature",
             "next_action_target",
             "obs_networks",
             "off_policy",
@@ -421,7 +419,7 @@ def compute_avg_td_target(
     actor_state: LoadedTrainState,
     critic_states: LoadedTrainState,
     critic_params: FrozenDict,
-    rng: jax.Array,
+    key: jax.Array,
     next_observations: jax.Array,
     dones: jax.Array,
     rewards: jax.Array,
@@ -434,8 +432,7 @@ def compute_avg_td_target(
     at the next action the critic scores (map_next_actions: a residual
     policy's executed one), its log-probs, that next action and the value
     bootstrapped, min_i Q_i(s', a') - alpha log pi(a'|s')."""
-    rewards = rewards * reward_scale
-    sample_key, _ = jax.random.split(rng)
+    sample_key, _ = jax.random.split(key)
     next_actions, next_log_probs = sample_next_actions(
         actor_state,
         next_observations,
@@ -446,11 +443,11 @@ def compute_avg_td_target(
         q_values(critic_states, critic_params, next_observations, next_actions),
         axis=0,
     )
-    target = jax.lax.stop_gradient(
-        rewards + (1.0 - dones) * gamma * (q_target - alpha * next_log_probs),
+    target = compute_soft_bellman_target(
+        q_target, next_log_probs, rewards, dones, gamma, alpha, reward_scale
     )
     next_values = jax.lax.stop_gradient(q_target - alpha * next_log_probs)
-    return target, next_log_probs, next_actions, next_values
+    return jax.lax.stop_gradient(target), next_log_probs, next_actions, next_values
 
 
 def compute_critic_loss(
@@ -512,7 +509,7 @@ def compute_policy_loss(
     )
 
 
-# -- State, logged metrics and the legacy view --------------------------------
+# -- State and logged metrics -------------------------------------------------
 @struct.dataclass
 class RunningMoments(Replaceable):
     """The latest value of one scalar stream (AVG's reward, discount or

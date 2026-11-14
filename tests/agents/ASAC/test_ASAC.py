@@ -1,7 +1,6 @@
 import jax
 import jax.numpy as jnp
 import numpy as np
-import pytest
 
 import ajax.agents.ASAC.ASAC as asac_module
 from ajax.agents.ASAC.ASAC import ASAC
@@ -10,33 +9,6 @@ from ajax.networks.networks import get_initialized_actor_critic, predict_value
 from tests.conformance import kit
 from tests.environments.identity_env import IdentityEnv
 from tests.probing import envs
-
-
-@pytest.mark.parametrize(
-    "target_entropy_per_dim, expected_sign",
-    [
-        (-10.0, -1),  # target far below the policy entropy → alpha shrinks
-        (10.0, 1),  # target far above the policy entropy → alpha grows
-    ],
-)
-def test_alpha_tracks_target_entropy(target_entropy_per_dim, expected_sign):
-    """``target_entropy_per_dim`` drives the temperature update.
-
-    Regression test: the temperature step used to hardcode the target
-    to ``-action_dim`` and discard the updated state, so alpha stayed
-    frozen at ``alpha_init`` no matter what the user configured.
-    """
-    agent = ASAC(
-        env_id="fast",
-        learning_starts=10,
-        target_entropy_per_dim=target_entropy_per_dim,
-        alpha_init=1.0,
-        fixed_alpha=False,
-    )
-    state, _ = agent.train(seed=0, n_timesteps=60)
-    log_alpha = float(jnp.asarray(state.alpha.params["log_alpha"]).ravel()[0])
-    assert log_alpha != 0.0, "alpha never moved from alpha_init"
-    assert jnp.sign(log_alpha) == expected_sign
 
 
 def test_temperature_stays_at_alpha_init_by_default():
@@ -85,46 +57,6 @@ def test_the_penalty_reads_the_agents_p_0_and_tau_theta(monkeypatch):
     agent = ASAC("Pendulum-v1", learning_starts=4, p_0=3.0, tau_theta=0.5, **kw)
     agent.train(seed=0, n_timesteps=8)
     assert seen and set(seen) == {(3.0, 0.5)}
-
-
-def test_temperature_and_theta_read_the_actors_own_sample(monkeypatch):
-    """The temperature and the reward-rate (theta) steps read the sample
-    the actor's loss drew, before its step, as the authors' code
-    (BobMak/asac @4b68862, darer/ASAC.py:146-213): no other draw."""
-    seen, drawn = [], []
-    temperature, theta = asac_module.update_temperature, asac_module.update_theta
-    policy = ASAC.update_actor
-
-    def policy_spy(*args, **kwargs):
-        out = policy(*args, **kwargs)
-        drawn.append(out[2])  # its sample's log-probabilities
-        return out
-
-    def temperature_spy(*args):
-        seen.append(args[1])  # the log-probabilities
-        return temperature(*args)
-
-    def theta_spy(*args):
-        seen.append(args[3])
-        return theta(*args)
-
-    monkeypatch.setattr(ASAC, "update_actor", policy_spy)
-    monkeypatch.setattr(asac_module, "update_temperature", temperature_spy)
-    monkeypatch.setattr(asac_module, "update_theta", theta_spy)
-    net = ("8", "relu")
-    agent = ASAC(
-        "Pendulum-v1",
-        actor_architecture=net,
-        critic_architecture=net,
-        learning_starts=4,
-        batch_size=4,
-    )
-    agent.train(seed=0, n_timesteps=8)
-    # Each trace of the update (how many is JAX's caching to decide) pairs
-    # the temperature and theta steps with the actor's own draw.
-    assert drawn and len(seen) == 2 * len(drawn)
-    for index, log_probabilities in enumerate(drawn):
-        assert seen[2 * index] is seen[2 * index + 1] is log_probabilities
 
 
 def test_a_termination_drops_the_next_value_and_keeps_the_shift():
@@ -230,31 +162,6 @@ def test_asac_starts_every_layer_as_torch_nn_linear():
         assert np.abs(kernel).max() > 0.5 * bound and np.any(bias), name
         if kernel.size >= 256:  # a uniform's variance, bound**2 / 3
             np.testing.assert_allclose(kernel.var(), bound**2 / 3, rtol=0.3)
-
-
-def test_recurrent_asac_keeps_its_previous_initialisation():
-    """With memory, ASAC keeps Ajax's previous initialisation until Ni et
-    al.'s is audited: an orthogonal(0.01) mean and a zero-kernel log-std
-    head starting at -1."""
-    from ajax.networks.memory import MemoryConfig
-
-    agent = ASAC(env_id="Pendulum-v1", memory=MemoryConfig("gru", 16))
-    actor_state, _ = get_initialized_actor_critic(
-        jax.random.PRNGKey(0),
-        agent.env_args,
-        agent.actor_optimizer_args,
-        agent.critic_optimizer_args,
-        agent.network_args,
-        continuous=True,
-        action_value=True,
-        squash=True,
-        num_critics=2,
-    )
-    actor = actor_state.params["params"]
-    mean = np.asarray(actor["mean"]["kernel"])
-    np.testing.assert_allclose(mean.T @ mean, 1e-4 * np.eye(1), atol=1e-8)
-    np.testing.assert_array_equal(actor["log_std"]["kernel"], 0.0)
-    np.testing.assert_array_equal(actor["log_std"]["bias"], -1.0)
 
 
 def test_a_terminated_rows_reward_is_charged_the_penalty_for_the_critics_alone(

@@ -32,6 +32,7 @@ from ajax import APO, ASAC, AVG, DQN, IQL, PPO, PQN, REDQ, SAC, TD3, TQC, CrossQ
 from ajax.agents.APG.APG import APG
 from ajax.agents.APG.networks import PIDHeadConfig
 from ajax.agents.critics import compute_mse_td_loss, make_huber_td_loss
+from ajax.agents.DAgger.DAgger import ExponentialBetaSchedule
 from ajax.agents.DQN.DQN import compute_double_dqn_td_target
 from ajax.agents.DreamerV3.DreamerV3 import DreamerV3
 from ajax.agents.TD3.TD3 import make_default_action_pipeline
@@ -178,6 +179,7 @@ R = {"buffer_size": 1000, "batch_size": 16, "learning_starts": 20}
 SAC40 = {**S, **R, "policy_update_start": 40, "alpha_update_start": 40}
 ON = {"env_id": "Pendulum-v1", "n_envs": 2, "n_steps": 32, "batch_size": 16}
 ON.update({"actor_architecture": ("16", "tanh"), "critic_architecture": ("16", "tanh")})
+APO_ON = {**ON, "num_minibatches": 2}  # its 64 samples, as batch_size cuts them
 CART = {"env_id": "CartPole-v1", "n_envs": 2, **R, "architecture": ("16", "relu")}
 PQN_KW = {"env_id": "CartPole-v1", "n_envs": 4, "n_steps": 16, "num_minibatches": 2}
 PQN_KW.update({"n_epochs": 2, "architecture": ("16", "relu")})
@@ -185,9 +187,14 @@ SETPOINT = dict(zip(("env_id", "env_params"), setpoint_env.make(), strict=True))
 PID = {**SETPOINT, "n_envs": 2, "extensions": (setpoint_env.TERMS,)}
 PID.update({"actor_architecture": PIDPolicy(), "critic_architecture": ("16", "relu")})
 NORM = {"normalize_observations": True}
+# The windows these cases were recorded with: 30 steps per env before the first
+# update hold no 65-step window of Ni et al.'s defaults.
+WINDOW = {"burn_in": 8, "sequence_length": 16}
 GRU = {"learning_starts": 60, "memory": MemoryConfig(kind="gru", hidden_size=8)}
+GRU.update(WINDOW)
 DAGGER = {"env_id": "Pendulum-v1", "n_envs": 2, "actor_architecture": ("32", "relu")}
 DAGGER.update({"buffer_size": 1000, "batch_size": 16, "expert_policy": push})
+HALF_DECAY = {"beta_schedule": ExponentialBetaSchedule(0.5)}
 CROSSQ = {"env_id": "Pendulum-v1", "n_envs": 2, "actor_width": 32, "critic_width": 64}
 CROSSQ.update({**R, "learning_starts": 40})
 # The paths a replay agent's options take: a residual policy (its executed
@@ -355,7 +362,7 @@ B5_CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
     "DQN-offline": (DQN, {**CART, "learning_starts": 0, "batch_size": 8}, 80),
     "DQN-image": (DQN, MINATAR, 64),
     "DAgger": (DAgger, DAGGER, 200),
-    "DAgger-mix": (DAgger, {**DAGGER, "beta_decay": 0.5, "iteration_steps": 40}, 200),
+    "DAgger-mix": (DAgger, {**DAGGER, **HALF_DECAY, "iteration_steps": 40}, 200),
     "DAgger-norm-clip": (
         DAgger,
         {**DAGGER, **NORM, "max_grad_norm": 0.5, "weight_decay": 0.01},
@@ -587,6 +594,41 @@ RESUMED: dict[str, tuple[dict[str, Any], int]] = {
     "DreamerV3-resume": ({}, 80),
     "TDMPC2-resume": ({}, 40),
 }
+# The transformer memory's users: recurrent PPO (sequences replayed in
+# chunks from a stored carry), SAC (stored-state replay) and APG's
+# contextual controller (a closed-loop rollout from a fresh carry).
+TRANSFORMER = MemoryConfig("transformer", 8, num_layers=2, num_heads=2, window=4)
+TRANSFORMER_CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
+    "PPO-transformer": (
+        PPO,
+        {
+            **ON,
+            "n_steps": 16,
+            "num_minibatches": 2,
+            "bptt_length": 4,
+            "memory": TRANSFORMER,
+        },
+        128,
+    ),
+    "SAC-transformer": (
+        SAC,
+        {
+            **SAC40,
+            "learning_starts": 60,
+            "policy_update_start": 80,
+            "alpha_update_start": 80,
+            "memory": TRANSFORMER,
+            **WINDOW,
+        },
+        160,
+    ),
+    "APG-transformer": (
+        APG,
+        {**APG_KW, "pid": PIDHeadConfig(), "memory": TRANSFORMER},
+        80,
+    ),
+}
+
 CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
     "TD3": (TD3, {**S, **R}, 200),
     "TD3-keyed": (TD3, {**S, **R, "extensions": (Keyed(),)}, 200),
@@ -699,6 +741,14 @@ CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
     ),
     "SAC-norm": (SAC, {**SAC40, **NORM}, 160),
     "SAC-fixed": (SAC, {**SAC40, "fixed_alpha": True, "policy_update_start": 60}, 160),
+    # Starts under learning_starts, as SAC's defaults (2,000 under 10,000):
+    # every update is past them, and their gates go (from_update_start).
+    "SAC-starts-reached": (SAC, {**SAC40, "learning_starts": 40}, 160),
+    "REDQ-starts-reached": (
+        REDQ,
+        {**S, **R, "policy_update_start": 10, "alpha_update_start": 10},
+        120,
+    ),
     "SAC-pid-norm": (
         SAC,
         {**PID, **R, **NORM, "policy_update_start": 40, "alpha_update_start": 40},
@@ -742,7 +792,7 @@ CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
         {**PID, **NORM, "n_steps": 16, "batch_size": 8, "n_epochs": 1},
         128,
     ),
-    "APO-norm": (APO, {**ON, **NORM}, 128),
+    "APO-norm": (APO, {**APO_ON, **NORM}, 128),
     # The time geometry with brax's forced resets, and recurrent PPO.
     "PPO-time-reset": (PPO, TIME_RESET, 256),
     "PPO-gru": (
@@ -775,9 +825,9 @@ CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
     ),
     "PPO-expose": (PPO, {**ON, "expose_recent_rollout": True}, 128),
     "PPO-gru-whole": (PPO, {**ON, "n_steps": 16, "num_minibatches": 2, **PPO_GRU}, 128),
-    "APO-keyed": (APO, {**ON, **KEYED}, 128),
-    "APO-bc": (APO, {**ON, **NORM, **BC}, 128),
-    "APO-discrete": (APO, {**ON, "env_id": "CartPole-v1"}, 128),
+    "APO-keyed": (APO, {**APO_ON, **KEYED}, 128),
+    "APO-bc": (APO, {**APO_ON, **NORM, **BC}, 128),
+    "APO-discrete": (APO, {**APO_ON, "env_id": "CartPole-v1"}, 128),
     "PQN-huber": (PQN, {**PQN_KW, "td_loss_fn": make_huber_td_loss(1.0)}, 512),
     "PQN-norm-expose": (
         PQN,
@@ -796,6 +846,7 @@ CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
     **WORLD_MODEL_CASES,
     **TDMPC2_CASES,
     **WORLD_FEATURE_CASES,
+    **TRANSFORMER_CASES,
 }
 
 

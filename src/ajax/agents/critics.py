@@ -15,6 +15,7 @@ from ajax.agents.recurrent import RecurrentCarries, q_values
 from ajax.agents.update_steps import gradient_step
 from ajax.extensions.base import ExtensionStack
 from ajax.networks.q_networks import predict_q
+from ajax.networks.utils import shared_by_members
 from ajax.state import LoadedTrainState
 
 
@@ -60,37 +61,43 @@ def compute_mean_critic_loss(
     return compute_q_regression_loss(q_preds, target_q)
 
 
-def critic_value_readers(
-    critic_state: LoadedTrainState, observations: jax.Array, actions: jax.Array
-) -> tuple[Callable, Callable]:
-    """on_target's predictions and target_value_at for an ensemble of Q
-    critics: their mean prediction at the batch's rows (observations,
-    actions) at the step's parameters, which the loss regresses, and their
-    mean value at given observations and actions at the target's (the
-    step's where there are no target critics). No gradient flows back, and
-    each is traced only where an extension reads it."""
+def ensemble_members(
+    critic_state: LoadedTrainState, members: jax.Array
+) -> LoadedTrainState:
+    """critic_state reduced to the ensemble's members at the indices members,
+    in that order: their parameters, target parameters and running
+    statistics, read by an ensemble network of that many members. A pass
+    then computes their values alone, each member's the one the whole
+    ensemble gives it (to rounding): REDQ's target over a random subset of
+    its critics, which its official code evaluates alone."""
+    # The ensemble network, its size a field: its apply is a bound method.
+    network: Any = getattr(critic_state.apply_fn, "__self__", None)
+    if network is None:
+        raise ValueError("ensemble_members needs a critic built by its network.")
 
-    def mean_value(params: FrozenDict, obs: jax.Array, taken: jax.Array) -> jax.Array:
-        values = q_values(critic_state, params, obs, taken)
-        return jax.lax.stop_gradient(jnp.mean(values, axis=0))
+    def member_rows(path: Any, leaf: jax.Array) -> jax.Array:
+        # An encoder the members share (MultiCritic.share_encoder) is every
+        # member's: kept whole.
+        return leaf if shared_by_members(path) else leaf[members]
 
-    target_params = critic_state.target_params
-    if target_params is None:
-        target_params = critic_state.params
+    def take(variables: Optional[FrozenDict]) -> Optional[FrozenDict]:
+        if variables is None:
+            return None
+        return jax.tree_util.tree_map_with_path(member_rows, variables)
 
-    def predictions() -> jax.Array:
-        return mean_value(critic_state.params, observations, actions)
-
-    def target_value_at(obs: jax.Array, taken: jax.Array) -> jax.Array:
-        return mean_value(target_params, obs, taken)
-
-    return predictions, target_value_at
+    return critic_state.replace(
+        apply_fn=network.clone(num=members.shape[0]).apply,
+        params=take(critic_state.params),
+        target_params=take(critic_state.target_params),
+        batch_stats=take(critic_state.batch_stats),
+    )
 
 
 def q_network_value_readers(
     q_state: LoadedTrainState, observations: jax.Array, actions: jax.Array
 ) -> tuple[Callable, Callable]:
-    """critic_value_readers for a Q-network over discrete actions (DQN's):
+    """update_steps.critic_value_readers for a Q-network over discrete
+    actions (DQN's):
     its value at the action indices taken, at the step's parameters and at
     the target's (the step's where it has none)."""
 

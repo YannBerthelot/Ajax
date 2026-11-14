@@ -27,6 +27,7 @@ import numpy as np
 import pytest
 from brax.envs.base import Env, State
 from brax.envs.wrappers import training as brax_training
+from flax import struct
 from mujoco_playground._src.mjx_env import State as PlaygroundState
 
 import ajax.environments
@@ -75,6 +76,52 @@ class BraxIdentity(Env):
     backend = "identity"
 
 
+@struct.dataclass
+class WarpCounters:
+    """MuJoCo Warp's counters and capacities, as MJX keeps them in
+    ``Data._impl``."""
+
+    nacon: jax.Array
+    ncollision: jax.Array
+    naconmax: jax.Array
+    nefc: jax.Array
+    njmax: jax.Array
+    overflow: jax.Array
+    naccdmax: jax.Array
+
+
+@struct.dataclass
+class WarpIdentityData:
+    x: jax.Array
+    _impl: WarpCounters
+
+
+class WarpIdentity(BraxIdentity):
+    """The identity task on playground with MJX Warp's data layout: [t, c] in
+    ``data.x``, and Warp's counters, always within capacity, in
+    ``data._impl``."""
+
+    def __init__(self):
+        super().__init__(playground=True)
+
+    def _state(self, x, before, reward, done, info):
+        state = super()._state(x, before, reward, done, info)
+        one = jnp.ones(1, jnp.int32)
+        counters = WarpCounters(
+            one,
+            one,
+            jnp.asarray(48),
+            jnp.asarray(4),
+            jnp.asarray(64),
+            jnp.zeros(1, jnp.int32),
+            jnp.asarray(48),
+        )
+        return state.replace(data=WarpIdentityData(x, counters))
+
+    def step(self, state, action):
+        return super().step(state.replace(data=state.data.x), action)
+
+
 def brax_stack():
     """``_build_brax_env``'s stack."""
     env = W.NonFiniteStepWrapper(BraxIdentity())
@@ -83,12 +130,16 @@ def brax_stack():
     return W.AutoResetWrapper(W.FinalObsWrapper(env))
 
 
-def playground_stack():
-    """``_build_playground_env``'s stack."""
-    env = W.NonFiniteStepWrapper(BraxIdentity(True))
+def playground_stack(raw=None):
+    """``_build_playground_env``'s stack (on Warp, over a WarpCapacityWrapper)."""
+    env = W.NonFiniteStepWrapper(BraxIdentity(True) if raw is None else raw)
     env = brax_training.EpisodeWrapper(env, LIMIT, action_repeat=1)
     env = W.FreshAutoResetWrapper(W.FinalObsWrapper(brax_training.VmapWrapper(env)))
     return W.BatchRngWrapper(env, n_envs=N_ENVS)
+
+
+def warp_stack():
+    return playground_stack(W.WarpCapacityWrapper(WarpIdentity()))
 
 
 class MeasuredIdentity(IdentityEnv):
@@ -107,6 +158,7 @@ def redraw_c(key, state, params):
 
 
 ROWS = {
+    W.BinaryObservations: lambda: W.BinaryObservations(IdentityEnv()),
     W.FlattenObservationWrapper: lambda: W.FlattenObservationWrapper(IdentityEnv()),
     W.ClipAction: lambda: W.ClipAction(IdentityEnv()),
     W.InitialStateWrapper: lambda: W.InitialStateWrapper(IdentityEnv(), redraw_c),
@@ -129,6 +181,7 @@ ROWS = {
     W.FinalObsWrapper: brax_stack,
     W.FreshAutoResetWrapper: playground_stack,
     W.BatchRngWrapper: playground_stack,
+    W.WarpCapacityWrapper: warp_stack,
     W.ClipActionBrax: lambda: W.ClipActionBrax(brax_stack()),
     W.NormalizeVecObservationBrax: lambda: W.NormalizeVecObservationBrax(
         brax_stack(), gamma=0.9

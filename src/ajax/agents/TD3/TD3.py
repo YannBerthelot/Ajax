@@ -16,6 +16,11 @@ One update on a replay batch, in the order of the reference
 The actor is deterministic (ajax.networks.deterministic: tanh(mu));
 collection explores around it (make_gaussian_exploration), with uniform
 actions during the warm-up.
+
+With memory, TD3 is Ni et al. (2022)'s recurrent TD3 (twni2016/pomdp-
+baselines @e7c19c3, policies/rl/td3.py, policy_rnn.py:153-206): its actor
+maximises min_i Q_i(h, mu(h)) (td3.py:155-157), not Q_1, and steps, with
+both targets' Polyak update, at every update: no policy delay.
 """
 
 from __future__ import annotations
@@ -30,9 +35,10 @@ from flax import struct
 from flax.core import FrozenDict
 
 from ajax.agents import update_steps
-from ajax.agents.critics import compute_mean_critic_loss, critic_value_readers
+from ajax.agents.critics import compute_mean_critic_loss
 from ajax.agents.families import (
     BELLMAN_CONTEXT,
+    EncoderSharing,
     ExpertGuided,
     GradientClipping,
     ObservationNormalization,
@@ -41,15 +47,39 @@ from ajax.agents.families import (
     RewardNormalization,
     TrainContext,
 )
-from ajax.agents.recurrent import RecurrentCarries, actor_dist, q_values, sample_replay
+from ajax.agents.presets import Preset
+from ajax.agents.recurrent import (
+    RecurrentCarries,
+    actor_dist,
+    ni_initialisation,
+    q_values,
+    sample_replay,
+)
 from ajax.controller import critic_action_units, leave_unchanged
 from ajax.environments.interaction import Explore, explore_pipeline
 from ajax.extensions.base import merge_metrics
+from ajax.extensions.expert import ImitationLoss
 from ajax.networks.deterministic import get_initialized_td3_actor_critic
+from ajax.networks.networks import with_critic_encoder
 from ajax.networks.utils import TORCH_LINEAR
 from ajax.schedule import Schedule, at
 from ajax.state import BaseAgentState, LoadedTrainState, Transition
 from ajax.types import Architecture
+
+#: TD3+BC (Fujimoto and Gu, 2021) on the D4RL datasets, trained with
+#: train_offline: the actor's loss TD3+BC's at alpha 2.5, cloning the
+#: dataset's actions, on observations normalised by the dataset's statistics
+#: (sfujim/TD3_BC@8791ad7, TD3_BC.py:76, main.py:56-57, :106-107).
+#: ImitationLoss says how Ajax's term and normalisation match them.
+PRESETS = {
+    "D4RL": Preset(
+        {
+            "extensions": (ImitationLoss(None, target="replay", alpha=2.5),),
+            "normalize_observations": True,
+        },
+        "sfujim/TD3_BC@8791ad7 TD3_BC.py:76, main.py:56-57,106-107",
+    )
+}
 
 
 @dataclass(kw_only=True, eq=False, repr=False)
@@ -59,6 +89,7 @@ class TD3(
     ObservationNormalization,
     RewardNormalization,
     ExpertGuided,
+    EncoderSharing,
     RecurrentReplayAgent,
 ):
     """Twin Delayed DDPG: twin critics, a smoothed target action and a
@@ -68,13 +99,13 @@ class TD3(
     ade6260), not the paper's 400-300, lr 1e-3, batch 100 and 1e4 warm-up:
     256-256 ReLU plain MLPs; Adam at 3e-4 with torch's eps 1e-8; tau 0.005,
     gamma 0.99; exploration N(0, 0.1); target noise N(0, 0.2) clipped to
-    0.5; policy delay 2; a 1e6 replay, batch 256, 25e3 warm-up steps. Its
+    0.5; policy delay 2 (1 with memory, Ni et al.'s); a 1e6 replay, batch
+    256, 25e3 warm-up steps. Its
     layers keep torch's nn.Linear initialisation (bc98e62 TD3.py:24-26,
     :43-50), kernel and bias uniform in +-1/sqrt(fan_in), the actor's last
     layer included (DDPG's uniform(+-3e-3) is in neither), and its critics
-    read the env's units, max_action * tanh. With memory, TD3 keeps
-    Ajax's previous initialisation until Ni et al.'s reference
-    (pomdp-baselines) is audited, as SAC, REDQ and ASAC do.
+    read the env's units, max_action * tanh. With memory, TD3 is Ni et
+    al.'s recurrent TD3 (ajax.agents.recurrent).
     """
 
     actor_learning_rate: float = 3e-4
@@ -85,22 +116,38 @@ class TD3(
     tau: float = 0.005
     reward_scale: float = 1.0
     num_critics: int = 2
-    policy_delay: int = 2
+    # None: 2, or 1 with memory (Ni et al.'s recurrent TD3 steps the actor at
+    # every update, policy_rnn.py:180-206).
+    policy_delay: Optional[int] = None
     target_policy_noise: float = 0.2
     target_noise_clip: float = 0.5
     exploration_noise: Schedule = 0.1  # or a function of the timestep
     buffer_size: int = int(1e6)
-    batch_size: int = 256
+    # None: 256 rows, or 64 windows with memory (RecurrentReplayAgent).
+    batch_size: Optional[int] = None  # type: ignore[assignment]
     learning_starts: int = int(25e3)
     #: Collection's action selection, in place of make_gaussian_exploration
     #: (AjaxExperiments' TD3 variants).
     action_pipeline: Optional[Callable] = None
 
+    def __post_init__(self) -> None:
+        # Resolved before the run config records it.
+        if self.policy_delay is None:
+            self.policy_delay = 1 if self.memory is not None else 2
+        super().__post_init__()
+
+    def _policy_delay(self) -> int:
+        delay = self.policy_delay
+        assert delay is not None  # resolved before the agent is built
+        return delay
+
     def actor_critic_args(self) -> dict[str, Any]:
-        if self.memory is not None:
-            return {"squash": True}
-        init = ("encoder_kernel_init", "mean_kernel_init", "value_kernel_init")
         args: dict[str, Any] = {"squash": True}
+        if self.memory is not None:
+            # Recurrent TD3 starts as its reference, Ni et al.'s.
+            args.update(ni_initialisation(deterministic=True))
+            return args
+        init = ("encoder_kernel_init", "mean_kernel_init", "value_kernel_init")
         args.update(dict.fromkeys(init, TORCH_LINEAR))
         return args
 
@@ -141,8 +188,13 @@ class TD3(
             num_critics=self.num_critics,
         )
         # sfujim/TD3's critics read max_action * tanh, the env's units: so do
-        # TD3's (static, from the concrete env params).
-        units = critic_action_units(context.env_args)
+        # TD3's (static, from the concrete env params). Ni et al.'s recurrent
+        # TD3 reads the [-1, 1] actions of its normalised action space
+        # (pomdp-baselines e7c19c3, policies/rl/td3.py:45-47, :60): with
+        # memory, so do TD3's.
+        units = (
+            None if self.memory is not None else critic_action_units(context.env_args)
+        )
         return TD3State(
             rng=training_key,
             eval_rng=evaluation_key,
@@ -175,7 +227,7 @@ class TD3(
         # actor when the count is a multiple of the delay: its first actor
         # step is the policy_delay-th update, not the first.
         do_policy = update_steps.all_of(
-            ((agent_state.n_updates + 1) % self.policy_delay) == 0,
+            ((agent_state.n_updates + 1) % self._policy_delay()) == 0,
             self.policy_update_due(agent_state.collector_state.timestep),
         )
         update_actor_on_batch = partial(
@@ -224,9 +276,6 @@ class TD3(
             self.num_critics,
             clip_fraction,
         )
-        predictions, target_value_at = critic_value_readers(
-            agent_state.critic_state, batch.obs, batch.action
-        )
         agent_state, aux, grad_norm, metrics = update_steps.critic_step(
             agent_state,
             batch,
@@ -241,8 +290,6 @@ class TD3(
             reward_scale=self.reward_scale,
             next_actions=next_actions,
             next_values=next_values,
-            predictions=predictions,
-            target_value_at=target_value_at,
         )
         aux = aux.replace(grad_norm=grad_norm)
         return agent_state, aux, metrics
@@ -267,6 +314,7 @@ class TD3(
                 batch.obs,
                 carries,
                 scored.map_actions,
+                critics_minimum=self.memory is not None,
             )
             return loss, aux, pi_mean
 
@@ -314,7 +362,7 @@ class TD3(
 def compute_td3_td_target(
     actor_state: LoadedTrainState,
     critic_state: LoadedTrainState,
-    rng: jax.Array,
+    key: jax.Array,
     next_observations: jax.Array,
     dones: jax.Array,
     rewards: jax.Array,
@@ -332,15 +380,18 @@ def compute_td3_td_target(
     policy's executed ones, from the expert's stored next actions), and the
     value bootstrapped, min_i Q_target_i(s', a')."""
     rewards = rewards * reward_scale
+    # A target actor sharing the critic's encoder reads the target critic's,
+    # its lagged copy, as targets read only target networks.
+    target_actor = with_critic_encoder(actor_state, critic_state.target_params)
     next_action = actor_dist(
-        actor_state,
-        actor_state.target_params,
+        target_actor,
+        target_actor.target_params,
         next_observations,
         carries,
         bootstrap=True,
         target_actor=True,
     ).mean()
-    noise = jax.random.normal(rng, next_action.shape) * target_policy_noise
+    noise = jax.random.normal(key, next_action.shape) * target_policy_noise
     clip_fraction = (jnp.abs(noise) > target_noise_clip).mean()
     noise = jnp.clip(noise, -target_noise_clip, target_noise_clip)
     next_action = jnp.clip(next_action + noise, -1.0, 1.0)
@@ -391,17 +442,18 @@ def compute_policy_loss(
     observations: jax.Array,
     carries: Optional[RecurrentCarries] = None,
     map_actions: Callable[[jax.Array], jax.Array] = leave_unchanged,
+    critics_minimum: bool = False,
 ) -> tuple[jax.Array, tuple[PolicyAuxiliaries, jax.Array]]:
-    """TD3 actor loss -Q1(s, mu(s)), at the action the critics score
-    (map_actions: a residual policy's executed one); also returns mu(s) for
-    extensions."""
+    """TD3 actor loss -Q1(s, mu(s)), or -min_i Q_i(s, mu(s)) with
+    critics_minimum (Ni et al.'s recurrent TD3, td3.py:155-157), at the
+    action the critics score (map_actions: a residual policy's executed
+    one); also returns mu(s) for extensions."""
     actions = actor_dist(actor_state, actor_params, observations, carries).mean()
     scored = map_actions(actions)
-    q_first = q_values(
-        critic_state, critic_state.params, observations, scored, carries
-    )[0]  # TD3 uses Q1 only for the actor objective.
-    loss = -q_first.mean()
-    return loss, (PolicyAuxiliaries(policy_loss=loss, q_mean=q_first.mean()), actions)
+    q_all = q_values(critic_state, critic_state.params, observations, scored, carries)
+    q_read = jnp.min(q_all, axis=0) if critics_minimum else q_all[0]
+    loss = -q_read.mean()
+    return loss, (PolicyAuxiliaries(policy_loss=loss, q_mean=q_read.mean()), actions)
 
 
 def update_targets(agent_state: TD3State, tau: float) -> TD3State:
@@ -444,7 +496,7 @@ def make_default_action_pipeline(
     )
 
 
-# -- State, logged metrics and the legacy view --------------------------------
+# -- State and logged metrics -------------------------------------------------
 @struct.dataclass(kw_only=True)
 class TD3State(BaseAgentState):
     """TD3 carries only actor + critic + collector (no temperature, no expert state)."""

@@ -70,7 +70,7 @@ an episode with `c > 0` terminates at `t = 3`, the others are truncated at
 | `tests/agents/test_transition_contract.py` | the transitions every agent hands `on_target` continue their own episode (a time-limited row's next observation is the final one, not the next episode's first), carry the flags the step raised, and carry the normalised rewards under reward normalisation |
 | `tests/agents/test_expert_consumers.py` | every agent taking an `expert_policy` gives it the raw observation, and a stateful expert its state; the cloning dataset holds its actions in agent units; the evaluation's expert return is its closed form |
 | `tests/test_evaluate.py`, `tests/extensions/test_instrumentation_extensions.py` | every output of the evaluation, and every metric of the measurement extensions, meets its closed form on a known rollout |
-| `tests/agents/test_reward_normalisation.py` | every agent taking `normalize_rewards` hands the normaliser the discount it documents (none by default, `reward_normalization_gamma` when given) and reports its Train and Eval returns in the env's units (UDRL's Train return is a strict xfail: a known bug) |
+| `tests/agents/test_reward_normalisation.py` | every agent taking `normalize_rewards` hands the normaliser the discount it documents (its own `gamma` by default, 0.99 without one, `reward_normalization_gamma` when given) and reports its Train and Eval returns in the env's units (UDRL's Train return is a strict xfail: a known bug); a constant reward is not divided by its zero spread, and rewards divided at replay or evaluation are clipped as collected |
 | `tests/agents/test_carry_restart.py` | the recurrent actors of PPO, SAC, ASAC, REDQ and TD3 remember only their current episode, for every memory kind: the carry each acts with is the actor's run from a fresh carry over the episode's observations (the fast tier runs each agent once and each kind at least once, the other rows are slow; APG's controller has its own test in `tests/agents/APG/test_episode_ends.py`) |
 | `tests/agents/test_option_smoke.py` (slow) | the option matrix: every pair of an agent's options, and every extension stacked into an agent that folds it, trains a tiny logged run that updates the policy and keeps every parameter finite |
 | `tests/agents/test_resume_contract.py` (slow) | a run split in two, its second half on a new agent instance, ends in the state one uninterrupted call reaches, every leaf alike (floats to a relative 1e-5): every agent of the contract table and APG, with the normalisation it takes and with memory where it takes one, every call told the run's horizon so the schedules run as in one call (the world models' own tests hold theirs); fast, a two-call DQN run's epsilon at every step is the one call's |
@@ -122,6 +122,9 @@ check.
 | CrossQ | adityab/CrossQ (JAX, its own versions) | `tests/conformance/test_crossq_original.py` |
 | TQC | bayesgroup/tqc_pytorch (PyTorch, from Software Heritage) | `tests/conformance/test_tqc_original.py` |
 | ReBRAC (TD3 with TD3+BC's term and `TargetBC`) | tinkoff-ai/ReBRAC (JAX, the oldest flax that runs) | `tests/conformance/test_rebrac_original.py` |
+| PPO, MLP and CNN (shared encoder) | openai/baselines ppo2 (TensorFlow 1.15) | `tests/conformance/test_ppo2_original.py` |
+| Recurrent PPO (shared encoder), its parameters only | luchris429/purejaxrl `ppo_rnn.py` (JAX) | `tests/conformance/test_purejaxrl_rnn.py` |
+| Recurrent SAC and TD3 (`memory=MemoryConfig("gru")`), against the original with one GRU bias per gate, and the difference from it on its own | twni2016/pomdp-baselines (PyTorch) | `tests/conformance/test_ni_recurrent_original.py` |
 
 The world models were checked against their originals before this kit
 existed, by parity tests that run with the other tests: TD-MPC2 against the
@@ -146,7 +149,12 @@ the original, its recorder and that environment's lock stay the same
 (`AJAX_CONFORMANCE_RECORDS`). TQC's original runs as written only on torch
 before 1.5, which has no arm64 wheels: it is recorded locally in
 `benchmarks/reference/envs/torch14` (x86 Python 3.8) and its records are
-committed under `tests/conformance/records`. `tests/conformance/kit.py` holds the seams
+committed under `tests/conformance/records`. So are ppo2's: TensorFlow 1.15
+runs in its official container on x86-64 Linux (`benchmarks/reference/envs/tf115`),
+and each case starts from a seeded state the test recomputes
+(`benchmarks/reference/conformance_start.py`), its largest layers kept at
+sampled positions, so that its Nature CNN's records stay under a megabyte.
+`tests/conformance/kit.py` holds the seams
 that make one step comparable without changing the code under test: a tape
 of the random draws, and the capture of an agent's update. A difference
 that is the original's convention or defect is registered with its reason

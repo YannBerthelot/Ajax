@@ -12,7 +12,9 @@ function below::
         r_t = pi(a_t | s_t) / pi_old(a_t | s_t)
         L_clip = -mean min(r_t A_t, clip(r_t, 1 - eps, 1 + eps) A_t)
                  - ent_coef mean H(pi(. | s_t))              compute_policy_loss
-        L_V = vf_coef mean (V(s_t) - V_targ)^2 / 2            compute_value_loss
+        L_V = vf_coef mean max((V(s_t) - V_targ)^2,
+                  (V_old + clip(V(s_t) - V_old, -eps, eps) - V_targ)^2) / 2
+                                                              compute_value_loss
         one Adam step of each network down its own loss, the two
         gradients clipped together to max_grad_norm         PPO.minibatch_step
 
@@ -22,8 +24,9 @@ single steps and computes GAE once, on the rollout; with unroll_length
 in time order, and GAE is computed again in each minibatch from the current
 critic; a recurrent policy (memory) trains on sequences of
 bptt_length steps in time order, each replayed from the memory it
-started with, GAE once. Each network takes the gradient of its own loss,
-which is that of ppo2's summed loss (their parameters are apart).
+started with, GAE once. Each network takes its gradient of ppo2's summed
+loss: that of its own loss, unless they share their encoder
+(share_encoder), whose gradient is both losses'.
 """
 
 from __future__ import annotations
@@ -40,6 +43,7 @@ from flax.core import FrozenDict
 
 from ajax.agents.diagnostics import approximate_kl, explained_variance, mean_policy_std
 from ajax.agents.families import (
+    EncoderSharing,
     ExpertGuided,
     ImageObservations,
     ObservationNormalization,
@@ -55,6 +59,7 @@ from ajax.agents.minibatch import (
     get_actions_and_log_probs,
     run_epochs,
 )
+from ajax.agents.presets import Preset
 from ajax.agents.recurrent import (
     compute_rollout_values,
     get_policy_on_minibatch,
@@ -62,14 +67,14 @@ from ajax.agents.recurrent import (
 )
 from ajax.agents.update_steps import (
     apply_gradients_clipped_together,
-    compute_gradients,
+    compute_actor_critic_gradients,
     derive_extensions_key,
 )
 from ajax.environments.utils import check_if_environment_has_continuous_actions
 from ajax.extensions.base import ExtensionStack, merge_metrics
 from ajax.networks.distributions import policy_entropy, recompute_log_prob
 from ajax.networks.memory import MemoryConfig
-from ajax.networks.networks import predict_value
+from ajax.networks.networks import predict_value, with_critic_encoder
 from ajax.random_keys import derive_key, split_by_index
 from ajax.schedule import Schedule, at
 from ajax.state import BaseAgentState, LoadedTrainState, Transition
@@ -85,6 +90,27 @@ from ajax.types import Architecture, FloatOrCallable, InitializationFunction
 #: (ppo_rnn.py:53-55) and popjaxrl @12e5d42 (ppo_gru.py:45-47), whose GRU
 #: keeps flax's defaults (ppo_rnn.py:35, ppo_gru.py:30), as Ajax's does.
 PPO_HIDDEN_INIT = "orthogonal(np.sqrt(2))"
+#: ppo2's Atari config (openai/baselines@ea25b9e, ppo2/defaults.py:15-22),
+#: its rate kept constant as the defaults keep MuJoCo's (owner, 2026-10-18),
+#: the networks shared as its value_network default leaves them (MuJoCo's
+#: copies them, :12). The 8 envs are the PPO paper's actors (Schulman et
+#: al., 2017, Table 5); ppo2 runs one per CPU (run.py:87-89).
+PRESETS = {
+    "Atari": Preset(
+        {
+            "n_envs": 8,
+            "n_steps": 128,
+            "num_minibatches": 4,
+            "n_epochs": 4,
+            "actor_learning_rate": 2.5e-4,
+            "critic_learning_rate": 2.5e-4,
+            "clip_range": 0.1,
+            "ent_coef": 0.01,
+            "share_encoder": True,
+        },
+        "openai/baselines@ea25b9e ppo2/defaults.py:15-22",
+    )
+}
 
 
 @dataclass(kw_only=True, eq=False, repr=False)
@@ -93,24 +119,33 @@ class PPO(
     RewardNormalization,
     ExpertGuided,
     ImageObservations,
+    EncoderSharing,
     OnPolicyAgent,
 ):
     """Proximal Policy Optimization, for discrete and continuous actions.
 
-    Defaults are ppo2's (ppo2/ppo2.py:22, model.py:75, :91,
-    :100-107): Adam at 3e-4 with eps 1e-5, its gradient clipped to 0.5
-    over both networks at once, vf_coef 0.5 on half the squared value
-    error, clip 0.2, gamma 0.99, lambda 0.95, the advantages normalised per
+    Defaults are ppo2's MuJoCo run (ppo2/defaults.py:1-12 mujoco(),
+    ppo2/ppo2.py:22, model.py:75, :91, :100-107): one env (run.py:113,
+    num_env or 1) of 2048 steps cut into 32 minibatches of 64 for 10
+    epochs, 64-64 tanh layers (common/models.py:75, mlp's defaults),
+    TensorFlow 1's Adam at 3e-4 with eps 1e-5 (optax's with memory or
+    unroll_length, as their references), its gradient clipped to 0.5 over
+    both networks at once, vf_coef 0.5 on half the squared value error,
+    each value kept within the clip of the one that collected the rollout
+    (model.py:66-75), clip 0.2, no entropy bonus, gamma 0.99, lambda 0.95,
+    the advantages normalised per
     minibatch; the Gaussian's log-std one learned parameter per action
     dimension starting at 0 (std 1), never clipped (the Actor in
-    networks.py cites it). The 128-128 tanh layers are Ajax's.
+    networks.py cites it); observations and discounted returns normalised
+    and clipped at 10, as run.py:115-116's VecNormalize. Not taken:
+    mujoco()'s linear decay of the rate (owner, 2026-10-18).
     """
 
-    n_envs: int = 4
+    n_envs: int = 1
     actor_learning_rate: FloatOrCallable = 3e-4
     critic_learning_rate: FloatOrCallable = 3e-4
-    actor_architecture: Architecture = ("128", "tanh", "128", "tanh")
-    critic_architecture: Architecture = ("128", "tanh", "128", "tanh")
+    actor_architecture: Architecture = ("64", "tanh", "64", "tanh")
+    critic_architecture: Architecture = ("64", "tanh", "64", "tanh")
     gamma: float = 0.99
     #: ppo2's clip: one global norm over both networks' gradients
     #: (ppo2/model.py:105-107); None leaves them unclipped.
@@ -128,6 +163,13 @@ class PPO(
     #: The critic's loss is vf_coef * 0.5 * MSE: ppo2's vf_coef 0.5 on its
     #: 0.5 * MSE (ppo2/ppo2.py:22, model.py:75, :91).
     vf_coef: float = 0.5
+    #: ppo2's clipped value loss (ppo2/model.py:66-75): the larger of the
+    #: squared error and that of the value clipped to clip_range around the
+    #: value the rollout was collected with, so that the loss stops pulling
+    #: a value once it has moved clip_range towards its target. None is the
+    #: reference's: clipped, but with unroll_length, as brax's PPO does not
+    #: clip (brax 0.14.2 ppo/train.py:207, clipping_epsilon_value=None).
+    clip_value_loss: Optional[bool] = None
     #: Opts into brax's minibatches: the (n_steps, n_envs) rollout is cut
     #: into fragments of unroll_length steps, each in time order, shuffled
     #: into the minibatches, and GAE, recomputed in each minibatch,
@@ -169,17 +211,89 @@ class PPO(
     #: Squashed or not, the action is read in [-1, 1] and mapped onto the
     #: env's bounds (agent_action_to_env), clipped there first.
     squash: bool = False
+    #: ppo2's MuJoCo run normalises observations and discounted returns by
+    #: running statistics, both clipped to +-10 (baselines run.py:115-116,
+    #: common/vec_env/vec_normalize.py: clipob=10, cliprew=10, epsilon 1e-8);
+    #: normalize_rewards divides by the return's spread with gamma and
+    #: clips at 10 (RewardNormalization).
+    normalize_observations: bool = True
+    observation_clip: Optional[float] = 10.0
+    normalize_rewards: bool = True
+
+    #: The numbers a sweep may vary in one program (ActorCritic.train's sweep).
+    sweepable: ClassVar[frozenset[str]] = frozenset(
+        {
+            "actor_learning_rate",
+            "critic_learning_rate",
+            "gamma",
+            "gae_lambda",
+            "ent_coef",
+            "vf_coef",
+            "clip_range",
+        }
+    )
 
     def actor_critic_args(self) -> dict[str, Any]:
         if self.encoder_kernel_init is None:
             return {"encoder_kernel_init": PPO_HIDDEN_INIT}
         return {}
 
+    def reference_share_encoder(self) -> bool:
+        """ppo2's choice (@ea25b9e), whose value head reads the policy's
+        network unless value_network says otherwise
+        (common/policies.py:155-167): shared with images, where its Atari
+        defaults leave it so (ppo2/defaults.py:15-21; CleanRL @fe8d8a0
+        ppo_atari.py:120-133). MLP networks stay apart, as ppo2's MuJoCo
+        defaults copy them (defaults.py:12, value_network='copy'), and as
+        CleanRL's ppo.py:103-116 and PureJaxRL @31756b1 ppo.py:24-45 build
+        them; ppo2 shares them on other tasks (run.py:170-176), which the
+        owner left aside (2026-11-13).
+
+        With memory the references share too (common/policies.py:165;
+        PureJaxRL ppo_rnn.py:51-57; popjaxrl @12e5d42 ppo_gru.py:45-50), but
+        Ajax's shared memory fails the masked-CartPole memory probe, even
+        with the references' per-head layers (network_settings): GRU returns
+        37, 33 and 12 over 3 seeds, against 211, 194 and 500 apart. Recurrent
+        PPO keeps its networks apart until that is understood (owner,
+        2026-11-13)."""
+        return self.cnn_image_shape is not None
+
+    def clips_value_loss(self) -> bool:
+        """clip_value_loss, or the reference's choice where it is None."""
+        if self.clip_value_loss is None:
+            return self.unroll_length is None
+        return self.clip_value_loss
+
+    def check(self) -> None:
+        if self.clip_value_loss and self.unroll_length is not None:
+            raise ValueError(
+                "clip_value_loss clips each value around the one the rollout was"
+                " collected with; with unroll_length (brax's PPO, which does not clip"
+                " it) the minibatches carry no such values."
+            )
+
+    def network_settings(self) -> dict[str, Any]:
+        """With memory, each head reads the memory through a 128-unit ReLU
+        layer of its own, started orthogonal(2), as PureJaxRL's do
+        (ppo_rnn.py:59-75; popjaxrl's ppo_gru.py:53-66 has two, of leaky
+        ReLU)."""
+        if self.memory is None:
+            return {}
+        return {
+            "head_architecture": ("128", "relu"),
+            "head_kernel_init": "orthogonal(2)",
+        }
+
     def optimizer_settings(self) -> dict[str, Any]:
-        # ppo2's Adam (model.py:100-107) with eps 1e-5; its one clip over both
-        # networks is minibatch_step's (update_steps.apply_gradients_clipped_together),
-        # so neither network's own optimiser clips.
-        return {"eps": self.adam_eps, "max_grad_norm": None}
+        # ppo2's Adam (model.py:100-107), TensorFlow 1's tf.train.AdamOptimizer,
+        # with eps 1e-5. Recurrent PPO's reference (PureJaxRL @31756b1
+        # ppo_rnn.py:124-132) and brax's PPO, which unroll_length follows,
+        # step optax's Adam. ppo2's one clip over both networks is
+        # minibatch_step's (update_steps.apply_gradients_clipped_together), so
+        # neither network's own optimiser clips.
+        tf1 = self.memory is None and self.unroll_length is None
+        rule = "tf1_adam" if tf1 else "adam"
+        return {"eps": self.adam_eps, "max_grad_norm": None, "optimizer": rule}
 
     def setup(self) -> None:
         # Checked here, not in check(): n_envs and the memory are known once built.
@@ -294,6 +408,10 @@ class PPO(
             )
             agent_state = agent_state.replace(ext_state=ext_state)
             batch.update({"targets": value_targets, "gae": gae})
+            if self.clips_value_loss():
+                # The values the rollout was collected with, which the clip
+                # keeps each new value near (ppo2's OLDVPRED).
+                batch["values"] = values
 
         def cut_rollout_into_minibatches(epoch_key: jax.Array) -> dict:
             """One epoch's partition of the rollout, each minibatch with a key
@@ -379,8 +497,8 @@ class PPO(
         """One gradient step of the critic and one of the actor on the
         minibatch. Both gradients are taken at the parameters this step starts
         from, then clipped together and applied. That is ppo2's single step
-        down the sum of the two losses: the networks share no parameter, so
-        each network's gradient of the sum is the gradient of its own loss."""
+        down the sum of the two losses (compute_actor_critic_gradients),
+        with or without a shared encoder."""
         # The minibatch's key: a squashed policy's entropy is sampled with it,
         # and the extensions' keys below are derived from it.
         entropy_key = minibatch["entropy_key"]
@@ -417,6 +535,10 @@ class PPO(
         else:
             gae, value_targets = minibatch["gae"], minibatch["targets"]
 
+        value_clip_range = None
+        if self.clips_value_loss():
+            value_clip_range = at(self.clip_range, agent_state.collector_state.timestep)
+
         def value_loss(critic_params: FrozenDict) -> tuple:
             return compute_value_loss(
                 critic_params,
@@ -425,12 +547,13 @@ class PPO(
                 value_targets,
                 vf_coef=self.vf_coef,
                 compute_extensions_loss=compute_extensions_critic_loss,
+                clip_range=value_clip_range,
             )
 
-        def policy_loss(actor_params: FrozenDict) -> tuple:
+        def policy_loss(actor_params: FrozenDict, critic_params: FrozenDict) -> tuple:
             return compute_policy_loss(
                 actor_params,
-                actor,
+                with_critic_encoder(actor, critic_params),
                 minibatch,
                 gae,
                 clip_coef=at(self.clip_range, agent_state.collector_state.timestep),
@@ -440,12 +563,10 @@ class PPO(
                 entropy_key=entropy_key,
             )
 
-        value_grads, (value_aux, value_metrics) = compute_gradients(
-            value_loss, critic.params
+        policy_grads, value_grads, policy_out, value_out = (
+            compute_actor_critic_gradients(policy_loss, value_loss, actor, critic)
         )
-        policy_grads, (policy_aux, policy_metrics) = compute_gradients(
-            policy_loss, actor.params
-        )
+        (policy_aux, policy_metrics), (value_aux, value_metrics) = policy_out, value_out
         actor, critic, policy_grad_norm, value_grad_norm = (
             apply_gradients_clipped_together(
                 actor, critic, policy_grads, value_grads, self.max_grad_norm
@@ -496,7 +617,8 @@ class PPO(
 
 
 # -- PPO's equations, in the order the update calls them ---------------------
-@partial(jax.jit, static_argnames=["gamma", "gae_lambda"])
+# Not jitted on its own: gamma and gae_lambda may be a sweep member's traced
+# values (ActorCritic.train's sweep); the training program compiles it.
 def _compute_gae(
     rewards: jax.Array,
     values: jax.Array,
@@ -525,12 +647,17 @@ def _compute_gae(
 
         return gae, gae
 
+    # Unrolled: the same operations in fewer loop iterations. On a GPU each
+    # iteration of this small body costs a few kernel launches: a rollout of
+    # 2048 steps took about 22 ms rolled and 2 ms unrolled (GTX 1080 Ti, 10
+    # seeds); on a CPU either takes under 0.5 ms, with the same advantages to
+    # the bit.
     _, advantages = jax.lax.scan(
         f=_get_advantages,
         init=jnp.zeros_like(values[-1]),
         xs=(rewards, values, next_values, terminateds, truncateds),
         reverse=True,
-        unroll=1,
+        unroll=16,
     )
     returns = advantages + values
     return advantages, returns
@@ -543,13 +670,22 @@ def compute_value_loss(
     value_targets: jax.Array,
     vf_coef: float = 1.0,
     compute_extensions_loss: Optional[Callable] = None,
+    clip_range: Optional[float] = None,
 ) -> Tuple[jax.Array, Tuple[ValueAuxiliaries, dict]]:
     """vf_coef * 0.5 * MSE(V(s), value_targets) over the minibatch's
     observations (obs), plus the extensions' term (compute_extensions_loss),
-    with the metrics and the extensions' ({} without them). A critic with
-    memory replays the minibatch's sequences (predict_values_on_minibatch)."""
+    with the metrics and the extensions' ({} without them). With clip_range,
+    each squared error is the larger of its own and that of V(s) clipped to
+    clip_range around the minibatch's collected values (ppo2's,
+    model.py:66-75). A critic with memory replays the minibatch's sequences
+    (predict_values_on_minibatch)."""
     value_preds = predict_values_on_minibatch(critic_state, critic_params, minibatch)
-    loss = vf_coef * 0.5 * jnp.mean((value_preds - value_targets) ** 2)
+    squared_errors = (value_preds - value_targets) ** 2
+    if clip_range is not None:
+        collected = minibatch["values"]
+        clipped = collected + jnp.clip(value_preds - collected, -clip_range, clip_range)
+        squared_errors = jnp.maximum(squared_errors, (clipped - value_targets) ** 2)
+    loss = vf_coef * 0.5 * jnp.mean(squared_errors)
     metrics: dict = {}
     if compute_extensions_loss is not None:
         extensions_loss, metrics = compute_extensions_loss(

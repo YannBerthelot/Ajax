@@ -2,8 +2,8 @@
 
 Deep Q-Network learns one Q-value per discrete action and acts greedily on
 them. It regresses the Q-network on temporal-difference targets computed
-with a separate target network, refreshed every few hundred updates, and
-samples its training data from a replay buffer. It explores with an
+with a separate target network, refreshed every few hundred environment
+steps, and samples its training data from a replay buffer. It explores with an
 epsilon-greedy rule whose epsilon decays linearly during training. Double
 DQN, the dueling network and the squared loss are options of the same agent.
 
@@ -31,7 +31,8 @@ network).
 from ajax import DQN
 from ajax.logging import LoggingConfig
 
-agent = DQN("CartPole-v1", n_envs=4)
+# A short run: the default warm-up, CleanRL's, is 10,000 steps.
+agent = DQN("CartPole-v1", n_envs=4, learning_starts=1_000)
 logging = LoggingConfig(log_frequency=5_000, backends=())
 state, evaluations = agent.train(seed=[0, 1], n_timesteps=10_000, logging_config=logging)
 print(evaluations["Eval/episodic mean reward"])  # one row per seed
@@ -56,26 +57,29 @@ state, _ = agent.train(seed=0, n_timesteps=2_000)
 
 ## Key hyperparameters
 
-Defaults are read from DQN's fields.
+Defaults are read from DQN's fields: on vector observations, those of
+CleanRL's `dqn.py` (vwxyzjn/cleanrl `fe8d8a0`), with the authors' optimiser
+and loss (see Notes).
 
 | Argument | Default | What it does |
 | --- | --- | --- |
 | `n_envs` | `1` | parallel environments |
 | `learning_rate` | `2.5e-4` | step size of centered RMSProp (see Notes) |
-| `architecture` | `("128", "relu", "128", "relu")` | hidden layers of the Q-network |
+| `architecture` | `("120", "relu", "84", "relu")` | hidden layers of the Q-network |
 | `gamma` | `0.99` | discount |
-| `buffer_size` | `100_000` | replay capacity |
-| `batch_size` | `64` | replay minibatch |
-| `learning_starts` | `1_000` | steps of uniform random actions before the first update |
-| `n_gradient_steps` | `1` | gradient steps per iteration |
-| `target_update_interval` | `500` | gradient steps between target refreshes |
+| `buffer_size` | `10_000` | replay capacity |
+| `batch_size` | `128` | replay minibatch |
+| `learning_starts` | `10_000` | steps of uniform random actions before the first update |
+| `train_frequency` | `10` | environment steps between updates |
+| `n_gradient_steps` | `1` | gradient steps per update |
+| `target_update_interval` | `50` | gradient steps between target refreshes (500 environment steps at the defaults) |
 | `tau` | `1.0` | refresh rate: `1.0` copies the weights, below `1` is a Polyak step |
 | `epsilon_start`, `epsilon_end` | `1.0`, `0.05` | exploration rate at the start and the end of its decay |
 | `epsilon_decay_frac` | `0.5` | fraction of the run over which epsilon decays |
 | `reward_scale` | `1.0` | multiplies the rewards in the target |
 | `max_grad_norm` | `None` | gradient clipping |
 | `normalize_observations`, `normalize_rewards` | `False` | running normalisation |
-| `reward_normalization_gamma` | `None` | with `normalize_rewards`, divide by the spread of the discounted return |
+| `reward_normalization_gamma` | `None` | with `normalize_rewards`, the discount of the return whose spread divides the rewards: `gamma` if None, 0 for the single reward's |
 | `td_target_fn` | `None` | the target; `None` is vanilla DQN, `compute_double_dqn_td_target` is Double DQN |
 | `td_loss_fn` | `None` | the loss; `None` is the Huber loss with delta 1, `compute_mse_td_loss` the squared error |
 | `q_network_cls` | `None` | the network; `None` is `QNetwork`, `DuelingQNetwork` the dueling one |
@@ -83,16 +87,43 @@ Defaults are read from DQN's fields.
 | `episode_length`, `action_repeat` | `None`, `1` | simulator steps per episode (1,000 when `None`) and per agent step, on Brax and Playground |
 | `extensions` | `()` | research features (see [Extensions](../guide/extensions.md)) |
 
+## Presets
+
+`DQN.preset("Atari", env_id)` takes Mnih et al.'s Atari config
+(google-deepmind/dqn@`9d9b1d1`, `run_gpu:12-32`;
+[Presets](../guide/training.md#presets)): a 1,000,000-row replay, batches of
+32, 50,000 warm-up steps, one update every 4 steps (`train_frequency=4`), the
+target refreshed every 10,000 steps (`target_update_interval=2_500`
+updates), epsilon falling to 0.1 by step 1,050,000. That last is a fraction
+of the reference's 50M-step run (`epsilon_decay_frac=0.021`), so it comes
+sooner in a shorter run. Atari's frame skip and stack, no-op starts and
+reward clipping are the environment's.
+
 ## Notes
 
 - **Target.** `r + gamma (1 - terminated) max_a' Q'(s', a')`; Double DQN
   picks `a'` with the online network and values it with the target network.
-- **Updates per step.** Each iteration steps every env once, then (from
-  `learning_starts`) takes `n_gradient_steps` gradient steps. With `n_envs=4`
-  that is one gradient step per four environment steps.
+- **Updates per step.** Each iteration steps every env once. From
+  `learning_starts`, each time the steps collected reach a multiple of
+  `train_frequency`, it takes `n_gradient_steps` gradient steps: one per 10
+  environment steps at the defaults, whatever `n_envs` (with `n_envs` at
+  or above `train_frequency`, one per iteration). `train_frequency=1`
+  updates every iteration. An evaluation between two updates logs the
+  training metrics of the last one.
 - **Target refresh.** One mechanism covers both classic schemes: every
   `target_update_interval` gradient steps the target moves by `tau`. The
   hard copy is `tau=1.0`; a Polyak average is `tau < 1` with interval `1`.
+  The default, 50 updates of one per 10 steps, is CleanRL's refresh every
+  500 environment steps. The interval counts updates so that it keeps its
+  meaning in `train_offline` and pretraining, where no environment step is
+  taken.
+- **Defaults.** CleanRL's `dqn.py`, the vector-observation reference: the
+  authors' own code (google-deepmind/dqn) runs Atari only. CleanRL numbers
+  its steps from 0: an update or refresh at Ajax's 10,500th step is
+  CleanRL's at `global_step` 10,500, its 10,501st. Ajax also updates and
+  refreshes at step 10,000, where CleanRL waits for `global_step >
+  learning_starts`. CleanRL's Adam and squared loss give way to the authors'
+  optimiser and Huber loss (below).
 - **Exploration.** Epsilon decays linearly with the training fraction (the
   timestep over the run's total), from `epsilon_start` to `epsilon_end`
   over the first `epsilon_decay_frac` of the run. Before `learning_starts`

@@ -92,7 +92,7 @@ def test_the_replay_keeps_a_datasets_return_and_minus_inf_for_collected_rows() -
         obs, np.zeros((ROWS, 1)), np.arange(ROWS), ends, ~ends, obs
     )
     empty = agent.train(seed=0, n_timesteps=0)[0].collector_state.buffer_state
-    filled = fill_replay(agent.buffer, jax.tree.map(lambda x: x[0], empty), rows)
+    filled = fill_replay(jax.tree.map(lambda x: x[0], empty), rows)
     np.testing.assert_array_equal(
         filled.experience["return_to_go"][0, :ROWS, 0], rows.return_to_go
     )

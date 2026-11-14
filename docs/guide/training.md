@@ -51,6 +51,54 @@ constructor argument by name (`TDMPC2MultiTask` leaves out its dataset and
 evaluation environments), plus `algo_name`. The loggers store it with each
 run ([Logging](logging.md)).
 
+### Presets
+
+An agent's defaults are its reference code's general configuration. Where
+the reference tunes some values for one task (a temperature for Humanoid, a
+discount for Swimmer, a whole configuration for Atari), the agent keeps them
+in a preset, named after the task:
+
+```python
+from ajax import TQC
+
+agent = TQC.preset("Hopper", "hopper")  # brax's Hopper
+print(agent.top_quantiles_to_drop_per_net)  # 5, the authors' Hopper setting
+print(agent.config["preset"])  # Hopper: the run config records it
+
+# The arguments you give win over the preset's.
+agent = TQC.preset("Hopper", "hopper", top_quantiles_to_drop_per_net=3)
+```
+
+A preset is named after its task, not an environment id, so it applies to
+the gymnasium, Brax and Playground versions of the task alike. An unknown
+name raises and lists the agent's presets. Each agent module keeps its
+presets in a `PRESETS` table, each entry the values and where they come
+from:
+
+```python
+from ajax.agents.TQC.TQC import PRESETS
+
+print(PRESETS["Hopper"].citation)  # bayesgroup/tqc_pytorch@65114eb README.md:42-48
+```
+
+A preset sets every value its reference varies across tasks, even one that
+equals the default today. It sets the agent's fields only: the environment's
+own settings (Atari's frame skip or reward clipping) and a dataset's
+preprocessing stay yours.
+
+| Agent | Presets | Source |
+| --- | --- | --- |
+| [ASAC](../algorithms/asac.md#presets) | the ten Gymnasium MuJoCo tasks | the authors' tuned runs |
+| [CrossQ](../algorithms/crossq.md#presets) | `Swimmer` | the authors' `train.py` |
+| [DreamerV3](../algorithms/dreamerv3.md#presets) | `DMC` | `configs.yaml` |
+| [DQN](../algorithms/dqn.md#presets) | `Atari` | Mnih et al.'s `run_gpu` |
+| [IQL](../algorithms/iql.md#presets) | `AntMaze` | `antmaze_config.py` |
+| [PPO](../algorithms/ppo.md#presets) | `Atari` | ppo2's `defaults.py` |
+| [PQN](../algorithms/pqn.md#presets) | `CartPole`, `Atari` | purejaxql's configs |
+| [REDQ](../algorithms/redq.md#presets) | `Hopper`, `HalfCheetah`, `Walker2d`, `Ant`, `Humanoid` | MBPO's target entropies |
+| [TD3](../algorithms/td3.md#presets) | `D4RL` (TD3+BC) | TD3_BC's `main.py` |
+| [TQC](../algorithms/tqc.md#presets) | `Hopper`, `HalfCheetah`, `Walker2d`, `Ant`, `Humanoid` | the authors' README |
+
 ## `train`
 
 ```python
@@ -96,6 +144,39 @@ is `jax.tree.map(lambda x: x[i], state)`.
 The same seed on the same machine and library versions gives the same run.
 Two programs compiled apart, or on different hardware, may round
 differently, so do not expect identical numbers across machines.
+
+### Hyperparameter sweeps
+
+`sweep` trains several configurations of the agent in the same program, each
+with every seed:
+
+```python
+state, _ = agent.train(
+    seed=[1, 2],
+    n_timesteps=2_000,
+    sweep={"actor_learning_rate": [1e-4, 3e-4], "tau": [0.005, 0.02]},
+)
+agent.members[0]  # {'seed': 1, 'actor_learning_rate': 0.0001, 'tau': 0.005}
+```
+
+A dict of value lists trains its grid, here 4 configurations, so 8 members;
+a list of dicts trains those configurations. The returned arrays have one
+leading row per member, configuration by configuration, each over the
+seeds, as `agent.members` lists them. Each member trains as a separate run
+of its configuration with its seed would, up to floating-point rounding, and
+the sweep compiles once.
+
+Only the agent's sweepable fields can vary (`agent.sweepable_fields()`):
+numbers its training reads as numbers, such as SAC's learning rates, `gamma`
+and `tau`, or PPO's `ent_coef` and `clip_range`. So far only SAC and PPO
+declare any. A setting that changes array shapes or the program, such as the
+network sizes, `n_envs`, `batch_size` or `buffer_size`, takes one `train`
+call per value. Each member keeps its own replay buffer, so memory grows with
+the members.
+
+With a `logging_config`, each member is a logged run of its own, with its
+values in its run config. A sweep continues from its state with the same
+`seed` and `sweep`.
 
 ### Parallel environments
 

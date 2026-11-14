@@ -48,10 +48,10 @@ Defaults are read from `ASAC.__init__`.
 | `actor_learning_rate`, `critic_learning_rate`, `alpha_learning_rate` | `1e-4`, `5e-4`, `1e-4` | Adam step sizes (the authors'; Adam's epsilon is torch's 1e-8) |
 | `actor_architecture`, `critic_architecture` | `("256", "relu", "256", "relu")` | hidden layers (plain MLPs) |
 | `buffer_size` | `1_000_000` | replay capacity |
-| `batch_size` | `256` | replay minibatch |
+| `batch_size` | `None` | replay minibatch: 256 rows, or 64 windows with `memory=` |
 | `learning_starts` | `10_000` | steps of uniform random actions before the first update |
 | `tau` | `0.005` | Polyak rate of the target critics |
-| `tau_theta` | `0.005` | rate of the `theta` and penalty averages (the authors tune it per environment, 0.0005 to 0.1) |
+| `tau_theta` | `0.005` | rate of the `theta` and penalty averages (the authors tune it per environment, 0.0005 to 0.1: [Presets](#presets)) |
 | `p_0` | `20` | scale of the termination penalty |
 | `alpha_init` | `0.2` | entropy weight (its start when it is learned) |
 | `fixed_alpha` | `True` | keep `alpha` at `alpha_init`; `False` learns it towards the target entropy |
@@ -59,15 +59,35 @@ Defaults are read from `ASAC.__init__`.
 | `reward_scale` | `1.0` | multiplies the rewards in the target |
 | `max_grad_norm` | `10.0` | gradient clipping, each critic and the actor on its own (the authors'); `None` turns it off |
 | `normalize_observations`, `normalize_rewards` | `False` | running normalisation |
-| `reward_normalization_gamma` | `None` | with `normalize_rewards`, divide by the spread of the discounted return |
+| `reward_normalization_gamma` | `None` | with `normalize_rewards`, the discount of the return whose spread divides the rewards: 0.99 if None, 0 for the single reward's |
 | `expert_policy` | `None` | an expert whose return the evaluation reports next to the agent's (`Eval/expert bias`) |
-| `memory`, `burn_in`, `sequence_length`, `stored_state` | `None`, `8`, `16`, `False` | recurrent memory (see [Memory](../guide/memory.md)) |
+| `memory`, `burn_in`, `sequence_length`, `stored_state` | `None`, `0`, `64`, `False` | recurrent memory (see [Memory](../guide/memory.md)) |
 | `episode_length`, `action_repeat` | `None`, `1` | simulator steps per episode (1,000 when `None`) and per agent step, on Brax and Playground |
 | `extensions` | `()` | research features (see [Extensions](../guide/extensions.md)) |
 
 With an `expert_policy`, ASAC stores the expert's actions along each
 trajectory, from its state when it has one, and takes the `CloningPretrain`
 and `ImitationLoss` extensions ([Expert guidance](../guide/expert-guidance.md)).
+
+## Presets
+
+`ASAC.preset(task, env_id)` takes the authors' tuned values for a Gymnasium
+MuJoCo task (BobMak/asac@`4b68862`, `hparams/<task>-v5/asac.yaml`; [Presets](../guide/training.md#presets)).
+Their temperature is 1 / `beta`.
+
+| Preset | `alpha_init` | `tau_theta` | `learning_starts` | `buffer_size` |
+| --- | --- | --- | --- | --- |
+| `Ant`, `HalfCheetah`, `Pusher` | 0.2 | 0.005 | 10,000 | 1,000,000 |
+| `Hopper` | 0.2 | 0.001 | 10,000 | 1,000,000 |
+| `Humanoid` | 0.05 | 0.001 | 10,000 | 1,000,000 |
+| `InvertedDoublePendulum` | 0.2 | 0.001 | 0 | 1,000,000 |
+| `InvertedPendulum` | 0.2 | 0.005 | 0 | 1,000,000 |
+| `Reacher` | 0.2 | 0.005 | 10,000 | 100,000 |
+| `Swimmer` | 0.05 | 0.005 | 10,000 | 1,000,000 |
+| `Walker2d` | 0.2 | 0.0005 | 10,000 | 1,000,000 |
+
+Their Swimmer-v3 config (`tau_theta` 0.1, the critics averaged rather than
+minimised) has no preset: Ajax runs v5.
 
 ## Notes
 
@@ -93,16 +113,17 @@ and `ImitationLoss` extensions ([Expert guidance](../guide/expert-guidance.md)).
   (skipped with `fixed_alpha`), the `theta` step and the target update. Each
   iteration steps every env once, then makes one update.
 - **Temperature.** As in the authors' published runs, `alpha` is fixed:
-  0.2 by default. Those runs use 0.05 for Humanoid and Swimmer; pass
-  `alpha_init=0.05` for those. `fixed_alpha=False` learns it as SAC does.
+  0.2 by default. Those runs use 0.05 for Humanoid and Swimmer, as their
+  [presets](#presets) do. `fixed_alpha=False` learns it as SAC does.
 - **Two critics.** ASAC always uses two critics; it has no `num_critics`.
 - **Extensions.** ASAC tells its extensions there is no discount: they
   receive `gamma=None`.
 - **Initialisation.** As the authors' code (stable-baselines3's SAC actor
   and plain torch critics): every layer, the mean and log-std heads
   included, starts as torch's `nn.Linear` does, its kernel and bias
-  uniform in `±1/sqrt(fan_in)`. With `memory=`, ASAC keeps its previous
-  initialisation until Ni et al.'s is audited.
+  uniform in `±1/sqrt(fan_in)`. With `memory=`, ASAC builds Ni et al.
+  (2022)'s recurrent networks and their initialisation, by analogy with
+  their SAC (see [Memory](../guide/memory.md)).
 - **Actions and evaluation.** As SAC: a `tanh`-squashed Gaussian in
   `[-1, 1]`, mapped onto the environment's bounds; evaluation uses the mean
   action. Its log-probability subtracts `log(1 - tanh(u)^2 + 1e-6)`, as the

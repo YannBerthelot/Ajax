@@ -24,6 +24,8 @@ from ajax.controller import (
     init_observers,
     memory_tracker_of,
     observe_features,
+    previous_action_input,
+    previous_reward_input,
     read_the_residual,
     restart_observers,
     warmup_expert_flags,
@@ -979,6 +981,8 @@ def step_features(
     raw_final_obs: jax.Array,
     expert_state: Any,
     ended: jax.Array,
+    executed_action: jax.Array,
+    paid_reward: jax.Array,
     **at: Any,
 ) -> tuple[jax.Array, jax.Array, Any]:
     """A step's observation features (``env_args.observers``): those of the
@@ -986,14 +990,21 @@ def step_features(
     observer and expert states; those of the step's final observation (the
     transition's next) from the continuing ``observer_states``, the expert's
     ``expert_state`` after this step's call; and the observers' states after
-    the next observation. ``at``: the inputs' timestep and horizon, or
-    progress (:class:`ajax.controller.ObserveInputs`)."""
+    the next observation. ``executed_action`` is the action the envs
+    executed this step, in agent units, and ``paid_reward`` what the
+    environment paid for it. ``at``: the inputs' timestep and
+    horizon, or progress (:class:`ajax.controller.ObserveInputs`)."""
     observers, n_envs = env_args.observers, env_args.n_envs
     start, expert_start = restart_observers(
         ended, observers, observer_states, expert, expert_state, n_envs
     )
     raw_next = get_raw_obs(env_state, env_args.env, mode, env_args.env_params)
     raw_next = raw_next.astype(jnp.float32)
+    previous_action = previous_action_input(
+        observers, executed_action, n_envs, env_args.env, env_args.env_params
+    )
+    previous_reward = previous_reward_input(observers, paid_reward, n_envs)
+    at = {**at, "previous_action": previous_action, "previous_reward": previous_reward}
     next_inputs = ObserveInputs(raw_next, expert, expert_start, **at)
     final_inputs = ObserveInputs(raw_final_obs, expert, expert_state, **at)
     next_columns, states = feature_columns(next_inputs, observers, start)
@@ -1222,6 +1233,10 @@ def collect_experience(
             raw_final_obs,
             new_expert_state,
             jnp.logical_or(terminated, truncated),
+            env_action,
+            # The env's own reward, as an evaluation and a deployed policy
+            # pass it: a normalised one would change scale with the statistics.
+            info.get(RAW_REWARD_KEY, reward).astype(reward.dtype),
             timestep=collector.timestep,
             horizon=collector.max_timesteps,
         )
@@ -1414,6 +1429,10 @@ def collect_experience_from_expert_policy(
             raw.astype(jnp.float32),
             expert_policy,
             init_expert_state if expert_is_stateful else None,
+            previous_action=previous_action_input(
+                observers, None, env_args.n_envs, env_args.env, env_args.env_params
+            ),
+            previous_reward=previous_reward_input(observers, None, env_args.n_envs),
             **before_training,
         )
         last_obs, observer_states = observe_features(
@@ -1486,6 +1505,8 @@ def collect_experience_from_expert_policy(
                 raw_next_obs,
                 post_step_state if expert_is_stateful else None,
                 ended,
+                action,
+                info.get(RAW_REWARD_KEY, reward).astype(reward.dtype),
                 **before_training,
             )
             obsv = jnp.concatenate([obsv, next_columns], axis=-1)
@@ -1558,6 +1579,10 @@ def reset_features(
         expert=expert,
         expert_state=expert.init_state(n_envs) if stateful else None,
         progress=progress,
+        previous_action=previous_action_input(
+            env_args.observers, None, n_envs, env_args.env, env_args.env_params
+        ),
+        previous_reward=previous_reward_input(env_args.observers, None, n_envs),
     )
     fresh = init_observers(env_args.observers, n_envs)
     return observe_features(obs, inputs, env_args.observers, fresh)
@@ -1653,7 +1678,7 @@ def init_collector_state(
     if env_args.normalize_obs_in_agent:
         # The span the statistics cover: all but the raw features.
         span = last_obs.shape[-1] - feature_width(env_args, normalised=False)
-        obs_norm_info = init_agent_obs_norm(span)
+        obs_norm_info = init_agent_obs_norm(span, env_args.observation_clip)
     if env_args.store_normalized_obs:
         last_obs, obs_norm_info = update_obs_norm(
             last_obs, obs_norm_info, raw_obs_columns(env_args.env)

@@ -240,7 +240,7 @@ DISCRETE = {"env_id": "CartPole-v1", "env_params": None}
     [
         (PPO, WIDE),
         (PPO, {**WIDE, "extensions": (_ZeroActorLoss(),)}),
-        (APO, {"normalize_observations": True}),
+        (APO, {"normalize_observations": True, "num_minibatches": 1}),
         (PPO, DISCRETE),
     ],
     ids=["PPO-squash", "PPO-extension", "APO-normalized", "PPO-discrete"],
@@ -296,6 +296,8 @@ def test_the_entropy_bonus_lowers_the_policy_loss() -> None:
         {"gae": gae, "targets": targets, "raw_actions": None, "raw_obs": None}
     )
     minibatch.update({"entropy_key": KEY})  # the epoch hands each minibatch its key
+    # The values the rollout was collected with, which the clipped value loss reads.
+    minibatch["values"] = targets - gae
 
     def loss(ent_coef: float) -> tuple:
         args = (minibatch, gae, 0.2, ent_coef, True)

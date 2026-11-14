@@ -1,6 +1,6 @@
 """Deterministic actors and their actor-critic builder: TD3's (Fujimoto et
-al., 2018, Table 1), shared by TD3 and DAgger, which builds its actor with
-TD3's builder.
+al., 2018, Table 1), shared by TD3 and DAgger's OnlineFit, which builds its
+actor with TD3's builder.
 
 state -> Dense -> ReLU -> Dense -> ReLU -> Dense(action_dim) -> tanh, the
 tanh :class:`~ajax.networks.networks.Squashed`'s. No LayerNorm, no log_std
@@ -19,7 +19,16 @@ from ajax.extensions.observe import pid_terms_at
 from ajax.modules.pid_actor import PIDLaw, PIDPolicy, check_pid_actor
 from ajax.networks.distributions import Deterministic
 from ajax.networks.memory import MemoryCell, MemoryConfig
-from ajax.networks.networks import get_initialized_actor_critic
+from ajax.networks.networks import (
+    EmbeddingParts,
+    Encoder,
+    embedding_parts,
+    get_initialized_actor_critic,
+    head_layers,
+    join_after_memory,
+    observation_encoder,
+    shortcut_layer,
+)
 from ajax.networks.utils import dense, parse_architecture, uniform_init
 from ajax.state import (
     EnvironmentConfig,
@@ -43,37 +52,72 @@ class DeterministicActor(nn.Module):
     input_architecture: Sequence[Union[str, ActivationFunction]]
     action_dim: int
     memory: Optional[MemoryConfig] = None
-    # The hidden layers' and the head's kernel inits (as the network
-    # config's encoder_kernel_init and mean_kernel_init); None keeps
-    # parse_layer's default and, for the head, DDPG's uniform(+-3e-3), the
-    # head recurrent TD3 keeps until Ni et al.'s initialisation is audited.
+    # The hidden layers' and the output layer's ("head") kernel inits (as
+    # the network config's encoder_kernel_init and mean_kernel_init); None
+    # keeps parse_layer's default and, for the output, DDPG's
+    # uniform(+-3e-3), which recurrent TD3 keeps until Ni et al.'s
+    # initialisation is audited.
     kernel_init: Optional[Union[str, InitializationFunction]] = None
+    output_kernel_init: Optional[Union[str, InitializationFunction]] = None
+    # The hidden layers as an Encoder, whose parameters a critic sharing it
+    # holds (NetworkConfig.share_encoder).
+    share_encoder: bool = False
+    # The hidden layers the output layer reads the memory's (or the hidden
+    # stack's) features through (NetworkConfig.head_architecture).
+    head_architecture: Sequence[Union[str, ActivationFunction]] = ()
     head_kernel_init: Optional[Union[str, InitializationFunction]] = None
+    # The output layer's bias init (NetworkConfig.actor_bias_init); None:
+    # zeros.
+    output_bias_init: Optional[Union[str, InitializationFunction]] = None
+    # Ni et al.'s layout (Actor's): the memory reads the input embedding,
+    # and the hidden stack runs after it on its output joined with the
+    # shortcut, as Ni et al.'s recurrent TD3 actor (recurrent_actor.py:76-87,
+    # actor.py:61-77).
+    input_embedding: EmbeddingParts = ()
+    shortcut_width: int = 0
+    embedding_kernel_init: Optional[Union[str, InitializationFunction]] = None
 
     def setup(self):
-        self.hidden = nn.Sequential(
-            parse_architecture(self.input_architecture, self.kernel_init)
-        )
+        if self.input_embedding:
+            self.encoder = observation_encoder(self)
+            self.shortcut = shortcut_layer(self)
+        if self.share_encoder and not self.input_embedding:
+            self.encoder = Encoder(
+                input_architecture=self.input_architecture,
+                kernel_init=self.kernel_init,
+            )
+        else:
+            self.hidden = nn.Sequential(
+                parse_architecture(self.input_architecture, self.kernel_init)
+            )
         if self.memory is not None:
             self.memory_cell = MemoryCell(self.memory)
+        self.head_layers = head_layers(
+            self.head_architecture, self.head_kernel_init, self.kernel_init
+        )
         self.head = dense(
             self.action_dim,
-            self.head_kernel_init,
-            None,
+            self.output_kernel_init,
+            self.output_bias_init,
             uniform_init(3e-3),
             name="head",
         )
 
     def __call__(self, obs: jax.Array, hidden_state=None, done=None):
-        h = self.hidden(obs)
+        if self.input_embedding:
+            h = self.encoder(obs)
+        else:
+            h = self.encoder(obs) if self.share_encoder else self.hidden(obs)
         if self.memory is not None:
             if hidden_state is None or done is None:
                 raise ValueError(
                     "Recurrent DeterministicActor requires hidden_state and done flags."
                 )
             hidden_state, h = self.memory_cell(hidden_state, h, done)
-            return Deterministic(self.head(h)), hidden_state
-        return Deterministic(self.head(h))
+            if self.input_embedding:
+                h = self.hidden(join_after_memory(self, h, obs))
+            return Deterministic(self.head(self.head_layers(h))), hidden_state
+        return Deterministic(self.head(self.head_layers(h)))
 
 
 class DeterministicPIDActor(nn.Module):
@@ -123,7 +167,14 @@ def get_initialized_td3_actor_critic(
             action_dim=action_dim,
             memory=network_config.memory,
             kernel_init=network_config.encoder_kernel_init,
-            head_kernel_init=network_config.mean_kernel_init,
+            output_kernel_init=network_config.mean_kernel_init,
+            share_encoder=network_config.share_encoder,
+            head_architecture=network_config.head_architecture,
+            head_kernel_init=network_config.head_kernel_init,
+            output_bias_init=network_config.actor_bias_init,
+            input_embedding=embedding_parts(network_config, env_config, 0),
+            shortcut_width=network_config.shortcut_widths[0],
+            embedding_kernel_init=network_config.embedding_kernel_init,
         )
     return get_initialized_actor_critic(
         key,

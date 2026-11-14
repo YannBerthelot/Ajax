@@ -112,6 +112,9 @@ class EnvironmentConfig(Replaceable):
     # (CollectorState.obs_norm_info). A replay agent's networks apply the
     # current ones to raw observations (ajax.environments.obs_norm).
     normalize_obs_in_agent: bool = struct.field(pytree_node=False, default=False)
+    # The bound of the observations the collector stores normalised
+    # (store_normalized_obs); None leaves them unclipped.
+    observation_clip: Optional[float] = struct.field(pytree_node=False, default=None)
     # An on-policy agent's collector stores each observation normalised with
     # the statistics of its collection, updated with it after the env step,
     # and its networks read them as stored (openai/baselines ppo2's
@@ -223,10 +226,31 @@ class LoadedTrainState(TrainState):
     # (sfujim/TD3's max_action * tanh) trains its critic on those, and Adam's
     # steps on the action inputs depend on the scale. None: [-1, 1] as is.
     action_units: Optional[tuple] = struct.field(pytree_node=False, default=None)
+    # A recurrent Q-critic's memory reads each observation with the action
+    # taken before it: appended to its input from the replay
+    # (recurrent.previous_actions), unless the observation carries it
+    # (PreviousAction), which this marks.
+    previous_action_in_observation: bool = struct.field(
+        pytree_node=False, default=False
+    )
+    # A critic with memory: the observation's columns that hold the previous
+    # step, its action and reward (PreviousAction's, PreviousReward's), as
+    # static (start, stop) ranges. A replayed window starting from a zero
+    # memory zeroes them at its first row, which then reads as an episode's
+    # first, as Ni et al.'s windows start with a[0] = r[0] = 0
+    # (pomdp-baselines e7c19c3, policy_rnn.py:247-257).
+    previous_step_columns: tuple = struct.field(pytree_node=False, default=())
     # The network's running statistics (its BatchRenorm layers'
     # ``batch_stats`` collection), apart from the trained ``params``: the
     # optimiser never steps them. None for a network without any.
     batch_stats: Optional[flax.core.FrozenDict] = None
+    # An actor's copy of the encoder it shares with the critic
+    # (NetworkConfig.share_encoder): the critic's ``encoder`` and
+    # ``memory_cell`` parameters, which the critic's optimiser steps and the
+    # training loop copies here after every update (mirror_shared_encoder),
+    # so that acting reads the network as the critic left it. None for a
+    # network with its own encoder.
+    shared_params: Optional[flax.core.FrozenDict] = None
 
     def soft_update(self, tau):
         new_target_params = optax.incremental_update(
@@ -243,25 +267,30 @@ class LoadedTrainState(TrainState):
         return instance.replace(hidden_state=hidden_state, recurrent=recurrent)
 
     def apply(self, params, *args, **kwargs):
-        """The network at ``params``, reading its running statistics."""
-        return self.apply_fn(with_batch_stats(self, params), *args, **kwargs)
+        """The network at ``params``, reading its running statistics and its
+        shared encoder."""
+        return self.apply_fn(network_variables(self, params), *args, **kwargs)
 
     def apply_train(self, params, *args, **kwargs):
         """The network in training at ``params``: ``(out, batch_stats)``,
         its running statistics after this pass (None without any)."""
         if self.batch_stats is None:
-            return self.apply_fn(params, *args, **kwargs), None
+            return self.apply_fn(network_variables(self, params), *args, **kwargs), None
         out, updates = self.apply_fn(
-            with_batch_stats(self, params), *args, mutable=["batch_stats"], **kwargs
+            network_variables(self, params), *args, mutable=["batch_stats"], **kwargs
         )
         # Frozen as init stores them: a state's structure stays one type.
         return out, flax.core.FrozenDict(updates["batch_stats"])
 
 
-def with_batch_stats(train_state: Any, params: Any) -> Any:
-    """The variables a forward pass at ``params`` reads: ``params`` and the
-    train state's running statistics, if it has any
-    (:attr:`LoadedTrainState.batch_stats`)."""
+def network_variables(train_state: Any, params: Any) -> Any:
+    """The variables a forward pass at ``params`` reads: ``params``, the
+    encoder the network shares with another, if it does
+    (:attr:`LoadedTrainState.shared_params`), and the train state's running
+    statistics, if it has any (:attr:`LoadedTrainState.batch_stats`)."""
+    shared_params = getattr(train_state, "shared_params", None)
+    if shared_params is not None:
+        params = {**params, "params": {**shared_params, **params["params"]}}
     batch_stats = getattr(train_state, "batch_stats", None)
     if batch_stats is None:
         return params
@@ -291,16 +320,15 @@ class BaseAgentState(Replaceable):
     # ExtensionStack; `()` -> no extensions / all stateless). See
     # `ajax.extensions.base`.
     ext_state: tuple = ()
-    # The on-policy collector's (PPO / PQN / APO / AVG) latest rollout,
-    # for measurement extensions (EVarEst-style probes) that need an
+    # The on-policy collector's (PPO, PQN, APO, AVG) latest rollout, for
+    # measurement extensions (EVarEst-style probes) that need an
     # on-state-visitation batch without a fresh rollout per evaluation;
     # off-policy agents expose their replay buffer instead
-    # (``collector_state.buffer_state``). ``None`` (no extra leaves, no
-    # memory) unless an extension reads it (``Extension.reads_last_rollout``)
-    # or ``BaseAgentConfig.expose_recent_rollout``; then the
-    # iteration's full ``(T, n_envs, ...)`` :class:`Transition` (one
-    # rollout of memory), pre-allocated at ``make_train`` time so the scan
-    # carry's structure is stable from iteration zero.
+    # (collector_state.buffer_state). None (no extra leaves, no memory)
+    # unless an extension reads it (Extension.reads_last_rollout) or the
+    # agent's expose_recent_rollout is set; then the iteration's whole
+    # (T, n_envs, ...) Transition, allocated before the first iteration so
+    # that the scan carry keeps one structure.
     last_rollout: Optional[Any] = None
     # The metrics of the actor's last step that ran, which an update whose
     # actor steps only on some updates (TD3's and CrossQ's policy delay, a
@@ -308,9 +336,16 @@ class BaseAgentState(Replaceable):
     # None for every other agent; the training loop gives it its structure,
     # NaN, before the first update (TrainLoop.off_policy).
     last_actor_metrics: Optional[Any] = None
-    # A checkpoint saved before the field was added restores it as NaN
+    # The metrics of the last update, which a run updating every few steps
+    # (a replay agent's train_frequency) logs at the evaluations between two
+    # updates (TrainLoop.maybe_update): None for every other run; the
+    # training loop gives it its structure, NaN, before the first update.
+    last_update_metrics: Optional[Any] = None
+    # A checkpoint saved before the fields were added restores them as NaN
     # (ajax.checkpoint).
-    added_fields: ClassVar[frozenset[str]] = frozenset({"last_actor_metrics"})
+    added_fields: ClassVar[frozenset[str]] = frozenset(
+        {"last_actor_metrics", "last_update_metrics"}
+    )
 
     def get_keys_and_new_state(self, n: int = 1) -> tuple:
         """Draw n fresh random keys from the updates' key (rng).
@@ -325,15 +360,6 @@ class BaseAgentState(Replaceable):
         """
         training_key, *keys = split_carry_first(self.rng, n)
         return (*keys, self.replace(rng=training_key))
-
-
-@struct.dataclass
-class BaseAgentConfig(Replaceable):
-    # Opt-in for on-policy agents (PPO, PQN, APO, AVG): keep each
-    # collection's rollout on ``BaseAgentState.last_rollout`` (see there
-    # for the cost) even when no extension reads it
-    # (``Extension.reads_last_rollout``), which keeps it anyway.
-    expose_recent_rollout: bool = False
 
 
 #: SAC's ``(low, high)`` clip of a Gaussian actor's log-std: the default of
@@ -381,7 +407,7 @@ class NetworkConfig(Replaceable):
     # The actor head's knobs; Actor (networks.py) documents each and its
     # reference.
     log_std_state_independent: bool = False
-    log_std_init: Optional[float] = -1.0
+    log_std_init: Optional[Union[float, str]] = -1.0
     # Static, not a pytree leaf: jax rebuilds the config (tree.map,
     # unflatten) through __post_init__, whose check must then read the
     # bounds, not a leaf jax put in their place.
@@ -416,6 +442,48 @@ class NetworkConfig(Replaceable):
     # ``log_std_bounds`` bounding the log-variance, as an agent whose
     # reference does (AVG's) sets it.
     log_variance_head: bool = False
+    # One encoder (and memory block) for the actor and the critic, which
+    # the critic owns and both losses train (get_initialized_actor_critic);
+    # False: each network has its own. Static: it decides the networks'
+    # structure.
+    share_encoder: bool = flax.struct.field(pytree_node=False, default=False)
+    # Each network's hidden layers between its trunk (the encoder, then the
+    # memory block) and its output layers, written as actor_architecture is;
+    # () reads the trunk's features linearly. Each network has its own, so
+    # with share_encoder the actor and the critic part after the trunk, as
+    # in PureJaxRL's recurrent PPO (agents set their reference's in
+    # network_settings). A PID actor, having no layers, has none.
+    head_architecture: Tuple[str, ...] = ()
+    # Their kernel init, as encoder_kernel_init is read; None: the encoder's.
+    head_kernel_init: Optional[Union[str, InitializationFunction]] = None
+    # Ni et al. (2022)'s recurrent layout, for networks with memory: the parts
+    # of the observation the memory reads, each through its own Dense layer
+    # and ReLU of the given width, joined in this order, as (part, width)
+    # pairs. A part is an observation feature's name ("previous_action",
+    # "previous_reward") or "observation": every column no other part
+    # names. The network's architecture then runs after the memory, on its
+    # output joined with the shortcut. (): the architecture is the encoder
+    # the memory reads. Static, as every field below: they decide the
+    # networks' structure.
+    input_embedding: Tuple[Tuple[str, int], ...] = flax.struct.field(
+        pytree_node=False, default=()
+    )
+    # Ni et al.'s shortcut, (actor's, critic's) widths: the current
+    # observation (a Q-critic's with the action asked about) through one
+    # Dense layer and ReLU, joined to the memory's output; 0: none.
+    shortcut_widths: Tuple[int, int] = flax.struct.field(
+        pytree_node=False, default=(0, 0)
+    )
+    # The input embedding's and the shortcuts' kernel init, as
+    # encoder_kernel_init is read; None: the encoder's.
+    embedding_kernel_init: Optional[str] = flax.struct.field(
+        pytree_node=False, default=None
+    )
+    # The critics read one encoder (or input embedding), memory block and
+    # shortcut, each with its own layers after them, as Ni et al.'s
+    # recurrent critic's two Q-networks read one RNN. share_encoder, which
+    # gives the actor the critics' encoder too, implies it.
+    critics_share_encoder: bool = flax.struct.field(pytree_node=False, default=False)
 
     def __post_init__(self):
         check_log_std_bounds(self.log_std_bounds)
@@ -441,7 +509,9 @@ class OptimizerConfig(Replaceable):
     # parameter by ``1 - lr * weight_decay``: a time constant of
     # ``1 / (lr * weight_decay)`` steps. 0 keeps plain Adam.
     weight_decay: float = 0.0
-    # The update rule. "adam" (Kingma & Ba 2015); "radam" (Liu et al. 2020,
+    # The update rule. "adam" (Kingma & Ba 2015); "tf1_adam", TensorFlow 1's
+    # Adam, whose eps joins sqrt(v) before the bias correction
+    # (networks.utils.scale_by_tf1_adam); "radam" (Liu et al. 2020,
     # optax.radam: Adam with its variance rectified while few gradients are
     # averaged); "centered_rmsprop" (Graves 2013, optax.rmsprop with
     # centered=True): the gradient over sqrt(E[g^2] - E[g]^2 + eps), both

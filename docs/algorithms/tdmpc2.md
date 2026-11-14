@@ -100,9 +100,9 @@ Every default is the paper's (`config.yaml` at `5f6fade`).
   steps, `num_episode_test` episodes of the planner in evaluation mode, on a
   rebuilt environment, each evaluation from fresh initial states (the same
   ones when a seed is rerun; T9). The paper uses
-  `log_frequency=50_000` with 10 episodes. `LoggingConfig`'s default of 1,000
-  makes a 500-step-episode run spend about twice as long evaluating as
-  training.
+  `log_frequency=50_000` with 10 episodes; `LoggingConfig` evaluates every
+  10,000 steps by default. Evaluating every 1,000 steps makes a
+  500-step-episode run spend about twice as long evaluating as training.
 - **Replay memory** is sized at each `train` call for the steps the run will
   have taken: `min(buffer_size, total)` (T26), in the episodic mode as well
   (T29). The ring holds `R = ceil(capacity / (T * n_envs)) + 1` rounds of one

@@ -13,7 +13,7 @@ import jax
 import numpy as np
 import pytest
 
-from ajax import TD3
+from ajax import DQN, TD3
 from ajax.buffers import dataset as ds
 from ajax.buffers.utils import get_buffer, init_buffer
 from ajax.extensions.observe import TrainingProgressInput
@@ -88,8 +88,8 @@ def test_fill_then_export_gives_the_dataset_back(recorded, raw) -> None:
         "include_is_expert": raw,
         "include_raw_next_obs": raw,
     }
-    buffer, empty = replay(**keep)
-    filled = ds.fill_replay(buffer, empty, recorded)
+    _, empty = replay(**keep)
+    filled = ds.fill_replay(empty, recorded)
     state = SimpleNamespace(collector_state=SimpleNamespace(buffer_state=filled))
     back = ds.export(state, gamma=0.5)
     for f in ("obs", "action", "reward", "terminated", "truncated", "return_to_go"):
@@ -100,6 +100,66 @@ def test_fill_then_export_gives_the_dataset_back(recorded, raw) -> None:
     after = np.roll(recorded.obs, -1, 0)
     reset = np.where(recorded.terminated[:, None], after, recorded.next_obs)
     np.testing.assert_array_equal(back.next_obs, recorded.next_obs if raw else reset)
+
+
+def test_a_minatar_dataset_filled_into_its_byte_replay_exports_back() -> None:
+    """MinAtar's 0/1 observations go into a replay that keeps them in a
+    byte (buffers.utils.stored_observation_dtype) and come back as the
+    dataset's float32 values (the bug it catches: a fill or an export that
+    loses or mangles them across the dtype change, as offline training or
+    PriorData on MinAtar would see)."""
+    rows = jax.random.uniform(jax.random.PRNGKey(3), (7, 400)) < 0.3
+    obs = np.asarray(rows[:6], np.float32)
+    next_obs = np.asarray(rows[1:], np.float32)
+    ends = np.array([0, 0, 1, 0, 0, 1], bool)
+    data = ds.TransitionDataset(
+        obs, np.zeros((6, 1)), np.ones(6), ends, np.zeros(6, bool), next_obs
+    )
+    env_args = DQN(env_id="Breakout-MinAtar").env_args
+    empty = init_buffer(get_buffer(8, 2), env_args)
+
+    filled = ds.fill_replay(empty, data)
+
+    assert filled.experience["obs"].dtype == np.bool_
+    state = SimpleNamespace(collector_state=SimpleNamespace(buffer_state=filled))
+    back = ds.export(state, gamma=0.5)
+    assert back.obs.dtype == np.float32
+    np.testing.assert_array_equal(back.obs, obs)
+    # After a termination the replay keeps the reset observation, as
+    # collection does: here the next episode's first.
+    reset = np.where(ends[:, None], np.roll(obs, -1, 0), next_obs)
+    np.testing.assert_array_equal(back.next_obs, reset)
+
+
+def test_fill_appends_each_envs_run_after_the_rows_its_ring_holds() -> None:
+    """Each env's ring gets its contiguous run of the dataset after the rows
+    it holds, wrapping onto its oldest when full, as adding one row per env
+    at a time does; the run's last row is a seam, and the ring's index and
+    fullness move past it. A fill that mixed the envs up, wrote from the
+    ring's start instead of its index, or left the index or fullness stale
+    would differ here."""
+    # 2 envs, rings of 6 rows holding 3 each; 4 new rows per env wrap by one.
+    buffer, state = replay(n_envs=2, size=12, include_seam=True)
+    held = {
+        k: np.full((2, *x.shape[2:]), -1, x.dtype) for k, x in state.experience.items()
+    }
+    for _ in range(3):
+        state = buffer.add(state, held)
+    # Two-row episodes cut by the time limit; obs counts the rows 0..7.
+    obs = np.stack([np.arange(8), np.zeros(8)], -1)
+    limits = np.arange(8) % 2 == 1
+    data = ds.TransitionDataset(
+        obs, np.zeros((8, 1)), np.zeros(8), np.zeros(8, bool), limits, obs
+    )
+
+    filled = ds.fill_replay(state, data)
+
+    # Env 0 reads rows 0..3 at ring places 3, 4, 5, 0; env 1 rows 4..7.
+    expected_t = [[3, -1, -1, 0, 1, 2], [7, -1, -1, 4, 5, 6]]
+    np.testing.assert_array_equal(filled.experience["obs"][..., 0], expected_t)
+    expected_seam = [[1, -1, -1, 0, 0, 0]] * 2
+    np.testing.assert_array_equal(filled.experience["seam"][..., 0], expected_seam)
+    assert int(filled.current_index) == 1 and bool(filled.is_full)
 
 
 def test_export_reads_a_wrapped_replay_oldest_first() -> None:
@@ -128,6 +188,6 @@ def test_fill_refuses_a_replay_it_cannot_fill(recorded) -> None:
         ),
     )
     for args, fields, match in cases:
-        buffer, empty = replay(**args, **fields)
+        _, empty = replay(**args, **fields)
         with pytest.raises(ValueError, match=match):
-            ds.fill_replay(buffer, empty, recorded)
+            ds.fill_replay(empty, recorded)

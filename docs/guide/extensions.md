@@ -3,7 +3,7 @@
 An extension adds a research feature to an agent's training without changing
 the agent: an extra term in a loss, a change to the TD target, another way to
 pick actions while collecting, an expert to learn from, a pre-training step,
-or measurements logged at each evaluation. Ajax ships forty-one of them,
+or measurements logged at each evaluation. Ajax ships forty-four of them,
 listed in the [catalogue](#catalogue) below.
 
 Why extensions instead of agent options? An agent's constructor takes its
@@ -312,6 +312,8 @@ accepts it. "SAC with an expert" means `SAC(..., expert_policy=...)`.
 | `ExpertActionInput` | Appends the expert's action at each observation, from the state the agent tracks it in; raw (an action). | `observe` | agents with an expert (SAC, TD3, REDQ, TQC, CrossQ, ASAC, AVG, IQL, PPO, APO, DQN, PQN, APG, UDRL), not under gain mode (`ExpertGains`); not DAgger, which would read the label it learns |
 | `ExpertStateInput` | Appends a stateful expert's internal state before its call at the observation (`ExpertStateInput.for_expert(expert)` sizes it). | `observe` | agents with a stateful expert (SAC, TD3, REDQ, TQC, CrossQ, ASAC, AVG, IQL, PPO, APO, DAgger, DQN, PQN, APG, UDRL) |
 | `PIDTermsInput` | Appends a PID controller's terms for each tracking error `e = obs[target_idx] − obs[current_idx]`: the error, its integral (clamped at `integral_limit`) and its difference, with sampling period `dt`; raw, and started afresh each episode. A [`PIDPolicy`](networks.md#the-pid-policy) actor reads them. | `observe` | every agent but `TDMPC2MultiTask`, whose dataset holds no feature columns |
+| `PreviousAction` | Appends the action executed just before each observation, in agent units: zero at an episode's first observation, a discrete action one-hot; raw. An actor with memory then reads its own past actions, as Ni et al. (2022)'s recurrent actor does (see [Memory](memory.md)). | `observe` | every agent but `TDMPC2MultiTask`, whose dataset holds no feature columns |
+| `PreviousReward` | Appends the reward the environment paid for the action executed just before each observation, raw: zero at an episode's first observation. Ni et al. (2022)'s recurrent actor and critic read it with the previous action (see [Memory](memory.md)). `agent.policy`'s `act` then needs each reward. | `observe` | every agent but `TDMPC2MultiTask` (no feature columns in its dataset) and APG (its closed-loop rollout passes no reward yet) |
 | `TrainingProgressInput` | Appends the fraction of training done (`ajax.schedule.progress`); an evaluation holds the collector's. | `observe` | every agent but `TDMPC2MultiTask`, whose dataset holds no feature columns |
 
 **Exploration** (`ajax.extensions.exploration`)
@@ -390,6 +392,12 @@ These put their rows in a ring of their own beside the one collection writes, so
 | --- | --- | --- | --- |
 | `ValueCentering` | Subtracts from the target an offset learned as the reward rate (reward centering), so the values lose the constant `r(π) / (1 − γ)`. Its `rule` is one of `ajax.agents.centering`'s: `RVIBatchMean(rate)` (the default, 0.005), the batch mean of the next values the target read, followed slowly (RVI-SAC's); `TDErrorCentering(step_size)`, the mean TD error of the centred target (value-based centering); `ReferencePoint(observation, action)`, the target critics' value there (ASAC's `Q(0, 0)`). It comes last of the extensions shaping the target. Centering every step also prices an episode's length on a task whose episodes terminate, unless `ResetCost`, before it, has the target go on through terminations. Logs `centering/offset`. | `on_target` | discounted agents with a one-step target: SAC, TD3, REDQ, TQC, CrossQ, AVG, IQL, DQN; refused on a lambda-return (PPO, PQN) and on the average-reward agents, which centre themselves (ASAC, APO, RVI-SAC) |
 | `ResetCost` | Treats a termination as a step into the reset state: the target bootstraps on the reset observation the replay stores there, and a terminated row is charged `c`. `c` is a Lagrange multiplier: a reset critic learns the policy's termination rate, and `c` rises while that rate exceeds `target_rate` (1e-3) and falls while it is below, never below 0. Its settings are RVI-SAC's (`ajax.agents.reset_cost.ResetCostSettings`). Refuses a stack reading the episode a termination ended (IBRL, CriticBlend, LCBGatedBootstrap, Cal-QL). Logs `reset_cost/cost`, `reset_cost/rate` and `reset_cost/critic_loss`. | `on_target` | discounted replay agents scoring a next action: SAC, TD3, REDQ, TQC, CrossQ, DQN; refused on IQL (no next action), on AVG and the on-policy agents (their rollouts keep the final observation), and on ASAC and RVI-SAC, which price terminations themselves |
+
+**Temperature annealing** (`ajax.extensions.annealing`)
+
+| Extension | What it does | Phases | Works with |
+| --- | --- | --- | --- |
+| `MEW` | Minimum Excess Work (Adamczyk et al., 2026): sets the temperature in place of the agent's own rule, lowering it at each update by `beta <- beta + speed / sqrt(beta * sum_k Cov(r_t, r_t+k))`, `alpha = 1 / beta`, the covariance that of the last `history` rewards per env (from the replay; MEW keeps them itself on AVG). It waits for more than `history` steps per env. `speed` 1e-6 and `history` 50,000 are the authors' code's. Logs `mew/friction`. | `post_update`, `eval_metrics` | the maximum-entropy agents: SAC, ASAC, AVG, CrossQ, REDQ, RVISAC, TQC |
 
 **Measuring the critic** (`ajax.extensions.instrumentation`)
 

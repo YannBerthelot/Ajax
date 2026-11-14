@@ -40,7 +40,7 @@ import dataclasses
 from collections.abc import Sequence
 from dataclasses import dataclass
 from functools import partial
-from typing import Any, Callable, Optional, Union
+from typing import Any, Callable, ClassVar, Optional, Union
 
 import flax.linen as nn
 import jax
@@ -64,7 +64,9 @@ from ajax.controller import (
     init_observers,
     observe_features,
     policy_action_dim,
+    previous_action_input,
     reads_agent_expert,
+    reads_previous_reward,
     restart_observers,
 )
 from ajax.environments.differentiable import (
@@ -84,6 +86,7 @@ from ajax.environments.utils import (
     get_state_action_shapes,
 )
 from ajax.extensions.base import Extension
+from ajax.extensions.capabilities import NotWired
 from ajax.modules.pid_actor import PIDPolicy
 from ajax.networks.memory import (
     MemoryConfig,
@@ -221,8 +224,20 @@ class APG(GradientClipping, ExpertGuided, OwnIterationAgent):
         return {"beta_1": self.beta_1, "beta_2": self.beta_2, "eps": 1e-8}
 
     def setup(self) -> None:
+        if getattr(self.env_args.env, "_ajax_physics", "jax") == "warp":
+            raise ValueError(
+                "APG back-propagates the return through the simulator, and"
+                " MuJoCo Warp physics cannot be differentiated through. APG"
+                " needs a gymnax env."
+            )
         if not check_env_is_gymnax(self.env_args.env):
             raise ValueError("APG needs a gymnax env (differentiable transitions).")
+        if reads_previous_reward(self.env_args.observers):
+            reason = "its closed-loop rollout passes the features no reward"
+            raise NotWired(
+                f"APG cannot run PreviousReward yet: {reason}.",
+                {"PreviousReward": reason},
+            )
         self.env_args = self.env_args.replace(
             env=with_transition_gradients(self.env_args.env)
         )
@@ -244,6 +259,9 @@ class APG(GradientClipping, ExpertGuided, OwnIterationAgent):
         d_model: int = 128,
         context: int = 100,
         final_norm: bool = True,
+        bias: bool = False,
+        layer_norm_epsilon: float = 1e-5,
+        mlp_ratio: int = 4,
         learning_rate: float = 5e-4,
         weight_decay: float = 0.0,
         warmup_steps: int = 5000,
@@ -259,7 +277,13 @@ class APG(GradientClipping, ExpertGuided, OwnIterationAgent):
         Defaults follow the paper (Table 2: 8 layers, 4 heads, context 100,
         width 128, b=1 system per iteration, N=100 horizon) and the
         reference code (AdamW betas (0.9, 0.95), eps 1e-8, 5k-step warmup
-        then cosine decay to lr/10, no gradient clipping). Deviations,
+        then cosine decay to lr/10, no gradient clipping). The sizes are the
+        paper's, the owner's choice (2026-11-13): no closed-loop run's
+        arguments are recorded, the closed-loop script's argparse defaults
+        are a sequence of 500 and width 32 (train_onestep_lin_CL.py:85,
+        :99), and the repository's one checkpoint, from the open-loop
+        script (out/ckpt_onestep_lin.pt), ran sequences of 800, width 32,
+        batch 32. Deviations,
         each backed by runs on the pendulum tracking test bed: actions are
         tanh-bounded (Ajax convention; the reference leaves u unbounded),
         and the PID head starts at the identity rather than the reference's
@@ -270,14 +294,13 @@ class APG(GradientClipping, ExpertGuided, OwnIterationAgent):
         alone: the biases, LayerNorm scales and PID gains keep the peak
         rate. Not reproduced: the reference decays only tensors of two or
         more dimensions (transformer_onestep_CL.py:72-77; moot at
-        weight_decay=0). Not
-        backed by runs: the LayerNorms, ln_f included, keep a bias and
-        flax's epsilon 1e-6, where the reference's have no bias and epsilon
-        1e-5 (buswayne/in-context-controller at 7eb094ce17:
-        transformer_onestep.py:33 calls F.layer_norm with 1e-5, :156 builds
-        ln_f = LayerNorm(n_embd, bias=config.bias), and
-        train_onestep_lin_CL.py:103 defaults --bias to False). The
-        transformer starts as the reference's GPT does (APG_MEMORY_INITS).
+        weight_decay=0). The transformer's layers are the reference's: no
+        bias in its attention and MLP layers or its LayerNorms, LayerNorm
+        epsilon 1e-5 and an MLP 4x wide (transformer_onestep.py:33, :44-46,
+        :93-95, :156; train_onestep_lin_CL.py:103 defaults --bias to False),
+        and it starts as the reference's GPT does (APG_MEMORY_INITS). A
+        checkpoint saved before 2026-11-13 restores with bias=True,
+        layer_norm_epsilon=1e-6 and mlp_ratio=2, the layers Ajax had then.
         final_norm=False rebuilds the transformer without its final
         LayerNorm, only to restore a checkpoint saved before it (see
         MemoryConfig); an expand-then-contract shim (CLAUDE.md, refactoring
@@ -302,6 +325,9 @@ class APG(GradientClipping, ExpertGuided, OwnIterationAgent):
                 num_heads=n_heads,
                 window=context,
                 final_norm=final_norm,
+                bias=bias,
+                layer_norm_epsilon=layer_norm_epsilon,
+                mlp_ratio=mlp_ratio,
             ),
             pid=pid,
             system_class=system_class,
@@ -563,7 +589,11 @@ def make_controller(
     factory: Optional[ControllerFactory] = None,
 ) -> nn.Module:
     """The controller: factory's module, or a Controller of the network's
-    hidden layers and memory."""
+    hidden layers and memory. A transformer memory caches its keys and
+    values: every rollout starts from a fresh carry under one set of
+    parameters, where that gives the same returns and gradients as caching
+    the inputs, at a fraction of the cost (it re-projected the whole window
+    at every step)."""
     action_dim = policy_action_dim(env_args)  # gain mode's gains
     if factory is not None:
         return factory(
@@ -585,6 +615,7 @@ def make_controller(
         memory=network_args.memory,
         pid=pid,
         squash=squash,
+        cache_keys_values=True,
     )
 
 
@@ -687,15 +718,19 @@ def make_step_through_expert(
     transform: Any,
     expert_policy: Any,
     n_systems: int,
-    env_width: Optional[int] = None,
+    env_args: Optional[EnvironmentConfig] = None,
 ) -> Callable:
     """policy_step acting through the run's transform (residual RL, gain
     mode) and the tracked expert, whose state rides in the carry, (actor
-    carry, expert state, then the observers' states with features, whose
-    observations hold env_width columns of the env's own first). The expert
-    is called every step its state is read, as collection calls it (None:
+    carry, expert state, then, with env_args's features, the observers'
+    states and the executed action a feature reads next step, the
+    observations holding the env's own columns first). The expert is
+    called every step its state is read, as collection calls it (None:
     nothing reads it). The return's gradient runs through the expert too:
     it is part of the loop the controller acts in."""
+    env_width = None
+    if env_args is not None:
+        env_width = get_state_action_shapes(env_args.env)[0][-1]
 
     def step(carry, obs, resets):
         actor_carry, expert_state, *observed = carry
@@ -714,6 +749,12 @@ def make_step_through_expert(
                 n_systems,
                 stop_gradient=False,
             )
+        if env_args is not None:
+            observer_states, _ = observed
+            previous_action = previous_action_input(
+                env_args.observers, action, n_systems, env_args.env, env_args.env_params
+            )
+            observed = [observer_states, previous_action]
         return action, (actor_carry, expert_state, *observed)
 
     return step
@@ -728,12 +769,13 @@ def make_rollout_observer(
 ) -> Callable:
     """(carry, obs, resets) -> (policy observation, carry) for
     closed_loop_rollout: obs with the observers' features at the timestep
-    and horizon the rollout holds, their states and the expert's in the
-    carry (actor carry, expert state, observer states), fresh at each
+    and horizon the rollout holds, their states, the expert's and the last
+    executed action in the carry (actor carry, expert state, observer
+    states, previous action: make_step_through_expert's), fresh at each
     episode start. The features keep their gradient."""
 
     def observe(carry, obs, resets):
-        actor_carry, expert_state, observer_states = carry
+        actor_carry, expert_state, observer_states, previous_action = carry
         observer_states, expert_state = restart_observers(
             resets, observers, observer_states, expert_policy, expert_state, n_systems
         )
@@ -744,11 +786,17 @@ def make_rollout_observer(
             timestep=timestep,
             horizon=horizon,
             differentiable=True,
+            previous_action=previous_action,
         )
         observation, observer_states = observe_features(
             obs, inputs, observers, observer_states
         )
-        return observation, (actor_carry, expert_state, observer_states)
+        return observation, (
+            actor_carry,
+            expert_state,
+            observer_states,
+            previous_action,
+        )
 
     return observe
 
@@ -836,9 +884,11 @@ def make_closed_loop_policy(
         if hasattr(expert_policy, "init_state"):
             expert_state = expert_policy.init_state(n_systems)
         carry = (carry, expert_state)
-        env_width = None
         if observers:
-            carry = (*carry, init_observers(observers, n_systems))
+            previous_action = previous_action_input(
+                observers, None, n_systems, env_args.env, env_args.env_params
+            )
+            carry = (*carry, init_observers(observers, n_systems), previous_action)
             collector = agent_state.collector_state
             observe = make_rollout_observer(
                 observers,
@@ -847,9 +897,12 @@ def make_closed_loop_policy(
                 collector.timestep,
                 collector.max_timesteps,
             )
-            env_width = get_state_action_shapes(env_args.env)[0][-1]
         policy_step = make_step_through_expert(
-            policy_step, transform, expert_policy, n_systems, env_width
+            policy_step,
+            transform,
+            expert_policy,
+            n_systems,
+            env_args if observers else None,
         )
     return carry, policy_step, observe
 
@@ -893,6 +946,10 @@ class APGState(BaseAgentState):
     the narrowed default can sit before the base class's required fields."""
 
     critic_state: Optional[LoadedTrainState] = None  # type: ignore[assignment]
+    # Its actor's hidden_state is the zero carry each rollout starts from,
+    # never a live one: a checkpoint restores it from the agent's skeleton
+    # (ajax.checkpoint._with_carry_template).
+    actor_carry_is_template: ClassVar[bool] = True
 
 
 @struct.dataclass

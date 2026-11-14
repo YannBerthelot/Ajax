@@ -1,113 +1,113 @@
 {
-  "test_empty_stack_matches_legacy_plain_sac": {
+  "empty_stack": {
     "critic": 552.9677734375,
     "actor": 267.0777282714844,
     "target": 534.9677124023438,
     "alpha": 0.9818545579910278
   },
-  "test_expert_policy_matches_legacy_expert_policy": {
+  "expert_policy": {
     "critic": 550.5335083007812,
     "actor": 267.0820007324219,
     "target": 534.935791015625,
     "alpha": 0.9818476438522339
   },
-  "test_online_bc_matches_legacy_flag": {
+  "online_bc_on_mc_pretrain": {
     "critic": 551.8862915039062,
     "actor": 267.0643310546875,
     "target": 535.0148315429688,
     "alpha": 0.9818324446678162
   },
-  "test_residual_policy_matches_legacy_use_residual_rl": {
+  "residual_policy": {
     "critic": 546.7955932617188,
     "actor": 267.00054931640625,
     "target": 534.9125366210938,
     "alpha": 0.9818469285964966
   },
-  "test_jsrl_curriculum_matches_legacy_flag": {
+  "jsrl_curriculum": {
     "critic": 550.3989868164062,
     "actor": 267.0506286621094,
     "target": 534.9338989257812,
     "alpha": 0.9818472862243652
   },
-  "test_ibrl_matches_legacy_flag": {
+  "ibrl": {
     "critic": 548.0654296875,
     "actor": 267.0815124511719,
     "target": 534.9346923828125,
     "alpha": 0.9818475842475891
   },
-  "test_edge_exploration_matches_legacy_flags[fixed]": {
+  "edge_exploration[fixed]": {
     "critic": 550.5335083007812,
     "actor": 267.0820007324219,
     "target": 534.935791015625,
     "alpha": 0.9818476438522339
   },
-  "test_edge_exploration_matches_legacy_flags[argmax]": {
+  "edge_exploration[argmax]": {
     "critic": 550.2566528320312,
     "actor": 267.04443359375,
     "target": 534.9324340820312,
     "alpha": 0.9818461537361145
   },
-  "test_edge_exploration_matches_legacy_flags[boltzmann]": {
+  "edge_exploration[boltzmann]": {
     "critic": 550.5335083007812,
     "actor": 267.0820007324219,
     "target": 534.935791015625,
     "alpha": 0.9818476438522339
   },
-  "test_edge_exploration_matches_legacy_flags[lcb]": {
+  "edge_exploration[lcb]": {
     "critic": 549.2200317382812,
     "actor": 267.04150390625,
     "target": 534.9314575195312,
     "alpha": 0.9818460941314697
   },
-  "test_edge_exploration_matches_legacy_flags[argmax_lcb]": {
+  "edge_exploration[argmax_lcb]": {
     "critic": 548.7124633789062,
     "actor": 267.0975036621094,
     "target": 534.9409790039062,
     "alpha": 0.9818325042724609
   },
-  "test_edge_exploration_matches_legacy_flags[thompson]": {
+  "edge_exploration[thompson]": {
     "critic": 549.1937866210938,
     "actor": 267.079833984375,
     "target": 534.939453125,
     "alpha": 0.9818437099456787
   },
-  "test_lcb_gated_bootstrap_matches_legacy_flag": {
+  "lcb_gated_bootstrap": {
     "critic": 550.5049438476562,
     "actor": 267.08233642578125,
     "target": 534.9356689453125,
     "alpha": 0.9818476438522339
   },
-  "test_mc_pretrain_matches_legacy_flag": {
+  "mc_pretrain": {
     "critic": 551.8455810546875,
     "actor": 267.0728759765625,
     "target": 535.0148315429688,
     "alpha": 0.9818485379219055
   },
-  "test_bellman_pretrain_matches_legacy_flag": {
+  "bellman_pretrain_on_prefill": {
     "critic": 554.517333984375,
     "actor": 267.0987548828125,
     "target": 535.4323120117188,
     "alpha": 0.9818569421768188
   },
-  "test_critic_blend_matches_legacy_flag": {
+  "critic_blend_with_online_bc": {
     "critic": 551.6339721679688,
     "actor": 267.0854187011719,
     "target": 535.0056762695312,
     "alpha": 0.9818193316459656
   },
-  "test_mc_variance_correction_matches_legacy_flag": {
+  "mc_variance_correction": {
     "critic": 536.0429077148438,
     "actor": 267.0058288574219,
     "target": 534.5810546875,
     "alpha": 0.9818461537361145
   },
-  "test_value_box_matches_legacy_flag": {
+  "value_box": {
     "critic": 548.9882202148438,
     "actor": 267.1048583984375,
     "target": 535.0093994140625,
     "alpha": 0.9818366765975952
   },
-  "test_phi_refresh_matches_legacy_flag": {
+  "phi_refresh": {
     "critic": 551.8455810546875,
     "actor": 267.0728759765625,
     "target": 535.0148315429688,

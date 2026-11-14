@@ -35,7 +35,7 @@ import inspect
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import KW_ONLY, dataclass
 from functools import partial
-from typing import Any, ClassVar, Optional, Union
+from typing import Any, ClassVar, Optional, Self, Union
 
 import jax
 import jax.numpy as jnp
@@ -44,14 +44,23 @@ from gymnax import EnvParams
 from ajax.agents import update_steps
 from ajax.agents.base import ActorCritic, run_horizon, shared_counters
 from ajax.agents.loop import LOOP_PHASES, Evaluation, TrainLoop
-
-# Imported under another name: ReplayAgent's own hook is make_replay_buffer.
-from ajax.agents.recurrent import make_replay_buffer as make_recurrent_replay_buffer
+from ajax.agents.presets import presets_of
 from ajax.agents.recurrent import (
+    NI_LAYOUT,
+    NI_MEMORY_INITS,
+    NI_MEMORY_WIDTH,
+    NI_WINDOW_STEPS,
+    NI_WINDOWS,
     replayed_window,
     stored_actor_carry_dim,
     unsupported_recurrent_options,
 )
+
+# Imported under another name: ReplayAgent's own hook is make_replay_buffer.
+from ajax.agents.recurrent import make_replay_buffer as make_recurrent_replay_buffer
+from ajax.agents.sweep import Sweep
+from ajax.agents.sweep import check as check_sweep
+from ajax.agents.sweep import configurations as sweep_configurations
 from ajax.agents.update_steps import REPLAY_BATCH_KEYS, reached
 from ajax.buffers.ring import count_ring_rows, size_ring
 from ajax.buffers.utils import (
@@ -73,7 +82,12 @@ from ajax.environments.row_collector import resume_tick
 from ajax.environments.utils import get_state_action_shapes
 from ajax.evaluate import ValueEstimate
 from ajax.extensions.base import Extension, ExtensionStack, holds_expert
-from ajax.networks.memory import MemoryConfig
+from ajax.extensions.observe import PreviousAction, PreviousReward
+from ajax.networks.memory import (
+    MemoryConfig,
+    parse_memory_config,
+    with_reference_defaults,
+)
 from ajax.networks.networks import (
     CNNSpec,
     action_value,
@@ -149,6 +163,8 @@ class TrainContext:
     #: (actions, a_expert) -> actions the critics score under a residual
     #: policy (controller.executed_fn); None otherwise.
     executed: Optional[Callable] = None
+    #: A train_offline run: every tick updates once and counts one timestep.
+    offline: bool = False
 
     def make_scored_actions(self, batch: Transition) -> ScoredActions:
         """The maps to the actions the critics score at batch's rows, at s
@@ -195,9 +211,15 @@ class ObservationNormalization:
     Args:
         normalize_observations: Normalise the observations the networks read
             by running statistics.
+        observation_clip: With normalize_observations, clip the normalised
+            observations to +-observation_clip, as baselines' VecNormalize
+            does (clipob=10). An on-policy agent's, stored normalised at
+            collection; a replay agent normalises inside its networks, which
+            do not clip, so it refuses one.
     """
 
     normalize_observations: bool = False
+    observation_clip: Optional[float] = None
 
 
 @dataclass(kw_only=True, eq=False, repr=False)
@@ -205,16 +227,27 @@ class RewardNormalization:
     """Rewards normalised before the agent learns from them.
 
     Args:
-        normalize_rewards: Divide the rewards learned from by a running
-            standard deviation (the logged returns stay in the env's units):
-            the single step's by default.
-        reward_normalization_gamma: With normalize_rewards, the discount
-            of the return whose running standard deviation divides instead
-            (SB3's VecNormalize).
+        normalize_rewards: Divide the rewards learned from by the running
+            standard deviation of the discounted return and clip them to
+            +-10, as SB3's VecNormalize does (the logged returns stay in the
+            env's units).
+        reward_normalization_gamma: With normalize_rewards, that return's
+            discount: the agent's gamma if None (0.99 for an agent without
+            one), 0 for the single-step reward's standard deviation.
     """
 
     normalize_rewards: bool = False
     reward_normalization_gamma: Optional[float] = None
+
+    def sweepable_fields(self) -> frozenset[str]:
+        # The env wrapper discounts the return it divides by with the gamma
+        # the agent was built with (reward_normalization_gamma None): a
+        # member sweeping gamma would keep that one and train apart from
+        # its separate run.
+        fields: frozenset[str] = super().sweepable_fields()  # type: ignore[misc]
+        if self.normalize_rewards and self.reward_normalization_gamma is None:
+            return fields.difference({"gamma"})
+        return fields
 
 
 @dataclass(kw_only=True, eq=False, repr=False)
@@ -254,6 +287,33 @@ class ImageObservations:
     cnn_spec: Optional[CNNSpec] = None
 
 
+@dataclass(kw_only=True, eq=False, repr=False)
+class EncoderSharing:
+    """An actor and a critic that may read their observations through one
+    encoder.
+
+    Args:
+        share_encoder: One encoder (the MLP or CNN, and the memory block) for
+            the actor and the critic (NetworkConfig.share_encoder): the
+            critic owns it, both losses train it and the critic's optimiser
+            steps it, at critic_learning_rate. False: each network has its
+            own. None: what the agent's reference code does
+            (reference_share_encoder).
+    """
+
+    share_encoder: Optional[bool] = None
+
+    def reference_share_encoder(self) -> bool:
+        """Whether the agent's reference code gives the actor and the critic
+        one encoder, for the networks this agent builds. The model-free
+        references keep them apart (sfujim/TD3@34770cc TD3.py:81, :85;
+        xtma/rlpyt@e28bb20 models/pg/mujoco_ff_model.py:34-55; Ni et al.
+        2022's recurrent ones, twni2016/pomdp-baselines@e7c19c3
+        policies/learner.py:213); an agent whose reference shares overrides
+        this, citing it."""
+        return False
+
+
 # A mixin's methods read the agent's attributes (env_args, its optimisers),
 # which only the agent has: their self is typed Any.
 @dataclass(kw_only=True, eq=False, repr=False)
@@ -279,6 +339,10 @@ class EntropyTemperature:
     alpha_update_start: int = 0
     #: Set on ReplayAgent.before_env_steps's copy alone.
     ignores_update_starts: ClassVar[bool] = False
+    #: The timestep before which the loop calling this copy's update runs
+    #: none (ReplayAgent.from_update_start): a start at or before it is
+    #: reached at every update.
+    first_update_timestep: ClassVar[int] = 0
 
     @property
     def alpha_args(self: Any) -> AlphaConfig:
@@ -301,10 +365,19 @@ class EntropyTemperature:
         """The target entropy at timestep."""
         return jnp.asarray(at(self.target_entropy, timestep))
 
-    def temperature_update_due(self, timestep: Any) -> Union[bool, jax.Array]:
+    def temperature_update_due(
+        self, timestep: Any, extensions: Any
+    ) -> Union[bool, jax.Array]:
         """Whether the temperature's step counts at timestep: from
-        alpha_update_start on (update_steps.reached)."""
-        return self.ignores_update_starts or reached(self.alpha_update_start, timestep)
+        alpha_update_start on (update_steps.reached), never while an
+        extension sets the temperature itself (MEW)."""
+        if extensions.sets_temperature:
+            return False
+        if self.ignores_update_starts:
+            return True
+        if self.alpha_update_start <= self.first_update_timestep:
+            return True
+        return reached(self.alpha_update_start, timestep)
 
 
 @dataclass(kw_only=True, eq=False, repr=False)
@@ -320,11 +393,18 @@ class PolicyUpdateStart:
     policy_update_start: int = 0
     #: Set on ReplayAgent.before_env_steps's copy alone.
     ignores_update_starts: ClassVar[bool] = False
+    #: As EntropyTemperature's (ReplayAgent.from_update_start).
+    first_update_timestep: ClassVar[int] = 0
 
     def policy_update_due(self, timestep: Any) -> Union[bool, jax.Array]:
         """Whether the actor's step counts at timestep: from
-        policy_update_start on (update_steps.reached)."""
-        return self.ignores_update_starts or reached(self.policy_update_start, timestep)
+        policy_update_start on (update_steps.reached); the Python True, with
+        no gate, where every update comes after it."""
+        if self.ignores_update_starts:
+            return True
+        if self.policy_update_start <= self.first_update_timestep:
+            return True
+        return reached(self.policy_update_start, timestep)
 
     def keeps_actor_metrics(self) -> bool:
         """An actor waiting for policy_update_start skips the updates before
@@ -423,6 +503,11 @@ class DeclaredAgent(ActorCritic):
         network_settings = self.network_settings()
         if network_settings:
             self.network_args = self.network_args.replace(**network_settings)
+        if isinstance(self, EncoderSharing):
+            share_encoder = self.share_encoder
+            if share_encoder is None:
+                share_encoder = self.reference_share_encoder()
+            self.network_args = self.network_args.replace(share_encoder=share_encoder)
         self._build_family()
         self.setup()
         object.__setattr__(self, "_built", True)
@@ -443,6 +528,24 @@ class DeclaredAgent(ActorCritic):
     @classmethod
     def field_names(cls) -> frozenset[str]:
         return frozenset(field.name for field in dataclasses.fields(cls))  # type: ignore[arg-type]
+
+    @classmethod
+    def preset(cls, name: str, env_id: Union[str, EnvType], **overrides: Any) -> Self:
+        """The agent with the settings its reference tunes for the task
+        ``name``, from its module's PRESETS table (ajax.agents.presets), the
+        ``overrides`` given winning over them. Its run config records the
+        name under "preset"."""
+        table = presets_of(cls)
+        if name not in table:
+            known = ", ".join(sorted(table)) or "none"
+            raise ValueError(
+                f"{cls.__name__} has no preset {name!r}; its presets: {known}."
+            )
+        arguments = dict(table[name].overrides)
+        arguments.update(overrides)
+        agent = cls(env_id, **arguments)
+        agent.config.update({"preset": name})
+        return agent
 
     def _build_family(self) -> None:
         """What the family builds from the fields, before the agent's
@@ -688,6 +791,7 @@ class DeclaredAgent(ActorCritic):
             buffer=buffer,
             recurrent=recurrent,
             executed=executed_fn(env_args),
+            offline=offline_data is not None,
         )
         return loop, context
 
@@ -736,8 +840,8 @@ def reads_last_rollout(extensions: Iterable[Extension]) -> bool:
 class ReplayAgent(DeclaredAgent):
     """An off-policy agent on a replay of transitions
     (TrainLoop.off_policy): one step per env per iteration and, from
-    learning_starts, one update; offline (train_offline) one
-    update per iteration on a replay of the dataset.
+    learning_starts, one update every train_frequency steps; offline
+    (train_offline) one update per iteration on a replay of the dataset.
 
     Beyond DeclaredAgent's names, the family reads
     buffer_size, batch_size and learning_starts, which every
@@ -752,11 +856,17 @@ class ReplayAgent(DeclaredAgent):
         batch_size: The rows each update samples.
         learning_starts: The env steps collected before the first update
             (0: none).
+        train_frequency: The env steps between updates, as SB3's train_freq
+            and CleanRL's (dqn.py:195): from learning_starts, an update on
+            each tick whose steps collected reach a multiple of it
+            (update_steps.reaches_multiple); 1, the default, every tick. An
+            evaluation between two updates logs the last one's metrics.
     """
 
     buffer_size: int
     batch_size: int
     learning_starts: int
+    train_frequency: int = 1
 
     replays_transitions = True
     # A dataset's next action, which its replay keeps for a reader (TargetBC);
@@ -808,6 +918,16 @@ class ReplayAgent(DeclaredAgent):
         agent: Any = copy.copy(self)
         agent.ignores_update_starts = True
         return agent
+
+    def from_update_start(self) -> Any:
+        """The agent as the online loop updates it, from update_start() on:
+        a wait for a timestep at or before it (policy_update_start,
+        alpha_update_start; SAC's 2,000 under its 10,000 learning_starts) is
+        over at every update, so its gate, a lax.cond in every update, goes.
+        A copy, as before_env_steps's."""
+        online: Any = copy.copy(self)
+        online.first_update_timestep = self.update_start()
+        return online
 
     def _build_family(self) -> None:
         self.buffer = self.make_replay_buffer()
@@ -918,9 +1038,11 @@ class ReplayAgent(DeclaredAgent):
         )
         recurrent = context.recurrent
         offline = self.before_env_steps()
+        # Offline, every tick updates and the timestep counts the updates.
+        online = self.from_update_start() if loop.offline_data is None else self
         return loop.off_policy(
             partial(self.init, context=context),
-            lambda agent_state, _transition: self.update(agent_state, context),
+            lambda agent_state, _transition: online.update(agent_state, context),
             self.update_start(),
             uniform_steps=self.uniform_steps(),
             recurrent=recurrent,
@@ -934,6 +1056,7 @@ class ReplayAgent(DeclaredAgent):
             pretrain_update=lambda agent_state, _transition: offline.update(
                 agent_state, context
             ),
+            update_every=self.train_frequency,
         )
 
     def extension_values(self, configs: dict[str, Any]) -> dict[str, Any]:
@@ -984,6 +1107,18 @@ class RecurrentReplayAgent(ReplayAgent):
     (ajax.agents.recurrent), and its learning_starts must give
     each env more steps than a window.
 
+    Its networks with memory are Ni et al. (2022)'s (ajax.agents.recurrent:
+    NI_LAYOUT, NI_MEMORY_WIDTH, NI_MEMORY_INITS, ni_initialisation, which
+    the agent's actor_critic_args takes). They read the previous action and
+    the previous reward, so a run with memory observes both: PreviousAction
+    and PreviousReward join its extensions where it has none of them (owner,
+    2026-11-13: on by default, as Ni et al.'s networks read them).
+
+    Its batch_size counts rows without memory, windows with it; None is
+    256 rows (each agent's reference's) or Ni et al.'s 64 windows. The
+    window defaults are theirs too: 64 trained steps from a zero memory, no
+    burn-in.
+
     Args:
         memory: The networks' memory block (MemoryConfig or its dict form);
             None keeps them feedforward.
@@ -996,11 +1131,29 @@ class RecurrentReplayAgent(ReplayAgent):
     """
 
     memory: Optional[Union[MemoryConfig, dict]] = None
-    burn_in: int = 8
-    sequence_length: int = 16
+    burn_in: int = 0
+    sequence_length: int = NI_WINDOW_STEPS
     stored_state: bool = False
 
     supports_memory = True
+
+    def __post_init__(self) -> None:
+        # Resolved before the run config records them, so the log keeps
+        # what runs.
+        if self.batch_size is None:
+            # 256 rows: every family member's reference (its docstring's).
+            self.batch_size = NI_WINDOWS if self.memory is not None else 256
+        if self.memory is not None:
+            self.memory = with_reference_defaults(
+                parse_memory_config(self.memory), NI_MEMORY_INITS, NI_MEMORY_WIDTH
+            )
+            self.extensions = with_ni_features(self.extensions)
+        super().__post_init__()
+
+    def _build_family(self) -> None:
+        if self.memory is not None:
+            self.network_args = self.network_args.replace(**NI_LAYOUT)
+        super()._build_family()
 
     def make_replay_buffer(self) -> BufferType:
         return make_recurrent_replay_buffer(
@@ -1016,6 +1169,17 @@ class RecurrentReplayAgent(ReplayAgent):
 
     def stores_state(self) -> bool:
         return self.stored_state
+
+
+def with_ni_features(extensions: Sequence[Extension]) -> tuple[Extension, ...]:
+    """extensions with the features Ni et al.'s recurrent networks read,
+    the previous action and the previous reward (PreviousAction,
+    PreviousReward), each appended where none is there."""
+    kept = tuple(extensions)
+    for feature in (PreviousAction(), PreviousReward()):
+        if not any(isinstance(extension, type(feature)) for extension in kept):
+            kept = (*kept, feature)
+    return kept
 
 
 @dataclass(kw_only=True, eq=False, repr=False)
@@ -1355,12 +1519,17 @@ class OwnIterationAgent(DeclaredAgent):
             ),
         )
 
-        def iteration(agent_state: Any, index: Any, tick: Any) -> tuple[Any, Any]:
-            agent_state, aux = self.iterate(agent_state, context)
+        def log(agent_state: Any, aux: Any, index: Any, tick: Any) -> tuple[Any, Any]:
             agent_state, evaluations = loop.evaluate_every(
                 agent_state, aux, index, tick, evaluation
             )
             return agent_state, self.make_iteration_output(aux, evaluations)
+
+        def iteration(agent_state: Any, index: Any, tick: Any) -> tuple[Any, Any]:
+            agent_state, aux = self.iterate(agent_state, context)
+            if self.returns_iterations:  # every iteration's output, evaluated
+                return log(agent_state, aux, index, tick)
+            return agent_state, aux
 
         return loop.train(
             partial(self.init, context=context),
@@ -1369,6 +1538,8 @@ class OwnIterationAgent(DeclaredAgent):
             evaluations=evaluation.count(n_iterations),
             resume=resume,
             returns_iterations=self.returns_iterations,
+            log=log,
+            due=evaluation.ticks,
         )
 
 
@@ -1486,6 +1657,7 @@ class OwnReplayAgent(DeclaredAgent):
         on_ids_ready: Optional[Callable] = None,
         initial_state: Any = None,
         total_timesteps: Optional[int] = None,
+        sweep: Optional[Sweep] = None,
         **kwargs: Any,
     ) -> tuple[Any, Any]:
         """ActorCritic.train on the call's replay (prepare_replay), which
@@ -1495,6 +1667,9 @@ class OwnReplayAgent(DeclaredAgent):
             state = state[0]
         # Refused before prepare_replay records the replay's sizes on the
         # agent: a refused call leaves the agent as it was.
+        found = sweep_configurations(sweep)
+        if found:
+            check_sweep(type(self).__name__, self.sweepable_fields(), list(found[0]))
         start = 0
         if state is not None:
             counters = shared_counters(state, self.per_seed_update_counts)
@@ -1511,6 +1686,7 @@ class OwnReplayAgent(DeclaredAgent):
             on_ids_ready=on_ids_ready,
             initial_state=state,
             total_timesteps=total_timesteps,
+            sweep=sweep,
             replay=replay,
             start_tick=start_tick,
             **kwargs,

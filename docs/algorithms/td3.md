@@ -51,18 +51,18 @@ updated in 2019, not the paper's: see [Notes](#notes).
 | `actor_architecture`, `critic_architecture` | `("256", "relu", "256", "relu")` | hidden layers (plain MLPs) |
 | `gamma` | `0.99` | discount |
 | `buffer_size` | `1_000_000` | replay capacity |
-| `batch_size` | `256` | replay minibatch |
+| `batch_size` | `None` | replay minibatch: 256 rows, or 64 windows with `memory=` |
 | `learning_starts` | `25_000` | steps of uniform random actions before the first update |
 | `tau` | `0.005` | Polyak rate of the target networks |
 | `num_critics` | `2` | critics; the target takes their minimum |
-| `policy_delay` | `2` | critic steps per actor and target update |
+| `policy_delay` | `None` | critic steps per actor and target update: 2, or 1 with `memory=` |
 | `exploration_noise` | `0.1` | standard deviation of the behaviour noise; a float or a schedule of the timestep |
 | `target_policy_noise`, `target_noise_clip` | `0.2`, `0.5` | target smoothing noise and its clip |
 | `reward_scale` | `1.0` | multiplies the rewards in the target |
 | `max_grad_norm` | `None` | gradient clipping |
 | `normalize_observations`, `normalize_rewards` | `False` | running normalisation |
-| `reward_normalization_gamma` | `None` | with `normalize_rewards`, divide by the spread of the discounted return |
-| `memory`, `burn_in`, `sequence_length`, `stored_state` | `None`, `8`, `16`, `False` | recurrent memory (see [Memory](../guide/memory.md)) |
+| `reward_normalization_gamma` | `None` | with `normalize_rewards`, the discount of the return whose spread divides the rewards: `gamma` if None, 0 for the single reward's |
+| `memory`, `burn_in`, `sequence_length`, `stored_state` | `None`, `0`, `64`, `False` | recurrent memory (see [Memory](../guide/memory.md)) |
 | `expert_policy` | `None` | an expert whose return the evaluation reports next to the agent's (`Eval/expert bias`) |
 | `action_pipeline` | `None` | replaces the collection-time action choice (used by a downstream project) |
 | `episode_length`, `action_repeat` | `None`, `1` | simulator steps per episode (1,000 when `None`) and per agent step, on Brax and Playground |
@@ -71,6 +71,13 @@ updated in 2019, not the paper's: see [Notes](#notes).
 Cloning an expert into the actor before training is the `CloningPretrain`
 extension; a cloning term during training, of the TD3+BC form, is `ImitationLoss`
 ([Expert guidance](../guide/expert-guidance.md)).
+
+## Presets
+
+`TD3.preset("D4RL", env_id)` is TD3+BC as its authors run it on the D4RL
+datasets (sfujim/TD3_BC@`8791ad7`, `main.py:56-57`; [Presets](../guide/training.md#presets)): `ImitationLoss`
+cloning the dataset's actions at `alpha=2.5`, and `normalize_observations=True`.
+Train it with `train_offline` ([TD3+BC](#td3bc-offline)).
 
 ## Notes
 
@@ -82,8 +89,11 @@ extension; a cloning term during training, of the TD3+BC form, is `ImitationLoss
 - **Actor.** A deterministic MLP ending in `tanh`. As in the authors' code,
   every layer of the actor and the critics, the actor's last included,
   starts as torch's `nn.Linear` does: kernel and bias uniform in
-  `±1/sqrt(fan_in)` (not DDPG's `±3e-3` last layer, which TD3 keeps with
-  `memory=` until Ni et al.'s initialisation is audited). Actions lie in
+  `±1/sqrt(fan_in)` (not DDPG's `±3e-3` last layer). With `memory=`, TD3
+  is Ni et al. (2022)'s recurrent TD3: their networks and initialisation,
+  an actor maximising min(Q1, Q2) at every update (`policy_delay` 1), and
+  critics reading the `[-1, 1]` actions (see [Memory](../guide/memory.md)).
+  Actions lie in
   `[-1, 1]`, and Ajax maps them onto the environment's bounds, so the noise
   levels are in those `[-1, 1]` units: on gymnax Pendulum (torque in
   `[-2, 2]`) an `exploration_noise` of 0.1 is a torque noise of standard
@@ -132,6 +142,9 @@ agent = TD3(
 )
 # state, evaluations = agent.train_offline(dataset, n_updates=1_000_000)
 ```
+
+`TD3.preset("D4RL", env_id)` builds it with the same extension and
+normalisation ([Presets](#presets)).
 
 The paper's actor loss is `-λ mean Q(s, π(s)) + mean((π(s) - a)²)`, with
 `λ = α / mean|Q(s, π(s))|` and α = 2.5 (`TD3_BC.py:141-143`), the actions

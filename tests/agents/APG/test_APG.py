@@ -222,6 +222,9 @@ def test_contextual_controller_configuration(env_and_class):
         num_heads=2,
         window=8,
         init="nanogpt",
+        bias=False,
+        layer_norm_epsilon=1e-5,
+        mlp_ratio=4,
     )
     assert agent.pid == PIDHeadConfig()  # identity init, see APG._DEFAULT_PID
     assert agent.lr_schedule == "warmup_cosine"
@@ -264,14 +267,20 @@ def test_contextual_controller_rebuilds_a_transformer_without_its_final_norm(
         window=8,
         final_norm=False,
         init="nanogpt",
+        bias=False,
+        layer_norm_epsilon=1e-5,
+        mlp_ratio=4,
     )
 
 
 def test_a_transformer_controller_starts_as_the_reference_gpt(env_and_class):
     """in-context-controller @7eb094c (transformer_onestep.py:162-166,
     :189-195): normal(0.02) kernels, the residual projections at
-    0.02/sqrt(2 n_layer), zero biases. An explicit init overrides it, and
-    another kind keeps flax's."""
+    0.02/sqrt(2 n_layer); with --bias False (train_onestep_lin_CL.py:103) its
+    attention and MLP layers and LayerNorms have no bias (:44-46, :93-95,
+    :111-113, :156), the input embedding keeps one (:150), and the MLP is
+    4 d_model wide (:93). An explicit init overrides it, and another kind
+    keeps flax's."""
     env, sc = env_and_class
     kw = {"n_layers": 2, "n_heads": 2, "d_model": 64, "context": 8}
     memory = APG.contextual_controller(env, sc, **kw).network_args.memory
@@ -283,7 +292,11 @@ def test_a_transformer_controller_starts_as_the_reference_gpt(env_and_class):
         residual = name.startswith(("attn_out", "mlp_down"))
         std = 0.02 / np.sqrt(4) if residual else 0.02
         assert float(jnp.std(core[name]["kernel"])) == pytest.approx(std, rel=0.15)
-        assert (core[name]["bias"] == 0).all()
+        assert "bias" not in core[name]
+    for name in ("ln_attn_0", "ln_mlp_1", "ln_f"):
+        assert set(core[name]) == {"scale"}
+    assert (core["embed"]["bias"] == 0).all()
+    assert core["mlp_up_1"]["kernel"].shape == (64, 4 * 64)
     flax_init = MemoryConfig("transformer", 8, num_heads=2, window=8, init="flax")
     assert APG(env, memory=flax_init).network_args.memory.init == "flax"
     assert APG(env, memory=MemoryConfig("gru", 8)).network_args.memory.init is None

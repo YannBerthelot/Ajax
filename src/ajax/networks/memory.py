@@ -27,7 +27,9 @@ Kinds and their compute/memory profile:
   FULL PARALLEL attention over the chunk (no scan) with an episode-segment
   mask; acting keeps a rolling cache of the last ``window - 1`` embeddings
   per layer, so per-step memory is O(window * hidden) and constant in
-  episode length.
+  episode length. With ``cache_keys_values`` the cache holds each layer's
+  keys and values instead, for a carry that never outlives its parameters
+  (see :class:`MemoryCell`).
 - ``"mamba"``: selective state-space (S6-style) block. Training runs a
   parallel ``associative_scan`` over T; the carry is the SSM state plus a
   small causal-conv tail — RNN-sized memory with transformer-like training
@@ -63,6 +65,8 @@ MEMORY_INITS = {
     "mamba": ("flax", "mamba"),
 }
 _GATES = {"gru": 3, "lstm": 4}
+#: A memory's width where neither the config nor the agent sets one.
+DEFAULT_HIDDEN_SIZE = 64
 
 
 @dataclass(frozen=True)
@@ -75,7 +79,9 @@ class MemoryConfig:
     """
 
     kind: str = "gru"
-    hidden_size: int = 64
+    # The memory's width; None: the agent's reference width
+    # (with_reference_defaults), DEFAULT_HIDDEN_SIZE for an agent without one.
+    hidden_size: Optional[int] = None
     num_layers: int = 1
     # Recompute activations in the backward pass instead of storing them;
     # trades compute for memory on long sequences.
@@ -98,6 +104,16 @@ class MemoryConfig:
     # per gate, zero biases, and mamba's step-size bias -3. The others are
     # references' (gate_block_orthogonal, _dense_init, _dt_bias_init).
     init: Optional[str] = None
+    # transformer: biases in the attention and MLP layers and the LayerNorms
+    # (nanoGPT's config.bias); the input embedding keeps its own either way,
+    # as nanoGPT's wte does.
+    bias: bool = True
+    # transformer, mamba: the LayerNorms' epsilon. flax's 1e-6 by default;
+    # GPT-2, nanoGPT and Mamba use torch's 1e-5.
+    layer_norm_epsilon: float = 1e-6
+    # transformer: the MLP's hidden width, in multiples of hidden_size
+    # (GPT-2 and nanoGPT: 4).
+    mlp_ratio: int = 2
 
     def __post_init__(self):
         if self.kind not in MEMORY_KINDS:
@@ -109,17 +125,23 @@ class MemoryConfig:
                 f"init {self.init!r} does not apply to kind {self.kind!r},"
                 f" expected one of {MEMORY_INITS[self.kind]}"
             )
-        if self.hidden_size <= 0:
+        if self.hidden_size is not None and self.hidden_size <= 0:
             raise ValueError(f"hidden_size must be positive, got {self.hidden_size}")
         if self.num_layers <= 0:
             raise ValueError(f"num_layers must be positive, got {self.num_layers}")
+        if self.layer_norm_epsilon <= 0:
+            raise ValueError(
+                f"layer_norm_epsilon must be positive, got {self.layer_norm_epsilon}"
+            )
+        if self.mlp_ratio < 1:
+            raise ValueError(f"mlp_ratio must be >= 1, got {self.mlp_ratio}")
         if self.kind == "transformer":
             if self.window < 1:
                 raise ValueError(f"window must be >= 1, got {self.window}")
-            if self.hidden_size % self.num_heads != 0:
+            if self.width % self.num_heads != 0:
                 raise ValueError(
                     "hidden_size must be divisible by num_heads, got"
-                    f" {self.hidden_size} and {self.num_heads}"
+                    f" {self.width} and {self.num_heads}"
                 )
         if self.kind == "mamba":
             if self.d_state < 1 or self.d_conv < 1 or self.expand < 1:
@@ -127,6 +149,11 @@ class MemoryConfig:
                     "d_state, d_conv and expand must be >= 1, got"
                     f" {self.d_state}, {self.d_conv}, {self.expand}"
                 )
+
+    @property
+    def width(self) -> int:
+        """The memory's width: hidden_size, or the default where unset."""
+        return DEFAULT_HIDDEN_SIZE if self.hidden_size is None else self.hidden_size
 
     @property
     def ends_normalised(self) -> bool:
@@ -153,15 +180,51 @@ def with_default_init(
     """``memory`` with ``init`` set to ``inits[memory.kind]`` when unset: an
     agent's reference initialisation, which an explicit ``init`` overrides.
     A kind ``inits`` does not name keeps flax's."""
-    if memory is None or memory.init is not None or memory.kind not in inits:
+    return with_reference_defaults(memory, inits)
+
+
+def with_reference_defaults(
+    memory: Optional[MemoryConfig],
+    inits: Mapping[str, str],
+    hidden_size: Optional[int] = None,
+) -> Optional[MemoryConfig]:
+    """``memory`` with an agent's reference settings where it leaves them
+    unset: ``init`` from ``inits[memory.kind]`` (a kind ``inits`` does not
+    name keeps flax's) and ``hidden_size``."""
+    if memory is None:
         return memory
-    return dataclasses.replace(memory, init=inits[memory.kind])
+    if memory.init is None and memory.kind in inits:
+        memory = dataclasses.replace(memory, init=inits[memory.kind])
+    if memory.hidden_size is None and hidden_size is not None:
+        memory = dataclasses.replace(memory, hidden_size=hidden_size)
+    return memory
 
 
-def init_carry(config: MemoryConfig, rng: jax.Array, batch_size: int) -> Carry:
+def init_carry(
+    config: MemoryConfig,
+    rng: jax.Array,
+    batch_size: int,
+    cache_keys_values: bool = False,
+) -> Carry:
     """Fresh (all-zero) carry for ``config``: a tuple with one entry per
-    layer. Shapes are derived from the config alone — no params needed."""
-    B, H = batch_size, config.hidden_size
+    layer. Shapes are derived from the config alone — no params needed.
+    ``cache_keys_values``: a transformer's carry for a MemoryCell caching
+    keys and values (see MemoryCell)."""
+    B, H = batch_size, config.width
+    if cache_keys_values and config.kind != "transformer":
+        raise ValueError(
+            f"Only a transformer memory caches keys and values, not {config.kind!r}."
+        )
+    if cache_keys_values:
+        cache_len = config.window - 1
+        return tuple(
+            (
+                jnp.zeros((B, cache_len, H)),  # cached keys
+                jnp.zeros((B, cache_len, H)),  # cached values
+                jnp.zeros((B, cache_len), dtype=bool),  # validity flags
+            )
+            for _ in range(config.num_layers)
+        )
     if config.kind in _RNN_CELL_CLASSES:
         cell = _RNN_CELL_CLASSES[config.kind](features=H, parent=None)
         return tuple(
@@ -348,7 +411,7 @@ class _RecurrentCore(nn.Module):
         hidden = x
         for layer in range(self.config.num_layers):
             cell = cell_cls(
-                features=self.config.hidden_size,
+                features=self.config.width,
                 name=f"{self.config.kind}_{layer}",
                 **inits,
             )
@@ -365,17 +428,21 @@ class _TransformerCore(nn.Module):
     residual adds, and a final LayerNorm (``ln_f``) on the output, which
     keeps the stream's scale, growing with depth, out of the heads. GTrXL
     (Parisotto et al. 2020, arXiv:1910.06764) instead gates its residuals
-    and describes no final norm; this core does not gate. Its LayerNorms keep
-    flax's epsilon, 1e-6, where the references use 1e-5. Busetto et al.'s
-    contextual controller (buswayne/in-context-controller at 7eb094ce17),
-    which ``APG.contextual_controller`` builds on this core, also leaves the
-    bias out of its LayerNorms, ``ln_f`` included; these keep one. There,
-    ``transformer_onestep.py:33`` normalises with epsilon 1e-5, ``:156``
-    builds ``ln_f = LayerNorm(n_embd, bias=config.bias)`` and
+    and describes no final norm; this core does not gate. By default its
+    LayerNorms keep flax's epsilon, 1e-6, where the references use 1e-5, and
+    its MLP is 2x wide where GPT-2's is 4x; ``layer_norm_epsilon`` and
+    ``mlp_ratio`` take the references' values. Busetto et al.'s contextual
+    controller (buswayne/in-context-controller at 7eb094ce17), which
+    ``APG.contextual_controller`` builds on this core with ``bias=False``,
+    leaves the bias out of its attention and MLP layers and its LayerNorms,
+    ``ln_f`` included: ``transformer_onestep.py:33`` normalises with epsilon
+    1e-5, ``:44-46`` and ``:93-95`` build its Linears with
+    ``bias=config.bias``, ``:156`` builds ``ln_f`` the same way, and
     ``train_onestep_lin_CL.py:103`` defaults ``--bias`` to False.
 
     Per layer the carry holds the last ``window - 1`` layer INPUTS and
-    their validity flags; a step attends to itself plus up to window-1
+    their validity flags (with ``cache_keys_values``, their keys and values
+    instead; see MemoryCell); a step attends to itself plus up to window-1
     predecessors from the same episode. Sequence mode concatenates the
     cache in front of the chunk and runs one parallel attention with a
     (causal ∧ windowed ∧ same-episode) mask — no scan — so step-by-step
@@ -385,12 +452,13 @@ class _TransformerCore(nn.Module):
     """
 
     config: MemoryConfig
+    cache_keys_values: bool = False
 
     @nn.compact
     def __call__(self, carry, x, resets):
         cfg = self.config
         T, B = x.shape[:2]
-        H, W, n_heads = cfg.hidden_size, cfg.window, cfg.num_heads
+        H, W, n_heads = cfg.width, cfg.window, cfg.num_heads
         head_dim = H // n_heads
         cache_len = W - 1
 
@@ -400,6 +468,10 @@ class _TransformerCore(nn.Module):
 
         dense = functools.partial(nn.Dense, kernel_init=_dense_init(cfg))
         hidden = dense(H, name="embed")(x)  # (T, B, H)
+        layer_dense = functools.partial(dense, use_bias=cfg.bias)
+        layer_norm = functools.partial(
+            nn.LayerNorm, epsilon=cfg.layer_norm_epsilon, use_bias=cfg.bias
+        )
 
         # Query position t / key position p masks, key stream = cache ++ chunk.
         t_idx = jnp.arange(T)
@@ -416,14 +488,28 @@ class _TransformerCore(nn.Module):
 
         new_carry = []
         for layer in range(cfg.num_layers):
-            cache, valid = carry[layer]  # (B, C, H), (B, C)
             h_bt = jnp.swapaxes(hidden, 0, 1)  # (B, T, H) — layer input
-            stream = jnp.concatenate([cache, h_bt], axis=1)  # (B, C+T, H)
-
-            normed = nn.LayerNorm(name=f"ln_attn_{layer}")(stream)
-            q = dense(H, name=f"q_{layer}")(normed[:, cache_len:])
-            k = dense(H, name=f"k_{layer}")(normed)
-            v = dense(H, name=f"v_{layer}")(normed)
+            norm = layer_norm(name=f"ln_attn_{layer}")
+            query_layer = layer_dense(H, name=f"q_{layer}")
+            key_layer = layer_dense(H, name=f"k_{layer}")
+            value_layer = layer_dense(H, name=f"v_{layer}")
+            if self.cache_keys_values:
+                # Only the chunk's rows are normalised and projected; the
+                # cached rows' keys and values were computed when they came.
+                cached_keys, cached_values, valid = carry[layer]
+                normed = norm(h_bt)
+                q = query_layer(normed)
+                k = jnp.concatenate([cached_keys, key_layer(normed)], axis=1)
+                v = jnp.concatenate([cached_values, value_layer(normed)], axis=1)
+                cached_rows = (k, v)
+            else:
+                cache, valid = carry[layer]  # (B, C, H), (B, C)
+                stream = jnp.concatenate([cache, h_bt], axis=1)  # (B, C+T, H)
+                normed = norm(stream)
+                q = query_layer(normed[:, cache_len:])
+                k = key_layer(normed)
+                v = value_layer(normed)
+                cached_rows = (stream,)
             q = q.reshape(B, T, n_heads, head_dim)
             k = k.reshape(B, cache_len + T, n_heads, head_dim)
             v = v.reshape(B, cache_len + T, n_heads, head_dim)
@@ -448,15 +534,14 @@ class _TransformerCore(nn.Module):
             attn = jax.nn.softmax(logits, axis=-1)
             out = jnp.einsum("bhqk,bkhd->bqhd", attn, v).reshape(B, T, H)
             residual = _dense_init(cfg, residual=True)
-            h_bt = h_bt + nn.Dense(H, kernel_init=residual, name=f"attn_out_{layer}")(
-                out
+            output_layer = functools.partial(
+                nn.Dense, H, kernel_init=residual, use_bias=cfg.bias
             )
+            h_bt = h_bt + output_layer(name=f"attn_out_{layer}")(out)
 
-            mlp_in = nn.LayerNorm(name=f"ln_mlp_{layer}")(h_bt)
-            mlp = dense(2 * H, name=f"mlp_up_{layer}")(mlp_in)
-            mlp = nn.Dense(H, kernel_init=residual, name=f"mlp_down_{layer}")(
-                nn.gelu(mlp)
-            )
+            mlp_in = layer_norm(name=f"ln_mlp_{layer}")(h_bt)
+            mlp = layer_dense(cfg.mlp_ratio * H, name=f"mlp_up_{layer}")(mlp_in)
+            mlp = output_layer(name=f"mlp_down_{layer}")(nn.gelu(mlp))
             h_bt = h_bt + mlp
 
             # New cache: last C entries of the input stream, valid only if
@@ -468,16 +553,14 @@ class _TransformerCore(nn.Module):
             stream_valid = jnp.concatenate(
                 [valid_cache_part, valid_seq_part], axis=1
             )  # (B, C+T)
+            kept = [rows[:, rows.shape[1] - cache_len :] for rows in cached_rows]
             new_carry.append(
-                (
-                    stream[:, stream.shape[1] - cache_len :],
-                    stream_valid[:, stream_valid.shape[1] - cache_len :],
-                )
+                (*kept, stream_valid[:, stream_valid.shape[1] - cache_len :])
             )
             hidden = jnp.swapaxes(h_bt, 0, 1)  # (T, B, H) for the next layer
 
         if cfg.final_norm:
-            hidden = nn.LayerNorm(name="ln_f")(hidden)
+            hidden = layer_norm(name="ln_f")(hidden)
         return tuple(new_carry), hidden
 
 
@@ -497,7 +580,8 @@ class _MambaCore(nn.Module):
     norm (its ``norm_f``, here ``ln_f``) after the last residual add. Every
     norm is a LayerNorm, MixerModel's default (``rms_norm=False``); its
     ``MambaConfig`` and released checkpoints use RMSNorm. The LayerNorms
-    keep flax's epsilon, 1e-6, where Mamba uses 1e-5.
+    take ``layer_norm_epsilon``, flax's 1e-6 by default, where Mamba uses
+    1e-5.
     """
 
     config: MemoryConfig
@@ -506,7 +590,7 @@ class _MambaCore(nn.Module):
     def __call__(self, carry, x, resets):
         cfg = self.config
         T, B = x.shape[:2]
-        H = cfg.hidden_size
+        H = cfg.width
         d_inner, d_state, d_conv = cfg.expand * H, cfg.d_state, cfg.d_conv
 
         resets = resets.reshape((T, B)).astype(bool)
@@ -518,7 +602,7 @@ class _MambaCore(nn.Module):
         for layer in range(cfg.num_layers):
             conv_tail, ssm_state = carry[layer]
             inp = hidden
-            z = nn.LayerNorm(name=f"ln_{layer}")(inp)
+            z = nn.LayerNorm(epsilon=cfg.layer_norm_epsilon, name=f"ln_{layer}")(inp)
             u, gate = jnp.split(
                 nn.Dense(2 * d_inner, name=f"in_proj_{layer}")(z), 2, axis=-1
             )  # each (T, B, d_inner)
@@ -604,7 +688,7 @@ class _MambaCore(nn.Module):
             new_carry.append((new_conv_tail, h[-1]))
 
         if cfg.final_norm:
-            hidden = nn.LayerNorm(name="ln_f")(hidden)
+            hidden = nn.LayerNorm(epsilon=cfg.layer_norm_epsilon, name="ln_f")(hidden)
         return tuple(new_carry), hidden
 
 
@@ -619,16 +703,37 @@ _CORE_CLASSES = {
 class MemoryCell(nn.Module):
     """Reset-aware memory block; dispatches to the core selected by
     ``config.kind``. See the module docstring for the interface contract.
+
+    ``cache_keys_values`` (transformer only, off by default): the carry
+    holds each layer's keys and values instead of its inputs, so a step
+    normalises and projects its own rows rather than the whole window again
+    (build its carry with ``init_carry(..., cache_keys_values=True)``). The
+    outputs and gradients are the same, to rounding, when the carry was
+    built under the parameters that read it: a closed-loop rollout
+    differentiated end to end from a fresh carry (APG), or acting with fixed
+    parameters. A carry stored and read back after an update would keep the
+    old parameters' keys and values, where the default re-projects the
+    stored inputs with the new ones, so agents that replay or chunk
+    sequences from a stored carry keep the default.
     """
 
     config: MemoryConfig
+    cache_keys_values: bool = False
 
     def setup(self):
         core_cls = _CORE_CLASSES[self.config.kind]
         if self.config.gradient_checkpoint and core_cls is not _RecurrentCore:
             # RNN cores remat per-step inside their scan instead.
             core_cls = nn.remat(core_cls)
-        self.core = core_cls(self.config, name="core")
+        if not self.cache_keys_values:
+            self.core = core_cls(self.config, name="core")
+        elif self.config.kind == "transformer":
+            self.core = core_cls(self.config, cache_keys_values=True, name="core")
+        else:
+            raise ValueError(
+                "Only a transformer memory caches keys and values, not"
+                f" {self.config.kind!r}."
+            )
 
     def __call__(self, carry, x, resets):
         return self.core(carry, x, resets)

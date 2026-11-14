@@ -61,6 +61,12 @@ Defaults are read from CrossQ's fields, the authors' `train.py -algo crossq`.
 | `episode_length`, `action_repeat` | `None`, `1` | simulator steps per episode and per agent step, on Brax and Playground |
 | `extensions` | `()` | research features (see [Extensions](../guide/extensions.md)) |
 
+## Presets
+
+`CrossQ.preset("Swimmer", env_id)` discounts at `gamma=0.9999`, the one task
+the authors set apart (adityab/CrossQ@`a318a26`, `train.py:200`, on
+Swimmer-v4; [Presets](../guide/training.md#presets)). Every other task takes the defaults.
+
 ## Notes
 
 - **Batch Renorm.** Each network normalises its input and the output of each

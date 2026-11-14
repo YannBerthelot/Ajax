@@ -409,8 +409,12 @@ def test_a_recurrent_replay_agent_replays_windows_with_stored_carries() -> None:
     with pytest.raises(ValueError, match="stored_state=True requires a memory"):
         RecurrentToy("Pendulum-v1", stored_state=True)
     gru = MemoryConfig(kind="gru", hidden_size=4)
-    agent = RecurrentToy("Pendulum-v1", memory=gru, stored_state=True, burn_in=2)
-    assert agent.network_args.memory == gru and agent.stores_state()
+    agent = RecurrentToy(
+        "Pendulum-v1", memory=gru, stored_state=True, burn_in=2, sequence_length=4
+    )
+    # The width kept, Ni et al.'s initialisation where it set none.
+    ni = dataclasses.replace(gru, init="stacked_orthogonal")
+    assert agent.network_args.memory == ni and agent.stores_state()
 
 
 @struct.dataclass(kw_only=True)

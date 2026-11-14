@@ -24,6 +24,7 @@ from ajax.types import Replaceable
 from ajax.wrappers import NON_FINITE_STEPS_KEY
 
 if TYPE_CHECKING:
+    from ajax.async_evaluation import AsyncEvaluator
     from ajax.extensions.base import ExtensionStack
 
 
@@ -96,6 +97,39 @@ def gated_log_callback(log_fn: Callable, flag: Any, metrics: dict, index: Any) -
             log_fn(metrics, index)
 
     jax.debug.callback(_gated, flag, metrics, index)
+
+
+def scores_now_or_later(
+    scores: Callable[[Any, jax.Array], dict],
+    agent_state: Any,
+    key: jax.Array,
+    evaluator: Optional["AsyncEvaluator"],
+) -> dict:
+    """The policy's evaluation, ``scores(agent_state, key)``; with an
+    asynchronous evaluator, its structure filled with NaN: the evaluator
+    scores it later (:mod:`ajax.async_evaluation`)."""
+    if evaluator is None:
+        return scores(agent_state, key)
+    return unevaluated(jax.eval_shape(scores, agent_state, key))
+
+
+def send_logs(
+    log_fn: Callable,
+    flag: Any,
+    metrics: dict,
+    index: Any,
+    evaluator: Optional["AsyncEvaluator"],
+    scores: Callable[[Any, jax.Array], dict],
+    agent_state: Any,
+    key: jax.Array,
+) -> None:
+    """Log ``metrics`` when ``flag`` is set (:func:`gated_log_callback`);
+    with an asynchronous evaluator, hand them over with what ``scores``
+    reads, to be logged with its scores."""
+    if evaluator is None:
+        gated_log_callback(log_fn, flag, metrics, index)
+    else:
+        evaluator.hand_over(flag, scores, agent_state, key, metrics, index)
 
 
 def evaluation_keys(
@@ -256,6 +290,7 @@ def maybe_eval_and_log(
     extra_eval_metrics: Optional[Callable],
     log: bool,
     log_fn: Callable,
+    evaluator: Optional["AsyncEvaluator"] = None,
 ) -> tuple[Any, Optional[dict]]:
     """Evaluate + log when ``due``, the caller's gate (``None``: never).
 
@@ -271,8 +306,9 @@ def maybe_eval_and_log(
     with ``evaluate_fn(agent_state, eval_key)`` and, when given,
     ``extra_eval_metrics(agent_state, extra_key)`` (:func:`evaluation_keys`:
     those of the timestep the metrics log); they are sent to ``log_fn``
-    through :func:`gated_log_callback` and ``agent_state.n_logs`` is
-    incremented. Otherwise the same structure is returned filled with NaN
+    through :func:`gated_log_callback` (or handed with the policy's
+    evaluation to ``evaluator``: :func:`send_logs`) and ``agent_state.n_logs``
+    is incremented. Otherwise the same structure is returned filled with NaN
     (``-1`` for integer leaves) and ``n_logs`` is unchanged; always so
     without ``due``. Without logging (``log`` false) the evaluation is not
     even traced (tracing alone rebuilds the evaluation env) and the metrics
@@ -288,11 +324,14 @@ def maybe_eval_and_log(
     def run(agent_state, aux, index):
         metrics = dict(metrics_fn(agent_state, aux))
         eval_key, extra_key = evaluation_keys(agent_state, metrics["timestep"])
-        metrics.update(evaluate_fn(agent_state, eval_key))
+        metrics.update(
+            scores_now_or_later(evaluate_fn, agent_state, eval_key, evaluator)
+        )
         if extra_eval_metrics is not None:
             metrics.update(extra_eval_metrics(agent_state, extra_key))
-        # gated inside the callback: see gated_log_callback
-        gated_log_callback(log_fn, flag, metrics, index)
+        send_logs(
+            log_fn, flag, metrics, index, evaluator, evaluate_fn, agent_state, eval_key
+        )
         return metrics
 
     def skip(agent_state, aux, index):
@@ -451,6 +490,7 @@ def _make_no_op(extra_eval_metrics=None, choosers=False):
         "controller",
         "phase",
         "value_estimate",
+        "evaluator",
     ],
 )
 def evaluate_and_log(
@@ -473,13 +513,15 @@ def evaluate_and_log(
     controller: Optional[Controller] = None,
     value_estimate: Optional[ValueEstimate] = None,
     phase: str = "online",
+    evaluator: Optional["AsyncEvaluator"] = None,
 ) -> tuple[BaseAgentState, Optional[dict]]:
     """Evaluate and log every ``log_frequency`` collected steps (offline:
     updates, ``phase``), each evaluation from the keys of its timestep
     (:func:`evaluation_keys`); returns the
     state (one more ``n_logs`` per evaluation) and the logged metrics, or
     the same structure filled with NaN (``-1``: the timestep) between
-    evaluations. Without logging (``log`` false) the evaluation is not even
+    evaluations. An ``evaluator`` scores the policy later, on a device of its
+    own (:mod:`ajax.async_evaluation`). Without logging (``log`` false) the evaluation is not even
     traced (tracing alone rebuilds the evaluation env) and the metrics are
     ``None``."""
     if not log:
@@ -499,8 +541,7 @@ def evaluate_and_log(
 
     choosers = controller is not None and bool(controller.choosers)
 
-    def run_and_log(agent_state: BaseAgentState, aux: Any, index: int):
-        eval_key, extra_key = evaluation_keys(agent_state, timestep, phase)
+    def scores(agent_state: BaseAgentState, eval_key: jax.Array) -> dict:
         outputs = evaluate(
             env_args.env,
             actor_state=agent_state.actor_state,
@@ -524,8 +565,7 @@ def evaluate_and_log(
             step_count,
             expert_rewards,
         ) = outputs[:6]
-        metrics_to_log = {
-            "timestep": timestep,
+        scored = {
             "Eval/episodic mean reward": eval_rewards.mean(),
             "Eval/episodic mean expert reward": expert_rewards.mean(),
             "Eval/expert bias": eval_rewards.mean() - expert_rewards.mean(),
@@ -534,21 +574,37 @@ def evaluate_and_log(
             # The critic's estimate minus the realised return (evaluate()).
             "Eval/mean bias": value_bias,
             "Eval/episodic entropy": eval_entropy,
-            "Train/episodic mean reward": (
-                agent_state.collector_state.episodic_mean_return
-            ),
         }
-
         if choosers:
             # The share of evaluated steps the choosers handed the expert.
-            metrics_to_log["Eval/expert share"] = outputs[6]
+            scored["Eval/expert share"] = outputs[6]
+        return scored
+
+    def run_and_log(agent_state: BaseAgentState, aux: Any, index: int):
+        eval_key, extra_key = evaluation_keys(agent_state, timestep, phase)
+        metrics_to_log: dict[str, Any] = {"timestep": timestep}
+        metrics_to_log.update(
+            scores_now_or_later(scores, agent_state, eval_key, evaluator)
+        )
+        metrics_to_log["Train/episodic mean reward"] = (
+            agent_state.collector_state.episodic_mean_return
+        )
         metrics_to_log.update(aux_metrics(aux))
 
         if extra_eval_metrics is not None:
             extras = extra_eval_metrics(agent_state, extra_key)
             metrics_to_log.update(extras)
 
-        gated_log_callback(log_fn, flag, metrics_to_log, index)
+        send_logs(
+            log_fn,
+            flag,
+            metrics_to_log,
+            index,
+            evaluator,
+            scores,
+            agent_state,
+            eval_key,
+        )
 
         return metrics_to_log
 

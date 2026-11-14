@@ -207,6 +207,8 @@ _CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
             "actor_architecture": ("32", "relu"),
             "batch_size": 16,
             "buffer_size": 400,
+            # Fits at 100 and 200: the default fit runs once per iteration.
+            "iteration_steps": 100,
             "expert_policy": _push,
             "extensions": (ActorNudge(),),
         },
@@ -356,7 +358,7 @@ _CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
             **_PENDULUM,
             "n_envs": 2,
             "n_steps": 32,
-            "batch_size": 16,
+            "num_minibatches": 2,
             "extensions": (Nudge(),),
         },
         256,
@@ -2185,6 +2187,174 @@ _GOLDEN.update(
             "target": 8.0,
             "n_updates": 91.0,
             "nudge": 1.0078387260437012,
+        },
+    }
+)
+
+# Re-recorded on macOS ARM CPU once APO's defaults became its reference
+# code's MuJoCo config: advantages not normalised (was normalised) and nu 1.0
+# (was 0.1); the case cuts its rollout into the same two minibatches. Relative
+# shifts: APO-nudge actor +0.90%, critic -0.05%; target, n_updates and nudge
+# unchanged.
+_GOLDEN.update(
+    {
+        "APO-nudge": {
+            "actor": 9.22077751159668,
+            "critic": 8.006710052490234,
+            "target": 9.211957931518555,
+            "n_updates": 4.0,
+            "nudge": 0.8760150671005249,
+        },
+    }
+)
+
+# Re-recorded on macOS ARM CPU once PPO stepped TensorFlow 1's Adam, ppo2's
+# (eps before the bias correction): PPO-mcc actor -0.11%, critic -0.02%;
+# PPO-flat actor -0.04%; PPO-discrete-nudge actor +2.8%, critic +0.07%.
+# Recurrent PPO and unroll_length keep optax's Adam, and their pins stay.
+_GOLDEN.update(
+    {
+        "PPO-mcc": {
+            "actor": 4.034129619598389,
+            "critic": 5.009683132171631,
+            "target": 4.000099182128906,
+            "n_updates": 2.0,
+        },
+        "PPO-flat": {
+            "actor": 6.001730442047119,
+            "critic": 7.137869834899902,
+            "target": 6.0001020431518555,
+            "n_updates": 2.0,
+        },
+        "PPO-discrete-nudge": {
+            "actor": 7.543189525604248,
+            "critic": 8.977977752685547,
+            "target": 8.000201225280762,
+            "n_updates": 4.0,
+            "nudge": 0.8760150671005249,
+        },
+    }
+)
+
+# Re-recorded on macOS ARM CPU once DQN's defaults became CleanRL's dqn.py:
+# the cases keep their network, replay and warm-up, and now update every 10
+# env steps (train_frequency): 11 updates of 128 steps from step 20, at 20,
+# 30, ..., 120 (was 109). Relative shifts: DQN actor -5.1%, target -4.9%;
+# DQN-dueling-nudge actor -4.1%, target -3.9%, nudge -7.6%; the critics,
+# never stepped, unchanged.
+_GOLDEN.update(
+    {
+        "DQN": {
+            "actor": 8.64346981048584,
+            "critic": 8.621588706970215,
+            "target": 8.636661529541016,
+            "n_updates": 11.0,
+        },
+        "DQN-dueling-nudge": {
+            "actor": 9.120174407958984,
+            "critic": 9.092710494995117,
+            "target": 9.109661102294922,
+            "n_updates": 11.0,
+            "nudge": 0.8379592299461365,
+        },
+    }
+)
+
+# Re-recorded on macOS ARM CPU once recurrent PPO's heads each read the
+# memory through a 128-unit ReLU layer of their own, as PureJaxRL's do
+# (ppo_rnn.py:59-75): new layers, so new numbers (actor +56%, critic +60%,
+# target +56%, about the new layers' squared norm).
+_GOLDEN.update(
+    {
+        "PPO-gru": {
+            "actor": 89.11834716796875,
+            "critic": 87.35801696777344,
+            "target": 88.98634338378906,
+            "n_updates": 4.0,
+        },
+    }
+)
+
+# Re-recorded on macOS ARM CPU once recurrent SAC became Ni et al.'s
+# (pomdp-baselines e7c19c3): its networks read the previous action and reward
+# through embeddings, the critics one memory, and the layers after the memory
+# start as rlkit's (biases 0.1); its critics' errors are summed and its
+# temperature steps alpha on the actor loss's log-densities. New layers, so
+# new numbers: actor +69.6%, critic +21.6%, target +71.7%, alpha +0.03%.
+_GOLDEN.update(
+    {
+        "SAC-gru": {
+            "actor": 91.2584457397461,
+            "critic": 150.99508666992188,
+            "target": 90.58779907226562,
+            "n_updates": 0.0,
+            "alpha": 0.9761014580726624,
+        },
+    }
+)
+
+# Recorded on macOS ARM CPU once PPO normalised its observations and returns
+# by default, as ppo2's MuJoCo VecNormalize (actors -2.8% to +1.4%, critics
+# -3.1% to -0.5%; targets and update counts unchanged).
+_GOLDEN.update(
+    {
+        "PPO-flat": {
+            "actor": 6.084283828735352,
+            "critic": 7.008105754852295,
+            "target": 6.0001020431518555,
+            "n_updates": 2.0,
+        },
+        "PPO-env-split": {
+            "actor": 6.029027938842773,
+            "critic": 7.020392417907715,
+            "target": 6.0001020431518555,
+            "n_updates": 4.0,
+        },
+        "PPO-env-split-nudge": {
+            "actor": 5.540170669555664,
+            "critic": 6.926347732543945,
+            "target": 6.0001020431518555,
+            "n_updates": 4.0,
+            "nudge": 0.8760150671005249,
+        },
+        "PPO-unroll": {
+            "actor": 6.055914878845215,
+            "critic": 6.934496879577637,
+            "target": 6.0001020431518555,
+            "n_updates": 2.0,
+        },
+        "PPO-gru": {
+            "actor": 89.6171875,
+            "critic": 86.63198852539062,
+            "target": 88.98634338378906,
+            "n_updates": 4.0,
+        },
+        "PPO-mcc": {
+            "actor": 3.9840002059936523,
+            "critic": 4.984694957733154,
+            "target": 4.000099182128906,
+            "n_updates": 2.0,
+        },
+        "PPO-discrete-nudge": {
+            "actor": 7.548346996307373,
+            "critic": 8.936015129089355,
+            "target": 8.000201225280762,
+            "n_updates": 4.0,
+            "nudge": 0.8760150671005249,
+        },
+    }
+)
+# Re-recorded on macOS ARM CPU once DAgger's fit became its reference code's
+# (IterationFit): a Gaussian actor cloned for 4 epochs over the whole replay
+# at the end of each iteration. The case's iterations are 100 steps, so it
+# fits at 100 and 200 (2 updates of 6 and 12 minibatches an epoch; was 93
+# online steps). Its unused critic and actor target are not pinned.
+_GOLDEN.update(
+    {
+        "DAgger-nudge": {
+            "actor": 4.547504901885986,
+            "n_updates": 2.0,
+            "nudge": 0.8891514539718628,
         },
     }
 )

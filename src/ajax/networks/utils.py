@@ -1,7 +1,7 @@
 import math
 import re
 from collections.abc import Sequence
-from typing import Callable, Optional, Union, cast
+from typing import Any, Callable, Optional, Union, cast
 
 import flax.linen as nn
 import jax
@@ -17,30 +17,97 @@ from optax import GradientTransformationExtraArgs
 
 from ajax.types import ActivationFunction, InitializationFunction
 
+#: The modules of an encoder the actor shares with the critic
+#: (NetworkConfig.share_encoder): their parameters are the critic's, outside
+#: the members of its ensemble.
+SHARED_ENCODER_MODULES = ("encoder", "memory_cell")
+
+
+def shared_by_members(path: Any) -> bool:
+    """Whether the parameter at path is one the members of a
+    :class:`~ajax.networks.networks.MultiCritic` share
+    (``MultiCritic.share_encoder``): outside their vmapped ``ensemble``, in
+    its encoder, memory block or shortcut. Every other parameter is a
+    member's."""
+    names = [getattr(key, "key", None) for key in path]
+    if "ensemble" in names:
+        return False
+    return any(name in (*SHARED_ENCODER_MODULES, "shortcut") for name in names)
+
 
 def clip_by_member_norm(max_norm: float) -> optax.GradientTransformation:
     """``optax.clip_by_global_norm`` applied to each member of an ensemble on
-    its own: every leaf's leading axis indexes a member, as a
+    its own: every member leaf's leading axis indexes a member, as a
     :class:`~ajax.networks.networks.MultiCritic`'s vmapped parameters do.
     Each member is its own network in the references, clipped alone (ASAC:
-    BobMak/asac @4b68862, darer/Models.py:299-301)."""
+    BobMak/asac @4b68862, darer/Models.py:299-301). An encoder the members
+    share is no member's: it is clipped on its own, as one more network."""
 
     def update_fn(updates: optax.Updates, state: optax.EmptyState, params=None):
         del params
-        leaves = jax.tree.leaves(updates)
+        flat = jax.tree_util.tree_flatten_with_path(updates)[0]
+        leaves = [leaf for path, leaf in flat if not shared_by_members(path)]
         if len({leaf.shape[0] for leaf in leaves}) != 1:
             raise ValueError("every leaf's leading axis must index the members")
         norm = jnp.sqrt(
             sum(jnp.sum(jnp.square(g).reshape(g.shape[0], -1), axis=1) for g in leaves)
         )
+        shared = [leaf for path, leaf in flat if shared_by_members(path)]
+        shared_norm = optax.global_norm(shared)
 
-        def clip(g: jax.Array) -> jax.Array:
-            n = norm.reshape((-1,) + (1,) * (g.ndim - 1)).astype(g.dtype)
+        def clip(path: Any, g: jax.Array) -> jax.Array:
+            if shared_by_members(path):
+                n = shared_norm.astype(g.dtype)
+            else:
+                n = norm.reshape((-1,) + (1,) * (g.ndim - 1)).astype(g.dtype)
             return jnp.where(n < max_norm, g, (g / n) * max_norm)
 
-        return jax.tree.map(clip, updates), state
+        return jax.tree_util.tree_map_with_path(clip, updates), state
 
     return optax.GradientTransformation(lambda _: optax.EmptyState(), update_fn)
+
+
+def scale_by_tf1_adam(b1: float, b2: float, eps: float) -> optax.GradientTransformation:
+    """TensorFlow 1's Adam (tf.compat.v1.train.AdamOptimizer, "epsilon hat"
+    in its docstring): eps joins sqrt(v) before the bias correction, which
+    scales the step instead, lr * sqrt(1 - b2^t) / (1 - b1^t) * m / (sqrt(v)
+    + eps). optax's (and torch's) adds eps to the corrected sqrt(v_hat); in
+    those terms TF 1's eps is eps / sqrt(1 - b2^t), 32 times larger at the
+    first step, about eps after a few thousand. The moments and the state
+    are optax's Adam's."""
+    adam = optax.scale_by_adam(b1=b1, b2=b2, eps=eps)
+
+    def update(
+        updates: optax.Updates, state: optax.OptState, params: Any = None
+    ) -> tuple[optax.Updates, optax.OptState]:
+        # optax's moments and count; its own step, unused, is left to XLA.
+        _, state = adam.update(updates, state, params)
+        adam_state = cast(optax.ScaleByAdamState, state)
+        t = adam_state.count.astype(jnp.result_type(float))
+        step = jnp.sqrt(1 - b2**t) / (1 - b1**t)
+        return jax.tree.map(
+            lambda m, v: step * m / (jnp.sqrt(v) + eps), adam_state.mu, adam_state.nu
+        ), state
+
+    return optax.GradientTransformation(adam.init, update)
+
+
+def learning_rate_scale(
+    learning_rate: Union[float, jax.Array, Callable[[int], float]],
+) -> optax.GradientTransformation:
+    """optax.scale_by_learning_rate, but a rate given as an array is kept in
+    the optimiser's state, as data (optax.inject_hyperparams).
+
+    A sweep member's rates are arrays, traced (ActorCritic.member). optax
+    closes over a rate, and the train state keeps its optimiser as static
+    data, so the state a sweep returns would hold a value of the finished
+    trace and could not step again (a resumed sweep). A number or a schedule
+    is scaled as before, its state unchanged."""
+    if isinstance(learning_rate, jax.Array):
+        return optax.inject_hyperparams(optax.scale_by_learning_rate)(
+            learning_rate=learning_rate
+        )
+    return optax.scale_by_learning_rate(learning_rate)
 
 
 def get_adam_tx(
@@ -71,15 +138,21 @@ def get_adam_tx(
             and the learning rate as ``optax.adamw`` places it; ``0`` leaves
             it out, so ``"adam"`` is ``optax.adam``.
         optimizer: The update rule (``OptimizerConfig.optimizer``):
-            ``"adam"``, ``"radam"`` or ``"centered_rmsprop"``.
+            ``"adam"``, ``"tf1_adam"`` (:func:`scale_by_tf1_adam`),
+            ``"radam"`` or ``"centered_rmsprop"``.
         vector_learning_rate: A fixed rate for the parameters of fewer than
             two dimensions (OptimizerConfig.vector_learning_rate); None steps
             them at learning_rate.
+
+    The state holds each of the rule's moments as one vector over every
+    parameter (``optax.flatten``); a checkpoint saved with a moment per
+    array restores into it (:func:`ajax.checkpoint.restore_into`).
     """
     if weight_decay < 0:
         raise ValueError(f"weight_decay must be non-negative, got {weight_decay}")
     rules = {
         "adam": lambda: optax.scale_by_adam(b1=beta_1, b2=beta_2, eps=eps),
+        "tf1_adam": lambda: scale_by_tf1_adam(beta_1, beta_2, eps),
         "radam": lambda: optax.scale_by_radam(b1=beta_1, b2=beta_2, eps=eps),
         "centered_rmsprop": lambda: optax.scale_by_stddev(decay=beta_2, eps=eps),
     }
@@ -87,14 +160,63 @@ def get_adam_tx(
         raise ValueError(f"optimizer must be one of {sorted(rules)}, got {optimizer!r}")
     decay = [optax.add_decayed_weights(weight_decay)] if weight_decay > 0 else []
     if vector_learning_rate is None:
-        scale = optax.scale_by_learning_rate(learning_rate)
+        scale = learning_rate_scale(learning_rate)
     else:
         scale = scale_by_learning_rate_per_rank(learning_rate, vector_learning_rate)
-    tx = optax.chain(rules[optimizer](), *decay, scale)
+    # The rule acts on each coordinate alone, so it runs on the gradients
+    # raveled into one vector: the same numbers in a few GPU kernels instead
+    # of a few per array. The decay and the rate stay on the arrays, where
+    # they join each array's update of its parameters; a rate may depend on
+    # the array's rank.
+    tx = optax.chain(optax.flatten(rules[optimizer]()), *decay, scale)
     if max_grad_norm is not None:
+        # On the arrays: the member clip needs them, and the global norm
+        # keeps its order of summation.
         clip = clip_by_member_norm if per_member else optax.clip_by_global_norm
         return optax.chain(clip(max_grad_norm), tx)
     return tx
+
+
+def map_optimizer_moments(
+    opt_state: optax.OptState, params: optax.Params, edit: Callable[[Any], Any]
+) -> optax.OptState:
+    """The optimiser state with edit applied to each of its moments (Adam's
+    mu and nu, RMSProp's averages), edit taking and returning a tree shaped
+    as params: a per-unit change, such as resetting a recycled neuron's
+    moments, then needs no knowledge of how the state lays them out.
+
+    get_adam_tx holds each moment as one vector over every parameter, in
+    the order optax.flatten ravels them (jax's leaf order, each array in C
+    order); another optimiser may hold a tree shaped as params. Both are
+    found. The state and params are one seed's (vmap over several).
+    """
+    leaves = jax.tree.leaves(params)
+    structure: Any = jax.tree.structure(params)
+    sizes = [np.size(leaf) for leaf in leaves]
+
+    def is_joined(node: Any) -> bool:
+        return isinstance(node, jax.Array) and node.shape == (sum(sizes),)
+
+    def is_shaped_as_params(node: Any) -> bool:
+        return bool(structure == jax.tree.structure(node))
+
+    def is_moment(node: Any) -> bool:
+        return is_joined(node) or is_shaped_as_params(node)
+
+    def edited(node: Any) -> Any:
+        if is_shaped_as_params(node):
+            return edit(node)
+        if not is_joined(node):
+            return node
+        pieces = jnp.split(node, np.cumsum(sizes)[:-1])
+        shaped = [
+            piece.reshape(np.shape(leaf))
+            for piece, leaf in zip(pieces, leaves, strict=True)
+        ]
+        moment = edit(jax.tree.unflatten(structure, shaped))
+        return jnp.concatenate([jnp.ravel(leaf) for leaf in jax.tree.leaves(moment)])
+
+    return jax.tree.map(edited, opt_state, is_leaf=is_moment)
 
 
 def scale_by_learning_rate_per_rank(
@@ -218,10 +340,19 @@ def trunc_normal_fan_in(scale: float = 1.0) -> InitializationFunction:
 # Initializers selectable by name besides the factories of
 # ``flax.linen.initializers``. Each value is a factory: called with no
 # argument for ``"name"``, with the parsed number for ``"name(number)"``.
+def symmetric_uniform(bound: float) -> InitializationFunction:
+    """Uniform in ``+-bound`` (flax's ``uniform(scale)`` draws in ``[0,
+    scale)``): rlkit's last layers, ``uniform_(-init_w, init_w)`` on the
+    weight and the bias (pomdp-baselines e7c19c3, torchkit/networks.py:66-
+    68)."""
+    return uniform_init(bound)
+
+
 _AJAX_INITIALIZERS: dict[str, Callable[..., InitializationFunction]] = {
     # flax's ``zeros`` is an initializer, not a factory (``zeros_init`` is).
     "zeros": lambda: flax_initializers.zeros,
     "trunc_normal_fan_in": trunc_normal_fan_in,
+    "symmetric_uniform": symmetric_uniform,
 }
 
 
@@ -371,11 +502,21 @@ def dense(
     """A Dense layer with ``kernel_init`` (``default_kernel_init`` for None)
     and ``bias_init`` (zeros for None), as :func:`parse_initialization`
     reads them; ``kernel_init="torch_linear"`` builds a
-    :class:`TorchLinear`, which draws its bias too."""
-    if kernel_init == TORCH_LINEAR:
+    :class:`TorchLinear`, which draws its bias too, and
+    ``kernel_init="rlkit_fanin"`` rlkit's hidden layer (:data:`RLKIT_FANIN`),
+    which sets its bias too."""
+    if kernel_init in (TORCH_LINEAR, RLKIT_FANIN):
         if bias_init is not None:
+            sets = "draws" if kernel_init == TORCH_LINEAR else "sets"
             raise ValueError(
-                f"{TORCH_LINEAR!r} draws the biases too; got bias_init={bias_init!r}"
+                f"{kernel_init!r} {sets} the biases too; got bias_init={bias_init!r}"
+            )
+        if kernel_init == RLKIT_FANIN:
+            return nn.Dense(
+                features,
+                kernel_init=uniform_init(1.0 / math.sqrt(features)),
+                bias_init=constant(0.1),
+                name=name,
             )
         return TorchLinear(features, name=name)
     return nn.Dense(
@@ -410,6 +551,12 @@ def uniform_init(bound: float) -> InitializationFunction:
 
 #: The kernel-initializer name that builds :class:`TorchLinear` layers.
 TORCH_LINEAR = "torch_linear"
+#: The kernel-initializer name for rlkit's hidden layers, which Ni et al.'s
+#: recurrent agents keep (pomdp-baselines e7c19c3, torchkit/networks.py:53-
+#: 57): ``fanin_init`` reads ``size[0]`` of torch's (out, in) weight, so the
+#: kernel is uniform in ``+-1 / sqrt(fan_out)``, and every bias is 0.1
+#: (torchkit/pytorch_utils.py:39-48, ``b_init_value=0.1``).
+RLKIT_FANIN = "rlkit_fanin"
 
 
 class TorchLinear(nn.Module):

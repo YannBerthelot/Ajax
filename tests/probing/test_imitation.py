@@ -30,6 +30,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
+from ajax.agents.DAgger.DAgger import ExponentialBetaSchedule, OnlineFit
 from ajax.buffers.dataset import TransitionDataset
 from ajax.extensions.adversarial import AdversarialReward
 
@@ -69,6 +70,8 @@ def dagger_readings(discrete: bool) -> Any:
         env, params = chain(2 * discrete).make()
         kw: dict[str, Any] = {"expert_policy": chooser if discrete else expert}
         kw |= {"n_envs": 4, "iteration_steps": 4}  # beta 1 on the first tick only
+        # The online fit the cells were calibrated on, not the default's.
+        kw |= {"beta_schedule": ExponentialBetaSchedule(0.0), "fit": OnlineFit()}
         return agents.make("DAgger", env, params, **kw)
 
     def read(run: runs.Run) -> dict:

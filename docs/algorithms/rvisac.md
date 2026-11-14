@@ -53,7 +53,7 @@ Table 1 and `rvi_sac.yaml`).
 | `actor_learning_rate`, `critic_learning_rate`, `alpha_learning_rate` | `3e-4` | Adam step sizes (Adam's epsilon is torch's 1e-8) |
 | `actor_architecture`, `critic_architecture` | `("256", "relu", "256", "relu")` | hidden layers (plain MLPs) |
 | `buffer_size` | `1_000_000` | replay capacity |
-| `batch_size` | `256` | replay minibatch |
+| `batch_size` | `None` | replay minibatch: 256 rows, or 64 windows with `memory=` |
 | `learning_starts` | `10_000` | steps of uniform random actions before the first update |
 | `tau` | `0.005` | Polyak rate of the target critics and of the reset critic's target |
 | `centering` | `RVIBatchMean(rate=0.005)` | how the offset `xi` follows the critics ([Notes](#notes)) |
@@ -65,7 +65,7 @@ Table 1 and `rvi_sac.yaml`).
 | `max_grad_norm` | `None` | gradient clipping; the authors use none |
 | `normalize_observations`, `normalize_rewards` | `False` | running normalisation |
 | `expert_policy` | `None` | an expert whose return the evaluation reports next to the agent's (`Eval/expert bias`) |
-| `memory`, `burn_in`, `sequence_length`, `stored_state` | `None`, `8`, `16`, `False` | recurrent memory (see [Memory](../guide/memory.md)) |
+| `memory`, `burn_in`, `sequence_length`, `stored_state` | `None`, `0`, `64`, `False` | recurrent memory (see [Memory](../guide/memory.md)) |
 | `extensions` | `()` | research features (see [Extensions](../guide/extensions.md)) |
 
 ## Notes

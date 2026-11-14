@@ -288,6 +288,8 @@ def test_apg_refuses_a_pid_policy():
 
 _REPLAY = {"learning_starts": 16, "buffer_size": 256, "batch_size": 8}
 _ROLLOUT = {"n_steps": 16, "batch_size": 8, "n_epochs": 1}
+# PPO normalises by default; its plain case is the unnormalised one.
+_ROLLOUT.update({"normalize_observations": False, "normalize_rewards": False})
 #: SAC updates its policy and temperature from step 2000 by default.
 _SAC = {**_REPLAY, "policy_update_start": 16, "alpha_update_start": 16}
 # id: (agent, overrides, steps); REDQ at 2 critic updates per step, not 20.
@@ -302,7 +304,7 @@ AGENTS = {
     "AVG": ("AVG", {}, 64),
     "PPO": ("PPO", _ROLLOUT, 64),
     "PPO-norm": ("PPO", {**_ROLLOUT, "normalize_observations": True}, 64),
-    "APO": ("APO", _ROLLOUT, 64),
+    "APO": ("APO", {**_ROLLOUT, "num_minibatches": 2}, 64),
 }
 
 

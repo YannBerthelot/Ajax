@@ -1,5 +1,6 @@
 """perf_utils: the resume iteration offset and the shared input of
-build_resumable_train / ActorCritic.train."""
+build_resumable_train / ActorCritic.train, and build_chunked_train's
+evaluations between chunks."""
 
 from types import SimpleNamespace
 
@@ -10,7 +11,7 @@ import pytest
 from flax import struct
 
 from ajax.agents.base import ActorCritic, shared_counters
-from ajax.perf_utils import build_resumable_train
+from ajax.perf_utils import build_chunked_train, build_resumable_train
 
 # ---------------------------------------------------------------------------
 # Resume offset
@@ -277,3 +278,76 @@ def test_builders_without_a_shared_input_are_unchanged():
     train = make_toy_train(2)
     _, seen = train(jax.random.PRNGKey(0))
     np.testing.assert_array_equal(seen, [0, 1])
+
+
+# ---------------------------------------------------------------------------
+# build_chunked_train: evaluations between chunks of ticks
+# ---------------------------------------------------------------------------
+#
+# Contract (build_chunked_train's docstring): the ticks run in order on one
+# state, as one scan would; log_fn runs after exactly the ticks due marks,
+# on the state after that tick and with that tick's aux; ticks are absolute
+# on a resume. The toy state sums the ticks it has run, and each tick's aux
+# is ten times the tick, so every expected value below is worked out by hand.
+
+
+def make_chunked_toy(num_updates, every=3):
+    def init_fn(key, index):
+        del key, index
+        return {"sum": jnp.zeros((), jnp.int32)}
+
+    def tick_fn(state, index, tick):
+        del index
+        return {"sum": state["sum"] + tick}, 10 * tick
+
+    def log_fn(state, aux, out, index, tick):
+        del index
+        rows, count = out
+        row = jnp.stack([tick, state["sum"], aux])
+        return state, (rows.at[count].set(row), count + 1)
+
+    def carry_out(state, index):
+        del state, index
+        return jnp.full((4, 3), -1, jnp.int32), jnp.zeros((), jnp.int32)
+
+    return build_chunked_train(
+        init_fn=init_fn,
+        tick_fn=tick_fn,
+        log_fn=log_fn,
+        due=lambda ticks: (ticks + 1) % every == 0,
+        num_updates=num_updates,
+        carry_out=carry_out,
+    )
+
+
+def test_chunks_evaluate_after_each_due_tick_on_that_ticks_state():
+    """Catches a chunk boundary off by one tick, an evaluation reading the
+    chunk's first aux instead of its last, and a final chunk that does not
+    end on a due tick being dropped (the sum would fall short of 0+...+7)."""
+    train = make_chunked_toy(8)
+    state, (rows, count) = jax.vmap(train)(
+        jax.random.split(jax.random.PRNGKey(0), 2), jnp.arange(2)
+    )
+    # Ticks 2 and 5 are due ((t + 1) % 3 == 0); the sums after them are
+    # 0+1+2 = 3 and 0+...+5 = 15, the aux 10 t; tick 7 ends the call.
+    expected = [[2, 3, 20], [5, 15, 50], [-1, -1, -1], [-1, -1, -1]]
+    np.testing.assert_array_equal(rows, [expected, expected])
+    np.testing.assert_array_equal(count, [2, 2])
+    np.testing.assert_array_equal(state["sum"], [28, 28])  # 0+1+...+7
+
+
+def test_a_resumed_chunked_run_evaluates_on_absolute_ticks():
+    """Catches a resume whose chunks restart at tick 0: it would evaluate
+    after ticks 2 and 5 of the call, not after absolute ticks 5 and 8."""
+    train = make_chunked_toy(5)
+    state = {"sum": jnp.int32(6)}  # ticks 0..3 ran: 0+1+2+3
+    state, (rows, count) = train(
+        jax.random.PRNGKey(0),
+        initial_state=state,
+        resume_from_state=True,
+        iteration_offset=jnp.int32(4),
+    )
+    # Ticks 4..8 run; 5 and 8 are due: sums 6+4+5 = 15 and 15+6+7+8 = 36.
+    np.testing.assert_array_equal(rows[:2], [[5, 15, 50], [8, 36, 80]])
+    assert int(count) == 2
+    assert int(state["sum"]) == 36

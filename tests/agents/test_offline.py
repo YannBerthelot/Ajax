@@ -31,7 +31,9 @@ def episodes(obs_dim: int, discrete: bool) -> TransitionDataset:
 def build(name: str) -> tuple[Any, TransitionDataset]:
     case = CASES[name]
     env = case.envs[-1]
-    kwargs = {**case.kwargs, "learning_starts": 0}
+    # One update per step, so that the online call's EVERY steps update
+    # (DQN's default, CleanRL's, updates every 10).
+    kwargs = {**case.kwargs, "learning_starts": 0, "train_frequency": 1}
     agent = case.cls(env_id=env, n_envs=1, **kwargs)
     obs_dim = 4 if env == "CartPole-v1" else 3
     return agent, episodes(obs_dim, discrete=env == "CartPole-v1")

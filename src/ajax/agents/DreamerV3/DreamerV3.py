@@ -57,10 +57,12 @@ from ajax.agents.DreamerV3.replay import (
     count_held_rows,
     count_replay_bytes,
     grow_rings,
+    place_latents,
 )
 from ajax.agents.DreamerV3.state import DreamerV3Config, LearningRate
 from ajax.agents.DreamerV3.world_model import make_initial_carry, observe_and_act
 from ajax.agents.families import OwnReplayAgent, TrainContext
+from ajax.agents.presets import Preset
 from ajax.buffers.ring import count_ring_rows, size_ring
 from ajax.controller import feature_width
 from ajax.environments.row_collector import (
@@ -76,6 +78,18 @@ from ajax.policy import PolicyParts, row_collector_policy
 from ajax.state import BaseAgentState, EnvironmentConfig, LoadedTrainState
 
 logger = logging.getLogger(__name__)
+
+#: The reference's DeepMind Control config on proprioceptive observations
+#: (danijar/dreamerv3@29eb964, dreamerv3/configs.yaml:232-236 dmc_proprio,
+#: :84 the env's action repeat 2, :44 run.num_envs). Its other domains
+#: (Atari, Crafter, DMLab, Procgen, ...) observe images, which Ajax's
+#: DreamerV3 does not encode yet.
+PRESETS = {
+    "DMC": Preset(
+        {"model_size": "12m", "train_ratio": 512, "n_envs": 16, "action_repeat": 2},
+        "danijar/dreamerv3@29eb964 dreamerv3/configs.yaml:44,84,232-236",
+    )
+}
 
 
 @dataclass(kw_only=True, eq=False, repr=False)
@@ -152,6 +166,10 @@ class DreamerV3(OwnReplayAgent):
     batch_size: int = 16
     batch_length: int = 64
     replay_capacity: int = 5_000_000
+    #: Keep the replay's stored latents (deter, ~99% of its bytes) in pinned
+    #: host memory instead of the accelerator's: the same numbers, a little
+    #: slower, and seeds then share the device for their working sets only.
+    replay_on_host: bool = False
     #: Not a keyword: 1 - 1 / return_horizon (setup), the discount of the
     #: continue target and of the replay critic.
     gamma: float = dataclasses.field(init=False)
@@ -217,11 +235,16 @@ class DreamerV3(OwnReplayAgent):
             self._record_replay_rows(rows)
         elif self.replay_rows_per_env is not None:
             rows = self.replay_rows_per_env
+        if agent_state is not None:
+            placed = place_latents(agent_state.replay_state, self.replay_on_host)
+            if placed is not agent_state.replay_state:
+                agent_state = agent_state.replace(replay_state=placed)
         replay = StreamReplay(
             n_envs=self.n_envs,
             capacity=rows,
             batch_size=self.batch_size,
             batch_length=self.batch_length,
+            latents_on_host=self.replay_on_host,
         )
         return replay, agent_state
 

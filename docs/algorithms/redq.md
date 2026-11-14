@@ -59,8 +59,8 @@ Defaults are read from `REDQ.__init__`.
 | `actor_architecture`, `critic_architecture` | `("256", "relu", "256", "relu")` | hidden layers (plain MLPs) |
 | `gamma` | `0.99` | discount |
 | `buffer_size` | `1_000_000` | replay capacity |
-| `batch_size` | `256` | replay minibatch |
-| `learning_starts` | `10_000` | steps of uniform random actions before the first update |
+| `batch_size` | `None` | replay minibatch: 256 rows, or 64 windows with `memory=` |
+| `learning_starts` | `5_000` | steps of uniform random actions before the first update |
 | `tau` | `0.005` | Polyak rate of the target critics |
 | `num_critics` | `10` | critics in the ensemble |
 | `subset_size` | `2` | target critics the target takes the minimum over |
@@ -70,8 +70,8 @@ Defaults are read from `REDQ.__init__`.
 | `reward_scale` | `1.0` | multiplies the rewards in the target |
 | `max_grad_norm` | `None` | gradient clipping |
 | `normalize_observations`, `normalize_rewards` | `False` | running normalisation |
-| `reward_normalization_gamma` | `None` | with `normalize_rewards`, divide by the spread of the discounted return |
-| `memory`, `burn_in`, `sequence_length`, `stored_state` | `None`, `8`, `16`, `False` | recurrent memory (see [Memory](../guide/memory.md)) |
+| `reward_normalization_gamma` | `None` | with `normalize_rewards`, the discount of the return whose spread divides the rewards: `gamma` if None, 0 for the single reward's |
+| `memory`, `burn_in`, `sequence_length`, `stored_state` | `None`, `0`, `64`, `False` | recurrent memory (see [Memory](../guide/memory.md)) |
 | `expert_policy` | `None` | an expert whose return the evaluation reports next to the agent's (`Eval/expert bias`) |
 | `episode_length`, `action_repeat` | `None`, `1` | simulator steps per episode (1,000 when `None`) and per agent step, on Brax and Playground |
 | `extensions` | `()` | research features (see [Extensions](../guide/extensions.md)) |
@@ -79,6 +79,21 @@ Defaults are read from `REDQ.__init__`.
 Cloning an expert into the actor before training is the `CloningPretrain`
 extension; a cloning term during training is `ImitationLoss`
 ([Expert guidance](../guide/expert-guidance.md)).
+
+## Presets
+
+`REDQ.preset(task, env_id)` sets MBPO's target entropy for the task, its
+official code's default (watchernyu/REDQ@`7b5d1bf`, `redq/algos/core.py:11-13`;
+[Presets](../guide/training.md#presets)), as `target_entropy_per_dim`: the whole action's value over the task's
+action dimensions.
+
+| Preset | Whole action | Action dimensions | `target_entropy_per_dim` |
+| --- | --- | --- | --- |
+| `Hopper` | -1 | 3 | -1/3 |
+| `HalfCheetah` | -3 | 6 | -0.5 |
+| `Walker2d` | -3 | 6 | -0.5 |
+| `Ant` | -4 | 8 | -0.5 |
+| `Humanoid` | -2 | 17 | -2/17 |
 
 ## Notes
 
@@ -97,8 +112,9 @@ extension; a cloning term during training is `ImitationLoss`
 - **Initialisation.** As the authors' code: every layer of the actor and
   the critics, the mean and log-std layers included, starts Xavier-uniform
   with a zero bias, each critic of the ensemble drawn on its own. With
-  `memory=`, REDQ keeps its previous initialisation until Ni et al.'s is
-  audited.
+  `memory=`, REDQ builds Ni et al. (2022)'s recurrent networks and their
+  initialisation, by analogy with their SAC, its critics reading one memory
+  and the `[-1, 1]` actions (see [Memory](../guide/memory.md)).
 - **Target entropy.** The default is `-1` per action dimension.
   `target_entropy_per_dim="mbpo"` takes MBPO's per-task value instead, the
   authors' default, for the Brax ids `hopper` (-1), `halfcheetah` (-3),

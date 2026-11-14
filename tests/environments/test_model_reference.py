@@ -86,6 +86,36 @@ def test_step_reference_is_deterministic_under_key():
     )
 
 
+def test_characterization_step_reference_draws_the_same_sequence_from_a_key():
+    """Characterization: pins the sequence one key draws, recorded from the
+    code of 2026-11-12, not checked against a spec. Catches a change to which
+    key draws which value or duration (a reordered split, a draw moved out of
+    its step), which would change every tracking run's references while the
+    shape, range and segment-length tests still pass."""
+    ref = StepReference(
+        horizon=10,
+        min_value=-1.0,
+        max_value=1.0,
+        min_duration=1,
+        max_duration=3,
+        n_outputs=2,
+    )
+    recorded = [
+        [-0.6222717761993408, 0.5099341869354248],
+        [-0.6222717761993408, 0.6262519359588623],
+        [0.6368856430053711, 0.6262519359588623],
+        [-0.13400864601135254, 0.6262519359588623],
+        [-0.5910413265228271, -0.9585425853729248],
+        [-0.5910413265228271, -0.9585425853729248],
+        [-0.5910413265228271, -0.9585425853729248],
+        [0.28927087783813477, -0.47481417655944824],
+        [0.28927087783813477, -0.47481417655944824],
+        [0.34104275703430176, 0.44786739349365234],
+    ]
+    sample = ref.sample(jax.random.PRNGKey(7))
+    assert jnp.array_equal(sample, jnp.asarray(recorded, jnp.float32))
+
+
 # ----------------------------------------------------- LinearReferenceModel
 
 
@@ -107,6 +137,19 @@ def test_model_init_state_reproduces_initial_output():
     r0 = jnp.array([1.0, 2.0])
     x0 = m.init_state(y0, r0)
     assert jnp.allclose(m.output(x0, r0), y0, atol=1e-6)
+
+
+def test_model_init_state_differentiates_with_respect_to_a_traced_model():
+    """Catches the pseudo-inverse of C taken as a constant whatever C is:
+    a model whose matrices are traced (differentiated, vmapped) must still
+    invert C in the program. One output: x0 = (y0 - d r0) / c, so
+    dx0/dc = -(y0 - d r0) / c^2 = -(0.9 - 0.25 * 2) / 0.5^2 = -1.6."""
+
+    def initial_state(c):
+        model = LinearReferenceModel.first_order(c=c, d=0.25)
+        return model.init_state(jnp.array([0.9]), jnp.array([2.0]))[0]
+
+    assert jnp.allclose(jax.grad(initial_state)(0.5), -1.6, rtol=1e-5)
 
 
 # ------------------------------------------------------ ModelReferenceWrapper

@@ -73,8 +73,8 @@ Each keeps its estimate of the reward per step on the state.
 from ajax import APO, ASAC
 
 # On-policy: PPO's clipped update on the reward minus the reward per step.
-apo = APO("Pendulum-v1", n_envs=4, n_steps=256)
-state, _ = apo.train(seed=[0, 1], n_timesteps=4_096)
+apo = APO("Pendulum-v1", n_envs=4)
+state, _ = apo.train(seed=[0, 1], n_timesteps=4_000)
 print(state.average_reward)  # one estimate per seed
 
 # Off-policy: soft actor-critic on the same criterion.

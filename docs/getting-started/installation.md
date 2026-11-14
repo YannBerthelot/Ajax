@@ -67,7 +67,7 @@ opt-in.
 
 | Group | Default | What it adds |
 | --- | --- | --- |
-| `dev` | yes | pytest, coverage, pre-commit, ruff, mypy, the probing environments the tests train on, and the `playground` extra |
+| `dev` | yes | pytest, coverage, pre-commit, ruff, mypy, the probing environments the tests train on, and the `playground`, `gymnasium` and `gymnasium-mjx` extras |
 | `wandb` | no | the `wandb` extra (below) |
 | `plane` | no | [TargetGym](https://github.com/YannBerthelot/TargetGym), for the Plane3DCircle scenario of the speed benchmark (`benchmarks/perf_bench.py`) |
 | `docs` | no | MkDocs and its plugins, to build this site |

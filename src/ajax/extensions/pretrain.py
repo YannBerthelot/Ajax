@@ -49,7 +49,11 @@ from ajax.environments.obs_norm import mirror_obs_norm, seeded_obs_norm
 from ajax.environments.utils import raw_obs_columns
 from ajax.extensions.base import Extension, ExtensionContext, ExtensionStack
 from ajax.extensions.expert import extension_expert_actions, reads_stored_expert_actions
-from ajax.networks.networks import phi_star_critic_state, predict_value
+from ajax.networks.networks import (
+    phi_star_critic_state,
+    predict_value,
+    take_actor_encoder,
+)
 from ajax.random_keys import EXPERT_PREFILL_KEY_TAG
 from ajax.state import EnvironmentConfig, LoadedTrainState, Transition
 from ajax.types import BufferType
@@ -506,15 +510,22 @@ class CloningPretrain(Extension):
         # gets them here (online collection then updates them from this
         # baseline); without them the cloned actor would be queried on raw
         # observations.
-        new_state = agent_state.replace(actor_state=actor_state)
+        # A shared encoder, trained with the actor, goes back to its owner.
+        new_state = take_actor_encoder(agent_state.replace(actor_state=actor_state))
         if self.skip_actor and agent_state.collector_state.obs_norm_info is None:
             return new_state, losses  # no actor cloned: nothing to keep consistent
         n_samples = dataset.obs.reshape(-1, dataset.obs.shape[-1]).shape[0]
         seeded = seeded_obs_norm(obs_mean, obs_std, n_samples)
+        running = agent_state.collector_state.obs_norm_info
+        if running is not None:
+            seeded = dataclasses.replace(seeded, clip=running.clip)
         collector = new_state.collector_state.replace(obs_norm_info=seeded)
-        return mirror_obs_norm(
-            new_state.replace(collector_state=collector), seeded
-        ), losses
+        new_state = new_state.replace(collector_state=collector)
+        if self.env_args.store_normalized_obs:
+            # Collection normalises what this agent's networks read: a mirror
+            # on them would normalise it a second time (loop.with_obs_norm).
+            return new_state, losses
+        return mirror_obs_norm(new_state, seeded), losses
 
     def eval_metrics(
         self,
@@ -1128,6 +1139,9 @@ class ExpertPrefill(Extension):
     def replay_rows(self, n_envs: int) -> int:
         return self.n_steps * n_envs
 
+    def pretrain_updates(self) -> int:
+        return self.offline_updates
+
     def pretrain(
         self, agent_state: Any, ext_state: Any, context: ExtensionContext
     ) -> tuple[Any, Any]:
@@ -1194,6 +1208,9 @@ class PriorData(Extension):
         del n_envs
         return len(self.dataset.reward)
 
+    def pretrain_updates(self) -> int:
+        return self.offline_updates
+
     def pretrain(
         self, agent_state: Any, ext_state: Any, context: ExtensionContext
     ) -> tuple[Any, Any]:
@@ -1204,9 +1221,7 @@ class PriorData(Extension):
                 " agent replaying transitions (SAC, TD3, REDQ, ASAC, TQC,"
                 " CrossQ, IQL, DQN)."
             )
-        agent_state = seed_replay(
-            agent_state, context.buffer, self.dataset, context.env_args
-        )
+        agent_state = seed_replay(agent_state, self.dataset, context.env_args)
         return (
             run_offline_updates(agent_state, agent_update, self.offline_updates),
             ext_state,

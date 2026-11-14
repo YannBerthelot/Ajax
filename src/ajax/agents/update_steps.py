@@ -1,10 +1,11 @@
 """The steps an agent's update is written in: a loss's gradients
 (compute_gradients), gradient steps with the extensions' loss terms added
-(critic_step, actor_step, apply_gradients_clipped_together for two networks
-clipped together), the extensions' target and post-update phases, the gates
-(run_if, run_actor_if) and keys (derive_extensions_key) around them, which
-ajax.agents.loop re-exports, and the target critics' Polyak update SAC,
-ASAC, REDQ and TQC share (update_target_networks).
+(critic_step, which hands the extensions the Q critics' value readers,
+critic_value_readers; actor_step; apply_gradients_clipped_together for two
+networks clipped together), the extensions' target and post-update phases,
+the gates (run_if, run_actor_if) and keys (derive_extensions_key) around
+them, which ajax.agents.loop re-exports, and the target critics' Polyak
+update (update_target_networks).
 """
 
 from __future__ import annotations
@@ -15,9 +16,10 @@ import jax
 import jax.numpy as jnp
 import optax
 
+from ajax.agents.recurrent import q_values
 from ajax.extensions.base import ExtensionStack, merge_metrics
 from ajax.log import unevaluated
-from ajax.perf_utils import final_aux_scan
+from ajax.networks.networks import mirror_shared_encoder
 from ajax.random_keys import EXTENSIONS_KEY_TAG, derive_key, fold_index
 
 #: The keys of the extensions' batches the shared steps below build, which
@@ -69,7 +71,7 @@ REPLAY_ACTOR_KEYS = ACTOR_STEP_KEYS.union(
 )
 
 
-#: A replay actor-critic's on the three steps (REDQ, ASAC, CrossQ, TQC).
+#: The batch keys a replay actor-critic declares on its three steps.
 REPLAY_BATCH_KEYS: dict[str, frozenset[str]] = {
     "on_target": TARGET_KEYS,
     "critic_loss": CRITIC_LOSS_KEYS,
@@ -100,19 +102,30 @@ def derive_actor_key(agent_state: Any) -> jax.Array:
 def scan_on_indexed_keys(
     step: Callable[[Any, Any], tuple[Any, Any]], agent_state: Any, length: int
 ) -> tuple[Any, Any]:
-    """final_aux_scan of step(agent_state, None) -> (agent_state, aux) over
-    length steps, the i-th on the updates' stream restarted from one of its
-    keys folded with i; then the stream goes on after that one key. It
+    """length steps of step(agent_state, None) -> (agent_state, aux) and the
+    last one's aux, the i-th step on the updates' stream restarted from one
+    of its keys folded with i; then the stream goes on after that one key. It
     advances once whatever the length, so a count of steps (SAC's and REDQ's
     critic updates, DQN's gradient steps) moves no later draw."""
+    if length < 1:
+        raise ValueError(f"A count of steps is at least 1, got {length}.")
     steps_key, agent_state = agent_state.get_keys_and_new_state()
+    indices = jnp.arange(length)
 
     def step_on_its_key(state: Any, index: jax.Array) -> tuple[Any, Any]:
         return step(state.replace(rng=fold_index(steps_key, index)), None)
 
-    stepped, aux = final_aux_scan(
-        step_on_its_key, agent_state, length=length, xs=jnp.arange(length)
-    )
+    def step_keeping_no_aux(state: Any, index: jax.Array) -> tuple[Any, None]:
+        return step_on_its_key(state, index)[0], None
+
+    # The steps before the last keep no aux, so XLA computes none of it in
+    # the loop: their logs, and what REDQ keeps of each step (its critics
+    # before it, a copy of every parameter per step). The last step runs
+    # alone, once more in the program.
+    state = agent_state
+    if length > 1:
+        state, _ = jax.lax.scan(step_keeping_no_aux, state, indices[:-1])
+    stepped, aux = step_on_its_key(state, indices[-1])
     return stepped.replace(rng=agent_state.rng), aux
 
 
@@ -155,6 +168,17 @@ def reached(start: int, timestep: Any) -> Union[bool, jax.Array]:
     return timestep >= start
 
 
+def reaches_multiple(every: int, before: Any, count: int) -> Union[bool, Any]:
+    """Whether a tick taking the env steps collected from before to before +
+    count reaches a multiple of every, the rule of Ajax's other step
+    schedules (log_frequency, JSRLCurriculum's gate): the Python True, with
+    nothing traced, when every tick does (every <= count). before may be an
+    int, a NumPy or a JAX array."""
+    if every <= count:
+        return True
+    return (before + count) // every > before // every
+
+
 def all_of(*conditions: Union[bool, jax.Array]) -> Union[bool, jax.Array]:
     """Whether every condition holds; the Python Trues among them (no gate)
     add nothing to the program, and with nothing else left it is True."""
@@ -168,7 +192,10 @@ def all_of(*conditions: Union[bool, jax.Array]) -> Union[bool, jax.Array]:
 
 
 def run_actor_if(
-    condition: Any, update: Callable[[Any], tuple[Any, Any]], agent_state: Any
+    condition: Any,
+    update: Callable[[Any], tuple[Any, Any]],
+    agent_state: Any,
+    keep: bool = False,
 ) -> tuple[Any, Any]:
     """update(agent_state) -> (agent_state, metrics), an actor's step, where
     condition holds (a policy delay, policy_update_start). Skipped,
@@ -177,9 +204,15 @@ def run_actor_if(
     the training loop gives it): a skipped update logs the last real step,
     not NaN or zeros (owner, 2026-10-24), and NaN, which the logger drops,
     before the first. Without a gate (condition the Python True) update
-    runs as it is and nothing is kept."""
+    runs as it is, its metrics kept only with keep: an agent that keeps
+    them (keeps_actor_metrics) and whose gate is open at every update
+    (ReplayAgent.from_update_start) keeps the state's slot, so its state,
+    and a checkpoint of it, has the gated run's structure."""
     if condition is True:
-        return update(agent_state)
+        stepped, metrics = update(agent_state)
+        if keep:
+            stepped = stepped.replace(last_actor_metrics=metrics)
+        return stepped, metrics
     kept = agent_state.last_actor_metrics
     if kept is None:  # a state the loop gave no slot (a direct call)
         kept = unevaluated(jax.eval_shape(update, agent_state)[1])
@@ -214,6 +247,36 @@ def compute_gradients(
     value puts it in aux.
     """
     return jax.grad(loss, has_aux=True)(params)
+
+
+def compute_actor_critic_gradients(
+    policy_loss: Callable[[Any, Any], tuple[jax.Array, Any]],
+    value_loss: Callable[[Any], tuple[jax.Array, Any]],
+    actor: Any,
+    critic: Any,
+) -> tuple[Any, Any, Any, Any]:
+    """Each network's gradient of the summed loss policy_loss + value_loss
+    at their parameters, then what each loss returns beside its value.
+
+    value_loss takes the critic's parameters; policy_loss the actor's, then
+    the critic's, from which an actor sharing the critic's encoder reads it
+    (networks.with_critic_encoder). Without a shared encoder the networks
+    share no parameter, so each network's gradient is that of its own loss.
+    With one, the encoder is the critic's: its gradient is the value loss's
+    plus the policy loss's, as in ppo2's one network (ppo2/model.py:75-107).
+    """
+    value_grads, value_aux = compute_gradients(value_loss, critic.params)
+    if actor.shared_params is None:
+        policy_grads, policy_aux = compute_gradients(
+            lambda actor_params: policy_loss(actor_params, critic.params),
+            actor.params,
+        )
+        return policy_grads, value_grads, policy_aux, value_aux
+    (policy_grads, encoder_grads), policy_aux = jax.grad(
+        policy_loss, argnums=(0, 1), has_aux=True
+    )(actor.params, critic.params)
+    critic_grads = jax.tree.map(jnp.add, value_grads, encoder_grads)
+    return policy_grads, critic_grads, policy_aux, value_aux
 
 
 def gradient_step(train_state: Any, loss_fn: Callable) -> tuple[Any, Any, jax.Array]:
@@ -327,6 +390,32 @@ def compute_extensions_critic_loss(
     )
 
 
+def critic_value_readers(
+    critic_state: Any, observations: jax.Array, actions: jax.Array
+) -> tuple[Callable, Callable]:
+    """apply_on_target's predictions and target_value_at for an ensemble of Q
+    critics: their mean prediction at the batch's rows (observations,
+    actions) at the step's parameters, which the loss regresses, and their
+    mean value at given observations and actions at the target's (the
+    step's where there are no target critics). No gradient flows back, and
+    each reads the critics only where an extension calls it."""
+
+    def mean_value(params: Any, obs: jax.Array, taken: jax.Array) -> jax.Array:
+        values = q_values(critic_state, params, obs, taken)
+        return jax.lax.stop_gradient(jnp.mean(values, axis=0))
+
+    def predictions() -> jax.Array:
+        return mean_value(critic_state.params, observations, actions)
+
+    def target_value_at(obs: jax.Array, taken: jax.Array) -> jax.Array:
+        target_params = critic_state.target_params
+        if target_params is None:
+            target_params = critic_state.params
+        return mean_value(target_params, obs, taken)
+
+    return predictions, target_value_at
+
+
 def critic_step(
     agent_state: Any,
     batch: Any,
@@ -343,11 +432,19 @@ def critic_step(
     back through it (apply_on_target, which target_args reach: what the target
     used), then steps the critic down value_loss(params, target_q) ->
     (loss, aux) plus their critic_loss terms
-    (compute_extensions_critic_loss). The phases draw on keys derived from key,
-    the step's, on which the agent may draw too. Returns agent_state with the
-    stepped critic and the extensions' states as on_target left them, aux,
-    the gradients' norm (gradient_step) and the two phases' metrics.
+    (compute_extensions_critic_loss). The value readers on_target may call,
+    predictions and target_value_at, are the Q critics' at the batch's rows
+    (critic_value_readers) unless target_args holds the agent's. The phases
+    draw on keys derived from key, the step's, on which the agent may draw
+    too. Returns agent_state with the stepped critic and the extensions'
+    states as on_target left them, aux, the gradients' norm (gradient_step)
+    and the two phases' metrics.
     """
+    if "predictions" not in target_args:
+        predictions, target_value_at = critic_value_readers(
+            agent_state.critic_state, batch.obs, batch.action
+        )
+        target_args.update(predictions=predictions, target_value_at=target_value_at)
     target_q, target_metrics, agent_state = apply_on_target(
         extensions,
         agent_state,
@@ -369,7 +466,10 @@ def critic_step(
         agent_state.critic_state, total_critic_loss
     )
     metrics = merge_metrics(target_metrics, loss_metrics)
-    return agent_state.replace(critic_state=critic_state), aux, grad_norm, metrics
+    # An actor reading the critic's encoder steps on it as this step left it
+    # (SAC-AE's and DrQ's order: the critic, then the actor).
+    agent_state = mirror_shared_encoder(agent_state.replace(critic_state=critic_state))
+    return agent_state, aux, grad_norm, metrics
 
 
 def bootstrap_cuts(terminated: jax.Array, extensions: ExtensionStack) -> jax.Array:

@@ -18,7 +18,7 @@ from ajax.environments.utils import (
 )
 from ajax.random_keys import derive_key, fold_index
 from ajax.types import EnvNormalizationInfo, NormalizationInfo
-from ajax.utils import online_normalize
+from ajax.utils import REWARD_CLIP, online_normalize
 
 if TYPE_CHECKING:  # brax comes with the brax extra
     from brax.envs.base import State
@@ -117,6 +117,18 @@ RAW_OBS_KEY = "raw_obs"
 RAW_REWARD_KEY = "raw_reward"
 # Where NonFiniteStepWrapper counts the non-finite steps of each env.
 NON_FINITE_STEPS_KEY = "non_finite_steps"
+
+
+class BinaryObservations(GymnaxWrapper):
+    """An env whose observations are 0/1 channels though its space is
+    declared float32 (gymnax's MinAtar games: Young and Tian, 2019, binary
+    channels; gymnax builds a bool grid and casts it). The space says bool, so
+    a replay keeps them in a byte (ajax.buffers.utils.stored_observation_dtype);
+    the observations themselves are unchanged."""
+
+    def observation_space(self, params) -> spaces.Box:
+        space = self._env.observation_space(params)
+        return spaces.Box(space.low, space.high, space.shape, jnp.bool_)
 
 
 class FlattenObservationWrapper(GymnaxWrapper):
@@ -387,11 +399,11 @@ class _OnlineNormalization:
     def _normalize_reward(
         self, reward: jax.Array, done: jax.Array, stats: NormalizationInfo
     ) -> Tuple[jax.Array, NormalizationInfo]:
-        """The reward divided by the running statistics, and those updated:
-        the single-step reward's (gamma None), or SB3 VecNormalize's
-        discounted return of the episode so far, R = r + gamma R, restarted
-        after the episode's end (gymnasium's NormalizeReward restarts it at
-        the end step instead)."""
+        """The reward divided by the running statistics, clipped to
+        +-REWARD_CLIP, and those updated: the single-step reward's (gamma
+        None), or SB3 VecNormalize's discounted return of the episode so
+        far, R = r + gamma R, restarted after the episode's end (gymnasium's
+        NormalizeReward restarts it at the end step instead)."""
         returns = reward.reshape(-1, 1)
         if self.gamma is not None:
             assert stats.returns is not None  # init_norm_info(returns=True)
@@ -405,6 +417,7 @@ class _OnlineNormalization:
             shift=False,  # Important: rewards shouldn't be mean-shifted
             returns=returns,
         )
+        normed = jnp.clip(normed, -REWARD_CLIP, REWARD_CLIP)
         if jnp.ndim(normed) > 1 and normed.shape[-1] == 1:
             normed = normed.squeeze(-1)
         elif np.ndim(normed) > 1 and normed.shape[0] == 1:
@@ -777,6 +790,87 @@ class BatchRngWrapper(BraxWrapper):
         return self.env.reset(rng)
 
 
+class WarpCapacityWrapper(BraxWrapper):
+    """Stops a run whose MuJoCo Warp physics ran out of room.
+
+    MuJoCo Warp keeps one contact buffer for every world of a batch (all the
+    seeds and envs stepped at once), sized when the task makes its data
+    (``naconmax``), one buffer for the geom pairs its convex (GJK/EPA)
+    collision code handles (``naccdmax``), and room for ``njmax`` constraint
+    rows in each world. A step needing more drops the rest, prints a warning
+    and goes on with wrong physics: a body sinks through the floor. This
+    raises instead, after each reset and step, from Warp's own counters,
+    which describe the step's last physics substep, and from its convex
+    overflow flag, which no counter shows. Goes directly over a raw Warp env.
+    """
+
+    def reset(self, rng: jax.Array) -> "State":
+        state = self.env.reset(rng)
+        _check_warp_capacity(state.data)
+        return state
+
+    def step(self, state: "State", action: jax.Array) -> "State":
+        next_state = self.env.step(state, action)
+        _check_warp_capacity(next_state.data)
+        return next_state
+
+
+def _check_warp_capacity(data: Any) -> None:
+    from mujoco.mjx.third_party.mujoco_warp import OverflowType
+
+    warp = data._impl  # MJX's MuJoCo Warp fields: its counters and capacities
+    contacts = jnp.maximum(warp.nacon, warp.ncollision)
+    # Each world's overflow flags last until its next reset.
+    convex_dropped = jnp.any(warp.overflow & int(OverflowType.CCD))
+    over = (
+        (jnp.max(contacts) > warp.naconmax)
+        | (jnp.max(warp.nefc) > warp.njmax)
+        | convex_dropped
+    )
+
+    def report(pending: jax.Array) -> jax.Array:
+        jax.debug.callback(
+            _raise_on_overflow,
+            contacts,
+            warp.naconmax,
+            warp.nefc,
+            warp.njmax,
+            convex_dropped,
+            warp.naccdmax,
+        )
+        return jnp.zeros_like(pending)
+
+    # A host callback on every step cost SAC 38% of its speed and PPO 63%.
+    # Its while_loop runs it only on a step that overflowed: batched, a
+    # while_loop iterates while any element's predicate holds (_call_if_any).
+    jax.lax.while_loop(lambda pending: pending, report, over)
+
+
+def _raise_on_overflow(
+    contacts, contact_room, rows, row_room, convex_dropped, convex_room
+) -> None:
+    if np.any(convex_dropped):
+        raise ValueError(
+            "MuJoCo Warp dropped convex collisions: a step had more geom pairs"
+            " for its convex (GJK/EPA) collision code than the"
+            f" {np.min(convex_room)} slots every world of the batch shares."
+            " Step fewer seeds and envs at once, or use physics='jax'."
+        )
+    if np.max(contacts) > np.min(contact_room):
+        raise ValueError(
+            f"MuJoCo Warp dropped contacts: a step needed {np.max(contacts)}"
+            f" contact slots, and the buffer every world of the batch shares"
+            f" holds {np.min(contact_room)}. Step fewer seeds and envs at"
+            " once, or use physics='jax'."
+        )
+    if np.max(rows) > np.min(row_room):
+        raise ValueError(
+            f"MuJoCo Warp dropped constraints: a world needed {np.max(rows)}"
+            f" constraint rows and has room for {np.min(row_room)}. Use"
+            " physics='jax'."
+        )
+
+
 class NonFiniteStepWrapper(BraxWrapper):
     """Ends the episode of a step that left the simulator non-finite.
 
@@ -912,7 +1006,9 @@ class FreshAutoResetWrapper(BraxWrapper):
     reset (computed only on such steps, see :func:`_call_if_any`) and gives
     each done env, from it:
 
-    * ``data`` (a brax state's ``pipeline_state``) and ``obs``;
+    * ``data`` (a brax state's ``pipeline_state``) and ``obs``, but for the
+      arrays the physics keeps for the whole batch of envs (MuJoCo Warp's
+      contact buffer and counters), which belong to no env and pass through;
     * the ``info`` entries produced by the base environment's own ``reset``,
       i.e. its per-episode state (its rng, task targets, ...).
 
@@ -940,10 +1036,14 @@ class FreshAutoResetWrapper(BraxWrapper):
         self.episode_keys = episode_keys
 
     @cached_property
+    def _base_reset(self) -> Any:
+        """The base environment's own reset of one env (shape-only)."""
+        return jax.eval_shape(self.unwrapped.reset, jax.random.PRNGKey(0))
+
+    @cached_property
     def _episode_info_keys(self) -> Tuple[str, ...]:
-        """``info`` keys of the base environment's own reset (shape-only)."""
-        base_reset = jax.eval_shape(self.unwrapped.reset, jax.random.PRNGKey(0))
-        return tuple(base_reset.info)
+        """``info`` keys of the base environment's own reset."""
+        return tuple(self._base_reset.info)
 
     def reset(self, rng: jax.Array):
         """``rng``: one key per env, shape ``(n_envs, 2)``."""
@@ -995,8 +1095,23 @@ class FreshAutoResetWrapper(BraxWrapper):
 
         for name in self._episode_info_keys:
             info[name] = jax.tree.map(where_done, fresh.info[name], info[name])
+
+        def where_done_per_env(new, old, one_env):
+            # MuJoCo Warp keeps its contact buffer and counters for the whole
+            # batch of envs, not one per env: such an array has the rank it
+            # has for one env. The next step recomputes them before reading
+            # them, so the stepped state's pass through.
+            if old.ndim == one_env.ndim:
+                return old
+            return where_done(new, old)
+
         field = "data" if hasattr(state, "data") else "pipeline_state"  # brax's
-        physics = jax.tree.map(where_done, getattr(fresh, field), getattr(state, field))
+        physics = jax.tree.map(
+            where_done_per_env,
+            getattr(fresh, field),
+            getattr(state, field),
+            getattr(self._base_reset, field),
+        )
         return state.replace(
             obs=jax.tree.map(where_done, fresh.obs, state.obs),
             info=info,

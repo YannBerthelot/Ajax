@@ -177,6 +177,10 @@ change that breaks one of these patterns usually shows up in the benchmark.
   iteration; `final_aux_scan` in
   [`perf_utils.py`](../../src/ajax/perf_utils.py) keeps only an inner scan's
   last metrics.
+- **Evaluation outside the training program.** With logging, training runs
+  in chunks and evaluates between them in a program of its own
+  (`build_chunked_train`): compiled into every tick, the evaluation slowed
+  each one even when it did not run (about 4% for SAC on MuJoCo Warp).
 - **Unbatched gates.** Every predicate that decides whether to evaluate is
   built from values shared by all seeds, so `jax.lax.cond` skips the
   evaluation instead of computing it on every iteration (see

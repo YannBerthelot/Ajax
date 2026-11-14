@@ -11,6 +11,7 @@ The load-bearing invariants:
 
 import jax
 import jax.numpy as jnp
+import optax
 import pytest
 
 from ajax.networks.memory import (
@@ -60,6 +61,10 @@ def test_config_validates_kind_specific_knobs():
         MemoryConfig(kind="transformer", window=0)
     with pytest.raises(ValueError, match="d_state"):
         MemoryConfig(kind="mamba", d_conv=0)
+    with pytest.raises(ValueError, match="layer_norm_epsilon"):
+        MemoryConfig(kind="transformer", layer_norm_epsilon=0.0)
+    with pytest.raises(ValueError, match="mlp_ratio"):
+        MemoryConfig(kind="transformer", mlp_ratio=0)
 
 
 def test_config_refuses_an_init_of_another_kind():
@@ -234,6 +239,75 @@ def test_transformer_sliding_window_bounds_memory():
     assert not jnp.allclose(y1[0], y2[0], atol=1e-5)
 
 
+# ------------------------------------------------- key/value cache (APG)
+# The default cell, caching inputs, is the reference: a carry built under the
+# parameters that read it must give the same outputs and gradients either way.
+
+
+def _with_key_value_twin(num_layers):
+    """A transformer cell, its twin caching keys and values on the same
+    parameters with its own fresh carry, a (T, B, F) input, and resets at
+    the start and in the middle of one env's sequence."""
+    cell, params, carry, x, _ = make_cell("transformer", num_layers=num_layers)
+    twin = MemoryCell(cell.config, cache_keys_values=True)
+    twin_carry = init_carry(cell.config, jax.random.PRNGKey(0), B, True)
+    resets = jnp.zeros((T, B), dtype=bool).at[0].set(True).at[3, 1].set(True)
+    return cell, twin, params, carry, twin_carry, x, resets
+
+
+@pytest.mark.parametrize("num_layers", [1, 2])
+def test_caching_keys_and_values_gives_the_outputs_of_caching_inputs(num_layers):
+    """Catches a key/value cache that slides its window by the wrong amount,
+    keeps a row across a reset or attends to a stale one: stepped one row at
+    a time, the twin must give the default cell's outputs over the whole
+    sequence (window 5 < T = 7, so rows also leave the window)."""
+    cell, twin, params, carry, twin_carry, x, resets = _with_key_value_twin(num_layers)
+    _, expected = cell.apply(params, carry, x, resets)
+    outputs = []
+    for t in range(T):
+        twin_carry, y = twin.apply(params, twin_carry, x[t : t + 1], resets[t : t + 1])
+        outputs.append(y[0])
+    assert jnp.allclose(jnp.stack(outputs), expected, atol=1e-5)
+
+
+def test_caching_keys_and_values_keeps_the_gradient_through_the_carry():
+    """Catches cached keys and values cut from the gradient, or computed
+    from other parameters than the step's: APG differentiates its return
+    through the carry, so a stepped rollout's gradient with respect to the
+    parameters must be the default cell's."""
+    cell, twin, params, carry, twin_carry, x, resets = _with_key_value_twin(2)
+
+    def stepped_loss(network, initial_carry):
+        def loss(params):
+            state, total = initial_carry, 0.0
+            for t in range(T):
+                state, y = network.apply(params, state, x[t : t + 1], resets[t : t + 1])
+                total = total + jnp.sum(jnp.sin(y + t))
+            return total
+
+        return loss
+
+    expected = jax.grad(stepped_loss(cell, carry))(params)
+    gradient = jax.grad(stepped_loss(twin, twin_carry))(params)
+    gap = optax.global_norm(jax.tree.map(jnp.subtract, gradient, expected))
+    assert gap <= 1e-5 * optax.global_norm(expected)
+
+
+@pytest.mark.parametrize("kind", ["gru", "lstm", "mamba"])
+def test_only_a_transformer_caches_keys_and_values(kind):
+    """Catches the option ignored on a memory that has no keys: asked of
+    another kind, the carry and the cell refuse it."""
+    config = MemoryConfig(kind=kind, hidden_size=8)
+    with pytest.raises(ValueError, match="transformer"):
+        init_carry(config, jax.random.PRNGKey(0), B, cache_keys_values=True)
+    carry = init_carry(config, jax.random.PRNGKey(0), B)
+    x, resets = jnp.zeros((T, B, F)), jnp.zeros((T, B), dtype=bool)
+    with pytest.raises(ValueError, match="transformer"):
+        MemoryCell(config, cache_keys_values=True).init(
+            jax.random.PRNGKey(0), carry, x, resets
+        )
+
+
 # ------------------------------------------------------------ final norm
 
 
@@ -259,6 +333,21 @@ def test_output_ends_with_a_layer_norm(kind, num_layers):
     assert "ln_f" not in raw_params["params"]["core"]
     _, y_raw = raw.apply(raw_params, carry, 50.0 * x, resets)
     assert not jnp.allclose(y_raw.var(-1), 1.0, atol=0.1)
+
+
+def test_a_transformer_without_bias_keeps_only_its_embeddings():
+    """bias=False is nanoGPT's config.bias: no bias in the attention and MLP
+    layers or the LayerNorms, ln_f included; the input embedding keeps one,
+    as nanoGPT's wte does. mlp_ratio sets the MLP's width (GPT-2's 4)."""
+    _, params, *_ = make_cell("transformer", bias=False, mlp_ratio=4, num_layers=2)
+    core = params["params"]["core"]
+    for name in ("q_0", "k_1", "v_0", "attn_out_1", "mlp_up_0", "mlp_down_1"):
+        assert set(core[name]) == {"kernel"}, name
+    for name in ("ln_attn_0", "ln_mlp_1", "ln_f"):
+        assert set(core[name]) == {"scale"}, name
+    assert set(core["embed"]) == {"kernel", "bias"}
+    assert core["mlp_up_0"]["kernel"].shape == (8, 32)
+    assert core["mlp_down_0"]["kernel"].shape == (32, 8)
 
 
 # ---------------------------------------------------------------- init

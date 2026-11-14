@@ -91,6 +91,28 @@ every hidden layer, as its paper does, whatever the setting. AVG normalises
 its penultimate features instead, as its paper does, which overrides the
 setting.
 
+### Layers per head
+
+By default the output layers read the encoder's features, or the memory's,
+directly. `head_architecture` puts hidden layers in between, written as
+`actor_architecture` is. Each network gets its own copy, and so does each
+critic of an ensemble. With a shared encoder, the actor and the critic
+separate after it. `head_kernel_init` sets their initialiser; `None` uses
+the encoder's. Recurrent PPO sets PureJaxRL's by default (see
+[A shared encoder](#a-shared-encoder)). The other agents read it from the
+network configuration:
+
+```python
+from ajax import SAC
+from ajax.networks.memory import MemoryConfig
+
+agent = SAC("Pendulum-v1", memory=MemoryConfig("gru", 32), learning_starts=500)
+agent.network_args = agent.network_args.replace(head_architecture=("64", "relu"))
+```
+
+The actor-critic agents read it. DQN's, PQN's and APG's networks do not
+yet, and a PID policy has no hidden layers, so it gets no head layers.
+
 ### The policy head
 
 PPO exposes the policy head's options. By default its Gaussian learns one
@@ -171,6 +193,65 @@ read in height, width, channels order. `padding` takes flax's padding
 (`"VALID"` for none), `layer_norm=True` puts a LayerNorm after every layer,
 before its ReLU, and `kernel_init` names the initialiser of every layer, as
 the network's other `*_kernel_init` settings do.
+
+## A shared encoder
+
+By default the actor and the critic each have their own encoder: the
+hidden layers, or the CNN, and the memory block if there is one.
+`share_encoder=True` gives them one. The actor and the critic then differ
+only in their output layers, as in ppo2's shared network:
+
+```python
+from ajax import PPO
+
+agent = PPO("CartPole-v1", share_encoder=True, n_envs=2, n_steps=16, batch_size=16)
+state, _ = agent.train(seed=0, n_timesteps=64)
+```
+
+- The critic owns the encoder, and the critic's optimiser steps it, at
+  `critic_learning_rate`. The actor keeps a copy, which the training loop
+  refreshes after every update and every critic step.
+- PPO and APO train it with both losses: its gradient is the sum of the
+  value loss's and the policy loss's, as in one network trained down the
+  summed loss. One encoder needs one architecture: `actor_architecture` and
+  `critic_architecture` must be equal (a CNN replaces both).
+- The off-policy agents (SAC, TD3, REDQ, TQC, ASAC, RVI-SAC, AVG, IQL)
+  train it with the critic's loss alone; the actor reads it without a
+  gradient, as SAC-AE, DrQ and SB3's `share_features_extractor` do. The
+  encoder is `actor_architecture`: the actor's heads read its features, and
+  the critic's `critic_architecture` layers read them with the action. A
+  target actor (TD3's) reads the target critic's encoder, and IQL's state
+  value keeps an encoder of its own.
+- Cloning pretraining (`CloningPretrain`) trains the encoder too, and hands
+  it back to the critic.
+- With memory, the off-policy agents share the input embeddings and the
+  memory block too, as Ni et al. (2022)'s shared recurrent network does.
+  They read the observation, the previous action and the previous reward,
+  which a run with memory observes (`PreviousAction()`,
+  `PreviousReward()`; [Memory](memory.md)); each network keeps its own
+  shortcut and layers after the memory, and the action the critic is
+  asked about joins there. A target actor (TD3's) warms its memory up
+  through the target critic's.
+- Not yet: CrossQ, whose batch renormalisation would have both networks'
+  training passes move the shared encoder's running statistics.
+
+`share_encoder=None`, the default, does what the agent's reference code
+does:
+
+| Agent | MLP | Image (CNN) | Memory |
+| --- | --- | --- | --- |
+| PPO | separate (ppo2 on MuJoCo, CleanRL, PureJaxRL) | shared (ppo2 on Atari, CleanRL) | separate, a layer per head (see below) |
+| APO | separate (its rlpyt model) | - | - |
+| SAC, TD3, REDQ, TQC, ASAC, RVI-SAC, AVG, IQL | separate (each reference) | - | separate (Ni et al. 2022) |
+
+ppo2 also shares MLP networks outside MuJoCo; Ajax keeps them apart, as
+its MuJoCo setting does. With memory, ppo2 and PureJaxRL share the
+encoder and the memory block. PureJaxRL also gives each head a hidden layer
+of its own after the memory: a Dense(128) and a ReLU, orthogonal with gain 2.
+Recurrent PPO has those layers by default ([layers per head](#layers-per-head)),
+but keeps separate memories. With one memory, it fails the memory probe
+(CartPole with the velocities hidden) even with the layers and with
+normalised rewards, while separate memories pass it.
 
 ## The PID policy
 

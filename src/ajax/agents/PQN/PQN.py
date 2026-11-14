@@ -28,6 +28,7 @@ from typing import Any, Callable, Optional, Tuple
 
 import jax
 import jax.numpy as jnp
+import optax
 from flax import struct
 
 from ajax.agents.critics import ValueAuxiliaries, q_gradient_step
@@ -43,6 +44,7 @@ from ajax.agents.families import (
 from ajax.agents.loop import LOOP_PHASES
 from ajax.agents.minibatch import get_minibatches_from_batch
 from ajax.agents.PQN.networks import PQNNetwork
+from ajax.agents.presets import Preset
 from ajax.agents.update_steps import derive_extensions_key
 from ajax.environments.interaction import epsilon_greedy, explore_pipeline
 from ajax.environments.utils import get_action_dim
@@ -55,8 +57,46 @@ from ajax.networks.q_networks import (
     q_network_value,
 )
 from ajax.schedule import linear
-from ajax.state import BaseAgentState, Transition
+from ajax.state import BaseAgentState, OptimizerConfig, Transition
 from ajax.types import Architecture
+
+#: The reference's CartPole and Atari configs (mttga/purejaxql@47af6d7,
+#: purejaxql/config/alg/pqn_*.yaml); its MinAtar config is the defaults.
+#: Atari's env settings (frame skip 4, life loss, rewards clipped to [-1, 1],
+#: :20-25) are the env's, not the agent's.
+PRESETS = {
+    "CartPole": Preset(
+        {
+            "n_envs": 32,
+            "n_steps": 64,
+            "epsilon_end": 0.2,
+            "epsilon_decay_frac": 0.2,
+            "num_minibatches": 16,
+            "n_epochs": 4,
+            "architecture": ("256", "relu", "256", "relu"),
+            "learning_rate": 1e-4,
+            "lr_linear_decay": True,
+            "reward_scale": 0.1,
+            "q_lambda": 0.95,
+        },
+        "mttga/purejaxql@47af6d7 purejaxql/config/alg/pqn_cartpole.yaml:4-20",
+    ),
+    "Atari": Preset(
+        {
+            "n_envs": 128,
+            "n_steps": 32,
+            "epsilon_end": 0.001,
+            "epsilon_decay_frac": 0.1,
+            "num_minibatches": 32,
+            "n_epochs": 2,
+            "learning_rate": 2.5e-4,
+            "lr_linear_decay": False,
+            "reward_scale": 1.0,
+            "q_lambda": 0.65,
+        },
+        "mttga/purejaxql@47af6d7 purejaxql/config/alg/pqn_atari.yaml:4-16",
+    ),
+}
 
 
 @dataclass(kw_only=True, eq=False, repr=False)
@@ -74,19 +114,31 @@ class PQN(
     targets, no replay buffer and no target network -- training stability
     instead comes from LayerNorm in the Q-network. The policy is greedy
     over Q, with epsilon-greedy exploration during collection.
+
+    Defaults are its reference's MinAtar config (mttga/purejaxql @47af6d7,
+    purejaxql/config/alg/pqn_minatar.yaml): 128 envs of 32 steps, 2 epochs
+    of 32 minibatches, RAdam at 5e-4 decayed linearly over the run, lambda
+    0.65, gamma 0.99, epsilon from 1 to 0.05 over the first 10% of the run,
+    and MinAtar's network on images. On vector observations, which that
+    config does not cover, the network is the 128-128 LayerNorm MLP.
     """
 
-    n_envs: int = 8
+    n_envs: int = 128
     #: The one Q-network's learning rate and hidden layers.
-    learning_rate: float = 2.5e-4
+    learning_rate: float = 5e-4
+    #: purejaxql's LR_LINEAR_DECAY: the rate falls linearly to 1e-20 over the
+    #: run's gradient steps (pqn_minatar.py:140-147), true in every PQN
+    #: config; False keeps it constant. A schedule given as learning_rate
+    #: runs as given.
+    lr_linear_decay: bool = True
     architecture: Architecture = ("128", "relu", "128", "relu")
     gamma: float = 0.99
     #: Q(lambda) trace-decay coefficient (0 -> 1-step TD, 1 -> Monte-Carlo).
     q_lambda: float = 0.65
-    n_steps: int = 128
-    n_epochs: int = 4
+    n_steps: int = 32
+    n_epochs: int = 2
     #: Minibatches per epoch; must divide the rollout's n_steps * n_envs rows.
-    num_minibatches: int = 4
+    num_minibatches: int = 32
     reward_scale: float = 1.0
     #: purejaxql's global clip of the gradient, MAX_GRAD_NORM 10 in every
     #: PQN config.
@@ -95,7 +147,7 @@ class PQN(
     #: epsilon_end over the first epsilon_decay_frac of training.
     epsilon_start: float = 1.0
     epsilon_end: float = 0.05
-    epsilon_decay_frac: float = 0.5
+    epsilon_decay_frac: float = 0.1
     #: The TD loss: None is compute_half_mse_td_loss, purejaxql's;
     #: make_huber_td_loss(delta) (from ajax.agents.critics) the Huber loss.
     td_loss_fn: Optional[Callable] = None
@@ -167,6 +219,26 @@ class PQN(
             warmup=False,
         )
 
+    def decayed_optimizer_args(self, context: TrainContext) -> OptimizerConfig:
+        """The Q-network's optimiser, its rate falling linearly from
+        learning_rate to 1e-20 over the run's gradient steps when
+        lr_linear_decay: its updates (total_timesteps over a rollout's
+        n_steps * n_envs), each n_epochs of num_minibatches steps
+        (pqn_minatar.py:140-147). The schedule counts the optimiser's steps,
+        so a run split into calls passes its whole horizon to each."""
+        optimizer_args = context.critic_optimizer_args
+        if not self.lr_linear_decay or callable(self.learning_rate):
+            return optimizer_args
+        rollout_size = self.n_steps * context.env_args.n_envs
+        updates = context.total_timesteps // rollout_size
+        gradient_steps = updates * self.n_epochs * self.num_minibatches
+        schedule = optax.linear_schedule(
+            init_value=self.learning_rate,
+            end_value=1e-20,
+            transition_steps=max(gradient_steps, 1),
+        )
+        return optimizer_args.replace(learning_rate=schedule)
+
     def init(self, key: jax.Array, context: TrainContext) -> PQNState:
         """The Q-network and the collector."""
         training_key, init_key, collector_key, evaluation_key = jax.random.split(key, 4)
@@ -174,7 +246,7 @@ class PQN(
         q_state = get_initialized_q_network(
             key=init_key,
             env_config=env_args,
-            optimizer_config=context.critic_optimizer_args,
+            optimizer_config=self.decayed_optimizer_args(context),
             network_config=context.network_args,
             n_actions=get_action_dim(env_args.env, env_args.env_params),
             q_network_cls=PQNNetwork,

@@ -60,11 +60,18 @@ ControllerCarry = Tuple[Any, Any]  # (memory carry | None, pid carry | None)
 
 
 class Controller(nn.Module):
+    """The controller of the module docstring. With ``cache_keys_values``, a
+    transformer memory caches each layer's keys and values instead of its
+    inputs (``MemoryCell``): the same outputs and gradients, to rounding,
+    for a carry that starts fresh under the parameters that read it, as
+    APG's rollouts and acting do; other memory kinds ignore it."""
+
     input_architecture: Sequence[Union[str, ActivationFunction]]
     action_dim: int
     memory: Optional[MemoryConfig] = None
     pid: Optional[PIDHeadConfig] = None
     squash: bool = True
+    cache_keys_values: bool = False
 
     @property
     def stateful(self) -> bool:
@@ -78,7 +85,11 @@ class Controller(nn.Module):
             if len(self.input_architecture) > 0
             else None
         )
-        self.memory_cell = MemoryCell(self.memory) if self.memory is not None else None
+        self.memory_cell = (
+            MemoryCell(self.memory, cache_keys_values=self._caches_keys_values)
+            if self.memory is not None
+            else None
+        )
         normalised = self.memory is not None and self.memory.ends_normalised
         self.norm = None if normalised else nn.LayerNorm()
         self.out = nn.Dense(self.action_dim, name="out")
@@ -90,7 +101,7 @@ class Controller(nn.Module):
 
     def initialize_carry(self, rng: jax.Array, batch_size: int) -> ControllerCarry:
         memory_carry = (
-            init_carry(self.memory, rng, batch_size)
+            init_carry(self.memory, rng, batch_size, self._caches_keys_values)
             if self.memory is not None
             else None
         )
@@ -115,6 +126,14 @@ class Controller(nn.Module):
         if self.pid_head is not None:  # squashed after the PID head
             pid_carry, z = self.pid_head(pid_carry, z, resets)
         return distrax.Deterministic(self._squash(z)), (memory_carry, pid_carry)
+
+    @property
+    def _caches_keys_values(self) -> bool:
+        return (
+            self.cache_keys_values
+            and self.memory is not None
+            and self.memory.kind == "transformer"
+        )
 
     def _readout(self, h):
         return self.out(h if self.norm is None else self.norm(h))

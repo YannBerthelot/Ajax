@@ -710,6 +710,114 @@ their new value depends on the read.
 Disk: 13 MB per probe per seed on SAC's defaults, half with `float16=True`.
 Embedding a run offline (three seeds, 82 probes): 2.5 minutes, 4.5 GB at its peak.
 
+## DreamerV3: the RSSM's weight gradients once per update (2026-11-12)
+
+The world-model loss backpropagates through 64 filtering steps of the RSSM.
+Differentiated directly, the reverse scan added each step's weight gradient,
+a product over the batch's 16 rows that reads and writes the whole weight, to
+a running sum: 64 small matrix products per weight per update, and as many
+per seed when seeds are trained together. `observe` now carries the gradient
+back through the steps with the parameters held fixed, then takes the
+parameters' gradient once, as the gradient of the observe step applied to all
+1,024 steps together (from each step's starting state). The batched step is
+computed again for that, which costs arithmetic but few operations. Same
+maths, summation order only: one training step of the 12m model on CPU gives
+the same parameters bitwise and gradients within 7.2e-7 of each tensor's
+largest entry.
+
+The timings below are provisional: every GPU run shared its card with other
+jobs, and a timing on a quiet machine is pending. The equality of the maths
+(above) does not depend on them.
+
+GPU, `mujoco:Hopper-v5` on MuJoCo Warp, 16 envs, the benchmark's settings,
+one L40S shared with other jobs, main (d40a8069) and the change alternated in
+one process, milliseconds per update (all seeds):
+
+| Seeds | Main | Change | Change vs main, each round |
+| --- | --- | --- | --- |
+| 1 | 105.0, 102.4, 104.9 | 94.7, 94.5, 93.9 | -10%, -8%, -10% |
+| 2 | 164.8, 163.4, 165.0 | 154.0, 153.3 | -7%, -6% |
+| 4 | 217.1, 161.2, 129.5 | 164.6, 114.4, 114.7 | -24%, -29%, -11% |
+
+The card ran another job throughout, so compare within a round. The 2-seed
+run was stopped before its last sample (bob's jobs were stopped for a clean
+start). The 4-seed run overlapped other jobs starting on the card, hence its
+spread: indicative only. Peak GPU memory grew by about 0.2 GB per seed (the
+batched step's activations).
+
+CPU, the bench's DreamerV3 preset (1m model, batch 8 x 16), the two
+alternated in one process: 15.1 s against 14.2 s of execution per trial
+(+6%). Timed alone, the gradient of the loss takes the same time either way
+(25 ms at that preset, 167 ms at batch 16 x 64), so the difference comes from
+the training loop around it; it is within the 10% tolerance and was not
+traced further.
+
+## Adam's moments as one vector (2026-11-12)
+
+`get_adam_tx` runs its update rule (Adam, AdamW, RMSProp) on the gradients
+raveled into one vector (`optax.flatten`), so each moment is one vector over
+every parameter. The maths is the same; XLA computes the vector with other
+instructions, which can move a float32 result by an ulp or two. A checkpoint
+saved with a moment per array restores into it, and code that edits the
+moments per unit (a neuron reset) goes through `map_optimizer_moments`.
+
+agent_bench, main (4d73ff38) against the change, execution steps per second,
+one fresh process per trial, the two alternating; per-round ratios, median
+[min, max]. GPU: one L40S with no other process, 3 rounds. CPU: Linux, pinned
+to 4 cores, 5 rounds (CrossQ and REDQ at 3,000 steps).
+
+| Agent | GPU | CPU |
+| --- | --- | --- |
+| AVG | +16% [+13, +34] | +8% [-19, +74] |
+| CrossQ | +14% [+13, +14] | +49% [+41, +64] |
+| DQN | | +5% [-24, +6] |
+| IQL | +6% [+4, +6] | +7% [-3, +25] |
+| PPO | +7% [+4, +8] | -5% [-19, +40] |
+| REDQ | +17% [+16, +17] | -3% [-8, -2] |
+| SAC | +7% [+5, +11] | +3% [-20, +22] |
+| TD3 | +7% [+3, +10] | +8% [-13, +12] |
+
+On the GPU each update launches fewer, larger kernels, and these small runs
+wait on launches. Where the physics dominates, nothing changes: SAC on MuJoCo
+Warp Hopper (10 seeds, the same GPU, 3 rounds) +0.3%, inside the 1.5% spread
+between rounds. On the CPU, CrossQ gains most: per array, Adam's arithmetic
+on its 2,048-unit layers took 16.6 of 38 worker seconds; joined, 3.6. On a Mac
+(14 threads), IQL is 17% slower: XLA's CPU runtime runs the joined rule as one
+stretch on one thread while the others wait, where per array its small pieces
+ran beside the matrix products. On Linux with 4 cores IQL does not lose, and
+on one core the joined rule is faster. REDQ's 3-5% on Linux is not explained.
+
+## DQN on CleanRL's defaults (2026-11-13)
+
+DQN's defaults became CleanRL's dqn.py: a 120-84 network, batches of 128 and
+one update every 10 env steps (`train_frequency`, a new option of every
+replay agent), where it updated every tick on batches of 64 with a 128-128
+network. The bench's DQN row keeps the replay agents' 1,000-step warm-up
+(its new default, 10,000, outlasts the run): 700 updates of the 8,000 steps
+on 4 envs, where it made 1,750. Back to back on the same Mac, five trials
+each, main (085cded4) then the change, execution steps per second (medians):
+21,988 to 25,515 (+16%; trials 21,353-22,594 and 17,296-27,413, on a Mac
+running other jobs). An update every 10 steps adds a gate on the tick;
+its skipping branch passes the replay through without a copy (checked on
+the optimised HLO), and at `train_frequency=1` the program is unchanged.
+DQN's baseline rows are re-recorded from that run.
+
+## DAgger fits as its reference code does (2026-11-13)
+
+DAgger's default fit became HumanCompatibleAI/imitation's (`IterationFit`):
+at the end of each 500-step iteration, 4 epochs of behaviour cloning over
+every row the replay holds, in minibatches of 32. It made one gradient step
+per tick before (`OnlineFit`). Over the bench's 8,000 steps on 4 envs that
+is 16 fits of 8,472 gradient steps in all, where the online fit made 1,992:
+4.25 times as many, and the count grows with the square of the run's length,
+as the reference's does. Back to back on the same Mac, five trials each,
+main (84144f61) then the change, execution steps per second (medians):
+45,209 to 20,291 (-55%; trials 43,962-46,433 and 19,804-20,402). A gradient
+step costs less than an online tick did, as no collection runs between the
+steps. The fit's loops carry the actor alone, not the replay they read. At
+`fit=OnlineFit()` the program is unchanged (the exact pins reproduce it bit
+for bit). DAgger's baseline rows are re-recorded from that run.
+
 ## JAX 0.11 and flax 0.12 (PR #199, 2026-10-19)
 
 The lock moves from JAX 0.7.2 / flax 0.10.7 to JAX 0.11.2 / flax 0.12.10;

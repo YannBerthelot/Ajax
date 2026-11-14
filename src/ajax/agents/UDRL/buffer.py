@@ -197,7 +197,12 @@ def episode_stream(buffer: SegmentBuffer) -> EpisodeStream:
 
     zeros = jnp.zeros_like(rewards[0])
     init = (zeros, zeros, buffer.episode_start[order[0]])
-    _, (ep_r, ep_h, ends_whole) = jax.lax.scan(body, init, (rewards, dones))
+    # Unrolled 16 steps per loop pass: the same additions in the same order,
+    # so the same sums, but on a GPU each pass of the loop costs a round trip
+    # to the host, and the stream is buffer_capacity * n_steps (4,096) steps
+    # long. Measured on MinAtar shapes, 10 seeds: 17-38 ms -> 2.2 ms per
+    # iteration on a GTX 1080 Ti; on a CPU about 4 ms either way.
+    _, (ep_r, ep_h, ends_whole) = jax.lax.scan(body, init, (rewards, dones), unroll=16)
     steps = jnp.arange(B * T)[:, None]
     last = jnp.where(dones[..., 0] > 0, steps, length - 1)
     last = jax.lax.cummin(last, axis=0, reverse=True)

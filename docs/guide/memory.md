@@ -53,12 +53,15 @@ lstm = {"kind": "lstm", "hidden_size": 64}  # a dictionary works too
 
 | Setting | Default | Used by |
 | --- | --- | --- |
-| `hidden_size` | 64 | every kind; a multiple of `num_heads` for the transformer |
+| `hidden_size` | `None` | every kind: the memory's width; `None` is the agent's reference width (128, Ni et al.'s, for the off-policy agents), else 64; a multiple of `num_heads` for the transformer |
 | `num_layers` | 1 | every kind |
 | `gradient_checkpoint` | `False` | every kind: recompute activations in the backward pass, trading time for memory on long sequences |
 | `window`, `num_heads` | 32, 4 | transformer: a step attends to itself and the `window - 1` steps before it in the same episode |
 | `d_state`, `d_conv`, `expand` | 16, 4, 2 | mamba: state size, causal-convolution width, inner-width multiplier |
 | `final_norm` | `True` | transformer, mamba: end with a LayerNorm, as GPT-2 and Mamba do; `False` only restores a checkpoint saved before it, and goes once none remains (an APG controller's parameters also map exactly onto the new network with `controller_params_with_final_norm`, which maps the parameters only, so a resumed training state must restart its optimizer) |
+| `bias` | `True` | transformer: biases in the attention and MLP layers and the LayerNorms (nanoGPT's `bias`); the input embedding keeps one either way. `APG.contextual_controller` sets `False`, as its reference does |
+| `layer_norm_epsilon` | `1e-6` | transformer, mamba: the LayerNorms' epsilon; flax's by default, where GPT-2, nanoGPT and Mamba use 1e-5 |
+| `mlp_ratio` | `2` | transformer: the MLP's width in multiples of `hidden_size`; GPT-2 and nanoGPT use 4 |
 | `init` | `None` | every kind: the block's initialisation. `None` and `"flax"` are flax's defaults; `"stacked_orthogonal"` (GRU, LSTM) starts each gate as torch's orthogonal init of the stacked gates leaves it, as Ni et al. do; `"gpt2"` (transformer) draws every kernel from N(0, 0.02²), and `"nanogpt"` also scales the residual projections by 1/√(2 `num_layers`); `"mamba"` draws the step sizes log-uniformly in [0.001, 0.1], as Mamba does |
 
 Acting and training run the same code, a sequence of one step being the
@@ -82,6 +85,14 @@ episode. Gradients flow through a piece but not back past its start:
 time limit cut an episode, the value it bootstraps on is the critic's on the
 episode's final observation, read with the memory that episode built, as
 sb3-contrib's `RecurrentPPO` does.
+
+PPO's actor and critic keep separate memories by default, and each reads
+its memory through a 128-unit ReLU layer, as PureJaxRL's heads do.
+`share_encoder=True` gives them one memory, as ppo2's recurrent policies and
+PureJaxRL do; in Ajax that memory does not yet learn what the observation
+hides (see the networks guide).
+The off-policy agents' actor and critics keep separate memories, as Ni et
+al. (2022)'s do; their critics share one.
 
 ### The libraries disagree on the length
 
@@ -164,8 +175,9 @@ positive, otherwise `max(n_steps, batch_size) // min(n_steps, batch_size)`
 
 ## Off-policy: sequence replay
 
-The replay agents (SAC, ASAC, REDQ, TD3) store whole trajectories and learn
-from contiguous sequences, as R2D2 does (Kapturowski et al., 2019):
+The replay agents (SAC, ASAC, REDQ, TD3, TQC, RVI-SAC) store whole
+trajectories and learn from contiguous sequences, as Ni et al. (2022) do,
+with R2D2's burn-in and stored state as options (Kapturowski et al., 2019):
 
 ```python
 from ajax import SAC
@@ -191,17 +203,72 @@ also stores the actor's memory at every step, and the actor starts the
 learned steps from the memory it had when it acted; the critics, which do
 not run while acting, are still burned in from zero. Kapturowski et al.
 found stored state better than a zero start with burn-in at keeping the
-replayed memory close to the one the policy had. The defaults are
-`burn_in=8`, `sequence_length=16`, `stored_state=False`. The agent refuses
+replayed memory close to the one the policy had. The defaults are Ni et
+al.'s: `burn_in=0`, `sequence_length=64`, `stored_state=False`, and
+`batch_size=64` windows (without memory, `batch_size` counts rows: 256).
+A window then starts from a zero memory, and its first row reads no
+previous action or reward, as an episode's first does; Ni et al. sample
+each window inside one finished episode and mask the steps past its end,
+where Ajax's windows may cross an episode's end, the memory restarting
+there, and every step is trained. The agent refuses
 at construction a `learning_starts` that would not leave each copy one
 whole sequence before the first update (`learning_starts // n_envs` must
 exceed `burn_in + sequence_length + 1`), and `stored_state=True` without
 `memory=`.
 
-A recurrent critic's memory reads each step's observation and the action
-taken before it. The action the loss asks about joins after the memory, at
-the critic's head, so asking about another action does not change what the
-critic remembers (the recurrent off-policy critic of Ni et al., 2022).
+### The networks
+
+With memory, SAC, TD3, REDQ, ASAC, TQC and RVI-SAC build Ni et al.
+(2022)'s recurrent networks (twni2016/pomdp-baselines; SAC and TD3 are
+theirs, the others take them by analogy):
+
+- The memory reads the previous action, the previous reward and the
+  observation, each through its own linear layer and ReLU of 16, 16 and 32
+  units. A run with memory adds the `PreviousAction()` and
+  `PreviousReward()` observation features for them where its extensions
+  hold neither, so collection, evaluation and `agent.policy` append them,
+  zero at an episode's first observation; `agent.policy`'s `act` then needs
+  the reward the last action earned.
+- The memory has 128 units unless `MemoryConfig.hidden_size` sets them. A
+  GRU or LSTM starts as Ni et al.'s (`init="stacked_orthogonal"`), a
+  transformer as GPT-2 and Mamba as Mamba, unless `init` is set.
+- The networks' own layers (`actor_architecture`, `critic_architecture`)
+  run after the memory, on its output joined with a shortcut: a linear
+  layer and ReLU over the current observation, of 32 units for the actor
+  and 64 for a critic, whose shortcut also reads the action it is asked
+  about. That action never reaches the memory, so asking about another
+  action does not change what the critic remembers.
+- The critics read one memory, each Q-network with its own layers after it.
+- The layers start as Ni et al.'s: torch's default for the embeddings and
+  shortcuts, rlkit's fan-in uniform with biases 0.1 for the hidden layers,
+  and output layers uniform in ±1e-3 (actor) or ±3e-3 (Q), biases too.
+- The squashed policy's log-density subtracts log(1 − tanh² + 1e-6), as Ni
+  et al.'s does. TD3's actor maximises the critics' minimum and steps at
+  every update; SAC sums its critics' squared errors and steps its
+  temperature (alpha, not its log) on the actor loss's own log-densities.
+  The critics read the agent's [-1, 1] actions.
+- One difference remains: torch's GRU has two biases for each of its r and
+  z gates (`b_ih` and `b_hh`), flax's one. Ajax's starts as their sum, but
+  Adam steps each of torch's pair as far as Ajax's one bias, so Ni et
+  al.'s gate biases move twice as far, and the actor, whose step reads the
+  stepped critic, follows by about 1e-3 of its step (TD3; SAC about 2e-5).
+  With one bias per gate on both sides, one update of recurrent SAC and TD3
+  matches Ni et al.'s leaf by leaf
+  (`tests/conformance/test_ni_recurrent_original.py`).
+
+These are `NetworkConfig`'s `input_embedding`, `shortcut_widths`,
+`embedding_kernel_init` and `critics_share_encoder`. `share_encoder=True`
+also gives the actor the critics' embeddings and memory
+([Networks](networks.md)).
+
+```python
+from ajax import SAC
+from ajax.networks.memory import MemoryConfig
+
+# Ni et al.'s networks: a 128-unit GRU reading the previous action and
+# reward, which the run observes.
+agent = SAC("Pendulum-v1", memory=MemoryConfig(kind="gru"))
+```
 
 With memory, SAC, TD3 and REDQ accept no expert policy and no extensions
 (behaviour cloning included, which is the `CloningPretrain` extension), and

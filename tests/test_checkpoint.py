@@ -11,6 +11,7 @@ import numpy as np
 import optax
 import pytest
 from flax import struct
+from jax.flatten_util import ravel_pytree
 
 from ajax.checkpoint import (
     checkpoint_exists,
@@ -18,6 +19,21 @@ from ajax.checkpoint import (
     restore_into,
     save_checkpoint,
 )
+
+
+def _moments_per_array(train_state):
+    """``train_state`` with its optimiser's moments as get_adam_tx held them
+    before its rule ran on one vector: one array per parameter array, in the
+    order optax.flatten joins them (jax's). Its states are vmapped over
+    seeds, so is each moment."""
+    one_seed = jax.tree.map(lambda leaf: leaf[0], train_state.params)
+    flat, unravel = ravel_pytree(one_seed)
+
+    def per_array(leaf):
+        is_moment = np.ndim(leaf) == 2 and np.shape(leaf)[1] == flat.size
+        return jax.vmap(unravel)(leaf) if is_moment else leaf
+
+    return train_state.replace(opt_state=jax.tree.map(per_array, train_state.opt_state))
 
 
 def test_save_and_load_simple_pytree(tmp_path):
@@ -43,6 +59,30 @@ def test_save_and_load_simple_pytree(tmp_path):
     assert jnp.allclose(loaded["a"], state["a"])
     assert jnp.allclose(loaded["b"]["c"], state["b"]["c"])
     assert jnp.allclose(loaded["b"]["d"], state["b"]["d"])
+
+
+def test_an_array_restores_into_the_memory_its_skeleton_keeps_it_in(tmp_path):
+    """A leaf the skeleton holds in pinned host memory (DreamerV3's replay
+    latents under replay_on_host) is restored there, with its values; a
+    device leaf stays on the device. Restoring to the default device would
+    stage the 8 GB-per-seed ring on an accelerator the option keeps it off."""
+    host = jax.sharding.SingleDeviceSharding(
+        jax.devices()[0], memory_kind="pinned_host"
+    )
+    state = {"ring": jnp.arange(6.0).reshape(2, 3), "count": jnp.array(3)}
+    path = str(tmp_path / "ckpt.pkl")
+    save_checkpoint(state, path)
+    skeleton = {
+        "ring": jax.device_put(np.zeros((2, 3), np.float32), host),
+        "count": jnp.array(0),
+    }
+    loaded = restore_into(skeleton, path)
+    assert loaded["ring"].sharding.memory_kind == "pinned_host"
+    assert (
+        loaded["count"].sharding.memory_kind == skeleton["count"].sharding.memory_kind
+    )
+    np.testing.assert_array_equal(loaded["ring"], np.arange(6.0).reshape(2, 3))
+    np.testing.assert_array_equal(loaded["count"], 3)
 
 
 def test_save_overwrites_existing(tmp_path):
@@ -262,6 +302,43 @@ def _without_key(state_dict, key):
     return {k: _without_key(v, key) for k, v in state_dict.items() if k != key}
 
 
+def test_an_apg_transformer_checkpoint_saved_before_key_value_caching_restores(
+    tmp_path,
+):
+    """Catches APG transformer checkpoints saved before its memory cached
+    keys and values failing to restore: their carry template held each
+    layer's inputs and validity flags, two arrays where the agent now holds
+    keys, values and flags. The template carries nothing to restore, so the
+    parameters come back and the agent's own template is kept."""
+    from ajax.agents.APG.APG import APG
+    from ajax.networks.memory import MemoryConfig
+
+    memory = MemoryConfig("transformer", 8, num_heads=2, window=3)
+    agent = APG("Pendulum-v1", n_envs=2, horizon=4, memory=memory)
+    state, _ = agent.train(seed=0, n_timesteps=16)
+    path = str(tmp_path / "old.pkl")
+    save_checkpoint(state, path)
+    with open(path, "rb") as fh:
+        saved = pickle.load(fh)
+    memory_carry = saved["actor_state"]["hidden_state"]["0"]
+    for layer, cached in memory_carry.items():  # keys, values, flags
+        memory_carry[layer] = {"0": np.zeros_like(cached["0"]), "1": cached["2"]}
+    with open(path, "wb") as fh:
+        pickle.dump(saved, fh)
+
+    restored = restore_into(state, path)
+
+    for got, want in zip(
+        jax.tree.leaves(restored.actor_state.params),
+        jax.tree.leaves(state.actor_state.params),
+        strict=True,
+    ):
+        np.testing.assert_array_equal(got, want)
+    assert jax.tree.structure(restored.actor_state.hidden_state) == jax.tree.structure(
+        state.actor_state.hidden_state
+    )
+
+
 def test_a_checkpoint_saved_before_the_non_finite_count_restores(tmp_path):
     """The envs' info gained the count: a run saved before it never counted,
     and starts at 0. Any other key missing from it still fails."""
@@ -391,15 +468,16 @@ def test_a_ppo_checkpoint_restores_only_into_its_own_log_std_head(tmp_path):
 def test_an_optimiser_state_saved_behind_its_own_clip_restores(tmp_path, agent_name):
     """PPO's and APO's networks each clipped their own gradient
     (get_adam_tx's chain, whose clip holds an empty state) until each took
-    its reference code's one clip over both. A checkpoint saved then
-    restores into today's unclipped Adams, every moment and step count
-    kept."""
+    its reference code's one clip over both. A checkpoint saved then, its
+    moments one array per parameter array, restores into today's unclipped
+    Adams, every moment and step count kept."""
     import optax
 
     import ajax
 
     agent_cls = getattr(ajax, agent_name)
-    agent = agent_cls(env_id="Pendulum-v1", n_envs=2, n_steps=8, batch_size=8)
+    rollout = {"n_envs": 2, "n_steps": 8, "batch_size": 8, "num_minibatches": 0}
+    agent = agent_cls(env_id="Pendulum-v1", **rollout)
     skeleton = agent.train(seed=0, n_timesteps=0)[0]
     moved = {  # moments and counts the skeleton does not hold
         name: jax.tree.map(lambda x: x + 1, getattr(skeleton, name).opt_state)
@@ -407,7 +485,14 @@ def test_an_optimiser_state_saved_behind_its_own_clip_restores(tmp_path, agent_n
     }
     old = skeleton.replace(
         **{
-            name: getattr(skeleton, name).replace(opt_state=(optax.EmptyState(), s))
+            name: getattr(skeleton, name).replace(
+                opt_state=(
+                    optax.EmptyState(),
+                    _moments_per_array(
+                        getattr(skeleton, name).replace(opt_state=s)
+                    ).opt_state,
+                )
+            )
             for name, s in moved.items()
         }
     )
@@ -431,8 +516,9 @@ def test_an_optimiser_state_of_another_network_behind_a_clip_is_refused(tmp_path
     agent = PPO(env_id="Pendulum-v1", n_envs=2, n_steps=8, batch_size=8)
     skeleton = agent.train(seed=0, n_timesteps=0)[0]
     actor = skeleton.actor_state
+    per_array = _moments_per_array(actor).opt_state
     old = skeleton.replace(
-        actor_state=actor.replace(opt_state=(optax.EmptyState(), actor.opt_state))
+        actor_state=actor.replace(opt_state=(optax.EmptyState(), per_array))
     )
     path = str(tmp_path / "clipped.pkl")
     save_checkpoint(old, path)
@@ -463,6 +549,47 @@ def test_another_agents_optimiser_saved_behind_a_clip_is_refused(sac_run, tmp_pa
         restore_into(state, path)
 
 
+def test_moments_saved_one_array_per_parameter_restore_as_one_vector(sac_run, tmp_path):
+    """get_adam_tx's rule runs on the parameters raveled into one vector, so
+    its moments are one vector each. A checkpoint saved before, one moment
+    array per parameter array, restores into that layout with every moment
+    and step count kept."""
+    state = sac_run.out[0]
+    old = state.replace(
+        actor_state=_moments_per_array(state.actor_state),
+        critic_state=_moments_per_array(state.critic_state),
+    )
+    path = str(tmp_path / "per_array.pkl")
+    save_checkpoint(old, path)
+    restored = restore_into(state, path)
+    for name in ("actor_state", "critic_state"):
+        same = jax.tree.map(
+            np.array_equal,
+            getattr(restored, name).opt_state,
+            getattr(state, name).opt_state,
+        )
+        assert all(jax.tree.leaves(same)), name
+
+
+def test_moments_saved_per_array_without_a_parameter_are_refused(sac_run, tmp_path):
+    """A checkpoint whose per-array moments miss one of the network's
+    parameters (another architecture's) is refused, not joined short."""
+    state = sac_run.out[0]
+    old = state.replace(critic_state=_moments_per_array(state.critic_state))
+    path = str(tmp_path / "per_array.pkl")
+    save_checkpoint(old, path)
+    with open(path, "rb") as fh:
+        saved = pickle.load(fh)
+    layers = saved["critic_state"]["opt_state"]["0"]["mu"]
+    while len(layers) == 1:  # down to the first level naming two or more
+        layers = next(iter(layers.values()))
+    layers.pop(sorted(layers)[0])
+    with open(path, "wb") as fh:
+        pickle.dump(saved, fh)
+    with pytest.raises(ValueError, match="no moment for the parameter"):
+        restore_into(state, path)
+
+
 def test_an_apo_checkpoint_restores_only_into_its_own_hidden_widths(tmp_path):
     """APO's hidden layers were two of 128 units before its reference code's
     two of 64. Its checkpoint saved then is refused by the default network
@@ -471,7 +598,7 @@ def test_an_apo_checkpoint_restores_only_into_its_own_hidden_widths(tmp_path):
     restores."""
     from ajax.agents.APO.APO import APO
 
-    kw = {"n_envs": 2, "n_steps": 8, "batch_size": 8}
+    kw = {"n_envs": 2, "n_steps": 8, "num_minibatches": 1}
     wide = ("128", "tanh", "128", "tanh")
 
     def skeleton(**net):
@@ -712,6 +839,8 @@ def _ppo_normalising(env_id: str):
         n_steps=8,
         batch_size=8,
         normalize_observations=True,
+        # The checkpoints these tests fake predate any reward normaliser.
+        normalize_rewards=False,
     )
 
 

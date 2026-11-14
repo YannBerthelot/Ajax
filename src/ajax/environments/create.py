@@ -5,6 +5,7 @@ from types import ModuleType
 from typing import Any, Callable, Optional, Tuple, Union
 
 import gymnax
+import jax
 from gymnax import EnvParams
 
 from ajax.environments.utils import (
@@ -21,6 +22,7 @@ from ajax.types import EnvNormalizationInfo
 from ajax.wrappers import (
     AutoResetWrapper,
     BatchRngWrapper,
+    BinaryObservations,
     ClipAction,
     ClipActionBrax,
     EpisodeKeyedAutoResetWrapper,
@@ -31,6 +33,7 @@ from ajax.wrappers import (
     NonFiniteStepWrapper,
     NormalizeVecObservationBrax,
     NormalizeVecObservationGymnax,
+    WarpCapacityWrapper,
     get_wrappers,
 )
 
@@ -180,6 +183,41 @@ def register_playground_builder(env_id: str, builder) -> None:
     _PLAYGROUND_BUILDERS[env_id] = builder
 
 
+#: Deliberate workaround. Playground 0.2's DeepMind Control Reacher model
+#: builder (dm_control_suite/reacher.py, _make_model) compares MuJoCo versions
+#: as strings: "3.10.0" sorts before "3.3.0", so from MuJoCo 3.10 it calls
+#: MjSpec.find_body, which MuJoCo removed, and ReacherEasy and ReacherHard
+#: fail to build. Playground fixed it in commit 33f1b284 (compare
+#: mj_version() as a number), which no 0.x release holds. Until one does,
+#: the builder is replaced by a copy with that fix, only while the installed
+#: Playground still compares strings; remove this once it does not.
+_PLAYGROUND_STRING_VERSION_CHECK = 'mujoco.__version__ >= "3.3.0"'
+
+
+def _make_reacher_model(xml_path: Any, target_size: float, assets: dict) -> Any:
+    """Playground's reacher._make_model with upstream's fix (33f1b284)."""
+    import mujoco
+
+    spec = mujoco.MjSpec.from_string(xml_path.read_text(), assets)
+    if mujoco.mj_version() >= 3_003_000:
+        target_body = spec.body("target")
+    else:
+        target_body = spec.find_body("target")
+    target_body.first_geom().size[0] = target_size
+    return spec.compile()
+
+
+def _patch_playground_reacher(reacher: Any) -> bool:
+    """Gives Playground's Reacher module the fixed model builder if its own
+    still compares versions as strings. Returns whether it patched."""
+    import inspect
+
+    if _PLAYGROUND_STRING_VERSION_CHECK not in inspect.getsource(reacher._make_model):
+        return False
+    reacher._make_model = _make_reacher_model
+    return True
+
+
 def _build_playground_env(
     env_id: str,
     n_envs: int,
@@ -238,7 +276,12 @@ def _build_playground_env(
         task = gymnasium_mjx.make(env_id.removeprefix(MUJOCO_PREFIX), physics=physics)
         raw = gymnasium_mjx.playground.PlaygroundTask(task)
     else:
+        from mujoco_playground._src.dm_control_suite import reacher
+
+        _patch_playground_reacher(reacher)
         raw = registry.load(env_id, config_overrides={"impl": physics})
+    if physics == "warp":
+        raw = WarpCapacityWrapper(raw)
     env = wrap_playground_env(
         raw,
         n_envs,
@@ -362,6 +405,26 @@ def _build_brax_env(
     return env
 
 
+def _check_warp_physics(differentiable_reset: bool = False) -> None:
+    """Refuse MuJoCo Warp physics where it cannot run: without a GPU (its
+    kernels are CUDA only; on a CPU MJX fails with "Unknown backend cuda"),
+    and with gradients through the physics, for which MJX gives its Warp
+    kernels no rule."""
+    backend = jax.default_backend()
+    if backend != "gpu":
+        raise ValueError(
+            "physics='warp' runs MuJoCo Warp, which needs an NVIDIA GPU, and"
+            f" JAX runs on {backend!r} here. physics='jax' runs the same"
+            " tasks on any device."
+        )
+    if differentiable_reset:
+        raise ValueError(
+            "differentiable_reset=True is for gradients through the reset,"
+            " and MuJoCo Warp cannot be differentiated through. Use"
+            " physics='jax'."
+        )
+
+
 def build_env_from_id(
     env_id: str,
     n_envs: int = 1,
@@ -377,8 +440,9 @@ def build_env_from_id(
 
     ``"mujoco:<id>"`` builds Gymnasium's MuJoCo task ``<id>`` (such as
     ``"mujoco:Reacher-v5"``) on MJX, from the gymnasium-mjx package (the
-    ``gymnasium-mjx`` extra), with the playground stack; ``episode_length`` defaults to the task's time
-    limit in Gymnasium's registry, and to 1000 for every other id.
+    ``gymnasium-mjx`` extra), with the playground stack; ``episode_length``
+    defaults to the task's time limit in Gymnasium's registry, and to 1000
+    for every other id.
 
     ``"gymnasium:<id>"`` builds the Gymnasium environment ``<id>``, which
     steps in Python (:class:`ajax.environments.gymnasium.GymnasiumEnv`); the
@@ -420,15 +484,18 @@ def build_env_from_id(
     auto-reset, which reproduces runs from before episode keys.
     playground's cached auto-reset (``fresh_reset=False``) ignores it.
 
-    ``physics`` only concerns mujoco_playground envs: ``"jax"`` (the default,
-    on a CPU or a GPU) is MJX's pure-JAX implementation, so that a run's
-    physics does not depend on the device; ``"warp"`` is Playground's own
-    default, which needs a GPU and which Ajax's training loop does not run on
-    yet.
+    ``physics`` only concerns mujoco_playground envs, ``"mujoco:"`` ones
+    included: ``"jax"`` (the default, on a CPU or a GPU) is MJX's pure-JAX
+    implementation, so that a run's physics does not depend on the device;
+    ``"warp"`` is MuJoCo Warp, Playground's own default, which needs an
+    NVIDIA GPU and cannot be differentiated through, so it refuses
+    ``differentiable_reset=True``.
     """
     check_action_repeat(action_repeat)
     if physics not in PLAYGROUND_PHYSICS:
         raise ValueError(f"physics={physics!r}: expected one of {PLAYGROUND_PHYSICS}.")
+    if physics == "warp":
+        _check_warp_physics(differentiable_reset)
     if env_id.startswith(MUJOCO_PREFIX):
         tasks = _gymnasium_mjx().TASKS
         task_id = env_id.removeprefix(MUJOCO_PREFIX)
@@ -465,6 +532,8 @@ def build_env_from_id(
                 " envs only (no gymnax task in the reproduced papers uses it)."
             )
         env, env_params = gymnax.make(env_id)
+        if env_id.endswith("-MinAtar"):
+            env = BinaryObservations(env)
         # Ajax's actor/critic heads consume a flat observation vector: a Dense
         # layer applied to an unflattened (H, W, C) observation produces one
         # action distribution *per spatial cell* instead of one per env. That

@@ -96,7 +96,7 @@ def ref_path(p: str) -> str | None:
 
 
 def leaves(tree: Any) -> dict[str, Any]:
-    return {norm(p): x for p, x in jax.tree_util.tree_leaves_with_path(tree)}
+    return {norm(p): x for p, x in kit.leaves_with_path(tree)}
 
 
 def phi(sides: Sides, rs: Any, prev_done: np.ndarray) -> Any:
@@ -114,7 +114,7 @@ def phi(sides: Sides, rs: Any, prev_done: np.ndarray) -> Any:
             else jnp.asarray(ref[r], x.dtype).reshape(x.shape)
         )
 
-    return jax.tree_util.tree_map_with_path(put, sides.s0)
+    return kit.map_with_path(put, sides.s0)
 
 
 def role(draws: dict, sampler: str, site: str) -> kit.Role:

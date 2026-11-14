@@ -85,7 +85,13 @@ import jax.numpy as jnp
 import numpy as np
 from flax import struct
 
-from ajax.controller import ObserveInputs, observe_features, restart_observers
+from ajax.controller import (
+    ObserveInputs,
+    observe_features,
+    previous_action_input,
+    previous_reward_input,
+    restart_observers,
+)
 from ajax.environments.interaction import (
     get_final_obs,
     init_rolling_mean,
@@ -368,7 +374,15 @@ def collect_row(
             nxt.is_first, env_args.observers, observer_states, None, None, n_envs
         )
         inputs = ObserveInputs(
-            nxt.obs.astype(jnp.float32), timestep=cs.timestep, horizon=cs.max_timesteps
+            nxt.obs.astype(jnp.float32),
+            timestep=cs.timestep,
+            horizon=cs.max_timesteps,
+            previous_action=previous_action_input(
+                env_args.observers, action, n_envs, env, env_params
+            ),
+            previous_reward=previous_reward_input(
+                env_args.observers, nxt.reward, n_envs
+            ),
         )
         next_obs, observer_states = observe_features(
             nxt.obs, inputs, env_args.observers, observer_states

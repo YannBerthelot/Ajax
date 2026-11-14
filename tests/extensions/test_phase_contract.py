@@ -124,8 +124,8 @@ OVERRIDES: dict[str, dict] = {
     "TD3": {"policy_delay": 1},
     "CrossQ": {"policy_delay": 1},
     "PPO": {"batch_size": 16},
-    "APO": {"batch_size": 16},
-    "PQN": {"n_epochs": 1, "num_minibatches": 1},
+    "APO": {"num_minibatches": 1, "n_envs": 4},
+    "PQN": {"n_epochs": 1, "num_minibatches": 1, "n_envs": 8},
 }
 #: The world models' runs (what they train on, options, n_timesteps): their
 #: agent tests' tiny sizes and a few updates.

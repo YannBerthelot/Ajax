@@ -13,6 +13,7 @@ from types import SimpleNamespace
 from typing import Any
 from unittest import mock
 
+import gymnax
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -25,6 +26,7 @@ from ajax.agents import loop as loop_module
 from ajax.agents.APO.APO import APO
 from ajax.agents.loop import TrainLoop
 from ajax.agents.SAC.SAC import SAC
+from ajax.agents.UDRL.UDRL import UDRL
 from ajax.agents.update_steps import (
     REPLAY_ACTOR_KEYS,
     actor_step,
@@ -36,6 +38,7 @@ from ajax.agents.update_steps import (
     run_actor_if,
     run_if,
 )
+from ajax.buffers import dataset
 from ajax.checkpoint import restore_into, save_checkpoint
 from ajax.evaluate import evaluate
 from ajax.extensions.base import Extension, ExtensionStack, merge_metrics
@@ -68,6 +71,7 @@ class State(Replaceable):
     collector_state: Collector
     value: jax.Array
     ext_state: tuple = ()
+    last_update_metrics: Any = None
 
 
 @struct.dataclass
@@ -153,6 +157,42 @@ def test_the_collector_acts_uniformly_until_uniform_steps(uniform_steps, uniform
         for tick in range(3):
             state, _ = built["iteration"](state, 0, tick)
     assert seen == uniform
+
+
+@pytest.mark.parametrize(
+    "n_envs, updated_at", [(1, [4, 8, 12]), (3, [6, 9, 12]), (6, [6, 12])]
+)
+def test_an_update_comes_when_the_steps_collected_reach_a_multiple(n_envs, updated_at):
+    """With update_every 4 (a replay agent's train_frequency), a tick updates
+    when the env steps it collects reach a multiple of 4, as log_frequency's
+    gate opens: 3 envs reach 4 at 6, 8 at 9, 12 at 12; 6 envs reach one every
+    tick. Counting ticks rather than steps, or missing a multiple passed
+    inside a tick, updates elsewhere."""
+
+    def collect(agent_state, _, uniform, **kwargs):
+        steps = agent_state.collector_state.timestep + n_envs
+        return agent_state.replace(collector_state=Collector(steps)), None
+
+    loop = dataclasses.replace(
+        _loop(), env_args=SimpleNamespace(mode="gymnax", n_envs=n_envs)
+    )
+    built = {}
+
+    def train(self, init, iteration, *args, **kwargs):
+        built["iteration"] = iteration
+
+    with (
+        mock.patch.object(loop_module, "collect_experience", collect),
+        mock.patch.object(TrainLoop, "train", train),
+    ):
+        loop.off_policy(None, lambda s, _: _update(s), 0, update_every=4)
+        state, seen = _state(0), []
+        for tick in range(12 // n_envs):
+            before = float(state.value)
+            state, _ = built["iteration"](state, 0, tick)
+            if float(state.value) > before:
+                seen.append(int(state.collector_state.timestep))
+    assert seen == updated_at
 
 
 def test_post_update_leaves_the_updates_key() -> None:
@@ -554,7 +594,7 @@ def _apo() -> APO:
         "Pendulum-v1",
         n_envs=2,
         n_steps=8,
-        batch_size=8,
+        num_minibatches=1,
         n_epochs=1,
         actor_architecture=net,
         critic_architecture=net,
@@ -594,6 +634,22 @@ def test_train_returns_the_evaluations_the_logger_receives() -> None:
         for key, value in rows.items():
             empty = -1 if np.issubdtype(value.dtype, np.integer) else np.nan
             np.testing.assert_array_equal(value[seed, len(logged) :], empty, key)
+
+
+def test_an_uneven_log_frequency_evaluates_at_the_first_step_past_each_multiple() -> (
+    None
+):
+    """16-step iterations evaluated every 24 steps evaluate at 32 (the
+    first step at or past 24) and 48, in chunks of two ticks then one.
+    Catches chunks of a fixed ceil(24 / 16) = 2 ticks, which miss the tick
+    the gate opens on and evaluate at 32 and 64."""
+    _, rows = _apo().train(
+        seed=SEEDS,
+        n_timesteps=BUDGET,
+        num_episode_test=1,
+        logging_config=_config(log_frequency=24),
+    )
+    np.testing.assert_array_equal(rows["timestep"], [[32, 48]] * len(SEEDS))
 
 
 def test_a_logged_run_resumes_from_its_checkpoint(tmp_path: Any) -> None:
@@ -779,3 +835,139 @@ def test_an_agents_own_evaluation_runs_every_few_ticks() -> None:
     # Rows for every evaluation a call of 5 ticks can make; none without.
     assert evaluation.count(5) == 3
     assert dataclasses.replace(evaluation, every=None).count(5) == 0
+
+
+# --- The ticks the host plans evaluations on, and the ticks the gate opens on
+# A logged run's host plans its chunks of training to end on the ticks it
+# expects an evaluation after (TrainLoop.logging_ticks, Evaluation.ticks), and
+# runs the evaluation program there alone; the traced gate in that program
+# (ajax.log.evaluate_and_log, Evaluation.due) still decides. An evaluation the
+# gate would open on a tick the host did not plan is put off to the next
+# planned tick, or lost at the end of the call.
+NET = ("8", "relu")
+
+
+def _sac(env_params: Any = None) -> SAC:
+    return SAC(
+        "Pendulum-v1",
+        env_params=env_params,
+        n_envs=2,
+        actor_architecture=NET,
+        critic_architecture=NET,
+        learning_starts=8,
+        batch_size=8,
+        buffer_size=64,
+        policy_update_start=0,
+    )
+
+
+def _udrl() -> UDRL:
+    return UDRL(
+        "CartPole-v1",
+        n_envs=2,
+        actor_architecture=NET,
+        n_steps=8,
+        batch_size=8,
+        n_updates_per_iter=1,
+        buffer_capacity=8,
+    )
+
+
+def _offline_sac(log_frequency: int) -> Any:
+    """SAC's offline training on 12 updates, as a call."""
+
+    def still(obs: jax.Array) -> jax.Array:
+        return jnp.zeros(obs.shape[:-1] + (1,))
+
+    # Episodes of 8 steps: the recording keeps whole episodes alone.
+    short = gymnax.make("Pendulum-v1")[1].replace(max_steps_in_episode=8)
+    agent = _sac(short)
+    rows = dataset.record(still, agent.env_args, jax.random.PRNGKey(0), 16)
+    config = _config(log_frequency=log_frequency)
+    return lambda: agent.train_offline(
+        rows, n_updates=12, seed=0, num_episode_test=1, logging_config=config
+    )
+
+
+def _planned_and_opened(
+    run: Any, steps_per_tick: int, start: int = 0
+) -> tuple[list, list, dict, Any]:
+    """The ticks of a call starting at timestep start that the host planned
+    an evaluation after, those whose rows show an evaluation, the rows, and
+    the final state. Its ticks count from the call's first, as these
+    families' do."""
+    plans: list = []
+    chunked = loop_module.build_chunked_train
+
+    def spy(**kwargs: Any) -> Any:
+        plans.append((kwargs["due"], kwargs["num_updates"]))
+        return chunked(**kwargs)
+
+    with mock.patch.object(loop_module, "build_chunked_train", spy):
+        state, rows = run()
+    (due, n_ticks), *_ = plans
+    ticks = np.arange(n_ticks)
+    planned = ticks[np.asarray(due(ticks), dtype=bool)].tolist()
+    timesteps = np.asarray(rows["timestep"])[0]
+    opened = [(int(t) - start) // steps_per_tick - 1 for t in timesteps if t >= 0]
+    return planned, opened, rows, state
+
+
+def _train(agent: Any, steps: int, log_frequency: int, **kwargs: Any) -> Any:
+    config = _config(log_frequency=log_frequency)
+    return lambda: agent.train(
+        seed=0, n_timesteps=steps, num_episode_test=1, logging_config=config, **kwargs
+    )
+
+
+# Each family's evaluations, worked out from log_frequency: the k-th comes
+# on the first tick whose timestep reaches k * log_frequency.
+@pytest.mark.parametrize(
+    "run, steps_per_tick, timesteps",
+    [
+        # 2 env steps a tick, every 5 steps: 6 (past 5), 10, 16 (past 15), 20.
+        pytest.param(lambda: _train(_sac(), 24, 5), 2, [6, 10, 16, 20], id="replay"),
+        # 16 env steps an iteration, every 24 steps: 32 (past 24), 48.
+        pytest.param(lambda: _train(_apo(), 64, 24), 16, [32, 48], id="on-policy"),
+        # One update a tick, every 5 updates: 5, 10.
+        pytest.param(lambda: _offline_sac(5), 1, [5, 10], id="offline"),
+        # Its own iterations of 16 env steps, every 2 iterations: 32, 64.
+        pytest.param(lambda: _train(_udrl(), 64, 32), 16, [32, 64], id="own-loop"),
+    ],
+)
+def test_the_host_plans_the_ticks_the_gate_opens_on(
+    run: Any, steps_per_tick: int, timesteps: list
+) -> None:
+    planned, opened, rows, _ = _planned_and_opened(run(), steps_per_tick)
+    evaluated = np.asarray(rows["timestep"])[0]
+    assert evaluated[evaluated >= 0].tolist() == timesteps
+    assert opened == planned
+
+
+def test_a_resumed_run_plans_the_ticks_its_gate_opens_on() -> None:
+    """A run resumed at 24 steps, after its evaluations at 6, 10, 16 and 20,
+    goes on at 26 (past 25), 30, 36, 40 and 46. The bug: a resumed call
+    planning its ticks from timestep 0, which evaluated at 30, 34, 40 and 44
+    and lost the evaluation at 46 (its row stayed empty)."""
+    agent = _sac()
+    _, _, _, first = _planned_and_opened(_train(agent, 24, 5), 2)
+    resumed = _train(agent, 24, 5, initial_state=first)
+    planned, opened, rows, _ = _planned_and_opened(resumed, 2, start=24)
+    assert np.asarray(rows["timestep"])[0].tolist() == [26, 30, 36, 40, 46]
+    assert opened == planned
+
+
+def test_a_sweep_opens_its_gate_only_on_planned_ticks_of_its_last_fifth() -> None:
+    """A sweep evaluates only from 80% of the run (19.2 of 24 steps): at 20.
+    The host still plans the earlier ticks (6, 10 and 16), where the gate
+    stays shut: their programs run for nothing until the host decides the
+    sweep's ticks itself."""
+    config = LoggingConfig(log_frequency=5, backends=(), sweep=True)
+    agent = _sac()
+    run = lambda: agent.train(  # noqa: E731
+        seed=0, n_timesteps=24, num_episode_test=1, logging_config=config
+    )
+    planned, opened, rows, _ = _planned_and_opened(run, 2)
+    evaluated = np.asarray(rows["timestep"])[0]
+    assert evaluated[evaluated >= 0].tolist() == [20]
+    assert opened == [9] and planned == [2, 4, 7, 9]

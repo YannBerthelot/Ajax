@@ -11,8 +11,9 @@ CPU measurements unless a line says otherwise.
 
 ## The compile cache
 
-`train` compiles the whole run, environment included, into one program.
-That takes seconds to tens of seconds, and a fresh Python process would pay
+`train` compiles the whole run, environment included. With logging, the
+training between evaluations and the evaluation are separate programs. That
+takes seconds to tens of seconds, and a fresh Python process would pay
 it every time. So `import ajax` points JAX's persistent compile cache at
 `~/.cache/ajax/jax_compile_cache`: a later process that compiles the same
 program loads it from disk instead.
@@ -113,9 +114,21 @@ at once on an otherwise idle card gave 1.9 times the throughput of one.
 the same machine's CPU, in `benchmarks/gpu/report.md`.
 
 The logging worker always runs on the CPU, so it never takes GPU memory.
-Playground runs MJX's pure-JAX physics on every device. In a raw stepping loop
-Warp, its other implementation, ran 3 to 10 times faster on an L40S, but Ajax's
-training loop does not run on it yet (`physics="warp"`, needs a GPU).
+Playground runs MJX's pure-JAX physics on every device by default. On a GPU,
+MuJoCo Warp (`physics="warp"`, see [Environments](environments.md)) trained
+about five times faster on an L40S, with 10 seeds of one environment each:
+
+| Agent, task | Pure JAX | Pure JAX, command buffers | Warp |
+|---|---:|---:|---:|
+| SAC, `mujoco:Hopper-v5` | 28 | 38 | 181 |
+| PPO, `mujoco:HalfCheetah-v5` | 84 | 102 | 569 |
+
+These are steps per second per seed, from timing runs without evaluations.
+With 100 seeds, SAC on Warp ran 80 steps per second per seed, 8,000 in all.
+The command buffers are `XLA_FLAGS="--xla_gpu_enable_command_buffer=FUSION,CUBLAS,CUBLASLT,CUSTOM_CALL,CUDNN,WHILE,CONDITIONAL --xla_gpu_graph_min_graph_size=1 --xla_gpu_command_buffer_unroll_loops=true"`;
+without the last flag they gave pure JAX 32 and 85.
+Leave command buffers off with Warp: without the last flag they slowed its
+PPO run to 173 steps per second per seed, with or without `CUSTOM_CALL`.
 
 A GPU doesn't promise the same result twice by default: two identical PPO runs
 on HumanoidWalk differed. `XLA_FLAGS=--xla_gpu_deterministic_ops=true` made

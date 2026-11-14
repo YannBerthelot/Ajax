@@ -30,6 +30,7 @@ from flax import struct
 from flax.core import FrozenDict
 from flax.training.train_state import TrainState
 
+from ajax.agents.update_steps import compute_gradients
 from ajax.networks.utils import dense, parse_architecture
 
 #: The authors' initialisation of every layer (modules.py:40-43, ortho_init).
@@ -127,10 +128,11 @@ def step_reset_critic(
     next_values = apply(state.target_params, next_inputs)
     target = jax.lax.stop_gradient(terminated - state.rate + next_values)
 
-    def loss(params: FrozenDict) -> jax.Array:
-        return jnp.mean((apply(params, inputs) - target) ** 2)
+    def loss(params: FrozenDict) -> tuple[jax.Array, jax.Array]:
+        value = jnp.mean((apply(params, inputs) - target) ** 2)
+        return value, value
 
-    value, grads = jax.value_and_grad(loss)(state.critic.params)
+    grads, value = compute_gradients(loss, state.critic.params)
     rate = (1 - rate_tau) * state.rate + rate_tau * gain * jnp.mean(next_values)
     critic = state.critic.apply_gradients(grads=grads)
     return dataclasses.replace(state, critic=critic, rate=rate), {
@@ -141,10 +143,10 @@ def step_reset_critic(
 def step_reset_cost(state: ResetCostState, target_rate: float) -> ResetCostState:
     """One Adam step of c down -c (xi_reset - eps) (Eq. 24), then c >= 0."""
 
-    def loss(params: FrozenDict) -> jax.Array:
-        return -params["cost"] * (state.rate - target_rate)
+    def loss(params: FrozenDict) -> tuple[jax.Array, None]:
+        return -params["cost"] * (state.rate - target_rate), None
 
-    grads = jax.grad(loss)(state.cost.params)
+    grads, _ = compute_gradients(loss, state.cost.params)
     cost = state.cost.apply_gradients(grads=grads)
     clamped: FrozenDict = FrozenDict({"cost": jnp.maximum(cost.params["cost"], 0.0)})
     return dataclasses.replace(state, cost=cost.replace(params=clamped))

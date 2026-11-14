@@ -2,7 +2,7 @@
 Release workflow's installed-package gate: the core install, and each extra
 installed on its own.
 
-    python tests/release_smoke.py core|brax|playground|gymnasium|compare|reproduction|manifolds|wandb|cuda
+    python tests/release_smoke.py core|brax|playground|gymnasium|gymnasium-mjx|compare|reproduction|manifolds|wandb|cuda
 
 Each check is the smallest real use, seconds long. It imports only the
 standard library and what the install it checks brings, not even pytest,
@@ -176,6 +176,7 @@ CHECKS = {
     "brax": lambda: step_env("fast"),
     "playground": lambda: step_env("CartpoleBalance"),
     "gymnasium": gymnasium_env,
+    "gymnasium-mjx": lambda: step_env("mujoco:Reacher-v5"),
     "compare": compare,
     "reproduction": reproduction,
     "manifolds": manifolds,

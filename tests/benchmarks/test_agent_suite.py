@@ -122,7 +122,9 @@ def test_every_agent_is_benchmarked_or_excluded_with_a_reason():
 def test_every_benchmark_builds_and_chunks_on_whole_iterations(label):
     benchmark = agent_suite.BENCHMARKS[label]
     agent = agent_suite.build(label)  # refuses an env the agent cannot run
-    assert set(benchmark.options).issubset({"n_envs"})
+    # Default settings apart from n_envs, and options that change no number:
+    # DreamerV3's replay latents in host memory (bit-identical, PR #426).
+    assert set(benchmark.options).issubset({"n_envs", "replay_on_host"})
     assert benchmark.reason.strip()
     assert benchmark.budget % benchmark.eval_every == 0
     assert benchmark.eval_every % agent_suite.iteration_steps(agent) == 0
@@ -148,6 +150,14 @@ def test_a_gymnasium_mujoco_task_is_labelled_without_its_prefix():
     further = agent_suite.on_more_tasks(("SAC",), ("mujoco:Hopper-v5",))
     assert list(further) == ["SAC-Hopper-v5"]
     assert further["SAC-Hopper-v5"].env_id == "mujoco:Hopper-v5"
+
+
+def test_tdmpc2_runs_only_the_gymnasium_mujoco_tasks_without_terminations():
+    # Paper-era TD-MPC2 refuses episodes that end before the time limit, and
+    # Hopper's end when it falls; HalfCheetah's always run to the limit.
+    assert "TDMPC2-HalfCheetah-v5" in agent_suite.BENCHMARKS
+    assert "TDMPC2-Hopper-v5" not in agent_suite.BENCHMARKS
+    assert "SAC-Hopper-v5" in agent_suite.BENCHMARKS
 
 
 # --- run, on the fake trainer ------------------------------------------------
@@ -331,6 +341,25 @@ def test_a_manifest_says_which_device_and_xla_flags_a_run_used(monkeypatch):
     assert manifest["device"] == jax.devices()[0].device_kind
 
 
+def test_dreamerv3_benchmarks_keep_their_replay_latents_in_host_memory():
+    """10 seeds of DreamerV3 fit one GPU job only with the latents on the host."""
+    assert agent_suite.BENCHMARKS["DreamerV3"].options["replay_on_host"] is True
+    assert agent_suite.BENCHMARKS["DreamerV3-Hopper-v5"].options["replay_on_host"]
+
+
+def test_a_manifest_says_which_physics_engine_a_run_used():
+    """Warp and pure-JAX runs give different runs, so a record must say which."""
+    assert agent_suite.manifest()["physics"] == "jax"
+    assert agent_suite.manifest("warp")["physics"] == "warp"
+
+
+@pytest.mark.skipif(jax.default_backend() != "cpu", reason="Warp runs on a GPU")
+def test_a_warp_benchmark_builds_its_env_with_warp_physics():
+    """The physics choice reaches the env builder: on a CPU, Warp's refusal."""
+    with pytest.raises(ValueError, match="warp"):
+        agent_suite.build("SAC-Hopper-v5", physics="warp")
+
+
 def test_a_chunk_reports_each_seeds_non_finite_steps(monkeypatch, tmp_path):
     """The stand-in's episodes diverge at step 3. Each seed's 2 envs, 8 steps
     each, diverge at steps 3 and 6: 4. An evaluation episode lasts those 3."""
@@ -387,6 +416,7 @@ def test_an_on_policy_run_ends_each_chunk_where_it_is_asked(tmp_path, monkeypatc
     rollouts and no more: on a tiny PQN (rollouts of 2 envs x 8 steps,
     evaluated every 2 of them), each chunk ends where run_seeds asks."""
     options = {"n_envs": 2, "n_steps": 8, "architecture": ("8", "relu")}
+    options.update({"num_minibatches": 4})  # 16 rows a rollout
     tiny = agent_suite.Benchmark("CartPole-v1", 64, 32, "tiny", options)
     monkeypatch.setitem(agent_suite.BENCHMARKS, "PQN", tiny)
     path = tmp_path / "seeds-0-1.jsonl"
@@ -411,8 +441,9 @@ def test_an_on_policy_run_ends_each_chunk_where_it_is_asked(tmp_path, monkeypatc
 def test_time_resumes_past_the_warm_up_and_counts_every_seeds_steps():
     record = agent_suite.time_agent("DQN", n_seeds=2, steps=64)
 
-    # DQN acts on one env (iterations of 1 step) and updates from step 1000.
-    assert record["warm_up_steps"] == 1001
+    # DQN acts on one env (iterations of 1 step) and updates from step
+    # 10,000, its learning_starts (CleanRL's dqn.py:69).
+    assert record["warm_up_steps"] == 10_001
     assert record["measured_steps"] == 64
     assert record["env_steps_per_s"] == pytest.approx(
         2 * record["run_steps_per_s"], rel=1e-2

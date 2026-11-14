@@ -31,6 +31,7 @@ from ajax.agents.TD3.TD3 import make_default_action_pipeline
 from ajax.buffers.dataset import TransitionDataset
 from ajax.extensions import (
     adversarial,
+    annealing,
     centering,
     cheq,
     ensemble,
@@ -127,12 +128,16 @@ OPTIONS.update(
         "weight_decay": {"weight_decay": 1e-2},
         "unroll_length": {"unroll_length": 8},
         "normalize_advantage": {"normalize_advantage": False},
+        "clip_value_loss": {"clip_value_loss": False},
         **{k: {k: None} for k in NEGATED},
         "expert_policy": {"expert_policy": EXPERT},
         "eval_expert_policy": {"eval_expert_policy": EXPERT},
         "action_pipeline": {"action_pipeline": None},  # TD3's, for the row's actor
         "n_gradient_steps": {"n_gradient_steps": 2},
+        "train_frequency": {"train_frequency": 2},
         "n_epochs": {"n_epochs": 2},
+        "actor_lr_decay": {"actor_lr_decay": None},
+        "lr_linear_decay": {"lr_linear_decay": False},
         "cnn_image_shape": {"cnn_image_shape": None},
         "mlp": {"cnn_image_shape": None},  # the CNN's alternative
         "lr_schedule": {"lr_schedule": "warmup_cosine", "warmup_steps": 2},
@@ -156,6 +161,11 @@ ELSEWHERE = {
     "system_class": "agents/APG/test_APG.py",
     "controller_factory": "agents/APG/test_APG.py",
     "alpha_learning_rate": "agents/CrossQ/test_CrossQ.py",
+    "observation_clip": "environments/test_observation_clip.py",
+    "share_encoder": "agents/test_share_encoder.py",
+    # None resolves to the reference's, with memory or without.
+    "batch_size": "agents/test_ni_recurrent_replay.py",
+    "policy_delay": "agents/TD3/test_TD3.py",
 }
 #: Each src extension's builder and the agents whose rows take it, in stack
 #: order (cloning seeds the statistics the other pretraining reads).
@@ -188,6 +198,7 @@ EXTENSIONS: dict[str, tuple[Callable[[], Extension], str]] = {
     # Critics without LayerNorm: the rows' options leave the architecture.
     "RLPD": (lambda: retained.RLPD(8, critic_layer_norm=False), "SAC REDQ"),
     "CHEQ": (lambda: cheq.CHEQ(adaptation_start=0), "SAC"),
+    "MEW": (lambda: annealing.MEW(history=101), "SAC AVG"),
     "EpsilonGreedyPresample": (lambda: porl.EpsilonGreedyPresample(8), "SAC TD3"),
     "ExpertPrefill": (
         lambda: pre.ExpertPrefill(n_steps=8),
@@ -214,6 +225,8 @@ EXTENSIONS: dict[str, tuple[Callable[[], Extension], str]] = {
     "ExpertStateInput": (lambda: observe.ExpertStateInput.for_expert(EXPERT), "SAC"),
     "TrainingProgressInput": (observe.TrainingProgressInput, "SAC APG"),
     "PIDTermsInput": (lambda: observe.PIDTermsInput((0,), (1,)), "SAC"),
+    "PreviousAction": (observe.PreviousAction, "SAC PPO DQN APG"),
+    "PreviousReward": (observe.PreviousReward, "SAC PPO DQN"),
     # Last of the extensions shaping the target, as it requires.
     "ValueCentering": (centering.ValueCentering, "SAC TD3"),
     # Its rows read nothing of the episode a termination ended (check_stack).
@@ -269,6 +282,8 @@ FEATURES_ON_OBSERVATIONS = (
     "ExpertStateInput",
     "TrainingProgressInput",
     "PIDTermsInput",
+    "PreviousAction",
+    "PreviousReward",
 )
 #: Options no row takes together: one of each group, and no pair across these.
 ONE_OF = [{"normalize_rewards", "reward_normalization_gamma"}, MEMORY, set(ENVS)]
@@ -300,7 +315,7 @@ EXCLUSIVE = [
     (
         {"PriorData"},
         {"fast", "CartPole-v1", "TrainingProgressInput"}.union(
-            {"PIDTermsInput", "CHEQ"}, EXPERTS
+            {"PIDTermsInput", "PreviousAction", "PreviousReward", "CHEQ"}, EXPERTS
         ),
     ),
     # A replay keeps one ring of retained rows.

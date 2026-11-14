@@ -14,6 +14,7 @@ import numpy as np
 import pytest
 
 from ajax import IQL
+from ajax.agents.DAgger.DAgger import ExponentialBetaSchedule
 from ajax.extensions.expert import JSRLCurriculum, ResidualPolicy
 from ajax.extensions.exploration import EDGEExploration
 from ajax.extensions.target_mods import IBRL
@@ -67,7 +68,9 @@ def test_a_discrete_agent_stores_the_experts_index_in_its_column() -> None:
     """DAgger on CartPole stores its own (n, 1) int column: the stage writes
     the expert's index there, not the actor's, also once DAgger's own mix
     hands the actor every step (beta 0 from its second iteration)."""
-    state, case = _run("DAgger", "CartPole-v1", _first, beta_decay=0.0)
+    state, case = _run(
+        "DAgger", "CartPole-v1", _first, beta_schedule=ExponentialBetaSchedule(0.0)
+    )
     rows = state.collector_state.buffer_state.experience
     stop = case.n_timesteps // 2
     np.testing.assert_array_equal(np.asarray(rows["action"])[..., :stop, 0], 1)

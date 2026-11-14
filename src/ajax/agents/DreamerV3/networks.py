@@ -55,6 +55,7 @@ reward head here emits the 255 that are used, as the later code does
 
 from __future__ import annotations
 
+import functools
 from typing import NamedTuple, Optional
 
 import flax.linen as nn
@@ -491,13 +492,113 @@ def observe(
     ``carry`` is the state before the first step. Returns the final carry and
     the per-step features ``[B, T, ...]`` (``nets.py:59-62``: a scan over the
     time axis, BPTT through all ``T`` steps).
+
+    The gradient is backpropagation through time, computed in two parts
+    (:func:`_observe_backward`). A reverse scan carries the gradient back
+    through the steps with the parameters held fixed; then the parameters'
+    gradient is taken once, from all B T steps together. Differentiating the
+    scan directly would add each step's weight gradient, a product over only
+    B rows, to a running sum inside the reverse scan: T small matrix products
+    per weight, each reading and writing the whole weight. The gradients are
+    the same up to float rounding.
+    """
+    inputs = _swap_batch_and_time((tokens, actions, is_first, noise))
+    carry, feats = _observe_time_major(rssm, params, carry, inputs)
+    return carry, _swap_batch_and_time(feats)
+
+
+def _swap_batch_and_time(tree):
+    return jax.tree.map(lambda x: jnp.swapaxes(x, 0, 1), tree)
+
+
+def _filter(rssm, params, carry, inputs, carry_taps=None):
+    """The observe scan over time-major inputs.
+
+    With carry_taps (zeros, [T, ...] like the carry), step t adds
+    carry_taps[t] to the carry it hands on. That leaves every value as it
+    was, and the gradient with respect to carry_taps[t] is the gradient that
+    reaches step t's new state from the later steps and the final carry.
     """
 
-    def step(state, inputs):
-        return rssm.apply({"params": params}, state, *inputs, method=RSSM.observe_step)
+    def step(state, step_inputs):
+        observation, tap = step_inputs
+        state, feats = rssm.apply(
+            {"params": params}, state, *observation, method=RSSM.observe_step
+        )
+        if tap is not None:
+            state = RSSMState(state.deter + tap.deter, state.stoch + tap.stoch)
+        return state, feats
 
-    inputs = jax.tree.map(
-        lambda x: jnp.swapaxes(x, 0, 1), (tokens, actions, is_first, noise)
+    # The backward pass keeps each step's matrix products and recomputes the
+    # cheap elementwise operations between them. Keeping every intermediate
+    # writes about sixty small arrays per step, each one GPU operation.
+    # prevent_cse=False: the scan already keeps XLA from merging the
+    # recomputation with the forward pass (jax.checkpoint's documentation).
+    step = jax.checkpoint(
+        step, policy=jax.checkpoint_policies.dots_saveable, prevent_cse=False
     )
-    carry, feats = jax.lax.scan(step, carry, inputs)
-    return carry, jax.tree.map(lambda x: jnp.swapaxes(x, 0, 1), feats)
+    return jax.lax.scan(step, carry, (inputs, carry_taps))
+
+
+@functools.partial(jax.custom_vjp, nondiff_argnums=(0,))
+def _observe_time_major(rssm, params, carry, inputs):
+    return _filter(rssm, params, carry, inputs)
+
+
+def _observe_forward(rssm, params, carry, inputs):
+    """The scan, differentiable in everything but the parameters."""
+    tokens, actions, is_first, noise = inputs
+    length = tokens.shape[0]
+    carry_taps = jax.tree.map(lambda x: jnp.zeros((length, *x.shape), x.dtype), carry)
+
+    def filter_with_fixed_parameters(carry, tokens, actions, noise, carry_taps):
+        inputs = (tokens, actions, is_first, noise)
+        return _filter(rssm, params, carry, inputs, carry_taps)
+
+    outputs, scan_backward = jax.vjp(
+        filter_with_fixed_parameters, carry, tokens, actions, noise, carry_taps
+    )
+    feats = outputs[1]
+    return outputs, (scan_backward, params, carry, inputs, feats)
+
+
+def _observe_backward(rssm, residuals, output_gradients):
+    """Backpropagation through time, the parameters' gradient taken last.
+
+    The reverse scan gives the gradient reaching each step's outputs: its
+    features directly, its new state from the later steps (the carry taps of
+    :func:`_filter`). Each step's parameter gradient depends only on those,
+    on the state it started from and on its inputs, so all T steps are
+    differentiated at once, as one batch of B T rows.
+    """
+    scan_backward, params, carry, inputs, feats = residuals
+    _, features_gradient = output_gradients
+    (
+        carry_gradient,
+        tokens_gradient,
+        actions_gradient,
+        noise_gradient,
+        gradient_from_later_steps,
+    ) = scan_backward(output_gradients)
+    # Step t starts from the state step t - 1 left, step 0 from the carry.
+    starting_states = jax.tree.map(
+        lambda first, rest: jnp.concatenate([first[None], rest[:-1]]),
+        carry,
+        RSSMState(feats.deter, feats.stoch),
+    )
+
+    def every_step_at_once(params):
+        return rssm.apply(
+            {"params": params}, starting_states, *inputs, method=RSSM.observe_step
+        )
+
+    _, parameters_backward = jax.vjp(every_step_at_once, params)
+    (params_gradient,) = parameters_backward(
+        (gradient_from_later_steps, features_gradient)
+    )
+    # is_first is boolean: no gradient.
+    inputs_gradient = (tokens_gradient, actions_gradient, None, noise_gradient)
+    return params_gradient, carry_gradient, inputs_gradient
+
+
+_observe_time_major.defvjp(_observe_forward, _observe_backward)

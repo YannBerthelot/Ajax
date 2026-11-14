@@ -18,17 +18,20 @@ The actor's weights w and the critics' target y read V after its step.
 
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import dataclass
 from functools import partial
-from typing import Any
+from typing import Any, Literal, Optional
 
 import jax
 import jax.numpy as jnp
+import optax
 from flax import struct
 
 from ajax.agents import update_steps
-from ajax.agents.critics import compute_mean_critic_loss, critic_value_readers
+from ajax.agents.critics import compute_mean_critic_loss
 from ajax.agents.families import (
+    EncoderSharing,
     ExpertGuided,
     GradientClipping,
     ObservationNormalization,
@@ -37,6 +40,7 @@ from ajax.agents.families import (
     RewardNormalization,
     TrainContext,
 )
+from ajax.agents.presets import Preset
 from ajax.agents.recurrent import q_values, sample_replay
 from ajax.controller import executed_fn
 from ajax.environments.interaction import get_pi
@@ -49,6 +53,17 @@ from ajax.types import Architecture, FloatOrCallable
 ORTHOGONAL_SQRT2 = "orthogonal(np.sqrt(2))"
 #: The reference's twin critics, whose losses it sums (critic.py update_q).
 NUM_CRITICS = 2
+#: The reference's AntMaze config; its locomotion config is the defaults.
+#: Its preprocessing of the datasets is not here: AntMaze's rewards minus 1
+#: (train_offline.py:68-69) have no field, and the locomotion rewards' scale,
+#: 1000 over the dataset's range of returns (:35-52), is reward_scale
+#: computed from each dataset, not a constant of the task.
+PRESETS = {
+    "AntMaze": Preset(
+        {"expectile": 0.9, "temperature": 10.0},
+        "ikostrikov/implicit_q_learning@09d7002 configs/antmaze_config.py:15-16",
+    )
+}
 
 
 @dataclass(kw_only=True, eq=False, repr=False)
@@ -58,6 +73,7 @@ class IQL(
     ObservationNormalization,
     RewardNormalization,
     ExpertGuided,
+    EncoderSharing,
     ReplayAgent,
 ):
     """Implicit Q-Learning: a state value fitted as an expectile of the
@@ -69,16 +85,15 @@ class IQL(
 
     Defaults are the reference code's (configs/mujoco_config.py,
     learner.py, policy.py): expectile 0.7 and temperature 3
-    (locomotion; antmaze takes 0.9 and 10); 256-256 ReLU networks,
+    (locomotion; antmaze takes 0.9 and 10, PRESETS); 256-256 ReLU networks,
     orthogonal(sqrt 2) initialisation; Adam at 3e-4 with optax's eps 1e-8
     for the actor, the critics and the value; the actor a Gaussian on a
     tanh mean with one learned log-std per action dimension, clipped to
     [-5, 2], whose samples act clipped to [-1, 1] and are stored clipped
     (learner.py sample_actions, train_finetune.py); batch 256, gamma 0.99, tau
-    0.005. The reference decays the
-    actor's offline learning rate to 0 by a cosine over its updates: pass
-    actor_learning_rate=optax.cosine_decay_schedule(3e-4, n_updates)
-    for that. Its locomotion rewards are scaled by 1000 over the dataset's
+    0.005. The actor's learning rate decays to 0 by a cosine over the run's
+    updates, as the reference Learner's does by default (actor_lr_decay).
+    Its locomotion rewards are scaled by 1000 over the dataset's
     range of returns: reward_scale. normalize_rewards, off by default, is
     Ajax's, not the reference's: it divides them by a running standard
     deviation that counts a dataset's rows and each step collected, as on the
@@ -98,10 +113,23 @@ class IQL(
     buffer_size: int = int(1e6)
     batch_size: int = 256
     learning_starts: int = 0
+    #: "cosine" decays the actor's learning rate to 0 over the run's updates,
+    #: the reference Learner's default (opt_decay_schedule="cosine",
+    #: learner.py:63, :85-86); None keeps it constant, as the reference's
+    #: fine-tuning config does (antmaze_finetune_config.py:21). The cosine
+    #: spans train's total_timesteps, so a run split into calls passes its
+    #: whole horizon to each. An offline run's decayed rate carries into a
+    #: train(initial_state=...) that fine-tunes it: train both with None. A
+    #: schedule given as actor_learning_rate runs as given.
+    actor_lr_decay: Optional[Literal["cosine"]] = "cosine"
 
     def check(self) -> None:
         if not 0.0 < self.expectile < 1.0:
             raise ValueError(f"IQL's expectile is in (0, 1), got {self.expectile}.")
+        if self.actor_lr_decay not in (None, "cosine"):
+            raise ValueError(
+                f"IQL's actor_lr_decay is 'cosine' or None, got {self.actor_lr_decay!r}."
+            )
 
     def actor_critic_args(self) -> dict[str, Any]:
         return {
@@ -148,10 +176,17 @@ class IQL(
         training_key, init_key, value_key, collector_key, evaluation_key = (
             jax.random.split(key, 5)
         )
-        actor_state, critic_state = context.make_actor_critic(
+        actor_state, critic_state = self.with_decayed_actor_rate(
+            context
+        ).make_actor_critic(
             init_key, continuous=True, action_value=True, num_critics=NUM_CRITICS
         )
-        _, value_state = context.make_actor_critic(
+        # V(s) keeps an encoder of its own: the shared one is the actor's
+        # and the Q critics' (share_encoder).
+        separate = context.network_args.replace(share_encoder=False)
+        _, value_state = dataclasses.replace(
+            context, network_args=separate
+        ).make_actor_critic(
             value_key,
             critic_optimizer_args=self.value_optimizer_args,
             continuous=True,
@@ -168,16 +203,73 @@ class IQL(
             ),
         )
 
+    def with_decayed_actor_rate(self, context: TrainContext) -> TrainContext:
+        """The context whose actor optimiser follows actor_lr_decay: a
+        cosine from actor_learning_rate to 0 over the run's updates: those
+        its extensions' pretrain runs before any env step, then one per
+        timestep offline, one per tick of n_envs online from update_start.
+        The schedule counts the optimiser's steps, so a resumed call of the
+        same run continues it."""
+        peak = context.actor_optimizer_args.learning_rate
+        if self.actor_lr_decay is None or callable(peak):
+            return context
+        if context.offline:
+            updates = context.total_timesteps
+        else:
+            online_steps = max(context.total_timesteps - self.update_start(), 0)
+            updates = online_steps // context.env_args.n_envs
+        for extension in context.extensions.extensions:
+            updates += extension.pretrain_updates()
+        schedule = optax.cosine_decay_schedule(float(peak), max(updates, 1))
+        actor_args = context.actor_optimizer_args.replace(learning_rate=schedule)
+        return dataclasses.replace(context, actor_optimizer_args=actor_args)
+
     def update(
         self, agent_state: IQLState, context: TrainContext
     ) -> tuple[IQLState, AuxiliaryLogs]:
-        """One IQL update (the module docstring)."""
+        """One IQL update (the module docstring): V's step, then the actor's
+        and the critics' steps, both from the state before either and both
+        reading V after its step."""
         sample_key, critic_key, actor_key, agent_state = (
             agent_state.get_keys_and_new_state(3)
         )
         batch, _ = sample_replay(agent_state, context.buffer, sample_key)
-        critic = agent_state.critic_state
-        min_q_values = compute_min_target_q(critic, batch)
+        min_q_values = compute_min_target_q(agent_state.critic_state, batch)
+        value_state, value_loss = self.update_value(agent_state, batch, min_q_values)
+        state_values = predict_value(value_state, value_state.params, batch.obs)[0]
+        advantage_weights = compute_advantage_weights(
+            min_q_values, state_values, self.temperature
+        )
+        stepped, (actor_loss, actor_metrics) = self.update_actor(
+            agent_state, batch, advantage_weights, actor_key, context
+        )
+        critic_stepped, critic_loss, critic_metrics = self.update_critic(
+            agent_state, batch, value_state, critic_key, context
+        )
+        # The critic's step read the state from before the actor's.
+        agent_state = stepped.replace(
+            critic_state=critic_stepped.critic_state.soft_update(tau=self.tau),
+            ext_state=critic_stepped.ext_state,
+            value_state=value_state,
+            n_updates=agent_state.n_updates + 1,
+        )
+        return agent_state, AuxiliaryLogs(
+            value=Auxiliaries(
+                value_loss=value_loss,
+                actor_loss=actor_loss,
+                critic_loss=critic_loss,
+                advantage=jnp.mean(min_q_values - state_values),
+                weight=jnp.mean(advantage_weights),
+            ),
+            extensions=merge_metrics(critic_metrics, actor_metrics),
+        )
+
+    def update_value(
+        self, agent_state: IQLState, batch: Transition, min_q_values: jax.Array
+    ) -> tuple[LoadedTrainState, jax.Array]:
+        """V's expectile step towards the target critics' minimum at the rows'
+        actions; returns V and its loss after the step, which the reference
+        logs."""
         compute_value_loss_on_batch = partial(
             compute_value_loss,
             agent_state.value_state,
@@ -188,11 +280,19 @@ class IQL(
         value_state, _, _ = update_steps.gradient_step(
             agent_state.value_state, compute_value_loss_on_batch
         )
-        value_loss_after_step = compute_value_loss_on_batch(value_state.params)[0]
-        state_values = predict_value(value_state, value_state.params, batch.obs)[0]
-        advantage_weights = compute_advantage_weights(
-            min_q_values, state_values, self.temperature
-        )
+        return value_state, compute_value_loss_on_batch(value_state.params)[0]
+
+    def update_actor(
+        self,
+        agent_state: IQLState,
+        batch: Transition,
+        advantage_weights: jax.Array,
+        key: jax.Array,
+        context: TrainContext,
+    ) -> tuple[IQLState, tuple]:
+        """The actor's advantage-weighted regression, kept from
+        policy_update_start; returns the state and the step's loss and
+        metrics."""
         # The actor fits the actions it chose: a residual policy's residuals,
         # which the replay keeps apart from the executed actions.
         chosen = batch.action if batch.policy_action is None else batch.policy_action
@@ -208,57 +308,50 @@ class IQL(
                     advantage_weights,
                 ),
                 context.extensions,
-                actor_key,
+                key,
                 context.total_timesteps,
                 batch,
-                critic,
+                agent_state.critic_state,
             )
             return state.replace(actor_state=actor_state), (actor_loss, actor_metrics)
 
-        stepped, (actor_loss, actor_metrics) = update_steps.run_actor_if(
+        return update_steps.run_actor_if(
             self.policy_update_due(agent_state.collector_state.timestep),
             step_actor,
             agent_state,
+            keep=self.keeps_actor_metrics(),
         )
+
+    def update_critic(
+        self,
+        agent_state: IQLState,
+        batch: Transition,
+        value_state: LoadedTrainState,
+        key: jax.Array,
+        context: TrainContext,
+    ) -> tuple[IQLState, jax.Array, dict]:
+        """The critics' step on scale r + gamma (1 - d) V(s'), V after its
+        step; returns the state with the stepped critics and the extensions'
+        states, the loss and the extensions' metrics."""
         target, next_values = compute_bellman_target(
             value_state, batch, self.gamma, self.reward_scale
         )
-        predictions, target_value_at = critic_value_readers(
-            critic, batch.obs, batch.action
-        )
-        critic_stepped, critic_loss, _, critic_metrics = update_steps.critic_step(
+        critic = agent_state.critic_state
+        stepped, critic_loss, _, metrics = update_steps.critic_step(
             agent_state,
             batch,
             target,
             partial(compute_summed_critic_loss, critic, batch),
             context.extensions,
-            critic_key,
+            key,
             context.total_timesteps,
             rewards=batch.reward,
             dones=batch.terminated,
             gamma=self.gamma,
             reward_scale=self.reward_scale,
             next_values=next_values,
-            predictions=predictions,
-            target_value_at=target_value_at,
         )
-        # The critic's step read the state from before the actor's.
-        agent_state = stepped.replace(
-            critic_state=critic_stepped.critic_state.soft_update(tau=self.tau),
-            ext_state=critic_stepped.ext_state,
-            value_state=value_state,
-            n_updates=agent_state.n_updates + 1,
-        )
-        return agent_state, AuxiliaryLogs(
-            value=Auxiliaries(
-                value_loss=value_loss_after_step,
-                actor_loss=actor_loss,
-                critic_loss=critic_loss,
-                advantage=jnp.mean(min_q_values - state_values),
-                weight=jnp.mean(advantage_weights),
-            ),
-            extensions=merge_metrics(critic_metrics, actor_metrics),
-        )
+        return stepped, critic_loss, metrics
 
     # -- What extensions may rely on (ajax.extensions.capabilities) ----------
     name = "IQL"
@@ -362,7 +455,7 @@ def compute_summed_critic_loss(
     return loss, loss
 
 
-# -- State, logged metrics and the legacy view --------------------------------
+# -- State and logged metrics -------------------------------------------------
 @struct.dataclass(kw_only=True)
 class IQLState(BaseAgentState):
     """IQL's actor, twin Q critic (with its target), and state-value network."""

@@ -3,8 +3,9 @@ google-deepmind/dqn @9d9b1d1, runs it, for discrete action spaces.
 
 One iteration on the replay family's loop (ReplayAgent): each env takes an
 epsilon-greedy step on the greedy Q-network (DQN.choose_behaviour), uniform
-during the warm-up, into the replay; from learning_starts, n_gradient_steps
-updates, each line one function below::
+during the warm-up, into the replay; from learning_starts, every
+train_frequency env steps, n_gradient_steps updates, each line one function
+below::
 
     y = scale r + gamma (1 - d) max_a' Q_target(s', a')        compute_dqn_td_target
         Double DQN: Q_target(s', argmax_a' Q(s', a'))    compute_double_dqn_td_target
@@ -44,6 +45,7 @@ from ajax.agents.families import (
     TrainContext,
 )
 from ajax.agents.loop import LOOP_PHASES
+from ajax.agents.presets import Preset
 from ajax.agents.update_steps import (
     bootstrap_cuts,
     derive_extensions_key,
@@ -70,6 +72,31 @@ from ajax.schedule import linear
 from ajax.state import BaseAgentState, LoadedTrainState
 from ajax.types import Architecture
 
+#: Mnih et al.'s Atari config (google-deepmind/dqn@9d9b1d1, run_gpu:12-32):
+#: one update every 4 steps after 50,000, the target refreshed every 10,000
+#: steps (NeuralQLearner.lua:341-342, :356), so every 2,500 updates. Its
+#: epsilon reaches 0.1 at step 1,050,000, a million steps after the warm-up
+#: (:370-371): here that step's fraction of its 50M-step run, so a shorter
+#: run decays faster. Atari's frame skip and stack, no-op starts and reward
+#: clipping are the env's.
+PRESETS = {
+    "Atari": Preset(
+        {
+            "learning_rate": 2.5e-4,
+            "gamma": 0.99,
+            "buffer_size": 1_000_000,
+            "batch_size": 32,
+            "learning_starts": 50_000,
+            "train_frequency": 4,
+            "target_update_interval": 2_500,
+            "epsilon_start": 1.0,
+            "epsilon_end": 0.1,
+            "epsilon_decay_frac": 1_050_000 / 50_000_000,
+        },
+        "google-deepmind/dqn@9d9b1d1 run_gpu:12-32, NeuralQLearner.lua:341-371",
+    )
+}
+
 
 @dataclass(kw_only=True, eq=False, repr=False)
 class DQN(
@@ -84,28 +111,42 @@ class DQN(
     Q-network trained by TD against a periodically refreshed target network
     (the module's equations), acting epsilon-greedy.
 
-    Defaults: the reference's learning rate (2.5e-4, run_gpu:25) and
-    optimiser (optimizer_settings); a smaller 128-128 ReLU MLP, a 1e5
-    replay, batches of 64, 1000 warm-up steps and a refresh every 500
-    updates, sized for gymnax's classic-control tasks rather than Atari.
+    Defaults: on vector observations, CleanRL's dqn.py (vwxyzjn/cleanrl
+    @fe8d8a0, its Args at lines 47-71 and QNetwork at 95-99), the
+    classic-control reference, with Mnih et al.'s optimiser and Huber loss
+    (optimizer_settings, td_loss_fn), which google-deepmind/dqn @9d9b1d1
+    runs on Atari. Ajax counts the steps collected, CleanRL numbers them
+    from 0 (global_step): an update and a refresh of Ajax's at its 10,500th
+    step are CleanRL's at global_step 10,500, its 10,501st. Ajax also
+    updates and refreshes at step 10,000, where CleanRL waits for
+    global_step > learning_starts (dqn.py:194): learning_starts counts the
+    steps collected before the first update (ReplayAgent).
     """
 
-    #: The one Q-network's learning rate and hidden layers.
+    #: The one Q-network's learning rate and hidden layers: CleanRL's
+    #: learning_rate (dqn.py:49) and its 120-84 ReLU MLP (dqn.py:95-99).
     learning_rate: float = 2.5e-4
-    architecture: Architecture = ("128", "relu", "128", "relu")
-    gamma: float = 0.99
-    buffer_size: int = int(1e5)
-    batch_size: int = 64
-    learning_starts: int = 1000
+    architecture: Architecture = ("120", "relu", "84", "relu")
+    gamma: float = 0.99  # dqn.py:55
+    buffer_size: int = 10_000  # dqn.py:53
+    batch_size: int = 128  # dqn.py:61
+    learning_starts: int = 10_000  # dqn.py:69
+    train_frequency: int = 10  # dqn.py:71, one update every 10 env steps
     #: The target's refresh: tau=1 every target_update_interval updates is
-    #: the hard one, tau<1 every update a Polyak one.
-    tau: float = 1.0
-    target_update_interval: int = 500
+    #: the hard one, tau<1 every update a Polyak one. CleanRL refreshes every
+    #: 500 env steps (target_network_frequency, dqn.py:59), after that step's
+    #: update (dqn.py:215): at one update every train_frequency (10) steps,
+    #: every 50 updates. The interval counts updates rather than env steps so
+    #: that it keeps its meaning where no env step is taken (train_offline,
+    #: a pretraining's updates) and its unit for existing configs.
+    tau: float = 1.0  # dqn.py:57
+    target_update_interval: int = 50
     reward_scale: float = 1.0
-    #: The updates per iteration, once learning_starts is reached.
+    #: The updates per updating tick, once learning_starts is reached.
     n_gradient_steps: int = 1
     #: Linear epsilon-greedy schedule: epsilon goes from epsilon_start to
-    #: epsilon_end over the first epsilon_decay_frac of training.
+    #: epsilon_end over the first epsilon_decay_frac of training (start_e,
+    #: end_e, exploration_fraction: dqn.py:63-67).
     epsilon_start: float = 1.0
     epsilon_end: float = 0.05
     epsilon_decay_frac: float = 0.5

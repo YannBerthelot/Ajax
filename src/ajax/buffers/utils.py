@@ -12,11 +12,11 @@ from flashbax.buffers.trajectory_buffer import init as init_ring
 from jax.tree_util import Partial as partial
 
 from ajax.controller import feature_width
-from ajax.environments.utils import get_state_action_shapes
+from ajax.environments.utils import check_env_is_gymnax, get_state_action_shapes
 from ajax.random_keys import derive_key
 from ajax.state import EnvironmentConfig
 from ajax.types import BufferType, NormalizationInfo
-from ajax.utils import online_normalize
+from ajax.utils import REWARD_CLIP, online_normalize
 
 
 @chex.dataclass(frozen=True)
@@ -180,21 +180,74 @@ def get_buffer(
     )
     # The collector adds one transition of shape (n_envs, ...) per call;
     # the trajectory buffer expects (n_envs, time, ...): insert time axis.
-    add_fn = add_dim_to_args(
+    add_with_time_axis = add_dim_to_args(
         buffer.add, axis=1, starting_arg_index=1, ending_arg_index=2
     )
+
+    def add_fn(state: Any, row: dict) -> Any:
+        # The fields the replay keeps as bool (stored_observation_dtype) take
+        # the row's 0/1 values as bool. Only those: any other dtype mismatch
+        # still fails flashbax's check.
+        def kept(value: jax.Array, stored: jax.Array) -> jax.Array:
+            if stored.dtype == jnp.bool_:
+                return value.astype(jnp.bool_)
+            return value
+
+        return add_with_time_axis(state, jax.tree.map(kept, row, state.experience))
+
     if sequence_length is not None:
-        return buffer.replace(add=add_fn)  # type: ignore[attr-defined]
+
+        def sample_windows(state: Any, key: jax.Array) -> TrajectoryBufferSample:
+            experience = buffer.sample(state, key).experience
+            return TrajectoryBufferSample(experience=as_read(experience))
+
+        return buffer.replace(add=add_fn, sample=sample_windows)  # type: ignore[attr-defined]
 
     def sample_rows(state: Any, key: jax.Array) -> TrajectoryBufferSample:
         # (B, n_step, ...)
         experience = sample_two_buffers(buffer.sample, state, key).experience
         if n_step > 1:
-            return TrajectoryBufferSample(experience=n_step_rows(experience, gamma))
-        rows = jax.tree.map(lambda x: x[:, 0], experience)
-        return TrajectoryBufferSample(experience=rows)
+            rows = n_step_rows(experience, gamma)
+        else:
+            rows = jax.tree.map(lambda x: x[:, 0], experience)
+        return TrajectoryBufferSample(experience=as_read(rows))
 
     return buffer.replace(add=add_fn, sample=sample_rows)  # type: ignore[attr-defined]
+
+
+def stored_observation_dtype(env_args: EnvironmentConfig) -> Any:
+    """The dtype a replay keeps its observations in: bool where the env's
+    observation space is boolean (MinAtar's images) and the replay keeps the
+    env's own observations, a quarter of float32's memory for the same
+    values, 0.0 and 1.0 (as_read reads them back); float32 otherwise, for
+    observations normalised or extended with feature columns and every other
+    space."""
+    if env_args.store_normalized_obs or feature_width(env_args):
+        return jnp.float32
+    env = env_args.env
+    if not check_env_is_gymnax(env):
+        return jnp.float32
+    # Read at trace time: a space's bounds may be arrays (Pendulum's), whose
+    # operations would otherwise join the training program, unused. Its
+    # dtype does not depend on the params: the env's defaults, as
+    # get_state_action_shapes reads its shape (env_args may hold none).
+    with jax.ensure_compile_time_eval():
+        space = env.observation_space(env.default_params)
+    if jnp.dtype(space.dtype) == jnp.bool_:
+        return jnp.bool_
+    return jnp.float32
+
+
+def as_read(experience: Any) -> Any:
+    """Replayed fields as the agent reads them: observations kept as bool
+    (stored_observation_dtype) in float32, 0.0 and 1.0."""
+
+    def read(values: jax.Array) -> jax.Array:
+        if values.dtype == jnp.bool_:
+            return values.astype(jnp.float32)
+        return values
+
+    return jax.tree.map(read, experience)
 
 
 def min_replay_rows(
@@ -258,7 +311,8 @@ def init_buffer(
     Observations are flat (``build_env_from_id`` flattens gymnax ones).
 
     The observations are as wide as the agent's, their features
-    (``env_args.observers``) included.
+    (``env_args.observers``) included, in stored_observation_dtype: bool for
+    a boolean space, which sampling reads back as float32.
     include_raw_obs, include_raw_next_obs: also keep the environment's own
       observation, ``raw_obs``, and next observation (the final one where
       an episode ended), ``raw_next_obs``, for an expert to read.
@@ -294,7 +348,7 @@ def init_buffer(
     action = env_action
     if env_args.policy_action_dim is not None:
         action = jnp.zeros((env_args.policy_action_dim,), dtype=action_dtype)
-    obsv = jnp.zeros((observation_shape[0],))
+    obsv = jnp.zeros((observation_shape[0],), stored_observation_dtype(env_args))
     raw_obsv = jnp.zeros((raw_observation_shape[0],))
     reward = jnp.zeros((1,), dtype=jnp.float32)
     done = jnp.zeros((1,), dtype=jnp.float32)
@@ -376,11 +430,12 @@ def mean_of_written_rows(buffer_state: Any, field: str) -> jax.Array:
 
 def normalized_rewards(reward: jax.Array, stats: NormalizationInfo) -> jax.Array:
     """The env's own ``reward`` divided by a reward normaliser's statistics,
-    which it leaves as they are; while they are empty (no step yet), the
-    reward as it is."""
+    which it leaves as they are, and clipped as collection clips it; while
+    they are empty (no step yet), the reward as it is."""
     normed = online_normalize(
         reward, stats.count, stats.mean, stats.mean_2, train=False, shift=False
     )[0]
+    normed = jnp.clip(normed, -REWARD_CLIP, REWARD_CLIP)
     return jnp.where(jnp.sum(stats.count) > 0, normed, reward)
 
 
@@ -395,28 +450,36 @@ def get_batch_from_buffer(
     ``reward_stats``, a reward normaliser's current statistics
     (:func:`ajax.environments.interaction.reward_statistics`), they come
     divided by them, as SB3's replay buffer does under VecNormalize."""
-    first = buffer.sample(buffer_state, key).experience
-    reward = first["reward"]
+    return as_replay_batch(buffer.sample(buffer_state, key).experience, reward_stats)
+
+
+def as_replay_batch(
+    rows: dict, reward_stats: Optional[NormalizationInfo] = None
+) -> ReplayBatch:
+    """rows, a replay's fields as an agent reads them (as_read), as a
+    ReplayBatch: a sample's, or the rows an agent picks itself (DAgger's
+    passes over the whole replay); their rewards as get_batch_from_buffer's."""
+    reward = rows["reward"]
     if reward_stats is not None:
         reward = normalized_rewards(reward, reward_stats)
     return ReplayBatch(
-        obs=first["obs"],
+        obs=rows["obs"],
         # Not the next row's obs: after a time limit that is the reset one,
         # and the target bootstraps on the final one (interaction.bootstrap_obs).
-        next_obs=first["next_obs"],
-        terminated=first["terminated"],
-        truncated=first["truncated"],
+        next_obs=rows["next_obs"],
+        terminated=rows["terminated"],
+        truncated=rows["truncated"],
         reward=reward,
-        action=first["action"],
-        raw_obs=first.get("raw_obs"),
-        is_expert=first.get("is_expert"),
-        a_expert=first.get("a_expert"),
-        next_a_expert=first.get("next_a_expert"),
-        raw_next_obs=first.get("raw_next_obs"),
-        return_to_go=first.get("return_to_go"),
-        next_action=first.get("next_action"),
-        policy_action=first.get("policy_action"),
-        bootstrap_discount=first.get("bootstrap_discount"),
+        action=rows["action"],
+        raw_obs=rows.get("raw_obs"),
+        is_expert=rows.get("is_expert"),
+        a_expert=rows.get("a_expert"),
+        next_a_expert=rows.get("next_a_expert"),
+        raw_next_obs=rows.get("raw_next_obs"),
+        return_to_go=rows.get("return_to_go"),
+        next_action=rows.get("next_action"),
+        policy_action=rows.get("policy_action"),
+        bootstrap_discount=rows.get("bootstrap_discount"),
     )
 
 

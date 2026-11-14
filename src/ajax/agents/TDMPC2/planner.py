@@ -228,13 +228,71 @@ def estimate_value(
     after it and the terminal Q are dropped. The reward ``R(z_t, a_t)`` of
     the step that terminates still counts: the prediction reads ``z_{t+1}``.
     ``alive`` is the latest code's ``1 - termination``.
+
+    It is :func:`model_rollout` then :func:`terminal_value`; :func:`plan`
+    calls the two apart, so that the policy-prior candidates, whose rollout
+    is the same in every iteration, roll out once per decision.
     """
-    action_dim = actions.shape[-1]
+    rollout = model_rollout(
+        wm_params, z, actions, config=config, gamma=gamma, task=task
+    )
+    return terminal_value(
+        wm_params,
+        pi_params,
+        rollout,
+        terminal_eps,
+        q_pair,
+        q_dropout,
+        config=config,
+        gamma=gamma,
+        task=task,
+    )
+
+
+class ModelRollout(NamedTuple):
+    """The deterministic part of :func:`estimate_value` for ``N`` candidates.
+
+    Attributes:
+        partial_return: ``[N]`` ``sum_t gamma^t alive_t R(z_t, a_t)`` over
+            the horizon.
+        latent: ``[N, L]`` the last predicted latent ``z_H``.
+        alive: ``[N]`` 0 or 1 in the episodic mode, else the Python float 1.
+    """
+
+    partial_return: jax.Array
+    latent: jax.Array
+    alive: Any
+
+
+def join_rollouts(first: ModelRollout, second: ModelRollout) -> ModelRollout:
+    """The rollouts of ``first``'s candidates, then ``second``'s."""
+    # Outside the episodic mode both hold the Python float 1, kept as is.
+    alive: Any
+    if isinstance(first.alive, float):
+        alive = first.alive
+    else:
+        alive = jnp.concatenate([first.alive, second.alive])
+    return ModelRollout(
+        partial_return=jnp.concatenate([first.partial_return, second.partial_return]),
+        latent=jnp.concatenate([first.latent, second.latent]),
+        alive=alive,
+    )
+
+
+def model_rollout(
+    wm_params: Params,
+    z: jax.Array,
+    actions: jax.Array,
+    *,
+    config: TDMPC2Config,
+    gamma: Union[float, jax.Array],
+    task: Optional[TaskContext] = None,
+) -> ModelRollout:
+    """The rewards and latents of ``actions [H, N, A]`` from ``z [N, L]``
+    through the dynamics (:func:`estimate_value`, without the terminal Q)."""
     wm_apply: Callable[..., Any] = make_world_model(config).apply
-    pi_apply = make_policy_prior(config, action_dim).apply
     two_hot = config.two_hot
     emb = task_embedding(wm_params, task)
-    mask = None if task is None else task.mask
     discount = _discount_powers(gamma, config.horizon)
     if config.episodic and task is not None:
         raise ValueError("the episodic mode is single-task")
@@ -249,13 +307,37 @@ def estimate_value(
         if config.episodic:
             end = wm_apply({"params": wm_params}, z, method="termination_logits")
             alive = alive * (jax.nn.sigmoid(end) <= 0.5)
+    return ModelRollout(partial_return=value, latent=z, alive=alive)
+
+
+def terminal_value(
+    wm_params: Params,
+    pi_params: Params,
+    rollout: ModelRollout,
+    terminal_eps: jax.Array,
+    q_pair: jax.Array,
+    q_dropout: jax.Array,
+    *,
+    config: TDMPC2Config,
+    gamma: Union[float, jax.Array],
+    task: Optional[TaskContext] = None,
+) -> jax.Array:
+    """:func:`estimate_value` from its :func:`model_rollout`: the terminal
+    policy sample at ``z_H`` and the average of the Q pair, discounted and
+    added to the rollout's return."""
+    pi_apply = make_policy_prior(config, terminal_eps.shape[-1]).apply
+    emb = task_embedding(wm_params, task)
+    mask = None if task is None else task.mask
+    discount = _discount_powers(gamma, config.horizon)
+    z = rollout.latent
     terminal = policy_sample(
         pi_apply, pi_params, z, terminal_eps, config, emb, mask
     ).action
     logits = q_pair_logits(
         config, wm_params, z, terminal, q_pair, dropout_key=q_dropout, task_emb=emb
     )
-    q = reduce_q_pair(logits, "avg", two_hot)  # world_model.py:171-172
+    q = reduce_q_pair(logits, "avg", config.two_hot)  # world_model.py:171-172
+    value, alive = rollout.partial_return, rollout.alive
     return value + discount[config.horizon] * alive * q
 
 
@@ -450,9 +532,20 @@ def plan_from_latent(
     pi_actions = policy_trajectories(
         wm_params, pi_params, z, noise.pi_eps, config=config, task=task
     )
-    zs = jnp.broadcast_to(z, (config.num_samples, z.shape[-1]))
     init_mean = warm_start_mean(prev_mean, t0)
     init_std = jnp.full_like(prev_mean, config.max_std)
+
+    def rollout_from_z(actions: jax.Array) -> ModelRollout:
+        latents = jnp.broadcast_to(z, (actions.shape[1], z.shape[-1]))
+        return model_rollout(
+            wm_params, latents, actions, config=config, gamma=gamma, task=task
+        )
+
+    # The policy-prior candidates are never resampled, so their rewards and
+    # latents are the same in every iteration: they roll out once, and each
+    # iteration only re-scores their terminal value (tdmpc2.py:135-136). The
+    # mask leaves them unchanged: policy samples are zero on the masked dims.
+    pi_rollout = rollout_from_z(pi_actions)
 
     def iteration(
         carry: tuple[jax.Array, jax.Array], draws: Any
@@ -460,14 +553,14 @@ def plan_from_latent(
         mean, std = carry
         candidate_eps, terminal_eps, q_pair, q_dropout = draws
         sampled = jnp.clip(mean[:, None] + std[:, None] * candidate_eps, -1.0, 1.0)
-        actions = jnp.concatenate([pi_actions, sampled], axis=1)  # [H, N, A]
         if mask is not None:  # every candidate, after sampling (tdmpc2.py:145-146)
-            actions = actions * mask
-        value = estimate_value(
+            sampled = sampled * mask
+        actions = jnp.concatenate([pi_actions, sampled], axis=1)  # [H, N, A]
+        rollout = join_rollouts(pi_rollout, rollout_from_z(sampled))
+        value = terminal_value(
             wm_params,
             pi_params,
-            zs,
-            actions,
+            rollout,
             terminal_eps,
             q_pair,
             q_dropout,

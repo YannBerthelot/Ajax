@@ -8,6 +8,323 @@ PyPI as `ajax-rl`.
 
 The next release is 0.6.0: the first item changes results.
 
+- **Fixed: `PreviousReward` read the normalised reward in training.** With
+  `normalize_rewards`, collection appended the normalised reward where an
+  evaluation and `agent.policy` append the environment's own, about 35
+  times apart on Pendulum. Collection now appends the environment's own.
+  Recurrent SAC, TD3, REDQ, ASAC, TQC and RVI-SAC add the feature by
+  default, so their results with `normalize_rewards` change.
+
+- **Fixed: `CloningPretrain` made APO and AVG normalise observations
+  twice.** APO with `normalize_observations` and AVG store normalised
+  observations; cloning also put the dataset's statistics on their
+  networks, which normalised them again, and dropped `observation_clip`.
+  Their results with `CloningPretrain` change.
+
+- **PPO clips its value loss, as ppo2 does.** Each squared value error is
+  the larger of its own and that of the value clipped to `clip_range`
+  around the value the rollout was collected with (Baselines' ppo2,
+  `model.py:66-75`; PureJaxRL's recurrent PPO does the same). The new
+  `clip_value_loss` turns it off; by default (`None`) PPO clips, except
+  with `unroll_length`, Brax's PPO, which does not. PPO's results change.
+  Upgrade: pass `clip_value_loss=False` for the old loss.
+
+- **PPO steps TensorFlow 1's Adam, as ppo2 does.** ppo2's
+  `tf.train.AdamOptimizer` adds epsilon to the square root of the second
+  moment before the bias correction; optax's Adam adds it after, an
+  epsilon 32 times smaller at the first step and about the same after a
+  few thousand. The new update rule `"tf1_adam"` (`OptimizerConfig`,
+  `ajax.networks.utils.scale_by_tf1_adam`) is PPO's; with `memory` or
+  `unroll_length` PPO keeps optax's Adam, as PureJaxRL and Brax use it.
+  PPO's results change.
+
+- **`PreviousAction()` appends the action executed before each
+  observation** (`ajax.extensions.observe`): zero at an episode's first
+  observation, in agent units, a discrete action one-hot, never
+  normalised. Collection stores it, and evaluation and `agent.policy`
+  append it as collection does, so an actor with memory can read its own
+  past actions, as Ni et al. (2022)'s recurrent actor does; a recurrent
+  Q-critic then reads it from the observation instead of appending its
+  own. It is opt-in: default runs do not change. Observation features
+  read the action through `ObserveInputs.previous_action`.
+- **`PreviousReward()` appends the reward paid for the action executed
+  before each observation** (`ajax.extensions.observe`), raw, zero at an
+  episode's first observation, as Ni et al.'s recurrent networks read it.
+  Collection stores it, evaluation appends it, and `agent.policy`'s `act`
+  reads the reward it is given (it refuses `done` without `reward`).
+  Features read it through `ObserveInputs.previous_reward`. APG refuses it:
+  its closed-loop rollout passes the features no reward yet.
+- **Breaking: SAC, TD3, REDQ, ASAC, TQC and RVI-SAC with `memory=` build
+  Ni et al. (2022)'s recurrent networks** (twni2016/pomdp-baselines, the
+  owner's reference for them; TQC and RVI-SAC by analogy). The memory reads
+  the previous action, the previous reward and the observation through
+  embeddings of 16, 16 and 32 units; a run with memory adds
+  `PreviousAction()` and `PreviousReward()` where its extensions hold
+  neither, so `agent.policy`'s `act` needs each reward. The memory is 128
+  units wide and starts as Ni et al.'s unless the `MemoryConfig` sets
+  them. The networks' layers run after the memory, on its output joined
+  with a shortcut embedding of the observation (the critic's with the
+  action asked about), and the critics read one memory. Every layer starts
+  as Ni et al.'s. `NetworkConfig` gains `input_embedding`,
+  `shortcut_widths`, `embedding_kernel_init` and `critics_share_encoder`;
+  `MemoryConfig.hidden_size` defaults to `None`, the agent's reference
+  width (64 where an agent has none, as before). *Upgrade:* a checkpoint of
+  one of these agents trained with memory does not restore into this
+  version: its parameters are another network's. Retrain, or pin the
+  previous version to use it.
+- **Breaking: their replay takes Ni et al.'s windows**: `burn_in=0` (was 8),
+  `sequence_length=64` (was 16) and, with memory, `batch_size=64` windows
+  (was 256). `batch_size` now defaults to `None`: 256 rows without memory,
+  as before. A window's first row reads no previous action or reward (Ni et
+  al.'s `a[0] = r[0] = 0`), unless the window starts from a stored memory.
+  *Upgrade:* pass `burn_in=8, sequence_length=16, batch_size=256` to train
+  as before.
+- **Recurrent TD3 is Ni et al.'s**: its actor maximises min(Q1, Q2), and
+  `policy_delay` defaults to `None`, 2 without memory as before and 1 with
+  it; with memory, TD3's and REDQ's critics read the agent's [-1, 1]
+  actions, not the env's units.
+- **Recurrent SAC's numerics are Ni et al.'s**: with memory, the squashed
+  log-density subtracts log(1 − tanh² + 1e-6) (also TQC's and RVI-SAC's;
+  REDQ's and ASAC's already did), the critics' squared errors are summed,
+  and the temperature steps alpha on the actor loss's own log-densities.
+- **SAC, TD3, REDQ, TQC, ASAC and RVI-SAC can share a memory.** With
+  `share_encoder=True`, `memory=` and `PreviousAction()`, the critic's
+  encoder and memory block read the observation and the previous action
+  for both networks, as Ni et al.'s shared recurrent network does; the
+  action the critic is asked about joins after the memory. The critic's
+  loss trains it and the actor reads it without a gradient. Without
+  `PreviousAction()` the agent refuses a shared memory.
+
+- **Three defaults now come from the agents' reference code.** An audit of
+  every agent's defaults against its original code found these without a
+  source:
+  - SAC's actor and temperature step from the first update, as
+    softlearning's do; `policy_update_start` and `alpha_update_start` were
+    2,000. Default runs do not change (the warm-up is 10,000 steps); runs
+    with a shorter `learning_starts` do. Upgrade: pass both at 2,000 for the
+    old behaviour.
+  - REDQ warms up for 5,000 steps (`learning_starts`), its official code's
+    `start_steps`, not 10,000. Upgrade: pass `learning_starts=10_000`.
+  - DAgger's expert share falls linearly from 1 to 0 over 15 iterations,
+    the reference code's `LinearBetaSchedule(15)`. `beta_decay` becomes
+    `beta_schedule`: `LinearBetaSchedule(rampdown_rounds)` or
+    `ExponentialBetaSchedule(decay)`, both in `ajax.agents.DAgger.DAgger`.
+    Upgrade: `beta_decay=d` becomes
+    `beta_schedule=ExponentialBetaSchedule(d)`; the old default was
+    `ExponentialBetaSchedule(0.0)`.
+
+- **DAgger fits its policy as its reference code does.** At the end of each
+  iteration of `iteration_steps` steps, it trains for 4 epochs over every
+  state the replay holds, in shuffled minibatches of 32
+  (HumanCompatibleAI/imitation's `DAggerTrainer`); before, it took one
+  gradient step per environment step. Its policy is a Gaussian with one
+  learned standard deviation per action dimension (categorical for discrete
+  actions), fitted by likelihood with an entropy bonus of weight 1e-3, and it
+  acts by sampling; before, it was deterministic and fitted by squared error.
+  This changes results. The new `fit` argument picks the fit:
+  `IterationFit(epochs=4, entropy_weight=1e-3)`, the default, or
+  `OnlineFit()`, the earlier one; both are in `ajax.agents.DAgger.DAgger`.
+  DAgger takes no `train_frequency`: its fit sets it. Upgrade: pass
+  `fit=OnlineFit()` for the old behaviour, and to restore a DAgger
+  checkpoint saved before this release.
+
+- **`normalize_rewards` divides by the discounted return's spread and
+  clips, as SB3's `VecNormalize` does.** It divided each reward by the
+  running standard deviation of the single-step reward, which is 0 for a
+  constant reward (CartPole, MountainCar, Acrobot): every reward became
+  ±10,000, and recurrent PPO with normalised rewards failed masked
+  CartPole. `reward_normalization_gamma` now defaults to the agent's
+  `gamma` (0.99 for APO, ASAC and RVI-SAC), and normalised rewards are
+  clipped to ±10, at collection, at replay sampling and in evaluation.
+  This changes results for runs with `normalize_rewards=True`. Upgrade:
+  pass `reward_normalization_gamma=0` to divide by the single-step
+  reward's standard deviation again (now clipped).
+- **PPO normalises observations and returns by default**, as ppo2's MuJoCo
+  run wraps its env in `VecNormalize`: `normalize_observations=True`,
+  `normalize_rewards=True` (the return's spread, with `gamma`, clipped at
+  10) and the new `observation_clip=10.0`, which on-policy agents take
+  (replay agents refuse it). This changes PPO's results. A sweep no longer
+  varies `gamma` while the reward normaliser discounts with it; set
+  `reward_normalization_gamma` to sweep it. Upgrade: pass
+  `normalize_observations=False, normalize_rewards=False` for the old
+  behaviour.
+- **PPO's defaults are ppo2's MuJoCo run**: one env (was 4) and 64-64 tanh
+  layers (was 128-128), so 2048 steps make ppo2's 32 minibatches of 64.
+  This changes results. Upgrade: pass `n_envs=4, actor_architecture=("128",
+  "tanh", "128", "tanh"), critic_architecture=("128", "tanh", "128",
+  "tanh")`.
+- **APG's in-context controller, IQL and PQN follow their reference code.**
+  - `APG.contextual_controller` builds the reference's transformer layers:
+    no bias outside the input embedding, LayerNorm epsilon 1e-5, and an MLP
+    four times as wide (buswayne/in-context-controller, `--bias False`).
+    `MemoryConfig` gains `bias`, `layer_norm_epsilon` and `mlp_ratio`, whose
+    defaults keep every other memory unchanged. Upgrade: a controller saved
+    before restores with `bias=True, layer_norm_epsilon=1e-6, mlp_ratio=2`.
+  - IQL's actor learning rate decays to 0 by a cosine over the run's
+    updates, its reference Learner's default (`actor_lr_decay="cosine"`).
+    A run split into calls passes its whole horizon (`total_timesteps`) to
+    each. Upgrade: `actor_lr_decay=None` keeps the rate constant, as the
+    reference's fine-tuning config does; pass it to fine-tune a state
+    trained offline.
+  - PQN's defaults are purejaxql's MinAtar config: 128 envs of 32 steps, 2
+    epochs of 32 minibatches, RAdam at 5e-4 decayed linearly over the run
+    (`lr_linear_decay`), epsilon decaying over the first 10% of the run.
+    Upgrade: `n_envs=8, n_steps=128, n_epochs=4, num_minibatches=4,
+    learning_rate=2.5e-4, lr_linear_decay=False, epsilon_decay_frac=0.5`.
+
+- **DQN's defaults are CleanRL's `dqn.py`** (cleanrl `fe8d8a0`), its
+  vector-observation reference: a 120-84 ReLU network (was 128-128), a
+  replay of 10,000 (was 100,000), batches of 128 (was 64), 10,000 warm-up
+  steps (was 1,000), one update every 10 environment steps (was every
+  iteration) and a target refresh every 50 updates (was 500), CleanRL's
+  500 environment steps. The authors' centered RMSProp and Huber loss stay.
+  This changes results. Upgrade: pass `architecture=("128", "relu", "128",
+  "relu"), buffer_size=100_000, batch_size=64, learning_starts=1_000,
+  train_frequency=1, target_update_interval=500` for the old behaviour.
+- **Replay agents take `train_frequency`**, SB3's `train_freq`: from
+  `learning_starts`, an update each time the steps collected reach a
+  multiple of it. The default, 1, updates every iteration, as before, on
+  every agent but DQN. An evaluation between two updates logs the last
+  one's training metrics.
+
+- **APO's defaults are its reference code's MuJoCo config** (xtma/apo,
+  `mujoco_appo.py`): rollouts of 10 envs x 200 steps (was 4 x 2,048), 20
+  minibatches per epoch (`num_minibatches=20`; was cut by `batch_size`),
+  advantages not normalised (was normalised) and `nu=1.0` (was 0.1). This
+  changes results. A rollout's `n_steps * n_envs` must now be a multiple of
+  `num_minibatches`; `num_minibatches=0` cuts it by `batch_size` as before.
+  To reproduce earlier runs, pass `n_envs=4, n_steps=2048,
+  num_minibatches=0, batch_size=64, normalize_advantage=True, nu=0.1`. The
+  benchmark's APO entry runs 500 such rollouts, evaluated every 20,000
+  steps, as the reference.
+- **Per-task presets.** `Agent.preset(name, env_id, **overrides)` builds an
+  agent with the values its reference code tunes for one task, named after
+  the task ("Hopper", "AntMaze", "Atari") rather than an env id; the
+  arguments given win, and the run config records the name under
+  `"preset"`. Each agent module keeps its presets, with their sources, in a
+  `PRESETS` table: ASAC's ten Gymnasium MuJoCo tasks, TQC's and REDQ's five
+  MuJoCo tasks, CrossQ's Swimmer, IQL's AntMaze, TD3's D4RL (TD3+BC), PPO's,
+  PQN's and DQN's Atari, PQN's CartPole, and DreamerV3's DMC, whose values the
+  world-model paper protocol now reads. No default changes.
+- **Hyperparameter sweeps in one program.** `agent.train(seed=...,
+  sweep={"actor_learning_rate": [1e-4, 3e-4]})` trains several
+  configurations, each with every seed, in one compiled program, as
+  PureJaxRL does by vmapping over hyperparameters. Each member trains as a
+  separate run of its configuration would, up to floating-point rounding,
+  and `agent.members` lists the seed and values of each leading row. SAC
+  and PPO declare which fields can vary (their learning rates, `gamma` and
+  the like); other agents, and settings that change shapes, are refused.
+  To allow it, PPO's GAE no longer takes `gamma` and `gae_lambda` as
+  static jit arguments; results are unchanged.
+- **DreamerV3 can keep its replay latents in host memory.** With
+  `replay_on_host=True`, the posterior latents stored with each replay row
+  (about 99% of the replay's bytes: 8 GB per seed for 2^20 rows at 12M) stay
+  in pinned host memory, inside the training state, so that more seeds fit
+  on one accelerator, or a run fits on a busy one. Results are bitwise those
+  of the default; each update is a little slower. A checkpoint restores
+  each array into the memory its skeleton keeps it in, so a resumed run
+  keeps the latents on the host.
+- **The actor and the critic can share their encoder; image PPO now does
+  by default.** PPO, APO, SAC, TD3, REDQ, TQC, ASAC, RVI-SAC, AVG and IQL
+  take `share_encoder`. With `True` the two networks read the observations
+  through one encoder (the hidden layers or the CNN, and with PPO or APO
+  the memory block). The critic owns it, and the actor reads a copy
+  refreshed after every update. PPO and APO train it with both losses, as
+  ppo2's one network; the off-policy agents with the critic's loss alone,
+  the actor reading it without a gradient, as SAC-AE and DrQ do; their
+  encoder is `actor_architecture`, and the critic's `critic_architecture`
+  layers read its features with the action. `None`,
+  the default, follows each agent's reference code: PPO shares its CNN, as
+  ppo2 and CleanRL do on Atari; every other network stays apart, as
+  before. This changes the results of PPO with `cnn_image_shape`.
+  - **Upgrade:** to resume an image PPO checkpoint saved before, or to
+    keep the earlier networks, pass `share_encoder=False`.
+- **Recurrent PPO's heads each read the memory through a layer of their
+  own**, as PureJaxRL's recurrent PPO does (`ppo_rnn.py`: a Dense(128) and
+  a ReLU per head, orthogonal with gain 2). The new
+  `NetworkConfig.head_architecture` gives any agent's networks such hidden
+  layers after the encoder and the memory block, and `head_kernel_init`
+  their initialiser. This changes the results of PPO with `memory`. Its
+  actor and critic keep separate memories: a shared one fails the memory
+  probe, even with these layers.
+  - **Upgrade:** to resume a recurrent PPO checkpoint saved before, or to
+    keep the earlier networks, set
+    `agent.network_args = agent.network_args.replace(head_architecture=())`.
+- **DreamerV3 trains faster on the GPU.** The world model's gradient
+  through its 64 filtering steps now takes each RSSM weight's gradient once
+  per update, as one product over all steps, instead of adding 64 small
+  per-step products. Results are the same up to floating-point rounding.
+  Provisional, until timed on a quiet machine: on a shared L40S (MuJoCo Warp
+  Hopper), an update took 6-10% less time at 1 and 2 seeds. It uses about
+  0.2 GB more GPU memory per seed, and the CPU bench's DreamerV3 run is
+  about 6% slower.
+- **The `playground` extra allows MuJoCo up to 3.15.** It held `mujoco`
+  and `mujoco-mjx` below 3.10 for one bug: Playground 0.2 compares MuJoCo
+  versions as strings, so its `ReacherEasy` and `ReacherHard` failed on 3.10
+  and later with `'MjSpec' object has no attribute 'find_body'`. As a
+  deliberate workaround, Ajax now gives Playground's Reacher builder
+  upstream's fix (Playground commit 33f1b284), only while the installed
+  Playground still compares strings; it goes once a Playground 0.x release
+  holds that commit. Every Playground task, Reacher included, takes MuJoCo
+  3.6 to 3.15 (MuJoCo Warp computes contact forces from 3.14).
+- **MEW temperature annealing.** `MEW()` (Adamczyk et al., 2026) lowers the
+  temperature of a maximum-entropy agent (SAC, ASAC, AVG, CrossQ, REDQ,
+  RVI-SAC, TQC) at a pace set by how much its recent rewards vary, in place
+  of the agent's own temperature rule. It is opt-in: no agent's default
+  changes. Other agents refuse it, naming the `entropy_temperature`
+  capability they lack.
+- **Logged runs evaluate between training chunks.** With a `LoggingConfig`,
+  training runs up to each evaluation as one compiled chunk, and the
+  evaluation runs between chunks as a program of its own, as Brax does.
+  Before, the evaluation sat inside every training step, which slowed the
+  steps between evaluations too. Evaluations come at the same steps as
+  before, with the same results up to floating-point rounding. On MuJoCo
+  Warp (L40S, 10 seeds), a million-step run evaluated every 10,000 steps
+  took 4% less time with SAC and 1% less with PPO.
+- **Faster REDQ, and SAC without its unneeded gates.** REDQ evaluates only
+  the 2 target critics its target draws, as its official code does (Ajax
+  evaluated all 10), and its 20 critic steps no longer copy every critic at
+  each step. SAC no longer checks its 2,000-step actor and temperature
+  starts at every update when, as by default, its updates start later.
+  Results are the same up to floating-point rounding. At 10 seeds on a
+  GTX 1080 Ti, REDQ took 20% less time and SAC 5% less; REDQ took 10%
+  less on a CPU.
+- **Datasets load into the replay in one step.** `train_offline`,
+  `PriorData` and retained data used to write a dataset into the replay
+  one row per env at a time, which took about 20 s per million rows on a
+  GPU. They now write it at once, with the same result. IQL's offline run
+  on a million rows (1080 Ti, 2,000 updates) went from 17 s to 3 s.
+  `fill_replay(buffer_state, data)` and `seed_replay(agent_state, data,
+  env_args)` no longer take the replay's buffer: drop that argument.
+- **Evaluation on another device.** `LoggingConfig(evaluation_device=...)`
+  scores each evaluation in a thread on that device, a second GPU or the
+  CPU, while training goes on. The scores are those of the evaluation in
+  place, and they reach the backends under their own timestep. It is
+  opt-in: by default training still waits for each evaluation.
+- **Training on MuJoCo Warp.** On an NVIDIA GPU, agents now train on
+  Playground tasks and the `"mujoco:"` tasks built with
+  `build_env_from_id(..., physics="warp")`, about five times faster than on
+  pure JAX for SAC and PPO on an L40S. Every online continuous-action agent
+  was checked. Before, every agent failed on its first step: the auto-reset
+  merged each physics array env by env, and Warp keeps its contact buffer
+  for the whole batch of environments. That buffer now passes through the
+  reset. Warp refuses a CPU, `differentiable_reset=True` and APG, saying
+  why. Pure-JAX runs are unchanged.
+- **Warp's contact room.** MuJoCo Warp keeps one contact buffer for all the
+  worlds a run steps at once (seeds times envs). The `"mujoco:"` tasks left
+  it at MuJoCo Warp's default, 48 contacts in all, which 47 Hopper worlds
+  overflowed, and Warp then drops contacts with only a printed warning. They
+  now give it 49,152 (1,024 worlds of 48), and a Warp step that runs out of
+  contact or constraint room stops the run with an error.
+- **Warp's convex-collision room.** MuJoCo Warp sizes the buffer of its
+  convex (GJK/EPA) collisions like the contact buffer unless told, and each
+  physics call allocates scratch for every slot: 320 MB on
+  `"mujoco:Pusher-v5"`. Each CUDA graph Warp captures of a call reserves
+  its own addresses for that scratch, and on an 11 GB GPU, after about 76
+  graphs (a few PPO evaluations on Pusher), new ones failed with an
+  out-of-memory error while under 1.4 GB was in use. The `"mujoco:"` tasks now give the buffer a slot for each of
+  their geom pairs in 1,024 worlds (47 MB of scratch on Pusher), and a step
+  that drops convex collisions stops the run with an error.
 - **Gymnasium's MuJoCo tasks in JAX.** `"mujoco:HalfCheetah-v5"`,
   `"mujoco:Hopper-v5"`, `"mujoco:Walker2d-v5"`, `"mujoco:Swimmer-v5"`,
   `"mujoco:Reacher-v5"`, `"mujoco:Pusher-v5"`,
@@ -17,6 +334,10 @@ The next release is 0.6.0: the first item changes results.
   `"mujoco:HumanoidStandup-v5"`. The tasks come from the gymnasium-mjx
   package, installed by the new `gymnasium-mjx` extra; without it, a
   `"mujoco:"` id raises an ImportError naming the extra.
+  *Upgrade,* for code written against main since 0.5 (no release held
+  these tasks): install `ajax-rl[gymnasium-mjx]`, as the `playground` extra
+  alone no longer brings them, and import `gymnasium_mjx` where you imported
+  `ajax.environments.mujoco`, which is gone. The ids are unchanged.
   A mujoco_playground env object, such as gymnasium-mjx's
   `PlaygroundTask(gymnasium_mjx.make("Hopper-v5"))`, can be given to an
   agent in place of an id; it trains and evaluates the same way.
@@ -74,6 +395,13 @@ The next release is 0.6.0: the first item changes results.
   in every `train` call. They now train the whole rollouts the budget
   holds, at least one, as their original implementations do, and a run
   split into calls of whole rollouts ends where one call does.
+- **APO evaluates at PPO's cost, as its official code does.** Its reward
+  rate (`Eval/mean average reward`) took 10,000 more steps per test episode,
+  so each of APO's evaluations lasted up to ten times as long as PPO's. It
+  now follows the official evaluation: 10 environments of 1,000 steps,
+  stopped once 10 trajectories have ended, and the mean of their return /
+  length. With the default `num_episode_test=10` it shares the test
+  episodes' run.
 - **A simulator that diverges no longer ends a run.** On a Brax or Playground
   env, a step whose observation or reward is not finite now ends its episode
   as a termination, with reward 0, and the run goes on. Before, one such step
@@ -86,8 +414,7 @@ The next release is 0.6.0: the first item changes results.
   pure-JAX physics on a CPU only and a GPU fell through to Playground's Warp
   default. Pure JAX is now the default on every device, so a run's physics no
   longer depends on the device; `build_env_from_id(..., physics="warp")`
-  selects Warp, which needs a GPU and which Ajax's training loop does not run
-  on yet.
+  selects Warp, which needs a GPU.
 - **Reproduction protocol, version 2.** A comparison whose score range says
   nothing about learning registers its own margin, with the reason. SAC and
   TD3 against Stable-Baselines3 on Pendulum (specs version 2) register ±14
@@ -105,6 +432,13 @@ The next release is 0.6.0: the first item changes results.
   that resume where the last one stopped and commits a record after each.
   [Its results](docs/reproduction/benchmark.md) cover ten agents on nineteen
   tasks.
+- **The SAC family shares its update steps.** REDQ, TQC, ASAC and RVI-SAC
+  share one actor step (`update_soft_actor`), and the soft actor-critics
+  keep their actor's and temperature's steps through one helper
+  (`keep_actor_then_update_temperature`), both in `ajax.agents.temperature`,
+  so `fixed_alpha` works one way in SAC, ASAC and RVI-SAC. REDQ and AVG use SAC's soft Bellman target, and
+  IQL's update reads as its value, actor and critic steps. Results do not
+  change.
 - **Known issue: the hopper and finger tasks with several seeds.** An XLA
   bug stops Playground's `HopperHop`, `HopperStand`, `FingerSpin`,
   `FingerTurnEasy` and `FingerTurnHard` from compiling when they are batched
@@ -156,9 +490,36 @@ The next release is 0.6.0: the first item changes results.
   `ReacherEasy` and `ReacherHard` failed on `mujoco` 3.10 and later with
   `'MjSpec' object has no attribute 'find_body'`. The cap goes once a Playground
   release holds the fix.
+- **APO's `Eval/mean average reward` changes.** It was the mean reward over
+  10,000 steps per test episode, the episodes restarting. It is now the
+  official code's measure: the mean return / length of the first 10
+  trajectories to end on 10 environments of up to 1,000 steps, whatever
+  `num_episode_test` is. *What to do:* compare with runs of this version.
+- **Fresh `playground` installs import MuJoCo again.** The extra now holds
+  `mujoco-mjx` to `mujoco`'s range, `>=3.6,<3.10`. `mujoco-mjx` 4.0 requires
+  `mujoco-core`, which MuJoCo 4 split out of `mujoco`, so installers paired it
+  with `mujoco` 3.9 and `import mujoco` failed with
+  `OSError: libmujoco.so.3.9.0: cannot open shared object file`. The two
+  ranges move together.
 - **`log_frequency=1` evaluates from the first step.** With one env it skipped
   the evaluation at step 1, so the run came out one evaluation short and its
   last row stayed empty. Other settings evaluate as before.
+- **`LoggingConfig` evaluates every 10,000 steps by default**, not every
+  1,000: 100 evaluations over a million steps. At 1,000, evaluation took
+  about half the time of a 10-seed SAC run on MuJoCo Warp. *What to do:* pass
+  `log_frequency=1_000` to keep the old rate.
+- **`ajax.state.BaseAgentConfig` and `ajax.agents.recurrent.RecurrentReplayConfig`
+  are removed.** Nothing has read them since 0.4.0: `expose_recent_rollout`,
+  `burn_in`, `sequence_length` and `stored_state` are each agent's own fields.
+  *What to do:* drop any import of them.
+- **The SAC family's update functions.** `critic_value_readers` moved from
+  `ajax.agents.critics` to `ajax.agents.update_steps`, and `critic_step`
+  builds it unless an agent passes its own. The SAC family's TD targets and
+  SAC's soft policy loss take their key as `key`, not `rng`.
+  `SAC.compute_td_target` no longer takes `recurrent`, nor `pre_train`
+  `bc_min_log_std` and `bc_action_clip_eps`, which no caller set (they are
+  constants now). *What to do:* code calling these by keyword renames or
+  drops the argument; no result changes.
 
 ## 0.5.0
 

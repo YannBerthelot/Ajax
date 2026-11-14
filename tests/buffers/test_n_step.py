@@ -292,7 +292,7 @@ def test_a_row_stops_where_a_datasets_rows_leave_an_env() -> None:
     schema = {k: v for k, v in SCHEMA.items() if k != "next_a_expert"}
     schema["seam"] = jnp.zeros(1)
     buffer = get_buffer(64, 8, n_envs=2, n_step=2, gamma=GAMMA)
-    state = ds.fill_replay(buffer, buffer.init(schema), data)
+    state = ds.fill_replay(buffer.init(schema), data)
     next_step = {k: jnp.full((2, 1), 50.0) for k in schema}
     next_step["seam"] = jnp.zeros((2, 1))
     state = buffer.add(state, next_step)

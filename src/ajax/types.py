@@ -50,6 +50,9 @@ class NormalizationInfo:
     mean: jax.Array
     mean_2: jax.Array
     returns: Optional[jax.Array] = None  # For reward normalization, returns are needed
+    # Observations stored normalised come out clipped to +-clip (baselines'
+    # VecNormalize clipob); None leaves them unclipped.
+    clip: Optional[float] = struct.field(pytree_node=False, default=None)
 
 
 @struct.dataclass

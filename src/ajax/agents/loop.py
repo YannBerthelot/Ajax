@@ -34,16 +34,20 @@ A replay agent given a dataset trains offline instead
                 apply the extensions' post_update
                 evaluate and log every log_frequency updates
 
-The result is :func:`ajax.perf_utils.build_resumable_train`'s jitted
-``train(key, index, initial_state, resume_from_state)``, which
-:meth:`ajax.agents.base.ActorCritic.train` vmaps over seeds. It returns
-``(state, None)`` without a logging config, the evaluation not even traced
+The result is ``train(key, index, initial_state, resume_from_state)``,
+which :meth:`ajax.agents.base.ActorCritic.train` vmaps over seeds. Without a
+logging config it is :func:`ajax.perf_utils.build_resumable_train`'s one
+jitted scan and returns ``(state, None)``, the evaluation not even traced
 (tracing alone rebuilds the evaluation env). With one it evaluates every
 ``log_frequency`` steps, whether or not a backend (W&B, TensorBoard) records
 the logs, and returns ``(state, evaluations)``: every logged key's values at
 the evaluations, in order, padded to the most a call makes with -1 (integer
-leaves, the timestep) and NaN. They are written into rows the scan carries,
-not stacked per iteration, which would cost ``seeds x iterations`` memory.
+leaves, the timestep) and NaN. It then trains in chunks, the ticks up to the
+next evaluation, each a jitted scan, and evaluates between them in a program
+of its own (:func:`ajax.perf_utils.build_chunked_train`), as Brax does: an
+evaluation inside the training program slows every tick of it. The ticks
+that evaluate are known before the run, from the steps each tick takes, so
+the evaluations come on the ticks and states they would in one scan.
 """
 
 from __future__ import annotations
@@ -55,9 +59,17 @@ from typing import Any, Callable, Optional
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 from jax.tree_util import Partial as partial
 
-from ajax.agents.update_steps import apply_post_update, run_if
+from ajax.agents.update_steps import (
+    all_of,
+    apply_post_update,
+    reached,
+    reaches_multiple,
+    run_if,
+)
+from ajax.async_evaluation import AsyncEvaluator
 from ajax.buffers.dataset import TransitionDataset, fill_replay
 from ajax.controller import Controller, make_run_controller, reads_progress
 from ajax.environments.create import strip_ajax_wrappers
@@ -71,7 +83,7 @@ from ajax.environments.interaction import (
     with_reward_statistics,
 )
 from ajax.environments.obs_norm import mirror_obs_norm, update_obs_norm
-from ajax.environments.utils import raw_obs_columns
+from ajax.environments.utils import raw_obs_columns, steps_in_python
 from ajax.extensions.base import Extension, ExtensionStack
 from ajax.log import (
     compose_eval_metrics,
@@ -80,7 +92,8 @@ from ajax.log import (
     unevaluated,
 )
 from ajax.logging.wandb_logging import LoggingConfig, start_async_logging, vmap_log
-from ajax.perf_utils import build_resumable_train
+from ajax.networks.networks import mirror_shared_encoder
+from ajax.perf_utils import build_chunked_train, build_resumable_train
 from ajax.state import EnvironmentConfig
 from ajax.types import NormalizationInfo
 from ajax.utils import online_normalize
@@ -122,11 +135,15 @@ RolloutUpdate = Callable[[Any, Any, Any], tuple[Any, Any]]
 #: ``experience`` is what its updates read (a replay agent: the tick, which
 #: locates the replay's newest rows).
 Collect = Callable[[Any, Any], tuple[Any, Any]]
-#: ``iteration(agent_state, index, tick) -> (agent_state, metrics)``: one
-#: scan iteration, ``tick`` the absolute, unbatched scan index (offset on
-#: resume by ``ActorCritic.resume_iteration_offset``); ``metrics`` are what
-#: it logged (the sentinel when it did not; ``None`` without logging).
-Iteration = Callable[[Any, Any, Any], tuple[Any, Optional[dict]]]
+#: ``iteration(agent_state, index, tick) -> (agent_state, aux)``: one tick,
+#: ``tick`` the absolute, unbatched scan index (offset on resume by
+#: ``ActorCritic.resume_iteration_offset``); ``aux`` is what its evaluation
+#: logs of it (an agent returning every iteration's output: that output).
+Iteration = Callable[[Any, Any, Any], tuple[Any, Any]]
+#: ``log(agent_state, aux, index, tick) -> (agent_state, metrics)``: the
+#: evaluation after tick ``tick`` and its logs; ``metrics`` are what it
+#: logged (the sentinel when its gate stayed shut).
+Log = Callable[[Any, Any, Any, Any], tuple[Any, Optional[dict]]]
 
 
 @dataclasses.dataclass(frozen=True)
@@ -159,6 +176,11 @@ class Evaluation:
             return (tick + 1) % self.every == 0
         reached = self.steps_before(tick + 1) // self.every
         return self.steps_before(tick) // self.every < reached
+
+    def ticks(self, ticks: np.ndarray) -> np.ndarray:
+        """:meth:`due` over a NumPy array of absolute ticks."""
+        due = self.due(ticks)
+        return np.zeros(ticks.shape, dtype=bool) if due is None else np.asarray(due)
 
     def count(self, n_ticks: int) -> int:
         """The most evaluations ``n_ticks`` consecutive ticks make."""
@@ -195,7 +217,9 @@ def fresh_state(
     env_args = context.get("env_args")
     state = with_obs_norm(init(init_key), env_args)
     state = with_horizon(state, env_args, total_steps)
-    return extensions.apply_init(state, extension_key, total_steps, **context)
+    state = extensions.apply_init(state, extension_key, total_steps, **context)
+    # The pretraining may have stepped a critic whose encoder the actor reads.
+    return mirror_shared_encoder(state)
 
 
 def with_actor_metrics_slot(agent_state: Any, one_update: Callable[[Any], Any]) -> Any:
@@ -209,6 +233,20 @@ def with_actor_metrics_slot(agent_state: Any, one_update: Callable[[Any], Any]) 
         return agent_state
     kept = jax.eval_shape(one_update, agent_state).last_actor_metrics
     return agent_state.replace(last_actor_metrics=unevaluated(kept))
+
+
+def with_update_metrics_slot(
+    agent_state: Any, first_metrics: Callable[[Any], Any]
+) -> Any:
+    """agent_state with the slot a run updating every few steps keeps its
+    last update's metrics in (BaseAgentState.last_update_metrics,
+    TrainLoop.maybe_update): their structure, read from the trace of
+    first_metrics (a state to the metrics of an update), NaN until the first
+    update. A state that has the slot keeps it."""
+    if agent_state.last_update_metrics is not None:
+        return agent_state
+    metrics = jax.eval_shape(first_metrics, agent_state)
+    return agent_state.replace(last_update_metrics=unevaluated(metrics))
 
 
 def with_horizon(agent_state: Any, env_args: Any, total_steps: int) -> Any:
@@ -238,14 +276,14 @@ def with_obs_norm(agent_state: Any, env_args: Any = None) -> Any:
 
 
 def seed_replay(
-    agent_state: Any, buffer: Any, data: TransitionDataset, env_args: EnvironmentConfig
+    agent_state: Any, data: TransitionDataset, env_args: EnvironmentConfig
 ) -> Any:
     """``agent_state`` with ``data``'s rows in its replay, where they stay
     (:func:`ajax.buffers.dataset.fill_replay`), and in the normalisers it
     has (count_in_normalisers)."""
     collector = agent_state.collector_state
     collector = collector.replace(
-        buffer_state=fill_replay(buffer, collector.buffer_state, data)
+        buffer_state=fill_replay(collector.buffer_state, data)
     )
     agent_state = agent_state.replace(collector_state=collector)
     return count_in_normalisers(
@@ -340,6 +378,10 @@ class TrainLoop:
     #: Evaluate only in the last fifth of training (LoggingConfig.sweep, for
     #: hyperparameter sweeps).
     sweep: bool = False
+    #: Scores the evaluations on a device of its own while training goes on
+    #: (LoggingConfig.evaluation_device); None: each evaluation runs between
+    #: chunks of training.
+    evaluator: Optional[AsyncEvaluator] = None
 
     @classmethod
     def create(
@@ -357,24 +399,34 @@ class TrainLoop:
     ) -> TrainLoop:
         """The loop of one ``make_train`` call; starts the logging worker
         when ``logging_config`` names a backend."""
-        log_frequency = None
+        log_frequency, evaluator = None, None
+        log_fn = partial(vmap_log, run_ids=run_ids)
         if logging_config is not None:
             if logging_config.backend:
                 start_async_logging()
             log_frequency = logging_config.log_frequency
+            device = logging_config.evaluation_device
+            if device is not None and steps_in_python(env_args.env):
+                raise ValueError(
+                    "An environment stepped in Python (Gymnasium) is evaluated"
+                    " in the training process: it takes no evaluation_device."
+                )
+            if device is not None:
+                evaluator = AsyncEvaluator(device, len(run_ids or ()), log_fn)
         return cls(
             env_args=env_args,
             total_timesteps=total_timesteps,
             num_episode_test=num_episode_test,
             extensions=ExtensionStack(extensions),
             log=logging_config is not None,
-            log_fn=partial(vmap_log, run_ids=run_ids),
+            log_fn=log_fn,
             log_frequency=log_frequency,
             start_timestep=start_timestep,
             end_timestep=end_timestep,
             expert_policy=expert_policy,
             offline_data=offline_data,
             sweep=logging_config is not None and logging_config.sweep,
+            evaluator=evaluator,
         )
 
     @property
@@ -442,6 +494,23 @@ class TrainLoop:
         f = self.log_frequency
         return min(self.total_timesteps, timestep) // f - self.start_timestep // f
 
+    def logging_ticks(self, steps_per_tick: int) -> Callable[[np.ndarray], np.ndarray]:
+        """Which ticks of this call (a NumPy array) evaluate_and_log's gate
+        opens after, each tick taking steps_per_tick steps from the call's
+        start_timestep: those whose steps reach a multiple of log_frequency.
+        The gate itself still decides (the horizon, a sweep's last fifth).
+        The ticks count from the call's first, as the families planning with
+        it number them (their resume_iteration_offset is 0)."""
+        f = self.log_frequency
+
+        def due(ticks: np.ndarray) -> np.ndarray:
+            if not f:
+                return np.zeros(ticks.shape, dtype=bool)
+            before = self.start_timestep + ticks * steps_per_tick
+            return (before + steps_per_tick) // f > before // f
+
+        return due
+
     # -- the steps of an iteration -----------------------------------------
     def collect_kwargs(self, recurrent: bool, **kwargs: Any) -> dict:
         """collect_experience's arguments for this run. With the agent's
@@ -487,13 +556,16 @@ class TrainLoop:
         return args
 
     def post_update(self, agent_state: Any) -> Any:
-        """:func:`apply_post_update` at the collector's timestep."""
-        return apply_post_update(
+        """:func:`apply_post_update` at the collector's timestep, then the
+        actor's copy of a shared encoder taken from the critic the update
+        stepped (mirror_shared_encoder)."""
+        agent_state = apply_post_update(
             self.extensions,
             agent_state,
             agent_state.collector_state.timestep,
             self.total_timesteps,
         )
+        return mirror_shared_encoder(agent_state)
 
     def maybe_update(
         self,
@@ -501,10 +573,13 @@ class TrainLoop:
         learning_starts: int,
         update: Callable[[Any], tuple[Any, Any]],
         timestep: Optional[jax.Array] = None,
+        trains: Any = True,
     ) -> tuple[Any, Any]:
-        """update and apply post_update once timestep, by default the steps
-        collected, reaches learning_starts; before, the metrics have the
-        update's structure, filled with NaN (which the logger drops)."""
+        """update and apply post_update on a tick that trains (trains, by
+        default every one) once timestep, by default the steps collected,
+        reaches learning_starts; otherwise the metrics have the update's
+        structure, filled with NaN (which the logger drops), or, on a state
+        keeping them (last_update_metrics), those of the last update."""
 
         def do_update(agent_state: Any) -> tuple[Any, Any]:
             # A jit of its own around the update, a deliberate workaround for
@@ -519,7 +594,23 @@ class TrainLoop:
 
         if timestep is None:
             timestep = agent_state.collector_state.timestep
-        return run_if(timestep >= learning_starts, do_update, agent_state)
+        # No gate at learning_starts <= 0 (reached's Python True): a traced
+        # one, always true there, still made every seed of a vmapped run
+        # compute the update and select each leaf of its state, each step.
+        gate = all_of(reached(learning_starts, timestep), trains)
+        if trains is True or agent_state.last_update_metrics is None:
+            return run_if(gate, do_update, agent_state)
+        kept = agent_state.last_update_metrics
+
+        # Between two updates an evaluation logs the last one's metrics, as a
+        # skipped actor step does (the owner's rule, run_actor_if): kept on
+        # the state, NaN before the first update.
+        def update_and_keep() -> tuple[Any, Any]:
+            stepped, metrics = do_update(agent_state)
+            return stepped.replace(last_update_metrics=metrics), metrics
+
+        # The branches close over the state, as run_if's do.
+        return jax.lax.cond(gate, update_and_keep, lambda: (agent_state, kept))
 
     def repeat_update(
         self, agent_state: Any, n: Any, update: Callable[[Any], tuple[Any, Any]]
@@ -577,6 +668,7 @@ class TrainLoop:
                 agent_metrics,
                 agent_state.collector_state.env_state,
             ),
+            evaluator=self.evaluator,
             **kwargs,
         )
 
@@ -602,6 +694,7 @@ class TrainLoop:
             ),
             log=self.log,
             log_fn=self.log_fn,
+            evaluator=self.evaluator,
         )
         if evaluation.after_log is not None:
             agent_state = evaluation.after_log(agent_state, agent_state.n_logs != logs)
@@ -623,13 +716,19 @@ class TrainLoop:
         update: Optional[Update] = None,
         buffer: Any = None,
         one_update: Optional[Callable[[Any], Any]] = None,
+        update_metrics: Optional[Callable[[Any], Any]] = None,
         resume: Optional[Callable[[Any], Any]] = None,
         returns_iterations: bool = False,
+        log: Optional[Log] = None,
+        due: Optional[Callable[[np.ndarray], np.ndarray]] = None,
     ) -> Callable:
         """The resumable train function: init (fresh runs only), then
-        num_updates scan iterations iteration(agent_state, index, tick),
-        recording the evaluations when logging (see the module docstring):
-        n_evaluations rows, or evaluations.
+        num_updates ticks iteration(agent_state, index, tick) -> (agent_state,
+        aux). Logging, log(agent_state, aux, index, tick) evaluates after
+        each tick due(ticks) marks (a NumPy array of absolute ticks to bools),
+        between chunks of ticks (build_chunked_train), and the evaluations
+        are recorded (see the module docstring): n_evaluations rows, or
+        evaluations.
 
         last_rollout, a (length, collect_kwargs) pair, pre-allocates
         agent_state.last_rollout for an agent exposing its rollouts.
@@ -637,15 +736,26 @@ class TrainLoop:
         buffer (ajax.extensions.base.ExtensionContext).
         one_update, a state to the state after one update, is given by an
         update keeping its actor's last metrics: a fresh or resumed state gets
-        their slot (with_actor_metrics_slot). resume transforms a resumed
+        their slot (with_actor_metrics_slot). update_metrics, a state to its
+        update's metrics, is given by an update that runs every few steps:
+        a fresh or resumed state gets the slot of its last metrics
+        (with_update_metrics_slot). resume transforms a resumed
         state after continued (APG rebuilds its optimiser). With
-        returns_iterations the train function returns every iteration's
-        output, stacked, logging or not, instead of the rows.
+        returns_iterations, iteration evaluates itself and the train
+        function returns every iteration's output, stacked, logging or not,
+        instead of the rows.
         """
         rows = self.n_evaluations if evaluations is None else evaluations
         records = self.log and not returns_iterations
+        if self.evaluator is not None and returns_iterations:
+            raise ValueError(
+                "An agent returning every iteration's output evaluates inside"
+                " its training program: it takes no evaluation_device."
+            )
 
         def with_slot(agent_state: Any) -> Any:
+            if update_metrics is not None:
+                agent_state = with_update_metrics_slot(agent_state, update_metrics)
             if one_update is None:
                 return agent_state
             return with_actor_metrics_slot(agent_state, one_update)
@@ -668,45 +778,70 @@ class TrainLoop:
                 )
             return with_slot(agent_state)
 
-        def make_scan_fn(_state: Any, _resume: bool, _key: Any, index: Any) -> Any:
-            if returns_iterations:
-                return lambda agent_state, tick: iteration(agent_state, index, tick)
-            if not self.log:
+        def resume_transform(agent_state: Any, _key: Any) -> Any:
+            agent_state = with_slot(self.continued(agent_state))
+            return agent_state if resume is None else resume(agent_state)
+
+        if not records:
+
+            def make_scan_fn(_state: Any, _resume: bool, _key: Any, index: Any) -> Any:
+                if returns_iterations:
+                    return lambda agent_state, tick: iteration(agent_state, index, tick)
                 return lambda agent_state, tick: (
                     iteration(agent_state, index, tick)[0],
                     None,
                 )
 
-            def body(carry: Any, tick: Any) -> tuple[Any, None]:
-                agent_state, (rows, count) = carry
-                agent_state, metrics = iteration(agent_state, index, tick)
-                assert metrics is not None  # logging: always the metrics
-                return (agent_state, record(rows, count, metrics)), None
+            return build_resumable_train(
+                init_fn=init_fn,
+                make_scan_fn=make_scan_fn,
+                num_updates=num_updates,
+                resume_transform=resume_transform,
+            )
+        if log is None or due is None:
+            raise ValueError("A logging run's loop needs its log and due.")
 
-            return body
+        def logged(agent_state: Any, index: Any, tick: Any) -> tuple[Any, Any]:
+            agent_state, aux = iteration(agent_state, index, tick)
+            return log(agent_state, aux, index, tick)
 
         def empty_rows(agent_state: Any, index: Any) -> tuple[dict, jax.Array]:
             shapes = jax.eval_shape(
-                lambda s, i: iteration(s, i, jnp.asarray(0))[1], agent_state, index
+                lambda s, i: logged(s, i, jnp.asarray(0))[1], agent_state, index
             )
             return unevaluated(shapes, (rows,)), jnp.asarray(0)
 
-        def resume_transform(agent_state: Any, _key: Any) -> Any:
-            agent_state = with_slot(self.continued(agent_state))
-            return agent_state if resume is None else resume(agent_state)
+        def log_and_record(
+            agent_state: Any, aux: Any, out: Any, index: Any, tick: Any
+        ) -> tuple[Any, Any]:
+            agent_state, metrics = log(agent_state, aux, index, tick)
+            assert metrics is not None  # logging: always the metrics
+            rows, count = out
+            return agent_state, record(rows, count, metrics)
 
-        train = build_resumable_train(
+        train = build_chunked_train(
             init_fn=init_fn,
-            make_scan_fn=make_scan_fn,
+            tick_fn=iteration,
+            log_fn=log_and_record,
+            due=due,
             num_updates=num_updates,
+            carry_out=empty_rows,
             resume_transform=resume_transform,
-            carry_out=empty_rows if records else None,
         )
-        if not records:
-            return train
 
-        def train_with_evaluations(*args: Any, **kwargs: Any) -> tuple[Any, dict]:
-            agent_state, (rows, _) = train(*args, **kwargs)
+        def train_with_evaluations(
+            key: Any, index: Any = None, *args: Any, **kwargs: Any
+        ) -> tuple[Any, dict]:
+            agent_state, (rows, _) = train(key, index, *args, **kwargs)
+            if self.evaluator is None:
+                return agent_state, rows
+            # The rows hold NaN where the evaluator's scores go, its k
+            # evaluations the first k rows, in order; each seed gets its own.
+            jax.effects_barrier()  # every evaluation handed over
+            rows = dict(rows)
+            for name, scores in self.evaluator.wait().items():
+                done = scores.shape[1]
+                rows[name] = rows[name].at[:done].set(jnp.asarray(scores)[index])
             return agent_state, rows
 
         return train_with_evaluations
@@ -729,6 +864,7 @@ class TrainLoop:
         num_ticks: Optional[int] = None,
         keeps_actor_metrics: bool = False,
         pretrain_update: Optional[Update] = None,
+        update_every: int = 1,
     ) -> Callable:
         """Train on one environment step per env per iteration (a tick).
 
@@ -737,19 +873,20 @@ class TrainLoop:
         as TQC's authors act), applies ``after_collect(agent_state,
         transition)`` when given, then from ``learning_starts`` runs
         ``update(agent_state, transition)`` (without a replay, from the step
-        collected at learning_starts), then evaluates the actor
-        (:meth:`evaluate_and_log`). ``expose_rollout`` keeps the step on
-        ``agent_state.last_rollout`` as a ``T = 1`` rollout. The budget is
-        :attr:`budget` ``// n_envs`` ticks.
+        collected at learning_starts) on the ticks whose steps collected
+        reach a multiple of ``update_every`` (:func:`reaches_multiple`), then
+        evaluates the actor (:meth:`evaluate_and_log`).
+        ``expose_rollout`` keeps the step on ``agent_state.last_rollout`` as
+        a ``T = 1`` rollout. The budget is :attr:`budget` ``// n_envs`` ticks.
 
         An agent acting, training and evaluating its own way (the module
         docstring) supplies those steps: ``collect`` replaces the collection
         and the arguments configuring it; ``n_updates(tick, agent_state)``
         updates (of the absolute, unbatched tick: a train ratio, a burst;
         or of the collected state: the env steps the tick took) replace the
-        ``learning_starts`` gate (:meth:`repeat_update`); ``evaluation``
-        replaces the actor's evaluation (:meth:`evaluate_every`);
-        ``num_ticks`` the budget.
+        ``learning_starts`` and ``update_every`` gate (:meth:`repeat_update`);
+        ``evaluation`` replaces the actor's evaluation
+        (:meth:`evaluate_every`); ``num_ticks`` the budget.
 
         ``keeps_actor_metrics``: the update keeps its actor's last metrics on
         the state (update_steps.run_actor_if), which then gets their slot.
@@ -795,9 +932,8 @@ class TrainLoop:
         # a warm-up step. A replay's gate reads the steps it holds.
         learns_from_its_step = collect_args.get("buffer") is None
 
-        def iteration(
-            agent_state: Any, index: Any, tick: Any
-        ) -> tuple[Any, Optional[dict]]:
+        def iteration(agent_state: Any, index: Any, tick: Any) -> tuple[Any, Any]:
+            del index
             collected_at = agent_state.collector_state.timestep
             agent_state, experience = collect_step(agent_state, tick)
 
@@ -806,16 +942,26 @@ class TrainLoop:
 
             aux = None
             if n_updates is None:
+                # The timestep is equal across seeds (the shared counters):
+                # the gate stays one branch under the seed vmap, never both.
+                n_envs = self.env_args.n_envs
+                trains = reaches_multiple(update_every, collected_at, n_envs)
                 agent_state, aux = self.maybe_update(
                     agent_state,
                     learning_starts,
                     step,
                     collected_at if learns_from_its_step else None,
+                    trains,
                 )
             else:
                 agent_state = self.repeat_update(
                     agent_state, n_updates(tick, agent_state), step
                 )
+            return agent_state, aux
+
+        def log(
+            agent_state: Any, aux: Any, index: Any, tick: Any
+        ) -> tuple[Any, Optional[dict]]:
             if evaluation is not None:
                 return self.evaluate_every(agent_state, aux, index, tick, evaluation)
             return self.evaluate_and_log(
@@ -830,12 +976,26 @@ class TrainLoop:
             evaluations = self.n_evaluations
         elif evaluation is not None:
             evaluations = evaluation.count(num_ticks)
+        due = self.logging_ticks(self.env_args.n_envs)
+        if evaluation is not None:
+            due = evaluation.ticks
+
+        def first_update_metrics(agent_state: Any) -> Any:
+            agent_state, experience = collect_step(agent_state, jnp.asarray(0))
+            first = self.maybe_update(agent_state, 0, lambda s: update(s, experience))
+            return first[1]
+
+        # A tick that can skip its update (reaches_multiple's gate) keeps the
+        # last update's metrics for the evaluations between two updates.
+        skips = n_updates is None and update_every > self.env_args.n_envs
         return self.train(
             init,
             iteration,
             num_ticks,
             last_rollout=(1, collect_args) if expose_rollout else None,
             evaluations=evaluations,
+            log=log,
+            due=due,
             update=pretrain_update or update,
             buffer=collect_args.get("buffer"),
             one_update=(
@@ -843,6 +1003,7 @@ class TrainLoop:
                 if keeps_actor_metrics
                 else None
             ),
+            update_metrics=first_update_metrics if skips else None,
         )
 
     def offline(
@@ -884,19 +1045,22 @@ class TrainLoop:
                     f" {capacity}, which would overwrite dataset rows: raise"
                     " buffer_size or write fewer."
                 )
-            return seed_replay(agent_state, buffer, data, self.env_args)
+            return seed_replay(agent_state, data, self.env_args)
 
-        def iteration(
-            agent_state: Any, index: Any, tick: Any
-        ) -> tuple[Any, Optional[dict]]:
-            del tick
+        def iteration(agent_state: Any, index: Any, tick: Any) -> tuple[Any, Any]:
+            del index, tick
             agent_state, aux = update(agent_state, None)
             # One (1,)-shaped leaf per metric, as maybe_update hands them.
             aux = jax.tree.map(lambda x: jnp.reshape(x, (1,)), aux)
             agent_state = self.post_update(agent_state)
             collector = agent_state.collector_state
             collector = collector.replace(timestep=collector.timestep + 1)
-            agent_state = agent_state.replace(collector_state=collector)
+            return agent_state.replace(collector_state=collector), aux
+
+        def log(
+            agent_state: Any, aux: Any, index: Any, tick: Any
+        ) -> tuple[Any, Optional[dict]]:
+            del tick
             return self.evaluate_and_log(
                 agent_state,
                 aux,
@@ -910,6 +1074,8 @@ class TrainLoop:
             seeded,
             iteration,
             self.budget,
+            log=log,
+            due=self.logging_ticks(1),
             update=pretrain_update or update,
             buffer=buffer,
             one_update=(
@@ -979,8 +1145,8 @@ class TrainLoop:
 
         def iteration(
             agent_state_at_rollout_start: Any, index: Any, tick: Any
-        ) -> tuple[Any, Optional[dict]]:
-            del tick
+        ) -> tuple[Any, Any]:
+            del index, tick
             agent_state, rollout = jax.lax.scan(
                 partial(collect_experience, **collect),
                 agent_state_at_rollout_start,
@@ -994,7 +1160,12 @@ class TrainLoop:
             )
             if forced_resets[0] > 0:
                 agent_state = self.forced_reset(agent_state, n_steps, *forced_resets)
-            agent_state = self.post_update(agent_state)
+            return self.post_update(agent_state), aux
+
+        def log(
+            agent_state: Any, aux: Any, index: Any, tick: Any
+        ) -> tuple[Any, Optional[dict]]:
+            del tick
             return self.evaluate_and_log(
                 agent_state, aux, index, recurrent, **(eval_kwargs or {})
             )
@@ -1007,6 +1178,8 @@ class TrainLoop:
             n_rollouts,
             last_rollout=(n_steps, collect) if expose_rollout else None,
             evaluations=self.evaluations_until(reach),
+            log=log,
+            due=self.logging_ticks(self.env_args.n_envs * n_steps),
         )
 
 

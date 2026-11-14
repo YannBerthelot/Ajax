@@ -188,8 +188,9 @@ def test_ppo_starts_its_layers_as_baselines_ppo2(env_id, continuous, memory):
     (common/models.py:96), the policy's output 0.01 (common/policies.py:49),
     the value 1 (:63, a2c/utils.py:58), zero biases; the run config records
     that init. Recurrent PPO's reference, PureJaxRL @31756b1, starts the
-    layers before its memory the same way (ppo_rnn.py:53-55) and keeps
-    flax's GRU (:35): recurrent kernels orthogonal with gain 1, per gate."""
+    layers before its memory the same way (ppo_rnn.py:53-55), keeps flax's
+    GRU (:35): recurrent kernels orthogonal with gain 1, per gate, and starts
+    each head's layer after it orthogonal with gain 2 (:59-75)."""
     from ajax.agents.PPO.PPO import PPO_HIDDEN_INIT
 
     agent = PPO(env_id, memory=memory)
@@ -214,6 +215,9 @@ def test_ppo_starts_its_layers_as_baselines_ppo2(env_id, continuous, memory):
         "critic hidden 1": (critic["encoder"]["network"]["layers_2"], np.sqrt(2)),
         "value": (critic["model"], 1.0),
     }
+    if memory is not None:
+        gains["actor head"] = (actor["head_layers"]["layers_0"], 2.0)
+        gains["critic head"] = (critic["head_layers"]["layers_0"], 2.0)
     for name, (layer, gain) in gains.items():
         np.testing.assert_allclose(
             _gain(layer["kernel"]), gain, rtol=1e-4, err_msg=name

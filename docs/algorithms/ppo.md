@@ -55,23 +55,25 @@ Defaults are those of the constructor.
 
 | Argument | Default | What it does |
 | --- | --- | --- |
-| `n_envs` | 4 | environments stepped in parallel |
+| `n_envs` | 1 | environments stepped in parallel (ppo2's MuJoCo runs use one) |
 | `n_steps` | 2048 | steps per environment in each rollout |
 | `batch_size` | 64 | sets the number of minibatches (see the notes) |
 | `num_minibatches` | 0 | when positive, the number of minibatches, as in Brax |
 | `n_epochs` | 10 | passes over the rollout per update, each reshuffled |
 | `actor_learning_rate`, `critic_learning_rate` | 3e-4 | Adam step sizes (each a float or a schedule) |
-| `adam_eps` | 1e-5 | Adam's epsilon (ppo2's) |
+| `adam_eps` | 1e-5 | Adam's epsilon (ppo2's), added as TensorFlow 1's Adam adds it (see the notes) |
 | `gamma` | 0.99 | discount |
 | `gae_lambda` | 0.95 | GAE's lambda |
 | `clip_range` | 0.2 | the ratio clip; a float or a schedule of the timestep |
 | `ent_coef` | 0 | entropy bonus weight |
 | `vf_coef` | 0.5 | critic loss weight, on half the squared error (ppo2's) |
+| `clip_value_loss` | None | ppo2's clipped value loss (see the notes); `None` clips except with `unroll_length` |
 | `max_grad_norm` | 0.5 | one gradient clip by global norm over both networks (`None` turns it off) |
 | `normalize_advantage` | True | advantages standardised in each minibatch |
-| `actor_architecture`, `critic_architecture` | `("128", "tanh", "128", "tanh")` | hidden layers, as width and activation strings |
-| `normalize_observations`, `normalize_rewards` | False | running normalisation, as SB3's `VecNormalize` |
-| `reward_normalization_gamma` | None | with `normalize_rewards`, divide by the spread of the discounted return |
+| `actor_architecture`, `critic_architecture` | `("64", "tanh", "64", "tanh")` | hidden layers, as width and activation strings (ppo2's MLP) |
+| `normalize_observations`, `normalize_rewards` | True | running normalisation, as ppo2's MuJoCo run wraps its env in `VecNormalize` |
+| `observation_clip` | 10.0 | bound of the normalised observations, `VecNormalize`'s `clipob` (rewards clip at 10 too) |
+| `reward_normalization_gamma` | None | with `normalize_rewards`, the discount of the return whose spread divides the rewards: `gamma` if None, 0 for the single reward's |
 | `memory`, `bptt_length` | None | memory block, and the length of the replayed chunks (by default the longest that split into the minibatches; see the notes) |
 | `unroll_length` | None | use Brax's minibatching: fragments of this length, advantages per minibatch (feedforward only) |
 | `log_std_state_independent`, `log_std_init` | True, 0.0 | one learned log standard deviation per action dimension, and its initial value (see the notes) |
@@ -83,6 +85,16 @@ Defaults are those of the constructor.
 | `expose_recent_rollout` | False | keep the last rollout on the state even when no extension reads it |
 | `expert_policy` | `None` | an expert the collector tracks: its actions feed the observation features and a residual policy (`ResidualPolicy`), and the evaluation reports its return next to the agent's |
 | `extensions` | `()` | research features (see [Extensions](../guide/extensions.md)) |
+
+## Presets
+
+`PPO.preset("Atari", env_id)` takes ppo2's Atari config
+(openai/baselines@`ea25b9e`, `ppo2/defaults.py:15-22`; [Presets](../guide/training.md#presets)): 8 environments
+(the paper's actors; ppo2 runs one per CPU) of 128 steps, 4 minibatches, 4
+epochs, learning rates `2.5e-4`, `clip_range=0.1`, `ent_coef=0.01` and one
+network shared by the actor and the critic. The learning rate stays constant,
+as the defaults keep MuJoCo's. Atari's frame skip, frame stack and reward
+clipping are the environment's.
 
 ## Notes
 
@@ -132,11 +144,24 @@ Defaults are those of the constructor.
   `num_resets_per_eval` and `num_evals` reproduce choices of Brax's PPO.
   They are off by default, as is `encoder_layer_norm` (a LayerNorm on the
   encoder's output).
-- **Separate networks.** The actor and the critic are separate networks.
-  As ppo2's one optimizer, their gradients are clipped together to one
+- **Separate networks, or one encoder.** The actor and the critic are
+  separate MLP networks, as ppo2 copies them on MuJoCo
+  (`ppo2/defaults.py:12`). With images they share one encoder, as ppo2's
+  Atari policies do (`common/policies.py:155-167`). With memory they stay
+  separate, unlike ppo2 and PureJaxRL (see the networks guide).
+  `share_encoder` overrides the default. As ppo2's one optimizer, their gradients are clipped together to one
   global norm, then each takes an Adam step (Adam is per coordinate, so
-  the two are one Adam over the whole model); the value loss is not
-  clipped. As in Baselines' ppo2,
+  the two are one Adam over the whole model). It is ppo2's,
+  TensorFlow 1's Adam, whose epsilon joins the square root of the second
+  moment before the bias correction (`optimizer="tf1_adam"`); optax's adds
+  it after, a 32 times smaller epsilon at the first step, about the same
+  after a few thousand. With memory or `unroll_length` PPO takes optax's
+  Adam, as PureJaxRL and Brax do. As ppo2's, the value loss
+  is clipped (`ppo2/model.py:66-75`): each squared error is the larger of
+  its own and that of the value clipped to `clip_range` around the value
+  that collected the rollout, so the loss stops pulling a value once it
+  has moved `clip_range` towards its target. With `unroll_length`, Brax's
+  PPO, it is not clipped, as in Brax. As in Baselines' ppo2,
   their hidden layers start orthogonal with gain `sqrt(2)`, the policy's
   output layer with gain 0.01 and the value layer with gain 1. An entropy bonus on a
   squashed policy is a one-sample estimate of the executed action's entropy,

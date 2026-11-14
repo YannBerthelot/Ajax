@@ -128,15 +128,7 @@ CASES = {
         critic=False,
         required=DAGGER_REQUIRED,
     ),
-    # Its actor steps from the first update, as the others' do: by default
-    # SAC waits 2000 steps, and logs no actor step before (DIAGNOSTICS).
-    "SAC": Case(
-        SAC,
-        {**OFF_POLICY, "policy_update_start": 0},
-        CONTINUOUS,
-        alpha=True,
-        buffer=True,
-    ),
+    "SAC": Case(SAC, OFF_POLICY, CONTINUOUS, alpha=True, buffer=True),
     "ASAC": Case(ASAC, OFF_POLICY, CONTINUOUS, alpha=True, buffer=True),
     "RVISAC": Case(RVISAC, OFF_POLICY, CONTINUOUS, alpha=True, buffer=True),
     "REDQ": Case(
@@ -176,7 +168,13 @@ CASES = {
         rollout=1,  # AVG learns from each step as it comes
         alpha=True,
     ),
-    "APO": Case(APO, ON_POLICY, CONTINUOUS + DISCRETE, rollout=16, n_timesteps=128),
+    "APO": Case(
+        APO,
+        {**ON_POLICY, "num_minibatches": 2},
+        CONTINUOUS + DISCRETE,
+        rollout=16,
+        n_timesteps=128,
+    ),
     "PPO": Case(
         PPO,
         ON_POLICY,
@@ -470,8 +468,8 @@ def test_the_evaluation_key_is_apart_from_the_training_key(
 def test_each_evaluation_draws_fresh_keys(name: str, extended_run: Any) -> None:
     """The policy's evaluation (the shared evaluate(), wherever it is
     called from) and the extensions' ``eval_metrics`` draw new keys at each
-    evaluation of a run (``eval_rng`` folded with the count of evaluations
-    so far): fresh initial states and noise every time."""
+    evaluation of a run (``eval_rng`` folded with the evaluation's
+    timestep): fresh initial states and noise every time."""
     run = extended_run(name)
     evaluations = int((np.asarray(run.out["timestep"]) >= 0).sum())
     assert evaluations >= 2
@@ -479,6 +477,19 @@ def test_each_evaluation_draws_fresh_keys(name: str, extended_run: Any) -> None:
         keys = run.keys[kind]
         assert len(keys) == evaluations, (kind, len(keys))
         assert len(set(keys)) == evaluations, kind
+
+
+@AGENTS
+def test_a_run_counts_the_evaluations_it_made(name: str, extended_run: Any) -> None:
+    """Every seed's ``n_logs`` is the number of evaluations its run made:
+    the count a resumed run carries on from (shared_counters) and an
+    agent's own Evaluation reads to know a tick logged. Catches an
+    evaluation that does not advance the count, which no evaluation shows
+    since the steps that evaluate are planned before the run."""
+    run = extended_run(name)
+    made = (np.asarray(run.out["timestep"]) >= 0).sum(axis=-1)
+    assert made.min() >= 2
+    np.testing.assert_array_equal(run.state.n_logs, made)
 
 
 # --------------------------------------------------------------------------
@@ -538,6 +549,8 @@ def test_an_agent_acts_on_the_whole_box(name: str) -> None:
         kwargs.update(WARM_UP)
     if name == "REDQ":  # 2 critic updates a step would take 130 over the 65
         kwargs["num_critic_updates"] = 1  # after the warm-up: a fast test's 128
+    if name == "PPO":  # the rewards read back as the env paid them: raw
+        kwargs["normalize_rewards"] = False
     agent = case.cls(env_id=env, env_params=params, n_envs=1, **kwargs)
     state, _ = agent.train(seed=0, n_timesteps=128)
     actions, rewards = _paid_rows(name, state)

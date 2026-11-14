@@ -2358,3 +2358,16 @@ _GOLDEN.update(
         },
     }
 )
+# Re-recorded on macOS ARM CPU once a forced reset restarted the reward
+# normaliser's running return (num_resets_per_eval, this case alone; actor
+# +0.2%, critic +0.2%; target and update count unchanged).
+_GOLDEN.update(
+    {
+        "PPO-env-split": {
+            "actor": 6.042834758758545,
+            "critic": 7.037717819213867,
+            "target": 6.0001020431518555,
+            "n_updates": 4.0,
+        },
+    }
+)

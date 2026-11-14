@@ -31,8 +31,8 @@ def test_PPO_train_playground_smoke():
 @pytest.mark.parametrize("env_id, mode", [("Pendulum-v1", "gymnax"), ("fast", "brax")])
 def test_a_forced_reset_keeps_the_normaliser_statistics(env_id, mode):
     """num_resets_per_eval resets the envs, not the running statistics: the
-    env's reward normaliser keeps its own, the agent's observation
-    statistics do not count the reset observation, which is normalised with
+    env's reward normaliser keeps its own (and restarts its running return),
+    the agent's observation statistics do not count the reset observation, which is normalised with
     them."""
     agent = PPO(
         env_id=env_id,
@@ -46,7 +46,13 @@ def test_a_forced_reset_keeps_the_normaliser_statistics(env_id, mode):
     saved = normalisation_info(state.collector_state.env_state, mode)
     after = force_reset(state, agent.env_args, mode).collector_state
     kept = normalisation_info(after.env_state, mode)
-    jax.tree.map(np.testing.assert_array_equal, kept, saved)
+    # But for the running discounted return: the abandoned episodes' ends
+    # with them, as SB3's VecNormalize.reset zeroes its own (the bug: it
+    # carried into the new episodes' rewards and statistics).
+    assert np.abs(np.asarray(saved.reward.returns)).min() > 0
+    np.testing.assert_array_equal(kept.reward.returns, 0.0)
+    unchanged = saved.replace(reward=saved.reward.replace(returns=kept.reward.returns))
+    jax.tree.map(np.testing.assert_array_equal, kept, unchanged)
     stats = state.collector_state.obs_norm_info
     jax.tree.map(np.testing.assert_array_equal, after.obs_norm_info, stats)
 

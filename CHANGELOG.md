@@ -8,6 +8,24 @@ PyPI as `ajax-rl`.
 
 The next release is 0.6.0: the first item changes results.
 
+- **Fixed: a forced reset kept the reward normaliser's running return.**
+  With `normalize_rewards` and forced resets (`num_resets_per_eval`), the
+  abandoned episodes' discounted return carried into the new episodes'
+  rewards and statistics. It now restarts at zero, as SB3's
+  `VecNormalize.reset` does; the statistics stay.
+
+- **Fixed: n-step rewards were clipped after the sum.** With `n_step` above
+  1 and `normalize_rewards`, each reward of a row is now divided and clipped
+  at 10 before the discounted sum, as collection clips it and as SB3's
+  `NStepReplayBuffer` does. Results change only where a normalised reward
+  exceeds the clip.
+
+- **`agent.policy`'s `act` refuses a missing reward after an episode's first
+  step.** A policy that reads the last reward (`PreviousReward`, on by
+  default with `memory` on SAC, TD3, REDQ, ASAC, TQC and RVI-SAC; UDRL)
+  read zero when `act` was given neither `done` nor `reward`. Upgrade: pass
+  `done` and `reward` to every `act` after the first.
+
 - **Fixed: `PreviousReward` read the normalised reward in training.** With
   `normalize_rewards`, collection appended the normalised reward where an
   evaluation and `agent.policy` append the environment's own, about 35

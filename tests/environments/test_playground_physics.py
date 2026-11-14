@@ -11,10 +11,10 @@ numbers all come from MJX's pure-JAX physics):
   kernels are CUDA only), and wherever gradients must cross the physics
   (``differentiable_reset``, APG), as MJX gives Warp no gradient rule;
 - a Warp step that ran out of contact, convex-collision or constraint room
-  stops the run rather than going on with dropped contacts;
-- on Warp, a ``"mujoco:"`` task's physics call allocates convex-collision
-  scratch for the task's geom pairs, not for the whole contact buffer (each
-  CUDA graph Warp keeps reserves addresses for a call's scratch).
+  stops the run rather than going on with dropped contacts.
+
+How much convex-collision scratch a ``"mujoco:"`` task's physics call
+allocates is the gymnasium-mjx package's contract, tested there.
 """
 
 import jax
@@ -211,54 +211,6 @@ def test_only_a_warp_stack_checks_its_room(physics_requested):
     assert not checks(build_env_from_id(TASK, physics="jax")[0])
 
 
-def warp_scratch_megabytes(text: str) -> float:
-    """The CPU peak of a ``wp.ScopedMemoryTracker`` report, in MB."""
-    units = {"B": 1e-6, "KB": 1e-3, "MB": 1.0, "GB": 1e3}
-    lines = text.splitlines()
-    start = lines.index("  Peak usage:") + 1
-    for line in lines[start:]:
-        fields = line.split()
-        if fields[0] == "cpu":
-            return float(fields[1]) * units[fields[2]]
-    raise ValueError(f"no CPU peak in the report:\n{text}")
-
-
-@pytest.mark.skipif(
-    jax.default_backend() != "cpu",
-    reason="on a GPU, Warp replays a captured CUDA graph: no allocation to count",
-)
-def test_a_pusher_physics_call_on_warp_allocates_scratch_for_its_pairs_only():
-    """Catches the convex-collision scratch sized for the whole contact
-    buffer: MuJoCo Warp sizes it for 49,152 collisions unless told, and
-    every Pusher physics call allocated 235 MB (320 MB on a GPU). Warp keeps
-    a CUDA graph per call and per new set of XLA buffer addresses, up to 32
-    per Warp function, and each graph reserves its own addresses for the
-    scratch: PPO's benchmark run added 5 graphs per evaluation, and on an
-    11 GB GPU new ones failed after about 76 (21 GiB) with under 1.4 GB in
-    use. Room for Pusher's 7 geom pairs in 1,024 worlds takes 47 MB at most;
-    below 100 MB, the 96 graphs of three Warp functions fit in half of that
-    21 GiB, and the old size fails. MJX runs Warp's kernels on a CPU when a
-    task is made directly (no CUDA graphs), where Warp's tracker sees every
-    allocation."""
-    import warp as wp
-
-    from ajax.environments.mujoco.tasks import make
-
-    task = make("Pusher-v5", physics="warp")
-    keys = jax.random.split(jax.random.PRNGKey(0), 2)
-    states = jax.jit(jax.vmap(task.reset))(keys)
-    step = jax.jit(jax.vmap(task.step))
-    actions = jnp.ones((2, task.action_size))
-    jax.block_until_ready(step(states, actions))  # compiled outside the count
-
-    reports: list[str] = []
-    with wp.ScopedMemoryTracker("pusher", report_func=reports.append) as tracker:
-        tracker.clear()
-        jax.block_until_ready(step(states, actions))
-
-    assert warp_scratch_megabytes(reports[0]) < 100
-
-
 #: A Pusher state whose forearm and wrist touch the object (5 contacts, among
 #: them capsule-on-cylinder ones that MuJoCo Warp's convex code handles),
 #: found by sampling arm poses in C MuJoCo with the object under the tip.
@@ -270,17 +222,19 @@ def test_a_batch_beyond_the_convex_room_stops_the_run(monkeypatch):
     """Catches convex collisions dropped unnoticed, which no counter shows:
     with no room for them, Pusher's arm pressed on its object must stop
     the run, read from the overflow flag MuJoCo Warp itself sets."""
-    from ajax.environments.mujoco import tasks
+    gymnasium_mjx = pytest.importorskip("gymnasium_mjx")
+    from gymnasium_mjx.playground import PlaygroundTask
+
     from ajax.wrappers import WarpCapacityWrapper
 
-    monkeypatch.setattr(tasks, "WARP_WORLDS", 0)
-    task = tasks.make("Pusher-v5", physics="warp")
+    monkeypatch.setattr(gymnasium_mjx.base, "WARP_WORLDS", 0)
+    task = PlaygroundTask(gymnasium_mjx.make("Pusher-v5", physics="warp"))
     env = WarpCapacityWrapper(task)
     qpos = jnp.array(PUSHER_ARM_ON_OBJECT + PUSHER_OBJECT_UNDER_TIP + [0.0, 0.0])
 
     def touching_step(key: jax.Array):
         state = task.reset(key)
-        state = state.replace(data=task.set_state(qpos, task.init_qvel))
+        state = state.replace(data=task.task.set_state(qpos, task.task.init_qvel))
         return env.step(state, jnp.zeros(task.action_size))
 
     keys = jax.random.split(jax.random.PRNGKey(0), 2)

@@ -23,9 +23,11 @@ Two prefixes choose a source outright: `"mujoco:<id>"` for
 [Gymnasium's MuJoCo tasks in JAX](#gymnasiums-mujoco-tasks-in-jax), and
 `"gymnasium:<id>"` for [Gymnasium environments](#gymnasium-environments).
 
-Brax and Playground ids need Ajax's `brax` or `playground` extra
+Brax and Playground ids need Ajax's `brax` or `playground` extra, and
+`"mujoco:"` ids the `gymnasium-mjx` extra
 ([Installation](../getting-started/installation.md#extras)). An unknown id
-raises `ValueError`, naming the extras that are not installed. The agent
+raises `ValueError`, naming the extras that are not installed; a `"mujoco:"`
+id without its package raises `ImportError`, naming the extra. The agent
 builds `n_envs` copies, which step in parallel.
 
 ```python
@@ -90,7 +92,7 @@ On an L40S, SAC and PPO trained about five times faster on it
 runs on the same physics:
 
 ```python
-# doc: skip (needs an NVIDIA GPU and the playground extra)
+# doc: skip (needs an NVIDIA GPU and the gymnasium-mjx extra)
 from ajax import SAC
 from ajax.environments.create import build_env_from_id
 
@@ -116,30 +118,47 @@ it: it refuses a CPU, `differentiable_reset=True` and APG.
 
 ### Gymnasium's MuJoCo tasks in JAX
 
-`"mujoco:<id>"` builds one of Gymnasium's v5 MuJoCo tasks on MJX, so it runs
-in the compiled program like any Playground task: `HalfCheetah-v5`,
-`Hopper-v5`, `Walker2d-v5`, `Swimmer-v5`, `Reacher-v5`, `Pusher-v5`,
-`InvertedPendulum-v5` and `InvertedDoublePendulum-v5`, each behind the
-`"mujoco:"` prefix. Each loads Gymnasium's own model file and follows its
-`<task>_v5.py`: the same observations, rewards, terminations, reset
-distribution and time limit (50 steps for Reacher, 100 for Pusher, 1,000 for
-the others, unless you pass `episode_length`). Resets draw from Gymnasium's
-distributions, but not its random stream. They need the `playground` extra.
+`"mujoco:<id>"` builds one of Gymnasium's eleven v5 MuJoCo tasks on MJX, so
+it runs in the compiled program like any Playground task: `Ant-v5`,
+`HalfCheetah-v5`, `Hopper-v5`, `Humanoid-v5`, `HumanoidStandup-v5`,
+`InvertedDoublePendulum-v5`, `InvertedPendulum-v5`, `Pusher-v5`,
+`Reacher-v5`, `Swimmer-v5` and `Walker2d-v5`, each behind the `"mujoco:"`
+prefix. The tasks come from the
+[gymnasium-mjx](https://github.com/YannBerthelot/gymnasium-mjx) package,
+installed by the `gymnasium-mjx` extra. Each loads Gymnasium's own model file
+and follows its `<task>_v5.py`: the same observations, rewards, terminations,
+reset distribution and time limit (50 steps for Reacher, 100 for Pusher,
+1,000 for the others, unless you pass `episode_length`). Resets draw from
+Gymnasium's distributions, but not its random stream. Humanoid's models ask
+for the PGS solver, which MJX lacks: they run with Newton's.
 
 One step from the same state gives Gymnasium's values to about 1e-10 in
 float64 and 1e-4 in float32, the precision training runs in. Over a whole
 episode the two drift apart where bodies touch the ground, as two builds of
-MuJoCo do: `benchmarks/mujoco_drift.py` reports how far.
+MuJoCo do. gymnasium-mjx's README says how each task is checked.
 
 ```python
-# doc: skip (needs the playground extra: pip install "ajax-rl[playground]")
+# doc: skip (needs the gymnasium-mjx extra: pip install "ajax-rl[gymnasium-mjx]")
 from ajax import SAC
 
 agent = SAC("mujoco:Reacher-v5")
 ```
 
 For a task's own keywords (`reset_noise_scale`, `ctrl_cost_weight`, ...),
-build it with `ajax.environments.mujoco.tasks.make("Swimmer-v5", ...)`.
+build it with `gymnasium_mjx.make("Swimmer-v5", ...)` and give the agent the
+task object in place of an id. Any mujoco_playground env object works this
+way: Ajax adds its usual wrappers, keeps the env's own time limit unless you
+pass `episode_length`, and evaluates on the same object.
+
+```python
+# doc: skip (needs the gymnasium-mjx extra: pip install "ajax-rl[gymnasium-mjx]")
+import gymnasium_mjx
+from gymnasium_mjx.playground import PlaygroundTask
+
+from ajax import SAC
+
+agent = SAC(PlaygroundTask(gymnasium_mjx.make("Swimmer-v5", ctrl_cost_weight=1e-3)))
+```
 
 ### Diverging simulators
 
@@ -362,7 +381,9 @@ comparable across them:
 | `HalfCheetah-v5` | Brax `"halfcheetah"` | Brax's physics only |
 | `Hopper-v5`, `Walker2d-v5` | Ajax `"mujoco:Hopper-v5"`, `"mujoco:Walker2d-v5"` | Nothing: the same tasks on MJX |
 | `Hopper-v5`, `Walker2d-v5` | Brax `"hopper"`, `"walker2d"` | Brax's physics; the healthy reward is also paid on the step that ends the episode |
+| `Ant-v5` | Ajax `"mujoco:Ant-v5"` | Nothing: the same task on MJX |
 | `Ant-v5` | Brax `"ant"` | No contact cost; 27 observations instead of 105 |
+| `Humanoid-v5`, `HumanoidStandup-v5` | Ajax `"mujoco:Humanoid-v5"`, `"mujoco:HumanoidStandup-v5"` | The Newton solver instead of PGS, which MJX lacks |
 | `Humanoid-v5` | Brax `"humanoid"` | No contact cost; other observations |
 | `HumanoidStandup-v5` | Brax `"humanoidstandup"` | A height reward 5 times smaller, other costs and observations |
 | `InvertedPendulum-v5` | Ajax `"mujoco:InvertedPendulum-v5"` | Nothing: the same task on MJX |

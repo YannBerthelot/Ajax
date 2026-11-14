@@ -73,6 +73,13 @@ cuda = [
 gymnasium = [
     { name = "gymnasium", extra = ["mujoco"] },
 ]
+gymnasium-mjx = [
+    { name = "brax" },
+    { name = "gymnasium-mjx", extra = ["playground"] },
+    { name = "mujoco" },
+    { name = "mujoco-mjx", extra = ["warp"] },
+    { name = "playground" },
+]
 manifolds = [
     { name = "m-phate" },
     { name = "matplotlib" },
@@ -97,7 +104,7 @@ wandb = [
 [package.dev-dependencies]
 dev = [
     { name = "adastop" },
-    { name = "ajax-rl", extra = ["gymnasium", "manifolds", "playground"] },
+    { name = "ajax-rl", extra = ["gymnasium", "gymnasium-mjx", "manifolds", "playground"] },
     { name = "coverage" },
     { name = "matplotlib" },
     { name = "mypy" },
@@ -130,12 +137,14 @@ wandb = [
 requires-dist = [
     { name = "adastop", marker = "extra == 'compare'", git = "https://github.com/TimotheeMathieu/adastop.git?rev=07e7159643f11467c154266b5ef3b1be6ca8ddd8" },
     { name = "ajax-rl", extras = ["brax"], marker = "extra == 'playground'" },
+    { name = "ajax-rl", extras = ["playground"], marker = "extra == 'gymnasium-mjx'" },
     { name = "brax", marker = "extra == 'brax'", specifier = ">=0.14.2" },
     { name = "chex", specifier = ">=0.1.91,<0.2" },
     { name = "distrax", specifier = ">=0.1.9" },
     { name = "flashbax", specifier = ">=0.1.3,<0.2" },
     { name = "flax", specifier = ">=0.12.8" },
     { name = "gymnasium", extras = ["mujoco"], marker = "extra == 'gymnasium'", specifier = ">=1.0" },
+    { name = "gymnasium-mjx", extras = ["playground"], marker = "extra == 'gymnasium-mjx'", git = "https://github.com/YannBerthelot/gymnasium-mjx.git?branch=feat%2Fwarp-convex-room" },
     { name = "gymnax", specifier = ">=1.0.1,<2" },
     { name = "huggingface-hub", marker = "extra == 'reproduction'", specifier = ">=0.30,<2" },
     { name = "jax", specifier = ">=0.10.0" },
@@ -156,12 +165,13 @@ requires-dist = [
     { name = "umap-learn", marker = "extra == 'manifolds'", specifier = ">=0.5.7" },
     { name = "wandb", marker = "extra == 'wandb'", specifier = ">=0.19.9" },
 ]
-provides-extras = ["cuda", "compare", "reproduction", "manifolds", "brax", "playground", "gymnasium", "wandb"]
+provides-extras = ["cuda", "compare", "reproduction", "manifolds", "brax", "playground", "gymnasium", "gymnasium-mjx", "wandb"]
 
 [package.metadata.requires-dev]
 dev = [
     { name = "adastop", git = "https://github.com/TimotheeMathieu/adastop.git?rev=07e7159643f11467c154266b5ef3b1be6ca8ddd8" },
     { name = "ajax-rl", extras = ["gymnasium"] },
+    { name = "ajax-rl", extras = ["gymnasium-mjx"] },
     { name = "ajax-rl", extras = ["manifolds"] },
     { name = "ajax-rl", extras = ["playground"] },
     { name = "coverage", extras = ["toml"], specifier = ">=7.8.0,<8" },
@@ -899,6 +909,22 @@ mujoco = [
     { name = "imageio" },
     { name = "mujoco" },
     { name = "packaging" },
+]
+
+[[package]]
+name = "gymnasium-mjx"
+version = "0.2.0"
+source = { git = "https://github.com/YannBerthelot/gymnasium-mjx.git?branch=feat%2Fwarp-convex-room#21acc277be32a959e71c35b99ed13800580108ad" }
+dependencies = [
+    { name = "jax" },
+    { name = "mujoco" },
+    { name = "mujoco-mjx" },
+]
+
+[package.optional-dependencies]
+playground = [
+    { name = "mujoco-mjx", extra = ["warp"] },
+    { name = "playground" },
 ]
 
 [[package]]

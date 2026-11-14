@@ -347,9 +347,18 @@ The next release is 0.6.0: the first item changes results.
   `"mujoco:Hopper-v5"`, `"mujoco:Walker2d-v5"`, `"mujoco:Swimmer-v5"`,
   `"mujoco:Reacher-v5"`, `"mujoco:Pusher-v5"`,
   `"mujoco:InvertedPendulum-v5"` and `"mujoco:InvertedDoublePendulum-v5"`
-  run Gymnasium's own models and rules on MJX, inside the compiled program.
-  They need the `playground` extra. Ant, Humanoid and HumanoidStandup
-  follow.
+  run Gymnasium's own models and rules on MJX, inside the compiled program,
+  and so do `"mujoco:Ant-v5"`, `"mujoco:Humanoid-v5"` and
+  `"mujoco:HumanoidStandup-v5"`. The tasks come from the gymnasium-mjx
+  package, installed by the new `gymnasium-mjx` extra; without it, a
+  `"mujoco:"` id raises an ImportError naming the extra.
+  *Upgrade,* for code written against main since 0.5 (no release held
+  these tasks): install `ajax-rl[gymnasium-mjx]`, as the `playground` extra
+  alone no longer brings them, and import `gymnasium_mjx` where you imported
+  `ajax.environments.mujoco`, which is gone. The ids are unchanged.
+  A mujoco_playground env object, such as gymnasium-mjx's
+  `PlaygroundTask(gymnasium_mjx.make("Hopper-v5"))`, can be given to an
+  agent in place of an id; it trains and evaluates the same way.
 - **Agent benchmark filled in.** SAC, TD3, RVI-SAC and ASAC now have scores
   on all fifteen DeepMind Control tasks, APO's HumanoidWalk run finished, and
   REDQ, TQC, CrossQ, TD-MPC2 and DreamerV3 have CheetahRun scores, from runs

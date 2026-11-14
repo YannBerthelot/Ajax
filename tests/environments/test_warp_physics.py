@@ -26,12 +26,13 @@ from ajax import APO, PPO, SAC
 from ajax.agents.DreamerV3.DreamerV3 import DreamerV3
 from ajax.agents.TDMPC2.TDMPC2 import TDMPC2
 from ajax.environments.create import build_env_from_id
-from ajax.environments.mujoco import tasks
 from ajax.logging import LoggingConfig
 from tests.agents.DreamerV3.test_dreamerv3_agent import TINY as DREAMER_TINY
 from tests.agents.TDMPC2.common import TINY_AGENT as TDMPC2_TINY
 
 pytest.importorskip("mujoco_playground")
+#: The package of the "mujoco:" tasks, which sizes their Warp buffers.
+tasks = pytest.importorskip("gymnasium_mjx").base
 pytestmark = [
     pytest.mark.large,
     pytest.mark.skipif(

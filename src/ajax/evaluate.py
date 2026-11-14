@@ -171,6 +171,7 @@ def setup_environment(
         _build_playground_env,
         add_ajax_wrappers,
         strip_ajax_wrappers,
+        wrap_playground_env,
     )
 
     env, layers = strip_ajax_wrappers(env)
@@ -206,7 +207,19 @@ def setup_environment(
         if episode_length is not None:
             eval_ep_len = int(episode_length)
         episode_keys = getattr(env, "_ajax_episode_keys", True)
-        if check_env_is_playground(env):
+        prebuilt = getattr(env, "_ajax_prebuilt", None)
+        if prebuilt is not None:
+            # A bare env object given to the agent: no id, so the same
+            # object is wrapped again.
+            env = wrap_playground_env(
+                prebuilt,
+                n_envs=num_episodes,
+                episode_length=eval_ep_len,
+                action_repeat=action_repeat,
+                fresh_reset=getattr(env, "_ajax_fresh_reset", True),
+                episode_keys=episode_keys,
+            )
+        elif check_env_is_playground(env):
             env = _build_playground_env(
                 ajax_env_id,
                 n_envs=num_episodes,

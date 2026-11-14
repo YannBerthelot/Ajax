@@ -837,7 +837,7 @@ class ActorCritic:
             raise ValueError(
                 f"{type(self).__name__} cannot train offline: offline training"
                 " runs an agent's update on a replay of transitions (SAC, TD3,"
-                " REDQ, ASAC, DQN, IQL)."
+                " REDQ, TQC, CrossQ, ASAC, RVI-SAC, DQN, IQL, DAgger)."
             )
         state, out = self.train(
             seed=seed,

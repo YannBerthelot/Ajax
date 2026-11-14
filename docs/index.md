@@ -51,17 +51,16 @@ extension it cannot run; [Compatibility](guide/compatibility.md) shows which
 agent runs which.
 
 ```bash
-git clone https://github.com/YannBerthelot/Ajax.git
-cd Ajax
-uv sync
+pip install ajax-rl                 # imports as ajax; Python 3.12 or newer
+pip install "ajax-rl[playground]"   # adds Brax and MuJoCo Playground environments
 ```
 
 ```python
 from ajax import PPO
 from ajax.logging import LoggingConfig
 
-agent = PPO("CartPole-v1")  # 4 environments x 2048-step rollouts: one update per 8,192 steps
-# Evaluate after every update; backends=() keeps the results in memory only.
+agent = PPO("CartPole-v1")  # one environment, 2048-step rollouts: one update per 2,048 steps
+# Evaluate every 4 updates; backends=() keeps the results in memory only.
 logging = LoggingConfig(log_frequency=8_192, backends=())
 state, evaluations = agent.train(seed=[1, 2, 3], n_timesteps=40_960, logging_config=logging)
 

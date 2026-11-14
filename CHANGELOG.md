@@ -8,6 +8,19 @@ PyPI as `ajax-rl`.
 
 The next release is 0.6.0: the first item changes results.
 
+- **Fixed: `PreviousReward` read the normalised reward in training.** With
+  `normalize_rewards`, collection appended the normalised reward where an
+  evaluation and `agent.policy` append the environment's own, about 35
+  times apart on Pendulum. Collection now appends the environment's own.
+  Recurrent SAC, TD3, REDQ, ASAC, TQC and RVI-SAC add the feature by
+  default, so their results with `normalize_rewards` change.
+
+- **Fixed: `CloningPretrain` made APO and AVG normalise observations
+  twice.** APO with `normalize_observations` and AVG store normalised
+  observations; cloning also put the dataset's statistics on their
+  networks, which normalised them again, and dropped `observation_clip`.
+  Their results with `CloningPretrain` change.
+
 - **PPO clips its value loss, as ppo2 does.** Each squared value error is
   the larger of its own and that of the value clipped to `clip_range`
   around the value the rollout was collected with (Baselines' ppo2,

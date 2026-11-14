@@ -119,12 +119,18 @@ def _pendulum_sac(**kwargs) -> SAC:
     )
 
 
-def test_sac_stores_the_previous_reward_across_time_limits():
+@pytest.mark.parametrize("normalize_rewards", [False, True])
+def test_sac_stores_the_previous_reward_across_time_limits(normalize_rewards):
     """Pendulum cut every 5 steps, rewards negative and varying: per env and
     stored row t, obs[t + 1] carries reward[t] unless row t ended its
     episode (zero then), and next_obs[t], the final observation where a time
-    limit cut it, carries reward[t]. The first row starts an episode."""
-    state, _ = _pendulum_sac().train(seed=0, n_timesteps=64)
+    limit cut it, carries reward[t]. The first row starts an episode.
+
+    With normalised rewards too: the replay stores the env's own reward, and
+    the column is that one, as an evaluation and agent.policy pass it (the
+    bug: collection passed the normalised reward, about 35 times smaller)."""
+    agent = _pendulum_sac(normalize_rewards=normalize_rewards)
+    state, _ = agent.train(seed=0, n_timesteps=64)
     experience = state.collector_state.buffer_state.experience
     rows = {key: np.asarray(value[0, :, :32]) for key, value in experience.items()}
     reward, ended = rows["reward"][..., 0], rows["truncated"][..., 0] > 0

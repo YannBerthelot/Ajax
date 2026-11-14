@@ -86,6 +86,14 @@ def test_a_value_past_the_clip_away_from_its_target_is_pulled_back():
     assert slope == pytest.approx(-0.5 - 10.0, rel=1e-6)
 
 
+def test_the_clip_is_around_the_collected_value_not_around_zero():
+    # V = 3.1, V_old = 3, R = 10: |V - V_old| < C, both errors (10 - 3.1)^2 = 47.61. A clip
+    # around 0 would read (10 - 0.2)^2 = 96.04 and stop pulling V.
+    loss, slope = _loss_and_slope(3.1, 3.0, 10.0, C)
+    assert loss == pytest.approx(0.5 * 47.61, rel=1e-6)
+    assert slope == pytest.approx(3.1 - 10.0, rel=1e-6)
+
+
 def test_without_a_clip_range_the_loss_is_the_plain_squared_error():
     loss, slope = _loss_and_slope(0.5, 0.0, 10.0, None)
     assert loss == pytest.approx(0.5 * 90.25, rel=1e-6)

@@ -100,11 +100,12 @@ from . import readouts as R
 # The one-program sweep's: faults/ + 1, test_framework + 1.
 # The memory probes' power with the observed previous step (q2-cue's cell,
 # P0b's one-step first episode): test_memory + 71, test_framework + 3.
+# The shipped defaults, PPO's normalised returns (two faults): + 61.
 CAPS = {"verdict.py": 255, "envs.py": 255, "agents.py": 171, "runs.py": 250}
-CAPS.update({"readouts.py": 220, "oracles.py": 198, "faults.py": 152, "faults/": 421})
+CAPS.update({"readouts.py": 220, "oracles.py": 198, "faults.py": 152, "faults/": 423})
 CAPS.update({"test_average_reward.py": 186})
-CAPS.update({"test_framework.py": 333, "test_value_chains.py": 1051})
-CAPS.update({"test_episode_ends.py": 1050, "test_bookkeeping.py": 1013})
+CAPS.update({"test_framework.py": 335, "test_value_chains.py": 1051})
+CAPS.update({"test_episode_ends.py": 1106, "test_bookkeeping.py": 1013})
 CAPS.update({"test_extensions.py": 855, "test_p4_split_run.py": 360})
 CAPS.update({"test_memory.py": 522, "test_world_models.py": 452})
 CAPS.update({"test_action_box.py": 207, "test_imitation.py": 192})
@@ -299,14 +300,15 @@ def test_the_directory_keeps_to_its_budget() -> None:
     the memory probes reading the previous step Ni et al.'s networks read and
     their recalibration, 74 for q2-cue's cell and P0b's one-step first episode, 2
     for TD3's memory cells at Ni's rate, 3 for SAC's windows of two at 6000, and
-    3 for these notes."""
+    3 for these notes.
+    The shipped defaults' cells, faults and notes (2026-11-14): 61 for PPO's."""
     cmd = ["git", "ls-files", "--cached", "--others", "--exclude-standard"]
     out = subprocess.run(
         [*cmd, "tests/probing"], cwd=faults.REPO, capture_output=True, text=True
     )
     files = [f for f in out.stdout.split() if f.count("/") == 2 or "/faults/" in f]
     total = sum(_lines(os.path.join(faults.REPO, f)) for f in files)
-    assert total <= 8885, total
+    assert total <= 8946, total
 
 
 def test_every_fault_names_the_fast_tests_that_catch_it() -> None:

@@ -265,11 +265,11 @@ class Policy:
         key: Optional[jax.Array] = None,
     ) -> tuple[jax.Array, PolicyCarry]:
         """The action at obs, in the environment's units, and the next carry."""
-        if self.reads_reward and done is not None and reward is None:
+        if self.reads_reward and reward is None and _after_a_step(carry, done):
             raise ValueError(
                 "This policy reads the reward the last action earned (UDRL's"
                 " command counts it down; PreviousReward observes it): pass"
-                " reward with done."
+                " reward with done after every step."
             )
         n_envs = carry.first.shape[0]
         done = jnp.zeros(n_envs, bool) if done is None else jnp.asarray(done, bool)
@@ -280,6 +280,18 @@ class Policy:
             carry = carry._replace(key=stream)
         obs, reward = jnp.asarray(obs), jnp.asarray(reward, jnp.float32)
         return self._step(self.agent_state, obs, carry, done, reward, key)
+
+
+def _after_a_step(carry: PolicyCarry, done: Any) -> bool:
+    """Whether an act follows a step, whose reward it then needs: one given
+    a done, or one whose carry holds an env past its episode's first
+    observation. A traced carry (act inside the caller's own program)
+    cannot be read: only the done tells."""
+    if done is not None:
+        return True
+    if isinstance(carry.first, jax.core.Tracer):
+        return False
+    return not bool(jnp.all(carry.first))
 
 
 def evaluation_policy(

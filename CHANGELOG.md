@@ -54,7 +54,8 @@ The next release is 0.6.0: the first item changes results.
   few thousand. The new update rule `"tf1_adam"` (`OptimizerConfig`,
   `ajax.networks.utils.scale_by_tf1_adam`) is PPO's; with `memory` or
   `unroll_length` PPO keeps optax's Adam, as PureJaxRL and Brax use it.
-  PPO's results change.
+  PPO's results change. Upgrade: no option restores optax's Adam on
+  feedforward PPO; compare with runs of this version.
 
 - **`PreviousAction()` appends the action executed before each
   observation** (`ajax.extensions.observe`): zero at an episode's first
@@ -100,11 +101,14 @@ The next release is 0.6.0: the first item changes results.
 - **Recurrent TD3 is Ni et al.'s**: its actor maximises min(Q1, Q2), and
   `policy_delay` defaults to `None`, 2 without memory as before and 1 with
   it; with memory, TD3's and REDQ's critics read the agent's [-1, 1]
-  actions, not the env's units.
+  actions, not the env's units. Results with memory change. Upgrade: pass
+  `policy_delay=2` for the delayed actor; the critics' action units have no
+  option.
 - **Recurrent SAC's numerics are Ni et al.'s**: with memory, the squashed
   log-density subtracts log(1 − tanh² + 1e-6) (also TQC's and RVI-SAC's;
   REDQ's and ASAC's already did), the critics' squared errors are summed,
   and the temperature steps alpha on the actor loss's own log-densities.
+  Results with memory change, and no option restores the earlier numerics.
 - **SAC, TD3, REDQ, TQC, ASAC and RVI-SAC can share a memory.** With
   `share_encoder=True`, `memory=` and `PreviousAction()`, the critic's
   encoder and memory block read the observation and the previous action
@@ -272,8 +276,8 @@ The next release is 0.6.0: the first item changes results.
   through its 64 filtering steps now takes each RSSM weight's gradient once
   per update, as one product over all steps, instead of adding 64 small
   per-step products. Results are the same up to floating-point rounding.
-  Provisional, until timed on a quiet machine: on a shared L40S (MuJoCo Warp
-  Hopper), an update took 6-10% less time at 1 and 2 seeds. It uses about
+  On a shared L40S (MuJoCo Warp Hopper), an update took 6-10% less time at
+  1 and 2 seeds; it has not been timed on a machine with no other job. It uses about
   0.2 GB more GPU memory per seed, and the CPU bench's DreamerV3 run is
   about 6% slower.
 - **The `playground` extra allows MuJoCo up to 3.15.** It held `mujoco`
@@ -358,6 +362,52 @@ The next release is 0.6.0: the first item changes results.
   heatmap and learning curves. `benchmarks/suite/publish.py` writes the
   tables, figures and the README summary from the records, and a test checks
   they still match.
+- **Adam keeps its moments as one vector per optimiser.** Each agent's Adam
+  runs on the gradients joined into one vector; weight decay, the learning
+  rate and gradient clipping stay per array. The maths is unchanged: float32
+  results move by an ulp or two. On an L40S, agents ran 6% to 17% faster;
+  on a Mac's CPU, IQL runs about 17% slower. A checkpoint saved with one
+  moment per array restores: its moments are joined on load.
+  `ajax.networks.utils.map_optimizer_moments(opt_state, params, edit)`
+  edits moments in either layout. Upgrade: code reading
+  `opt_state` moments by the parameters' tree calls
+  `map_optimizer_moments` instead.
+- **Three ways to keep an expert and change what is around it**
+  (`ajax.extensions.structure`), all off unless asked for:
+  `OuterLoopReference(target_channels, max_change)` has the policy move the
+  target the unchanged expert reads (Arroyo and Giraldo, 2020);
+  `GainScheduledLaw(expert, obs_width)` under `ExpertGains(max_factor=...)`
+  has it set a rate-limited multiplier per gain (Bloor et al., 2024); and
+  `BumplessTracking(reading_channels)` has the expert's memory follow the
+  action applied (Hanus et al., 1987). APG and UDRL refuse tracking.
+- **A final evaluation and a step ledger.** `ajax.log.final_evaluation`
+  scores a run's seeds on fixed episode sets, keyed by the task and the seed
+  number, so every arm and the expert meet the same episodes; it returns
+  per-episode costs and trip counts. `ajax.ledger` counts every environment
+  step of a run against one budget, pretraining included:
+  `online_steps(agent, budget)` gives the `n_timesteps` that spends it
+  exactly.
+- **AdaStop compares paired runs.** `AdaStop(..., paired=True)` and
+  `compare(..., paired=True)` test the differences between same-numbered
+  seeds, for runs whose seed `i` shares something across agents, such as its
+  evaluation episodes. The default test is unchanged.
+- **Runs at any sensor noise level, and a measured reward.** Evaluation and
+  UDRL read the expert's observation under the run's params, not the env's
+  defaults. `MeasuredRewardWrapper(env)` trains on the env's
+  `info["measured_reward"]`; evaluation still reports the true reward.
+- **TD-MPC2 evaluates at multiples of `log_frequency`.** Its evaluations
+  drifted from the env steps (65,535, 98,302, ...) and a long call returned
+  one empty row. They now land on exact multiples, one row each, so its
+  evaluation numbers shift slightly; training is unchanged.
+- **Faster APG, TD-MPC2, UDRL and DQN on MinAtar**, with the same maths.
+  APG's transformer controller caches its keys and values during a rollout
+  (`MemoryCell(..., cache_keys_values=True)`, off for every other agent).
+  TD-MPC2's planner rolls its policy-prior candidates out once per decision,
+  not once per iteration (12% less time per decision on an L40S; results
+  move by rounding). UDRL's episode-stream scan is unrolled (54% faster on
+  MinAtar on a GPU, same bits). DQN's replay keeps MinAtar's 0/1
+  observations in a byte, a quarter of the memory, and reads them back as
+  the same float32.
 - **PORL.** `porl(CloningPretrain(expert))` gives SAC's keyword arguments for
   Xiao et al. (2025): the expert's clone stays frozen and acts epsilon-greedily
   (`EpsilonGreedyPresample`) while a fresh critic trains, then the agent
@@ -456,6 +506,13 @@ The next release is 0.6.0: the first item changes results.
 
 ### Upgrading from 0.5.0
 
+The default changes above each end with an "Upgrade:" line giving the
+arguments that restore the earlier behaviour: PPO (value clip, normalisation,
+one env and 64-64 layers), DQN, PQN, APO, REDQ's warm-up, DAgger's fit and
+`beta_schedule`, `normalize_rewards`, and the recurrent SAC family's networks
+and windows. Checkpoints of recurrent SAC-family agents and of DAgger saved
+before this version do not restore at the new defaults. The rest:
+
 - **On-policy runs train one rollout fewer per `train` call**, so their
   results move a little. A call asked for 8,192 steps of 1,024-step rollouts
   now stops at 8,192, not 9,216. *What to do:* compare with runs of this
@@ -473,12 +530,15 @@ The next release is 0.6.0: the first item changes results.
   uniform actions without the expert; it now draws uniform residuals around
   it. `zero_start=True` starts the policy as the expert, and
   `critic_reads_residual=True` has the critics read the residual, as both
-  papers do. Runs with a residual policy and a warm-up change.
+  papers do. Runs with a residual policy and a warm-up change. *What to
+  do:* compare with runs of this version.
 - **`PriorData`'s offline updates train SAC's actor and temperature.** They
   ran below `policy_update_start` and `alpha_update_start`, so only the critics
-  moved. Those starts still count the env steps collected online.
+  moved. Those starts still count the env steps collected online. Runs with
+  `PriorData` change. *What to do:* compare with runs of this version.
 - **IQL's state value reads normalised observations**, as its actor and critics
-  do. Runs with `normalize_observations=True` change.
+  do. Runs with `normalize_observations=True` change. *What to do:* retrain;
+  no option restores the raw read.
 - **A replay row keeps the action executed.** IQL's unsquashed samples left the
   action box, the env clipped them, and the replay kept the raw sample beside
   the reward of the clipped one. Rows now hold the clipped action, as IQL's
@@ -490,22 +550,23 @@ The next release is 0.6.0: the first item changes results.
   `reset_actor_head=True` now reaches TD3's output layer.
 - **An expert reads the run's params.** It read the env's default params, so a
   sensor set through params reached the agent and not the expert. Evaluation
-  and UDRL do not pass them yet.
+  and UDRL pass them too.
 - **The `plane` group takes `target-gym>=0.7,<0.9`**, from a commit until 0.8.0
   is released. Build its experts with
   `REGISTRY[name].make_pid_controller().batched()`.
-- **Fresh `playground` installs build the Reacher tasks.** The extra now keeps
-  `mujoco` below 3.10. MuJoCo Playground 0.2.0 compares versions as strings, so
-  `ReacherEasy` and `ReacherHard` failed on `mujoco` 3.10 and later with
-  `'MjSpec' object has no attribute 'find_body'`. The cap goes once a Playground
-  release holds the fix.
+- **Fresh `playground` installs build the Reacher tasks.** MuJoCo Playground
+  0.2.0 compares versions as strings, so `ReacherEasy` and `ReacherHard`
+  failed on `mujoco` 3.10 and later with
+  `'MjSpec' object has no attribute 'find_body'`. Ajax now patches
+  Playground's Reacher builder, and the extra takes `mujoco` 3.6 to 3.15
+  (see "The `playground` extra allows MuJoCo up to 3.15" above).
 - **APO's `Eval/mean average reward` changes.** It was the mean reward over
   10,000 steps per test episode, the episodes restarting. It is now the
   official code's measure: the mean return / length of the first 10
   trajectories to end on 10 environments of up to 1,000 steps, whatever
   `num_episode_test` is. *What to do:* compare with runs of this version.
 - **Fresh `playground` installs import MuJoCo again.** The extra now holds
-  `mujoco-mjx` to `mujoco`'s range, `>=3.6,<3.10`. `mujoco-mjx` 4.0 requires
+  `mujoco-mjx` to `mujoco`'s range, `>=3.6,<3.16`. `mujoco-mjx` 4.0 requires
   `mujoco-core`, which MuJoCo 4 split out of `mujoco`, so installers paired it
   with `mujoco` 3.9 and `import mujoco` failed with
   `OSError: libmujoco.so.3.9.0: cannot open shared object file`. The two

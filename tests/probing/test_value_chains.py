@@ -24,6 +24,7 @@ from probing_environments.gymnax_envs import continuous_actions as continuous
 from ajax.agents.PPO.PPO import _compute_gae
 from ajax.agents.PQN.PQN import compute_q_lambda_targets
 from ajax.environments.differentiable import with_transition_gradients
+from ajax.environments.interaction import reward_statistics
 from ajax.environments.obs_norm import apply_obs_norm
 from ajax.environments.utils import _action_bounds
 from ajax.networks.distributions import Squash
@@ -34,7 +35,7 @@ from . import readouts as R
 from .verdict import CEILING, STAGE_1, Case, Query, check, params
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "1264ec9d4bb5"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "8a63d032d1d6"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P0a: max bootstrap and action indexing ---------------------------------
@@ -1072,6 +1073,86 @@ for cell, (agent, bandit, c, lr, steps, q6_tols, kw) in Q6_CELLS.items():
         cid, Q6_QUERIES[cell], reads, steps, q6_tols, slow=slow, ceiling=ceiling
     )
     CASES[case.id] = case
+
+
+# --- the shared encoder: the shipped PPO on images ----------------------------
+# With an image PPO reads its policy and its value through one CNN
+# (share_encoder, ppo2's Atari choice), which the critic owns and the actor
+# copies after each update. The smallest image its reference network takes, 3
+# x 3 with one channel: a lit corner names the context c, drawn at reset, and
+# the one step pays 1 + c + clip(a) (2c - 1). The mean action takes the sign
+# of 2c - 1 and the value is 1 + c + E[clip(a)] (2c - 1) under the policy as
+# it ended, read in the env's units: times sigma, the reward normaliser's
+# divisor at the end of the run. A value blind to the image reads the two
+# contexts' mean, 1/2 off each. Continuous actions: a categorical policy ends
+# deterministic, where the advantages vanish and PPO's normalisation of them
+# per minibatch amplifies the value's residual. Paying 1 + c for a = c, 21 of
+# 32 seeds held pi(c | c) within 0.1 of 1 at 32,768 steps (20 with separate
+# encoders, 28 on an MLP), 32 with normalize_advantage off.
+
+
+def _corner(st: envs.State, a: jax.Array, key: Any) -> tuple:
+    paid = 1.0 + st.c + jnp.clip(a.reshape(()), -1.0, 1.0) * (2.0 * st.c - 1.0)
+    return st.replace(s=st.s + 1), paid, True
+
+
+CORNER = envs.Spec(
+    "corner",
+    _corner,
+    lambda st: envs.one_hot(8 * st.c.astype(jnp.int32), 9),
+    lambda key, params: (0, jax.random.bernoulli(key)),
+    obs_dim=9,
+    limit=2,
+)
+
+
+def _corner_read(run: runs.Run) -> dict:
+    if not run.agent.network_args.share_encoder:
+        raise RuntimeError("the image PPO no longer shares its encoder")
+    stats = reward_statistics(run.state.collector_state.env_state)
+    sigma = jnp.sqrt(stats.mean_2 / stats.count + 1e-8).reshape(len(run.seeds), -1)
+
+    def read(n: R.Nets) -> dict:
+        out = {}
+        for c in (0, 1):
+            x = envs.one_hot(8 * c, 9)
+            a = R.pi(n, x).sample(seed=R.KEY, sample_shape=(4096,)).reshape(-1)
+            oracle = 1.0 + c + jnp.mean(jnp.clip(a, -1.0, 1.0)) * (2 * c - 1)
+            out[f"a(c={c})"] = R.action(n, x)
+            out[f"V(c={c}) - oracle"] = R.critic(n, x) * n.extra[0] - oracle
+        return out
+
+    return R.per_seed(read, R.nets(run.state, sigma, R.env_stats(run)))
+
+
+_SIGNS = {"image ignored": 0.0, "reversed": 1.0}
+CASES["encoder-PPO-image"] = Case(
+    "encoder-PPO-image",
+    tuple(
+        q
+        for c in (0, 1)
+        for q in (
+            Query(
+                f"a(c={c})",
+                2.0 * c - 1.0,
+                {k: v * (1 - 2 * c) for k, v in _SIGNS.items()},
+                True,
+            ),
+            Query(f"V(c={c}) - oracle", 0.0, {"image ignored": 0.5 - c}),
+        )
+    ),
+    runs.readings(
+        functools.partial(
+            agents.make, "PPO", *CORNER.make(), preset=None, cnn_image_shape=(3, 3, 1)
+        ),
+        _corner_read,
+    ),
+    32_768,
+    (0.5, 0.084, 0.5, 0.183),
+    ceiling=0.25,  # half the gap to a value blind to the image
+    note="ladder 16384-131072 on 1000-1031, 32768-65536 on 2000-2031: 32768"
+    " (16384: the value 0.29-1.07 short); the value's worst errors 0.042, 0.091",
+)
 
 
 # --- every judged case --------------------------------------------------------

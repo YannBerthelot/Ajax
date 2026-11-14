@@ -330,8 +330,9 @@ The next release is 0.6.0: the first item changes results.
   was checked. Before, every agent failed on its first step: the auto-reset
   merged each physics array env by env, and Warp keeps its contact buffer
   for the whole batch of environments. That buffer now passes through the
-  reset. Warp refuses a CPU, `differentiable_reset=True` and APG, saying
-  why. Pure-JAX runs are unchanged.
+  reset. Warp refuses a MuJoCo before 3.13 (the first whose Warp reports
+  the convex collisions it drops), a CPU, `differentiable_reset=True` and
+  APG, saying why. Pure-JAX runs are unchanged.
 - **Warp's contact room.** MuJoCo Warp keeps one contact buffer for all the
   worlds a run steps at once (seeds times envs). The `"mujoco:"` tasks left
   it at MuJoCo Warp's default, 48 contacts in all, which 47 Hopper worlds

@@ -240,42 +240,43 @@ def final_aux_scan(
     length: int,
     xs: Any = None,
 ):
-    """Run ``lax.scan`` and expose only the final-step aux from the body.
+    """``length`` steps of ``body(carry, x) -> (new_carry, aux)``, returning
+    the final carry and the last step's aux alone (``aux`` a pytree of
+    arrays, any structure).
 
-    Replaces the common idiom
-
-        carry, ys = jax.lax.scan(body, init, xs, length=length)
-        last_aux = jax.tree.map(lambda x: x[-1], ys)
-
-    with a carry-only variant that never materializes the leading scan
-    axis on device for the aux. Critical under vmap-over-seeds because
-    the discarded ys dimension would otherwise grow as
-    ``[seeds, length, *aux_shape]`` purely to be thrown away.
-
-    The body maps ``(carry, x) -> (new_carry, aux)``, ``aux`` a pytree of
-    arrays (any structure).
+    It replaces ``lax.scan`` and keeping ``ys[-1]``, which would stack every
+    step's aux, ``[seeds, length, *aux_shape]`` under the seed vmap, to throw
+    all but one away. The steps before the last run in a scan that keeps no
+    aux, so XLA computes none of it there (a training chunk's per-update
+    logs, which only its last tick's evaluation reads); the last step runs
+    once more in the program, keeping its own. The body is traced twice.
 
     Args:
         xs: optional pytree of per-step inputs; if None, the body
             receives ``None`` as ``x`` each step (matches scan semantics).
 
     Returns:
-        ``(final_carry, last_aux)`` where ``last_aux`` is the body's
-        return value on the final iteration only.
+        ``(final_carry, last_aux)``; with ``length`` 0, ``init_carry`` and
+        an aux of zeros.
     """
+    if length < 1:
+        sample_x = jax.tree.map(lambda a: a[0], xs) if xs is not None else None
+        aux_shape = jax.eval_shape(lambda c: body(c, sample_x)[1], init_carry)
+        return init_carry, jax.tree.map(
+            lambda s: jnp.zeros(s.shape, s.dtype), aux_shape
+        )
 
-    def _wrapped(state, x):
-        carry, _prev_aux = state
-        new_carry, aux = body(carry, x)
-        return (new_carry, aux), None
+    def step_keeping_no_aux(carry: Any, x: Any) -> Tuple[Any, None]:
+        return body(carry, x)[0], None
 
-    sample_x = jax.tree.map(lambda a: a[0], xs) if xs is not None else None
-    aux_shape = jax.eval_shape(lambda c: body(c, sample_x)[1], init_carry)
-    init_aux = jax.tree.map(lambda s: jnp.zeros(s.shape, s.dtype), aux_shape)
-    (final_carry, last_aux), _ = jax.lax.scan(
-        _wrapped, (init_carry, init_aux), xs=xs, length=length
-    )
-    return final_carry, last_aux
+    if xs is None:
+        carry, _ = jax.lax.scan(
+            step_keeping_no_aux, init_carry, None, length=length - 1
+        )
+        return body(carry, None)
+    before_last = jax.tree.map(lambda a: a[:-1], xs)
+    carry, _ = jax.lax.scan(step_keeping_no_aux, init_carry, before_last)
+    return body(carry, jax.tree.map(lambda a: a[-1], xs))
 
 
 __all__ = ["build_chunked_train", "build_resumable_train", "final_aux_scan"]

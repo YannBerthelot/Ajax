@@ -211,7 +211,39 @@ def test_cloning_pretrain_seeds_the_agents_statistics(agent_name):
     extensions = (cloning, *_FEATURES.get(agent_name, ()))
     agent = getattr(module, agent_name)("Pendulum-v1", extensions=extensions, **kw)
     state = agent.train(seed=0, n_timesteps=0)[0]
-    assert state.actor_state.obs_norm_info is not None
+    assert state.collector_state.obs_norm_info is not None
+    # AVG's collection normalises what its networks read: they hold none.
+    if agent_name != "AVG":
+        assert state.actor_state.obs_norm_info is not None
+
+
+@pytest.mark.parametrize(
+    "agent_name, options",
+    [("APO", {"normalize_observations": True, "observation_clip": 5.0}), ("AVG", {})],
+)
+def test_cloning_leaves_stored_normalised_observations_normalised_once(
+    agent_name, options
+):
+    """An on-policy agent normalising its observations stores them normalised
+    (collection does it), so its networks read them as stored. Cloning starts
+    the collection's statistics from the dataset's rows (16 steps of 2 envs;
+    a first rollout may add its own), keeps the agent's clip, and puts no
+    statistics on the networks, which would normalise a second time (the
+    bug: it did, frozen at the dataset's)."""
+    tiny = ("8", "relu")
+    kw = {"n_envs": 2, "actor_architecture": tiny, "critic_architecture": tiny}
+    kw.update({"expert_policy": _half_torque, **_LAYOUT.get(agent_name, {})})
+    module = importlib.import_module(f"ajax.agents.{agent_name}.{agent_name}")
+    cloning = CloningPretrain(_half_torque, n_steps=16, epochs=2, batch_size=8)
+    agent = getattr(module, agent_name)(
+        "Pendulum-v1", extensions=(cloning,), **kw, **options
+    )
+    state = agent.train(seed=0, n_timesteps=0)[0]
+    statistics = state.collector_state.obs_norm_info
+    assert float(statistics.count.squeeze()) >= 2 * 16
+    assert statistics.clip == options.get("observation_clip")
+    assert state.actor_state.obs_norm_info is None
+    assert state.critic_state.obs_norm_info is None
 
 
 def _sac_actor(*extensions):

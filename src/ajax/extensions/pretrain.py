@@ -516,10 +516,16 @@ class CloningPretrain(Extension):
             return new_state, losses  # no actor cloned: nothing to keep consistent
         n_samples = dataset.obs.reshape(-1, dataset.obs.shape[-1]).shape[0]
         seeded = seeded_obs_norm(obs_mean, obs_std, n_samples)
+        running = agent_state.collector_state.obs_norm_info
+        if running is not None:
+            seeded = dataclasses.replace(seeded, clip=running.clip)
         collector = new_state.collector_state.replace(obs_norm_info=seeded)
-        return mirror_obs_norm(
-            new_state.replace(collector_state=collector), seeded
-        ), losses
+        new_state = new_state.replace(collector_state=collector)
+        if self.env_args.store_normalized_obs:
+            # Collection normalises what this agent's networks read: a mirror
+            # on them would normalise it a second time (loop.with_obs_norm).
+            return new_state, losses
+        return mirror_obs_norm(new_state, seeded), losses
 
     def eval_metrics(
         self,

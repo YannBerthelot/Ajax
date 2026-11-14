@@ -187,7 +187,11 @@ SETPOINT = dict(zip(("env_id", "env_params"), setpoint_env.make(), strict=True))
 PID = {**SETPOINT, "n_envs": 2, "extensions": (setpoint_env.TERMS,)}
 PID.update({"actor_architecture": PIDPolicy(), "critic_architecture": ("16", "relu")})
 NORM = {"normalize_observations": True}
+# The windows these cases were recorded with: 30 steps per env before the first
+# update hold no 65-step window of Ni et al.'s defaults.
+WINDOW = {"burn_in": 8, "sequence_length": 16}
 GRU = {"learning_starts": 60, "memory": MemoryConfig(kind="gru", hidden_size=8)}
+GRU.update(WINDOW)
 DAGGER = {"env_id": "Pendulum-v1", "n_envs": 2, "actor_architecture": ("32", "relu")}
 DAGGER.update({"buffer_size": 1000, "batch_size": 16, "expert_policy": push})
 HALF_DECAY = {"beta_schedule": ExponentialBetaSchedule(0.5)}
@@ -614,6 +618,7 @@ TRANSFORMER_CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
             "policy_update_start": 80,
             "alpha_update_start": 80,
             "memory": TRANSFORMER,
+            **WINDOW,
         },
         160,
     ),

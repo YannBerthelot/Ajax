@@ -3192,8 +3192,10 @@ slot for each of the task's geom pairs in those 1,024 worlds; Playground's
 tasks set their own. A step that runs out of contact, convex-collision or
 constraint room stops the run with an error, rather than going on with
 dropped contacts.</p>
-<p>Warp runs only on an NVIDIA GPU, and nothing can be differentiated through
-it: it refuses a CPU, <code>differentiable_reset=True</code> and APG.</p>
+<p>Warp runs only on an NVIDIA GPU with MuJoCo 3.13 or newer (the first whose
+Warp reports the convex collisions it drops), and nothing can be
+differentiated through it: it refuses an older MuJoCo, a CPU,
+<code>differentiable_reset=True</code> and APG.</p>
 <h3 id="gymnasiums-mujoco-tasks-in-jax">Gymnasium's MuJoCo tasks in JAX<a class="headerlink" href="#gymnasiums-mujoco-tasks-in-jax" title="Permanent link">&para;</a></h3>
 <p><code>"mujoco:&lt;id&gt;"</code> builds one of Gymnasium's v5 MuJoCo tasks on MJX, so it runs
 in the compiled program like any Playground task: <code>HalfCheetah-v5</code>,

@@ -33,7 +33,7 @@ from .oracles import RIGHT, Rule
 from .verdict import STAGE_1, Case, Query, check, params
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "63929da294ee"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "24303a97f4f7"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P6: the time-limit twin --------------------------------------------------
@@ -913,14 +913,15 @@ CASES["q1-ASAC-truncation"] = Case(
 )
 
 
-def _q1_apo(spec: envs.Spec, at: dict[str, float]) -> Callable:
+def _q1_apo(spec: envs.Spec, at: dict[str, float], **kw: Any) -> Callable:
     """APO's own lambda, alpha and nu, no entropy bonus; V and b."""
+    kw = kw or {"ent_coef": 0.0}
 
     def read(run: runs.Run) -> dict:
         ns, b = R.nets(run.state), {"b": run.state.b}
         return R.per_seed(lambda n: {k: R.critic(n, x) for k, x in at.items()}, ns) | b
 
-    build = functools.partial(agents.make, "APO", *spec.make(), ent_coef=0.0)
+    build = functools.partial(agents.make, "APO", *spec.make(), **kw)
     return runs.readings(build, read)
 
 
@@ -1095,6 +1096,37 @@ CASES["defaults-PPO-normalised"] = Case(
     (0.02, 0.02),
     note="ladder 32768-98304 on 1000-1031, 32768-49152 on 2000-2031: 32768, its"
     " first rung (worst error 0.0003)",
+)
+
+
+# --- the shipped APO: its reference's rule -------------------------------------
+# APO as shipped (xtma/apo's mujoco_appo.py: 10 envs of 200 steps, 20
+# minibatches, nu 1, advantages as computed, its entropy bonus, which the
+# rewards ignore) on q1-APO-termination's cycle: its closed forms at nu 1.
+
+
+def apo_termination(nu: float, lam: float = 0.95) -> tuple[float, float, float]:
+    """(b, V(A), V(B)) on the termination cycle (the derivation above)."""
+    b = 0.5 / (2 + nu * (3 - lam))
+    return b, -(2 - lam) * nu * b, 0.5 - nu * b
+
+
+NU_KEPT = {"nu not forwarded (0.1, its default before)": apo_termination(0.1)}
+CASES["defaults-APO-termination"] = Case(
+    "defaults-APO-termination",
+    tuple(
+        Query(
+            name,
+            apo_termination(1.0)[i],
+            {k: v[i] for k, v in NU_KEPT.items()} | {"untrained": 0.0},
+        )
+        for i, name in enumerate(("b", "V(A)", "V(B)"))
+    ),
+    _q1_apo(APO_TERM, {"V(A)": 0.0, "V(B)": 1.0}, preset=None),
+    40_000,
+    (0.02, 0.021, 0.02),
+    note="ladder 20000-160000 on 1000-1031, 40000-80000 on 2000-2031: 40000"
+    " (20000: worst errors 0.094, 0.100, 0.094)",
 )
 
 

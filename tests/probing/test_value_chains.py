@@ -1107,9 +1107,9 @@ CORNER = envs.Spec(
 
 
 def _corner_read(run: runs.Run) -> dict:
-    if not run.agent.network_args.share_encoder:
-        raise RuntimeError("the image PPO no longer shares its encoder")
     stats = reward_statistics(run.state.collector_state.env_state)
+    if stats is None or not run.agent.network_args.share_encoder:
+        raise RuntimeError("the image PPO shares no encoder or normalises no reward")
     sigma = jnp.sqrt(stats.mean_2 / stats.count + 1e-8).reshape(len(run.seeds), -1)
 
     def read(n: R.Nets) -> dict:

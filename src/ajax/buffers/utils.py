@@ -111,13 +111,18 @@ _FIELDS_AHEAD = (
 )
 
 
-def n_step_rows(window: Any, gamma: float) -> dict:
+def n_step_rows(
+    window: Any, gamma: float, reward_stats: Optional[NormalizationInfo] = None
+) -> dict:
     """One row per window of consecutive steps (batch, n, ...): the first step's
     state and action, the discounted sum of the rewards from there, and the
     state n steps ahead or at the episode's end, whichever comes first, as the
     row's next state and flags. A seam ends a window as an episode's end does.
     ``bootstrap_discount`` is gamma to the power of the steps summed, which the
-    target's bootstrap takes in place of gamma."""
+    target's bootstrap takes in place of gamma. With ``reward_stats``, a
+    reward normaliser's statistics, each reward is divided by them and
+    clipped before the sum, as collection clips each one (SB3's
+    NStepReplayBuffer normalises its rewards before summing them)."""
     ended = (window["terminated"] > 0) | (window["truncated"] > 0)
     if "seam" in window:
         ended = ended | (window["seam"] > 0)
@@ -134,7 +139,10 @@ def n_step_rows(window: Any, gamma: float) -> dict:
     for name in _FIELDS_AHEAD:
         if name in window:
             rows[name] = window[name][jnp.arange(last.shape[0]), last]
-    rows["reward"] = jnp.sum(reached * powers[None, :, None] * window["reward"], axis=1)
+    rewards = window["reward"]
+    if reward_stats is not None:
+        rewards = normalized_rewards(rewards, reward_stats)
+    rows["reward"] = jnp.sum(reached * powers[None, :, None] * rewards, axis=1)
     rows["bootstrap_discount"] = gamma**steps
     return rows
 
@@ -203,13 +211,18 @@ def get_buffer(
 
         return buffer.replace(add=add_fn, sample=sample_windows)  # type: ignore[attr-defined]
 
-    def sample_rows(state: Any, key: jax.Array) -> TrajectoryBufferSample:
+    def sample_rows(
+        state: Any, key: jax.Array, reward_stats: Optional[NormalizationInfo] = None
+    ) -> TrajectoryBufferSample:
         # (B, n_step, ...)
         experience = sample_two_buffers(buffer.sample, state, key).experience
         if n_step > 1:
-            rows = n_step_rows(experience, gamma)
+            rows = n_step_rows(experience, gamma, reward_stats)
         else:
             rows = jax.tree.map(lambda x: x[:, 0], experience)
+            if reward_stats is not None:
+                reward = normalized_rewards(rows["reward"], reward_stats)
+                rows = {**rows, "reward": reward}
         return TrajectoryBufferSample(experience=as_read(rows))
 
     return buffer.replace(add=add_fn, sample=sample_rows)  # type: ignore[attr-defined]
@@ -450,7 +463,10 @@ def get_batch_from_buffer(
     ``reward_stats``, a reward normaliser's current statistics
     (:func:`ajax.environments.interaction.reward_statistics`), they come
     divided by them, as SB3's replay buffer does under VecNormalize."""
-    return as_replay_batch(buffer.sample(buffer_state, key).experience, reward_stats)
+    if reward_stats is None:
+        return as_replay_batch(buffer.sample(buffer_state, key).experience)
+    # The buffer normalises: an n-step row's rewards one by one, before the sum.
+    return as_replay_batch(buffer.sample(buffer_state, key, reward_stats).experience)
 
 
 def as_replay_batch(

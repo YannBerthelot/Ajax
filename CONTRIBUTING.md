@@ -646,6 +646,8 @@ lock.
       that change the packaging run it too;
     - *tag* `vX.Y.Z`, then *publish* those same files to PyPI as `ajax-rl`
       (trusted publishing, no token);
+    - *github-release*: the GitHub Release of the tag, its notes the
+      version's CHANGELOG entry, the published files attached;
     - *docs*: the site's version X.Y, the one it opens on
       ([docs-deploy.yml](.github/workflows/docs-deploy.yml); main's is the
       site's dev version);

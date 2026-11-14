@@ -5,9 +5,10 @@ name: Release
 # slow tier green there (run first when no run there had all its shards
 # pass; the two-tier test plan, owner 2026-10-20), the package built once
 # and checked installed outside the checkout (package.yml), then the vX.Y.Z
-# tag, those exact files published to PyPI as ajax-rl, the documentation as
-# the site's version X.Y, the default ("latest"), and the release installed
-# back from PyPI. Tags come only from this workflow.
+# tag, those exact files published to PyPI as ajax-rl, the GitHub Release
+# with the CHANGELOG entry as its notes, the documentation as the site's
+# version X.Y, the default ("latest"), and the release installed back from
+# PyPI. Tags come only from this workflow.
 on:
   workflow_dispatch:
     inputs:
@@ -106,6 +107,37 @@ jobs:
         with:
           version: "0.11.28"
       - run: uv publish --trusted-publishing always
+
+  # The GitHub Release of the tag: the version's CHANGELOG entry as its notes
+  # and the published files attached. This workflow runs on main alone
+  # (check), so its release is the Latest one.
+  github-release:
+    needs: [check, publish]
+    if: always() && needs.publish.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: v${{ inputs.version }}
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          # The lines between "## X.Y.Z" and the next "## " heading.
+          awk -v heading="## $VERSION" '
+            $0 == heading { inside = 1; next }
+            inside && /^## / { exit }
+            inside { print }
+          ' CHANGELOG.md > "$RUNNER_TEMP/notes.md"
+          [ -s "$RUNNER_TEMP/notes.md" ] || { echo "CHANGELOG.md's '## $VERSION' entry is empty"; exit 1; }
+          gh release create "v$VERSION" dist/* --repo "${{ github.repository }}" \
+            --verify-tag --latest --title "Ajax $VERSION" --notes-file "$RUNNER_TEMP/notes.md"
 
   # The tag is pushed with the default token, which starts no workflow, so the
   # site's X.Y is deployed from here, once the release is on PyPI; a patch

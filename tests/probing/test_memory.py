@@ -238,8 +238,11 @@ BUDGET = {"SAC": 1500, "REDQ": 1500, "ASAC": 1500, "TD3": 6000}
 # REDQ with windows of two: at 1500 steps its actor's spread over seeds,
 # about 0.05, is the half gap to the double-counting fault (0.047), and
 # seeds 3000-3031 read 26/32 within; at 6000 the ladder's seeds 1000-1031
-# and 2000-2031 read 63/64.
+# and 2000-2031 read 63/64. SAC's, the same since Ni et al.'s networks:
+# 25/32 on seeds 0-31 at 1500 (the slow tier failed it), 30/32 at 6000, where
+# 3000-3031 read 32/32.
 LONGER_BUDGET = {("REDQ", "gru", 2): 6000, ("TD3", "gru", 2): 9000}
+LONGER_BUDGET[("SAC", "gru", 2)] = 6000
 # With Ni et al.'s networks (2026-11-13; certified on seeds 3000-3031): SAC's
 # and REDQ's cells read 30-32/32 at their budgets. ASAC's GRU and LSTM
 # critics spread past the 0.1 ceiling at any budget (sd about 0.06 of 2,

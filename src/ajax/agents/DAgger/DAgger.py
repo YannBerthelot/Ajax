@@ -373,7 +373,14 @@ class DAgger(GradientClipping, ObservationNormalization, ExpertGuided, ReplayAge
             buffer_state.experience,
         )
         held = written_rows(buffer_state)
-        stored = jnp.arange(slots) % ring < held
+        row_of_slot, env_of_slot = jnp.arange(slots) % ring, jnp.arange(slots) // ring
+        stored = row_of_slot < held
+        # A row's draw is keyed by the row (its env and its index in that
+        # env's ring), not by its slot: the slots' count is the ring's
+        # length, which a replay sized to its call sets, so a resumed run's
+        # shorter first-leg ring would otherwise shuffle the same rows into
+        # another order than one call does.
+        row_identity = row_of_slot * n_envs + env_of_slot
         n_batches = n_envs * held // self.batch_size
         continuous = context.env_args.continuous
 
@@ -410,9 +417,12 @@ class DAgger(GradientClipping, ObservationNormalization, ExpertGuided, ReplayAge
 
         def run_epoch(epoch: jax.Array, carry: tuple) -> tuple:
             shuffle_key, batches_key = split_carry_first(fold_index(fit_key, epoch), 1)
-            shuffled = jax.random.permutation(shuffle_key, slots)
-            # The stored rows first, in their shuffled order (a stable sort keeps it).
-            order = shuffled[jnp.argsort(~stored[shuffled], stable=True)]
+            draws = jax.vmap(
+                lambda identity: jax.random.uniform(fold_index(shuffle_key, identity))
+            )(row_identity)
+            # The stored rows first, in the order of their draws: a uniform
+            # shuffle of exactly those rows.
+            order = jnp.argsort(jnp.where(stored, draws, jnp.inf))
 
             def run_batch(index: jax.Array, carry: tuple) -> tuple:
                 actor_state, loss_sum, _ = carry

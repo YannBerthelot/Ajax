@@ -212,6 +212,36 @@ def test_a_fit_ends_each_iteration_with_epochs_over_every_stored_row(
     assert actor_steps(state) == steps
 
 
+def test_a_run_resumed_between_fits_fits_as_one_call_does():
+    """The resume contract (tests/agents/test_resume_contract.py) for the
+    fit: a replay sized to its call gives a 32-step first leg a shorter
+    ring than a 64-step call's, and the fit's order is a shuffle of the
+    stored rows alone, so the resumed leg ends where the one call ends.
+    Catches a shuffle drawn over the ring's slots, whose order follows the
+    ring's length (rtol and atol: programs compiled apart round apart)."""
+    agent = DAgger(
+        "Pendulum-v1",
+        expert_policy=push,
+        n_envs=N_ENVS,
+        iteration_steps=16,
+        batch_size=8,
+        buffer_size=128,
+        fit=IterationFit(epochs=1),
+    )
+    one_call, _ = agent.train(seed=[0], n_timesteps=64, total_timesteps=64)
+    first, _ = agent.train(seed=[0], n_timesteps=32, total_timesteps=64)
+
+    resumed, _ = agent.train(
+        seed=[0], n_timesteps=32, total_timesteps=64, initial_state=first
+    )
+
+    jax.tree.map(
+        lambda got, want: np.testing.assert_allclose(got, want, rtol=1e-5, atol=1e-6),
+        resumed.actor_state.params,
+        one_call.actor_state.params,
+    )
+
+
 @pytest.mark.parametrize("env_id", ["Pendulum-v1", "CartPole-v1"])
 def test_the_cloning_loss_is_the_likelihood_minus_the_weighted_entropy(env_id):
     """loss = -mean log pi(a_E | s) - entropy_weight * mean entropy

@@ -1,5 +1,6 @@
 import copy
 import importlib
+import importlib.metadata
 import inspect
 from types import ModuleType
 from typing import Any, Callable, Optional, Tuple, Union
@@ -346,11 +347,32 @@ def _build_brax_env(
     return env
 
 
+#: The first MuJoCo whose Warp exports the flag for dropped convex collisions
+#: (``OverflowType``; the flag itself dates from 3.11, no counter shows them).
+WARP_MIN_MUJOCO = (3, 13)
+
+
+def warp_supported(mjx_version: str) -> bool:
+    """Whether this ``mujoco-mjx`` version's Warp can tell Ajax it dropped
+    convex collisions, without which a run would go on with wrong physics."""
+    major, minor = (int(part) for part in mjx_version.split(".")[:2])
+    return (major, minor) >= WARP_MIN_MUJOCO
+
+
 def _check_warp_physics(differentiable_reset: bool = False) -> None:
-    """Refuse MuJoCo Warp physics where it cannot run: without a GPU (its
-    kernels are CUDA only; on a CPU MJX fails with "Unknown backend cuda"),
-    and with gradients through the physics, for which MJX gives its Warp
-    kernels no rule."""
+    """Refuse MuJoCo Warp physics where it cannot run: on a MuJoCo too old to
+    report dropped convex collisions, without a GPU (its kernels are CUDA
+    only; on a CPU MJX fails with "Unknown backend cuda"), and with gradients
+    through the physics, for which MJX gives its Warp kernels no rule."""
+    installed = importlib.metadata.version("mujoco-mjx")
+    if not warp_supported(installed):
+        wanted = ".".join(str(part) for part in WARP_MIN_MUJOCO)
+        raise ValueError(
+            f"physics='warp' needs MuJoCo {wanted} or newer, the first whose"
+            " Warp reports the convex collisions it drops, and mujoco-mjx"
+            f" {installed} is installed. Upgrade mujoco and mujoco-mjx, or use"
+            " physics='jax'."
+        )
     backend = jax.default_backend()
     if backend != "gpu":
         raise ValueError(

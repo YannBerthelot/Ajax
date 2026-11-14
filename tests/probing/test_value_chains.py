@@ -34,7 +34,7 @@ from . import readouts as R
 from .verdict import CEILING, STAGE_1, Case, Query, check, params
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "5b4e6ebc08f9"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "1264ec9d4bb5"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P0a: max bootstrap and action indexing ---------------------------------
@@ -143,6 +143,37 @@ CASES["p0a-DQN-defaults"] = Case(
     (0.02, 0.02, 0.027, 0.021, 0.023, 0.027, 0.02),
     note="ladder 15000-40000 on 1000-1031, 15000-20000 on 2000-2031: 15000, its"
     " first rung, 500 updates",
+)
+# The shipped PQN (purejaxql's MinAtar config: 128 envs of 32 steps, lambda
+# 0.65, the rate decayed to 0 over the run). Its Q(lambda) target at s0 is
+# gamma ((1 - lambda) max_a Q(s1, a) + lambda r1), r1 its epsilon-greedy step's
+# reward at s1, 0.975 on average once epsilon is 0.05; one s0 row in 16 sits
+# at step T - 2 and loses the max term.
+L_SHIPPED, R1_GREEDY = 0.65, 1 - 0.05 * 0.5
+
+
+def pqn_shipped(v1: float) -> float:
+    """PQN's Q(s0) when it bootstraps s1 on ``v1``."""
+    trace = L_SHIPPED * R1_GREEDY
+    return G_SHIPPED * (15 / 16 * ((1 - L_SHIPPED) * v1 + trace) + 1 / 16 * trace)
+
+
+CASES["p0a-PQN-defaults"] = Case(
+    "p0a-PQN-defaults",
+    (
+        *Q_S1,
+        Query(
+            "max_a Q(s0, a)",
+            pqn_shipped(1.0),
+            {"mean bootstrap (D01)": pqn_shipped(0.5), "untrained": 0.0},
+        ),
+        GREEDY,
+    ),
+    _three_shipped("PQN"),
+    163_840,
+    (0.02, 0.02, 0.02, 0.025, 0.02),
+    note="ladder 81920-655360 on 1000-1031, 163840-327680 on 2000-2031: 163840,"
+    " 40 updates (81920: Q(s0) worst error 0.042)",
 )
 
 

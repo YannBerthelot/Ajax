@@ -19,6 +19,25 @@ def test_PQN_rejects_indivisible_minibatches():
     PQN(env_id="CartPole-v1", n_envs=2, n_steps=7, num_minibatches=2)
 
 
+def test_the_rate_falls_linearly_to_zero_over_the_runs_gradient_steps():
+    """lr_linear_decay (purejaxql's LR_LINEAR_DECAY, pqn_minatar.py:140-147):
+    a run of 8 updates, each 2 epochs of 2 minibatches, takes 32 gradient
+    steps; the rate is whole at the first, halved after 16 and gone after 32.
+    A decay counted in updates would be gone after 8."""
+    agent = PQN(
+        env_id="CartPole-v1",
+        n_envs=2,
+        n_steps=4,
+        n_epochs=2,
+        num_minibatches=2,
+        learning_rate=1e-3,
+    )
+    _, context = agent.make_context(64)
+    rate = agent.decayed_optimizer_args(context).learning_rate
+    rates = [float(rate(step)) for step in (0, 16, 32)]
+    np.testing.assert_allclose(rates, [1e-3, 5e-4, 0.0], atol=1e-9)
+
+
 def test_pqn_keeps_the_executed_actions_it_learns_from():
     """PQN's Q-learning stays correct on actions its policy did not choose,
     so it fits Q where the steps acted: its rollout keeps the executed

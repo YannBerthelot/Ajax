@@ -65,10 +65,12 @@ def chooser(obs: jax.Array) -> jax.Array:
     return jnp.asarray(CHOICES)[jnp.argmax(obs, -1)][..., None]
 
 
-def dagger_readings(discrete: bool) -> Any:
+def dagger_readings(discrete: bool, shipped: bool = False) -> Any:
     def build() -> Any:
         env, params = chain(2 * discrete).make()
         kw: dict[str, Any] = {"expert_policy": chooser if discrete else expert}
+        if shipped:  # imitation's DAgger: its beta, 500-step iterations and fit
+            return agents.make("DAgger", env, params, **kw)
         kw |= {"n_envs": 4, "iteration_steps": 4}  # beta 1 on the first tick only
         # The online fit the cells were calibrated on, not the default's.
         kw |= {"beta_schedule": ExponentialBetaSchedule(0.0), "fit": OnlineFit()}
@@ -147,6 +149,23 @@ CASES: dict[str, Case] = {
         (0.064, 0.098, 0.048),
         note="ladder 250-4000 on 1000-1031, 250-2000 on 2000-2031: 500; cert 32/32",
     ),
+    # The shipped fit (IterationFit: at each iteration's end, epochs over the
+    # whole replay, of a Gaussian's likelihood of the labels) under the shipped
+    # beta, which leaves the first 500 steps to the expert: fitted on those
+    # alone, state 3 has no label and a(3) follows the others' (0.07-0.22).
+    "dagger-iteration-fit-DAgger": Case(
+        "dagger-iteration-fit-DAgger",
+        (
+            Query("a(0)", LABELS[0], {"untrained": 0.0}),
+            Query("a(1)", LABELS[1], {"untrained": 0.0}),
+            Query("a(3)", LABELS[3], {"no label off the expert's path": 0.0}),
+        ),
+        dagger_readings(False, shipped=True),
+        2000,
+        (0.02, 0.02, 0.02),
+        note="ladder 2000-16000 on 1000-1031, 1000-4000 on 2000-2031: 2000 (1000:"
+        " a(3) reads 0.17-0.50, state 3 hardly labelled yet)",
+    ),
     "gail-signed-PPO": Case(
         "gail-signed-PPO",
         tuple(
@@ -184,7 +203,7 @@ CASES: dict[str, Case] = {
         note="ladder 1000-32000 on 1000-1031, 2000-2031: medians 1.0 from 2000",
     ),
 }
-ANSWER_DIGEST = "9aab053e60f4"
+ANSWER_DIGEST = "56023613de49"
 
 
 @pytest.mark.parametrize("case", params(CASES))

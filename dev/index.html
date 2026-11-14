@@ -94,7 +94,8 @@
               
   
     This is the development version, built from main: it may describe changes
-    not released yet.
+    not released yet. To install it:
+    <code>pip install git+https://github.com/YannBerthelot/Ajax.git</code>.
   
   <a href="../.">
     <strong>Read the latest release's documentation.</strong>
@@ -2791,15 +2792,14 @@ features (learning from an expert, exploration rules, diagnostics) are
 added as new arguments to the agents. An agent refuses, when built, an
 extension it cannot run; <a href="guide/compatibility/">Compatibility</a> shows which
 agent runs which.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>git<span class="w"> </span>clone<span class="w"> </span>https://github.com/YannBerthelot/Ajax.git
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="nb">cd</span><span class="w"> </span>Ajax
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>uv<span class="w"> </span>sync
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>pip<span class="w"> </span>install<span class="w"> </span>ajax-rl<span class="w">                 </span><span class="c1"># imports as ajax; Python 3.12 or newer</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>pip<span class="w"> </span>install<span class="w"> </span><span class="s2">&quot;ajax-rl[playground]&quot;</span><span class="w">   </span><span class="c1"># adds Brax and MuJoCo Playground environments</span>
 </code></pre></div>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax</span><span class="w"> </span><span class="kn">import</span> <span class="n">PPO</span>
 <a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax.logging</span><span class="w"> </span><span class="kn">import</span> <span class="n">LoggingConfig</span>
 <a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>
-<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="n">agent</span> <span class="o">=</span> <span class="n">PPO</span><span class="p">(</span><span class="s2">&quot;CartPole-v1&quot;</span><span class="p">)</span>  <span class="c1"># 4 environments x 2048-step rollouts: one update per 8,192 steps</span>
-<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="c1"># Evaluate after every update; backends=() keeps the results in memory only.</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="n">agent</span> <span class="o">=</span> <span class="n">PPO</span><span class="p">(</span><span class="s2">&quot;CartPole-v1&quot;</span><span class="p">)</span>  <span class="c1"># one environment, 2048-step rollouts: one update per 2,048 steps</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="c1"># Evaluate every 4 updates; backends=() keeps the results in memory only.</span>
 <a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="n">logging</span> <span class="o">=</span> <span class="n">LoggingConfig</span><span class="p">(</span><span class="n">log_frequency</span><span class="o">=</span><span class="mi">8_192</span><span class="p">,</span> <span class="n">backends</span><span class="o">=</span><span class="p">())</span>
 <a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="n">state</span><span class="p">,</span> <span class="n">evaluations</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">seed</span><span class="o">=</span><span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">],</span> <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">40_960</span><span class="p">,</span> <span class="n">logging_config</span><span class="o">=</span><span class="n">logging</span><span class="p">)</span>
 <a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>

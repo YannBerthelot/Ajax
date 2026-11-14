@@ -96,7 +96,8 @@
               
   
     This is the development version, built from main: it may describe changes
-    not released yet.
+    not released yet. To install it:
+    <code>pip install git+https://github.com/YannBerthelot/Ajax.git</code>.
   
   <a href="../../..">
     <strong>Read the latest release's documentation.</strong>
@@ -3435,7 +3436,7 @@ Ajax" marks a feature with no external reference.</p>
 </tr>
 <tr>
 <td>Train on recorded transitions alone, then fine-tune online</td>
-<td><code>agent.train_offline(dataset, n_updates)</code> (SAC, TD3, REDQ, ASAC, DQN, IQL)</td>
+<td><code>agent.train_offline(dataset, n_updates)</code> (SAC, TD3, REDQ, TQC, CrossQ, ASAC, RVI-SAC, DQN, IQL, DAgger)</td>
 <td>offline training on the agent's own update; IQL (Kostrikov et al., 2022)</td>
 </tr>
 <tr>

@@ -96,7 +96,8 @@
               
   
     This is the development version, built from main: it may describe changes
-    not released yet.
+    not released yet. To install it:
+    <code>pip install git+https://github.com/YannBerthelot/Ajax.git</code>.
   
   <a href="../../..">
     <strong>Read the latest release's documentation.</strong>
@@ -3329,7 +3330,8 @@ budget under one rollout trains one.</p>
 <p>The call may reuse the memory of the state you pass in. Read or save
 anything you need from it before the call.</p>
 <h2 id="training-offline">Training offline<a class="headerlink" href="#training-offline" title="Permanent link">&para;</a></h2>
-<p>A replay agent (SAC, TD3, REDQ, ASAC, DQN, IQL) can train on a
+<p>A replay agent (SAC, TD3, REDQ, TQC, CrossQ, ASAC, RVI-SAC, DQN, IQL,
+DAgger) can train on a
 <a href="../../api/buffers/">transition dataset</a> alone, with no environment step.
 <code>train_offline(dataset, n_updates)</code> puts the dataset's rows in the replay
 and in the normalisers, then runs the agent's own update <code>n_updates</code> times.

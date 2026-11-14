@@ -24,6 +24,7 @@ from probing_environments.gymnax_envs import continuous_actions as continuous
 from ajax.agents.PPO.PPO import _compute_gae
 from ajax.agents.PQN.PQN import compute_q_lambda_targets
 from ajax.environments.differentiable import with_transition_gradients
+from ajax.environments.interaction import reward_statistics
 from ajax.environments.obs_norm import apply_obs_norm
 from ajax.environments.utils import _action_bounds
 from ajax.networks.distributions import Squash
@@ -34,7 +35,7 @@ from . import readouts as R
 from .verdict import CEILING, STAGE_1, Case, Query, check, params
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "2ff3f029077e"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "8a63d032d1d6"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P0a: max bootstrap and action indexing ---------------------------------
@@ -121,6 +122,59 @@ CASES["p0a-PPO"] = Case(
     5000,
     (0.02, 0.036, 0.02),
     note="at its reference init 5000 qualifies; cert 32/32 (it read V(s1) 0.672)",
+)
+
+
+# The shipped DQN (CleanRL's dqn.py: an update every 10 steps after 10,000,
+# on a replay of 10,000) on the same chain, at its gamma 0.99.
+G_SHIPPED = 0.99
+
+
+def _three_shipped(agent: str) -> Callable:
+    build = functools.partial(agents.make, agent, *THREE.make(), preset=None)
+    return runs.readings(build, lambda run: R.per_seed(_three_q, R.nets(run.state)))
+
+
+_DROPPED = {"mean bootstrap (D01)": G_SHIPPED * 0.5, "untrained": 0.0}
+CASES["p0a-DQN-defaults"] = Case(
+    "p0a-DQN-defaults",
+    (*Q_S1, *(Query(f"Q(s0, a={a})", G_SHIPPED, _DROPPED) for a in range(3)), GREEDY),
+    _three_shipped("DQN"),
+    15_000,
+    (0.02, 0.02, 0.027, 0.021, 0.023, 0.027, 0.02),
+    note="ladder 15000-40000 on 1000-1031, 15000-20000 on 2000-2031: 15000, its"
+    " first rung, 500 updates",
+)
+# The shipped PQN (purejaxql's MinAtar config: 128 envs of 32 steps, lambda
+# 0.65, the rate decayed to 0 over the run). Its Q(lambda) target at s0 is
+# gamma ((1 - lambda) max_a Q(s1, a) + lambda r1), r1 its epsilon-greedy step's
+# reward at s1, 0.975 on average once epsilon is 0.05; one s0 row in 16 sits
+# at step T - 2 and loses the max term.
+L_SHIPPED, R1_GREEDY = 0.65, 1 - 0.05 * 0.5
+
+
+def pqn_shipped(v1: float) -> float:
+    """PQN's Q(s0) when it bootstraps s1 on ``v1``."""
+    trace = L_SHIPPED * R1_GREEDY
+    return G_SHIPPED * (15 / 16 * ((1 - L_SHIPPED) * v1 + trace) + 1 / 16 * trace)
+
+
+CASES["p0a-PQN-defaults"] = Case(
+    "p0a-PQN-defaults",
+    (
+        *Q_S1,
+        Query(
+            "max_a Q(s0, a)",
+            pqn_shipped(1.0),
+            {"mean bootstrap (D01)": pqn_shipped(0.5), "untrained": 0.0},
+        ),
+        GREEDY,
+    ),
+    _three_shipped("PQN"),
+    163_840,
+    (0.02, 0.02, 0.02, 0.025, 0.02),
+    note="ladder 81920-655360 on 1000-1031, 163840-327680 on 2000-2031: 163840,"
+    " 40 updates (81920: Q(s0) worst error 0.042)",
 )
 
 
@@ -1019,6 +1073,86 @@ for cell, (agent, bandit, c, lr, steps, q6_tols, kw) in Q6_CELLS.items():
         cid, Q6_QUERIES[cell], reads, steps, q6_tols, slow=slow, ceiling=ceiling
     )
     CASES[case.id] = case
+
+
+# --- the shared encoder: the shipped PPO on images ----------------------------
+# With an image PPO reads its policy and its value through one CNN
+# (share_encoder, ppo2's Atari choice), which the critic owns and the actor
+# copies after each update. The smallest image its reference network takes, 3
+# x 3 with one channel: a lit corner names the context c, drawn at reset, and
+# the one step pays 1 + c + clip(a) (2c - 1). The mean action takes the sign
+# of 2c - 1 and the value is 1 + c + E[clip(a)] (2c - 1) under the policy as
+# it ended, read in the env's units: times sigma, the reward normaliser's
+# divisor at the end of the run. A value blind to the image reads the two
+# contexts' mean, 1/2 off each. Continuous actions: a categorical policy ends
+# deterministic, where the advantages vanish and PPO's normalisation of them
+# per minibatch amplifies the value's residual. Paying 1 + c for a = c, 21 of
+# 32 seeds held pi(c | c) within 0.1 of 1 at 32,768 steps (20 with separate
+# encoders, 28 on an MLP), 32 with normalize_advantage off.
+
+
+def _corner(st: envs.State, a: jax.Array, key: Any) -> tuple:
+    paid = 1.0 + st.c + jnp.clip(a.reshape(()), -1.0, 1.0) * (2.0 * st.c - 1.0)
+    return st.replace(s=st.s + 1), paid, True
+
+
+CORNER = envs.Spec(
+    "corner",
+    _corner,
+    lambda st: envs.one_hot(8 * st.c.astype(jnp.int32), 9),
+    lambda key, params: (0, jax.random.bernoulli(key)),
+    obs_dim=9,
+    limit=2,
+)
+
+
+def _corner_read(run: runs.Run) -> dict:
+    stats = reward_statistics(run.state.collector_state.env_state)
+    if stats is None or not run.agent.network_args.share_encoder:
+        raise RuntimeError("the image PPO shares no encoder or normalises no reward")
+    sigma = jnp.sqrt(stats.mean_2 / stats.count + 1e-8).reshape(len(run.seeds), -1)
+
+    def read(n: R.Nets) -> dict:
+        out = {}
+        for c in (0, 1):
+            x = envs.one_hot(8 * c, 9)
+            a = R.pi(n, x).sample(seed=R.KEY, sample_shape=(4096,)).reshape(-1)
+            oracle = 1.0 + c + jnp.mean(jnp.clip(a, -1.0, 1.0)) * (2 * c - 1)
+            out[f"a(c={c})"] = R.action(n, x)
+            out[f"V(c={c}) - oracle"] = R.critic(n, x) * n.extra[0] - oracle
+        return out
+
+    return R.per_seed(read, R.nets(run.state, sigma, R.env_stats(run)))
+
+
+_SIGNS = {"image ignored": 0.0, "reversed": 1.0}
+CASES["encoder-PPO-image"] = Case(
+    "encoder-PPO-image",
+    tuple(
+        q
+        for c in (0, 1)
+        for q in (
+            Query(
+                f"a(c={c})",
+                2.0 * c - 1.0,
+                {k: v * (1 - 2 * c) for k, v in _SIGNS.items()},
+                True,
+            ),
+            Query(f"V(c={c}) - oracle", 0.0, {"image ignored": 0.5 - c}),
+        )
+    ),
+    runs.readings(
+        functools.partial(
+            agents.make, "PPO", *CORNER.make(), preset=None, cnn_image_shape=(3, 3, 1)
+        ),
+        _corner_read,
+    ),
+    32_768,
+    (0.5, 0.084, 0.5, 0.183),
+    ceiling=0.25,  # half the gap to a value blind to the image
+    note="ladder 16384-131072 on 1000-1031, 32768-65536 on 2000-2031: 32768"
+    " (16384: the value 0.29-1.07 short); the value's worst errors 0.042, 0.091",
+)
 
 
 # --- every judged case --------------------------------------------------------

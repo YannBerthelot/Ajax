@@ -276,7 +276,8 @@ anything you need from it before the call.
 
 ## Training offline
 
-A replay agent (SAC, TD3, REDQ, ASAC, DQN, IQL) can train on a
+A replay agent (SAC, TD3, REDQ, TQC, CrossQ, ASAC, RVI-SAC, DQN, IQL,
+DAgger) can train on a
 [transition dataset](../api/buffers.md) alone, with no environment step.
 `train_offline(dataset, n_updates)` puts the dataset's rows in the replay
 and in the normalisers, then runs the agent's own update `n_updates` times.

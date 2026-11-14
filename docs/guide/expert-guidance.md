@@ -383,7 +383,7 @@ Ajax" marks a feature with no external reference.
 | Keep good experience for the whole run | `RetainedDemonstrations(n_steps)`, with `CloningPretrain` for a BC start (SAC, TD3, REDQ, ASAC, RVISAC, TQC, CrossQ, IQL, DQN) | DDPGfD (Vecerik et al., 2017); BC start plus prefill (Bhatt et al., 2026) |
 | Learn online with half of each batch from recorded data | `RLPD` on LayerNorm critics (SAC, TD3, REDQ, ASAC, RVISAC, TQC, CrossQ, IQL, DQN) | RLPD (Ball et al., 2023) |
 | Clone the expert, warm up a fresh critic, then fine-tune | `porl(CloningPretrain(expert))`, the keyword arguments of SAC or REDQ | PORL (Xiao et al., 2025) |
-| Train on recorded transitions alone, then fine-tune online | `agent.train_offline(dataset, n_updates)` (SAC, TD3, REDQ, ASAC, DQN, IQL) | offline training on the agent's own update; IQL (Kostrikov et al., 2022) |
+| Train on recorded transitions alone, then fine-tune online | `agent.train_offline(dataset, n_updates)` (SAC, TD3, REDQ, TQC, CrossQ, ASAC, RVI-SAC, DQN, IQL, DAgger) | offline training on the agent's own update; IQL (Kostrikov et al., 2022) |
 | Keep the actor near the dataset's actions | `ImitationLoss(None, target="replay", alpha=2.5)` (SAC, TD3, REDQ, ASAC) | TD3+BC (Fujimoto and Gu, 2021) on TD3 |
 | Keep the critic's target near the dataset's actions too | `TargetBC` with TD3+BC's term (TD3) | ReBRAC (Tarasov et al., 2023) |
 | Keep the critic low on actions the dataset lacks | `ConservativeQ` (SAC, REDQ, ASAC, AVG, IQL), `CalQL` (SAC, REDQ, IQL) | CQL (Kumar et al., 2020), Cal-QL (Nakamoto et al., 2023) |

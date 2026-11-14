@@ -34,7 +34,7 @@ from . import readouts as R
 from .verdict import CEILING, STAGE_1, Case, Query, check, params
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "2ff3f029077e"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "5b4e6ebc08f9"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P0a: max bootstrap and action indexing ---------------------------------
@@ -121,6 +121,28 @@ CASES["p0a-PPO"] = Case(
     5000,
     (0.02, 0.036, 0.02),
     note="at its reference init 5000 qualifies; cert 32/32 (it read V(s1) 0.672)",
+)
+
+
+# The shipped DQN (CleanRL's dqn.py: an update every 10 steps after 10,000,
+# on a replay of 10,000) on the same chain, at its gamma 0.99.
+G_SHIPPED = 0.99
+
+
+def _three_shipped(agent: str) -> Callable:
+    build = functools.partial(agents.make, agent, *THREE.make(), preset=None)
+    return runs.readings(build, lambda run: R.per_seed(_three_q, R.nets(run.state)))
+
+
+_DROPPED = {"mean bootstrap (D01)": G_SHIPPED * 0.5, "untrained": 0.0}
+CASES["p0a-DQN-defaults"] = Case(
+    "p0a-DQN-defaults",
+    (*Q_S1, *(Query(f"Q(s0, a={a})", G_SHIPPED, _DROPPED) for a in range(3)), GREEDY),
+    _three_shipped("DQN"),
+    15_000,
+    (0.02, 0.02, 0.027, 0.021, 0.023, 0.027, 0.02),
+    note="ladder 15000-40000 on 1000-1031, 15000-20000 on 2000-2031: 15000, its"
+    " first rung, 500 updates",
 )
 
 

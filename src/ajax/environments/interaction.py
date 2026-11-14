@@ -1234,7 +1234,9 @@ def collect_experience(
             new_expert_state,
             jnp.logical_or(terminated, truncated),
             env_action,
-            reward,
+            # The env's own reward, as an evaluation and a deployed policy
+            # pass it: a normalised one would change scale with the statistics.
+            info.get(RAW_REWARD_KEY, reward).astype(reward.dtype),
             timestep=collector.timestep,
             horizon=collector.max_timesteps,
         )
@@ -1504,7 +1506,7 @@ def collect_experience_from_expert_policy(
                 post_step_state if expert_is_stateful else None,
                 ended,
                 action,
-                reward,
+                info.get(RAW_REWARD_KEY, reward).astype(reward.dtype),
                 **before_training,
             )
             obsv = jnp.concatenate([obsv, next_columns], axis=-1)

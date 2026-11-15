@@ -86,18 +86,21 @@ equals the default today. It sets the agent's fields only: the environment's
 own settings (Atari's frame skip or reward clipping) and a dataset's
 preprocessing stay yours.
 
-| Agent | Presets | Source |
-| --- | --- | --- |
-| [ASAC](../algorithms/asac.md#presets) | the ten Gymnasium MuJoCo tasks | the authors' tuned runs |
-| [CrossQ](../algorithms/crossq.md#presets) | `Swimmer` | the authors' `train.py` |
-| [DreamerV3](../algorithms/dreamerv3.md#presets) | `DMC` | `configs.yaml` |
-| [DQN](../algorithms/dqn.md#presets) | `Atari` | Mnih et al.'s `run_gpu` |
-| [IQL](../algorithms/iql.md#presets) | `AntMaze` | `antmaze_config.py` |
-| [PPO](../algorithms/ppo.md#presets) | `Atari` | ppo2's `defaults.py` |
-| [PQN](../algorithms/pqn.md#presets) | `CartPole`, `Atari` | purejaxql's configs |
-| [REDQ](../algorithms/redq.md#presets) | `Hopper`, `HalfCheetah`, `Walker2d`, `Ant`, `Humanoid` | MBPO's target entropies |
-| [TD3](../algorithms/td3.md#presets) | `D4RL` (TD3+BC) | TD3_BC's `main.py` |
-| [TQC](../algorithms/tqc.md#presets) | `Hopper`, `HalfCheetah`, `Walker2d`, `Ant`, `Humanoid` | the authors' README |
+| Agent | Presets | Fields a preset sets | Source |
+| --- | --- | --- | --- |
+| [ASAC](../algorithms/asac.md#presets) | `Ant`, `HalfCheetah`, `Hopper`, `Humanoid`, `InvertedDoublePendulum`, `InvertedPendulum`, `Pusher`, `Reacher`, `Swimmer`, `Walker2d` | `alpha_init`, `tau_theta`, `buffer_size`, `learning_starts` | the authors' tuned runs |
+| [CrossQ](../algorithms/crossq.md#presets) | `Swimmer` | `gamma` | the authors' `train.py` |
+| [DreamerV3](../algorithms/dreamerv3.md#presets) | `DMC` | `model_size`, `train_ratio`, `n_envs`, `action_repeat` | `configs.yaml` |
+| [DQN](../algorithms/dqn.md#presets) | `Atari` | `learning_rate`, `gamma`, `buffer_size`, `batch_size`, `learning_starts`, `train_frequency`, `target_update_interval`, `epsilon_start`, `epsilon_end`, `epsilon_decay_frac` | Mnih et al.'s `run_gpu` |
+| [IQL](../algorithms/iql.md#presets) | `AntMaze` | `expectile`, `temperature` | `antmaze_config.py` |
+| [PPO](../algorithms/ppo.md#presets) | `Atari` | `n_envs`, `n_steps`, `n_epochs`, `num_minibatches`, `actor_learning_rate`, `critic_learning_rate`, `clip_range`, `ent_coef`, `share_encoder` | ppo2's `defaults.py` |
+| [PQN](../algorithms/pqn.md#presets) | `CartPole`, `Atari` | `architecture`, `n_envs`, `n_steps`, `n_epochs`, `num_minibatches`, `learning_rate`, `lr_linear_decay`, `epsilon_end`, `epsilon_decay_frac`, `q_lambda`, `reward_scale` | purejaxql's configs |
+| [REDQ](../algorithms/redq.md#presets) | `Hopper`, `HalfCheetah`, `Walker2d`, `Ant`, `Humanoid` | `target_entropy_per_dim` | MBPO's target entropies |
+| [TD3](../algorithms/td3.md#presets) | `D4RL` (TD3+BC) | `normalize_observations`, `extensions` | TD3_BC's `main.py` |
+| [TQC](../algorithms/tqc.md#presets) | `Hopper`, `HalfCheetah`, `Walker2d`, `Ant`, `Humanoid` | `top_quantiles_to_drop_per_net` | the authors' README |
+
+Each agent's page gives the values. A test compares this table with the
+`PRESETS` tables (`tests/test_docs_agent_sets.py`).
 
 ## `train`
 

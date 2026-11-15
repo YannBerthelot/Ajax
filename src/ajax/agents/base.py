@@ -643,11 +643,23 @@ class ActorCritic:
         Train the agent, every seed at once.
 
         Args:
+            seed: One seed, or several: each trains a run of its own, all
+                in the same compiled program.
             n_timesteps (int): Timesteps this call trains for. An agent
                 that trains in iterations (an on-policy rollout of n_envs x
                 n_steps steps) trains the whole iterations it holds, at
                 least one, and warns when it is not a whole number of them.
             num_episode_test (int): Number of episodes for evaluation during training.
+            logging_config: Turns evaluation and logging on
+                (``ajax.logging.LoggingConfig``): the policy is evaluated
+                every ``log_frequency`` steps on ``num_episode_test``
+                episodes, each run logs to the config's backends, and
+                ``out`` holds the evaluations. ``None``: no evaluation and
+                no log.
+            on_ids_ready: Called once before training with the runs'
+                identifiers, one per member, in order (an empty list
+                without a ``logging_config``): the ids its backends file
+                each run under.
             initial_state: a state (or ``(state, out)``) ``train`` returned,
                 to resume from: the run continues from its timestep.
             total_timesteps: the whole run's horizon, which every schedule

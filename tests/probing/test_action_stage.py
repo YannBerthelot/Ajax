@@ -469,6 +469,9 @@ CASES["cheq-blend-SAC"] = Case(
     4000,
     note="uncalibrated",
 )
+CASES["cheq-blend-TD3"] = dataclasses.replace(
+    CASES["cheq-blend-SAC"], id="cheq-blend-TD3", readings=cheq_readings("TD3")
+)
 ANSWER_DIGEST = "697b096ae7a0"
 
 

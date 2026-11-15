@@ -91,7 +91,7 @@ preprocessing stay yours.
 | [ASAC](../algorithms/asac.md#presets) | `Ant`, `HalfCheetah`, `Hopper`, `Humanoid`, `InvertedDoublePendulum`, `InvertedPendulum`, `Pusher`, `Reacher`, `Swimmer`, `Walker2d` | `alpha_init`, `tau_theta`, `buffer_size`, `learning_starts` | the authors' tuned runs |
 | [CrossQ](../algorithms/crossq.md#presets) | `Swimmer` | `gamma` | the authors' `train.py` |
 | [DreamerV3](../algorithms/dreamerv3.md#presets) | `DMC` | `model_size`, `train_ratio`, `n_envs`, `action_repeat` | `configs.yaml` |
-| [DQN](../algorithms/dqn.md#presets) | `Atari` | `learning_rate`, `gamma`, `buffer_size`, `batch_size`, `learning_starts`, `train_frequency`, `target_update_interval`, `epsilon_start`, `epsilon_end`, `epsilon_decay_frac` | Mnih et al.'s `run_gpu` |
+| [DQN](../algorithms/dqn.md#presets) | `Atari` | `learning_rate`, `gamma`, `buffer_size`, `batch_size`, `learning_starts`, `train_frequency`, `target_update_interval`, `epsilon_start`, `epsilon_end`, `epsilon_decay_start`, `epsilon_decay_frac` | Mnih et al.'s `run_gpu` |
 | [IQL](../algorithms/iql.md#presets) | `AntMaze` | `expectile`, `temperature` | `antmaze_config.py` |
 | [PPO](../algorithms/ppo.md#presets) | `Atari` | `n_envs`, `n_steps`, `n_epochs`, `num_minibatches`, `actor_learning_rate`, `critic_learning_rate`, `clip_range`, `ent_coef`, `share_encoder` | ppo2's `defaults.py` |
 | [PQN](../algorithms/pqn.md#presets) | `CartPole`, `Atari` | `architecture`, `n_envs`, `n_steps`, `n_epochs`, `num_minibatches`, `learning_rate`, `lr_linear_decay`, `epsilon_end`, `epsilon_decay_frac`, `q_lambda`, `reward_scale` | purejaxql's configs |

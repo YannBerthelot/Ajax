@@ -49,10 +49,30 @@ lists them. Its fields are fixed once built:
 
 ::: ajax.agents.families
 
+## Presets and sweeps
+
+`Agent.preset(task, env_id)` builds an agent from its reference's settings
+for one task, and `train(sweep=...)` trains several configurations in one
+program. See [Presets](../guide/training.md#presets) and
+[Hyperparameter sweeps](../guide/training.md#hyperparameter-sweeps).
+
+::: ajax.agents.presets
+
+::: ajax.agents.sweep
+
+## Acting
+
 A trained agent acts through its policy (`agent.policy`, `agent.predict`;
 [Train, evaluate, deploy](../guide/deploy.md)).
 
 ::: ajax.policy
+
+The policy, collection and evaluation act through one controller: the
+features, the normaliser, the expert, the carry and the action transforms.
+An extension author meets it in
+[Writing an extension](../developer/writing-an-extension.md).
+
+::: ajax.controller
 
 PPO's update cuts its rollout into minibatches in one of three ways (a
 rollout split), which also says where the advantages are computed: `"flat"`, ppo2's shuffled single steps,

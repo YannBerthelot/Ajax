@@ -470,7 +470,7 @@ CASES["cheq-blend-SAC"] = Case(
     (0.1, 0.082, 0.092),
     note="ladder 2000-16000 on 1000-1031, 4000-8000 on 2000-2031: worst 0.060,"
     " 0.041, 0.046 at 8000 (0.111 at 4000); the first action at the ceiling; TD3"
-    " left seeds 0.155 off at 8000; cert CERT_CHEQ",
+    " left seeds 0.155 off at 8000; cert 32/32",
 )
 ANSWER_DIGEST = "5d7c415e94f3"
 

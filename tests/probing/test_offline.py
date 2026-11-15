@@ -328,7 +328,7 @@ CASES: dict[str, Case] = {
         1000,
         (0.02, 0.02, 0.02, 0.056),
         note="ladder 250-2000 on 1000-1031, 2000-2031: 500 qualifies; 1000 fills the"
-        " online ring four times, worst 0.001, 0.001, 0.004, 0.028; cert CERT_RLPD",
+        " online ring four times, worst 0.001, 0.001, 0.004, 0.028; cert 32/32",
     ),
 }
 ANSWER_DIGEST = "bb28ab3998cc"

@@ -148,6 +148,7 @@ print(evaluations["Eval/episodic mean reward"])  # one row per seed, one column 
     [Installation](getting-started/installation.md) ·
     [Quickstart](getting-started/quickstart.md) ·
     [Why Ajax](getting-started/why-ajax.md) ·
+    [Coming from SB3](getting-started/coming-from-sb3.md) ·
     [Training an agent](guide/training.md) ·
     [Algorithms](algorithms/index.md)
 

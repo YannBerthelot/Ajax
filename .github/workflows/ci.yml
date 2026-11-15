@@ -43,12 +43,15 @@ jobs:
           key: pre-commit-${{ runner.os }}-${{ hashFiles('.pre-commit-config.yaml') }}
       - run: uv run pre-commit run --all-files
 
-  # The tests not marked slow, under coverage, split across three runners.
-  # Shards 1 and 2 name directories; shard 3 runs everything else under
-  # tests/ (pyproject's testpaths), so a new test file always runs somewhere.
-  # The split balances the per-file times of the CI runs at a1658d9.
-  # tests/conftest.py marks tests/probing slow but for the harness's checks,
-  # which run here; conformance (tests/conformance) has its own job.
+  # The tests not marked slow, under coverage, split across four runners by
+  # file from the recorded times (tests/.file_durations, `pytest --shard I/4
+  # --shard-by file`): a file's tests stay on one runner, so its shared runs
+  # are built once, and a file without a recorded time still lands in a
+  # shard. Before, shards 1 and 2 named directories and shard 3 ran the
+  # rest, which had grown to half of the work (15.7 min against 6.6 and
+  # 9.2 at 3e0cbbec). tests/conftest.py marks tests/probing slow but for the
+  # harness's checks, which run here; conformance (tests/conformance) has
+  # its own job.
   tests:
     name: Tests (shard ${{ matrix.shard }})
     runs-on: ubuntu-24.04-arm
@@ -56,17 +59,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3]
-    env:
-      SHARD_1: tests/agents/TDMPC2 tests/environments
-      SHARD_2: tests/agents/DreamerV3 tests/extensions tests/agents/PPO tests/world_models
+        shard: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup
       - id: jax-cache
         uses: ./.github/actions/compile-cache
         with:
-          job: tests-${{ matrix.shard }}
+          job: tests-${{ matrix.shard }}of4
       # XLA's optimisation level 0 (the Makefile's FAST_XLA): these tests
       # check logic on tiny programs, so compiling fast matters more than
       # the code it makes (about 30% off a cold shard, measured by the
@@ -75,20 +75,23 @@ jobs:
         env:
           XLA_FLAGS: --xla_backend_optimization_level=0 --xla_llvm_disable_expensive_passes=true
         run: |
-          case "${{ matrix.shard }}" in
-            1) paths="$SHARD_1" ;;
-            2) paths="$SHARD_2" ;;
-            3) paths="tests $(printf -- '--ignore=%s ' $SHARD_1 $SHARD_2)" ;;
-          esac
           # One xdist worker per vCPU (Compile preview, arm64: 4 workers cut
           # a cold compile-heavy subset by 44-47%, with level 0 more).
           # pytest-cov merges the workers' data into .coverage; the
           # Coverage job combines the shards' and checks the floor (a shard
           # alone covers less, so pytest-cov must not check it).
-          uv run pytest $paths -m "not slow" -n auto --cov --cov-report= \
+          uv run pytest -m "not slow" --shard ${{ matrix.shard }}/4 \
+            --shard-by file -n auto --cov --cov-report= \
             --cov-fail-under=0 --ignore=tests/conformance \
-            --durations=30
+            --durations=30 --junitxml=junit-fast-${{ matrix.shard }}.xml
           mv .coverage ".coverage.shard-${{ matrix.shard }}"
+      # The per-test times `make file-durations` reads to rebalance the
+      # shards.
+      - if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: junit-fast-${{ matrix.shard }}
+          path: junit-fast-${{ matrix.shard }}.xml
       # The cache only saves time: a failed save must not fail the job (in
       # the test shards it would also skip the coverage upload).
       - name: Save the JAX compile cache

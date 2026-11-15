@@ -137,7 +137,7 @@ class UDRL(
     command_target_tau: float = 1.0
     #: The scales of (d_r, d_h) the actor reads, two values of the paper's
     #: LunarLander search (0.01 to 0.03 for both, Srivastava et al.,
-    #: App. D; its tuned values, Table 4, are 0.015 and 0.03): the network
+    #: App. E.1; its tuned values, Table 4, are 0.015 and 0.03): the network
     #: learns more cleanly on O(1) commands than O(100); the replay and the
     #: command's decay stay in raw units.
     command_scale_r: float = 0.02

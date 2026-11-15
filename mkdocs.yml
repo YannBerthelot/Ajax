@@ -171,6 +171,7 @@ nav:
   - Developer guide:
       - Architecture: developer/architecture.md
       - Contributing: developer/contributing.md
+      - Extension phases: developer/extension-phases.md
       - Writing an extension: developer/writing-an-extension.md
       - Testing: developer/testing.md
       - Performance: developer/performance.md

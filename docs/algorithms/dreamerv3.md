@@ -71,7 +71,9 @@ Procgen) observe images, which Ajax's DreamerV3 does not encode yet.
 
 ## Key hyperparameters
 
-Every default is the paper-era value.
+Every default is the paper-era value; `model_size` and `train_ratio` are
+those of the reference's `dmc_proprio` config (its own defaults block has
+the 200m widths and a ratio of 32).
 
 | Argument | Default | What it does |
 | --- | --- | --- |

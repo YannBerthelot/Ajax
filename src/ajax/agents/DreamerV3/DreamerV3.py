@@ -102,6 +102,11 @@ class DreamerV3(OwnReplayAgent):
     same name and default, documented there; setup builds model_config from
     them, the widths left None taking the model_size preset's. The env must
     not normalise observations or rewards.
+
+    model_size and train_ratio default to the reference's dmc_proprio
+    block, its config for vector observations (29eb964 configs.yaml:232-235:
+    size12m, train_ratio 512), not to its defaults block (:113 the 200m
+    widths, :52 train_ratio 32); every other default is that block's.
     """
 
     #: The reference's run.num_envs.
@@ -110,6 +115,7 @@ class DreamerV3(OwnReplayAgent):
     episode_length: int = 1000
     # The size (configs.yaml size12m ... size400m; dreamerv3_spec 2.1): a
     # preset of the model dimension d, or explicit widths overriding it.
+    # 12m is dmc_proprio's (29eb964 configs.yaml:233).
     model_size: str = "12m"
     units: Optional[int] = None
     deter: Optional[int] = None
@@ -157,8 +163,9 @@ class DreamerV3(OwnReplayAgent):
     beta2: float = 0.999
     eps: float = 1e-20
     warmup: int = 1000
-    # The schedule and the replay (configs.yaml run.train_ratio, batch_size,
-    # batch_length with replay_context 1; Table 4's capacity): an update every
+    # The schedule and the replay (configs.yaml batch_size, batch_length
+    # with replay_context 1, and dmc_proprio's run.train_ratio, :235, where
+    # the defaults block has 32, :52; Table 4's capacity): an update every
     # batch_size * batch_length / train_ratio rows after the training start,
     # on batch_size windows of batch_length + 1 rows; replay_capacity rows
     # kept over all envs.

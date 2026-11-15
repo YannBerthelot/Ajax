@@ -431,7 +431,9 @@ openai/baselines ppo2's `VecNormalize` keeps it. The statistics live in
 policy on a new observation yourself, normalise it as `(obs - mean) /
 sqrt(var + 1e-8)` first.
 
-The replay agents (SAC, TD3, REDQ, ASAC, DQN, UDRL) learn from rows
+The [replay agents](../algorithms/index.md#agent-families) and UDRL
+(<!-- agents: raw-replay -->SAC, ASAC, RVI-SAC, REDQ, CrossQ, TQC, TD3, IQL, DQN, DAgger, UDRL<!-- /agents -->)
+learn from rows
 collected long before, so their replay keeps the environment's own
 observations and rewards, and a replayed row is normalised with the current
 statistics, as Stable-Baselines3's replay buffer does under `VecNormalize`.

@@ -24,7 +24,7 @@ logging = LoggingConfig(
 | `log_frequency` | 10,000 | environment steps between evaluations |
 | `run_name` | `None` | each run's name prefix: a run is named `<run_name>_<run id>` |
 | `evaluate_last_fifth_only` | `False` | evaluate only in the last 20% of training, for hyperparameter searches that read the final scores |
-| `sweep` | not set | deprecated: the earlier name of `evaluate_last_fifth_only`. Set, it warns. It is not `train(sweep=...)` |
+| `sweep` | `False` | deprecated: the earlier name of `evaluate_last_fifth_only`. Set `True`, it warns. It is not `train(sweep=...)` |
 | `evaluation_device` | `None` | a JAX device to evaluate on while training goes on ([below](#evaluating-on-another-device)); `None`: training waits for each evaluation |
 | `use_wandb`, `use_tensorboard` | not set | deprecated: the earlier way to name backends. Set, they warn and name W&B (on unless set `False`) and TensorBoard (off unless set `True`), as before |
 | `folder` | `None` | where the default TensorBoard backend writes, `<folder>/tensorboard/<run id>/` (the working directory when `None`) |

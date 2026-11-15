@@ -69,14 +69,14 @@ class LoggingConfig:
     use_tensorboard: Optional[bool] = None
     use_wandb: Optional[bool] = None
     evaluate_last_fifth_only: bool = False
-    # None: not set. Deprecated for evaluate_last_fifth_only.
-    sweep: Optional[bool] = None
+    # Deprecated for evaluate_last_fifth_only.
+    sweep: bool = False
     # None: not given, so the flags decide; () names no backend at all.
     backends: Optional[tuple] = struct.field(pytree_node=False, default=None)
     evaluation_device: Any = struct.field(pytree_node=False, default=None)
 
     def __post_init__(self) -> None:
-        if self.sweep is not None:
+        if self.sweep:
             # stacklevel 3: the caller of LoggingConfig(...), past __init__.
             warnings.warn(
                 "LoggingConfig's sweep is deprecated: it is now"
@@ -84,10 +84,9 @@ class LoggingConfig:
                 FutureWarning,
                 stacklevel=3,
             )
-            if self.sweep:
-                object.__setattr__(self, "evaluate_last_fifth_only", True)
+            object.__setattr__(self, "evaluate_last_fifth_only", True)
             # Read once: a copy (replace) does not warn again.
-            object.__setattr__(self, "sweep", None)
+            object.__setattr__(self, "sweep", False)
         flag_set = self.use_wandb is not None or self.use_tensorboard is not None
         if flag_set and self.backends is None:
             # stacklevel 3: the caller of LoggingConfig(...), past __init__.

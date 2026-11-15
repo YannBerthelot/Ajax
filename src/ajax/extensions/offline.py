@@ -63,7 +63,11 @@ class ConservativeQ(Extension):
     ratio. It needs a policy with a density: a deterministic one (TD3's) is
     a point mass, whose samples are copies of one action and whose density
     is undefined. Deviations from the reference's SAC: its target keeps SAC's
-    entropy term (the reference's ``deterministic_backup`` drops it). Logs
+    entropy term (the reference's ``deterministic_backup`` drops it), and
+    there is no ``policy_eval_start`` warm start, during which the
+    reference's actor maximises the data actions' log-likelihood in place of
+    the critics' value (cql.py:184-191; 0 steps by default, :36, and 40,000
+    in its examples, d4rl/examples/cql_mujoco_new.py:140). Logs
     ``cql/term`` and ``cql/gap``, the logsumexp minus the data's value.
     """
 

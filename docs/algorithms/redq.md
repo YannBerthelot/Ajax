@@ -115,7 +115,9 @@ action dimensions.
   `memory=`, REDQ builds Ni et al. (2022)'s recurrent networks and their
   initialisation, by analogy with their SAC, its critics reading one memory
   and the `[-1, 1]` actions (see [Memory](../guide/memory.md)).
-- **Target entropy.** The default is `-1` per action dimension.
+- **Target entropy.** The default is `-1` per action dimension, the
+  official code's `"auto"` option (`redq_sac.py:55-56`), since its own
+  default is defined for five tasks only.
   `target_entropy_per_dim="mbpo"` takes MBPO's per-task value instead, the
   authors' default, for the Brax ids `hopper` (-1), `halfcheetah` (-3),
   `walker2d` (-3), `ant` (-4) and `humanoid` (-2); any other environment

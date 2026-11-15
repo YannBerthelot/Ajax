@@ -75,10 +75,10 @@ from ajax.types import Architecture
 #: Mnih et al.'s Atari config (google-deepmind/dqn@9d9b1d1, run_gpu:12-32):
 #: one update every 4 steps after 50,000, the target refreshed every 10,000
 #: steps (NeuralQLearner.lua:341-342, :356), so every 2,500 updates. Its
-#: epsilon reaches 0.1 at step 1,050,000, a million steps after the warm-up
-#: (:370-371): here that step's fraction of its 50M-step run, so a shorter
-#: run decays faster. Atari's frame skip and stack, no-op starts and reward
-#: clipping are the env's.
+#: epsilon stays at 1 for the 50,000 warm-up steps, then reaches 0.1 a
+#: million steps later, at step 1,050,000 (:369-371): here that million is
+#: a fraction of its 50M-step run, so a shorter run decays faster. Atari's
+#: frame skip and stack, no-op starts and reward clipping are the env's.
 PRESETS = {
     "Atari": Preset(
         {
@@ -91,7 +91,8 @@ PRESETS = {
             "target_update_interval": 2_500,
             "epsilon_start": 1.0,
             "epsilon_end": 0.1,
-            "epsilon_decay_frac": 1_050_000 / 50_000_000,
+            "epsilon_decay_start": 50_000,
+            "epsilon_decay_frac": 1_000_000 / 50_000_000,
         },
         "google-deepmind/dqn@9d9b1d1 run_gpu:12-32, NeuralQLearner.lua:341-371",
     )
@@ -145,11 +146,14 @@ class DQN(
     #: The updates per updating tick, once learning_starts is reached.
     n_gradient_steps: int = 1
     #: Linear epsilon-greedy schedule: epsilon goes from epsilon_start to
-    #: epsilon_end over the first epsilon_decay_frac of training (start_e,
-    #: end_e, exploration_fraction: dqn.py:63-67).
+    #: epsilon_end over epsilon_decay_frac of training (start_e, end_e,
+    #: exploration_fraction: dqn.py:63-67), from step epsilon_decay_start:
+    #: 0 as CleanRL, whose schedule reads global_step (dqn.py:165); Mnih et
+    #: al.'s code starts the decay after its warm-up (the preset).
     epsilon_start: float = 1.0
     epsilon_end: float = 0.05
     epsilon_decay_frac: float = 0.5
+    epsilon_decay_start: int = 0
     #: The TD target: None is compute_dqn_td_target; compute_double_dqn_td_target
     #: is Double DQN's. Either returns the target, the next actions it scored
     #: and the values it bootstrapped there, which the extensions learning
@@ -201,13 +205,15 @@ class DQN(
     def make_epsilon_schedule(
         self, context: TrainContext
     ) -> Callable[[Any], jax.Array]:
-        """The exploration rate at a timestep: linear over the first
-        epsilon_decay_frac of the horizon, then flat."""
-        return linear(
+        """The exploration rate at a timestep: epsilon_start until
+        epsilon_decay_start, linear over the next epsilon_decay_frac of the
+        horizon, then flat."""
+        decay = linear(
             self.epsilon_start,
             self.epsilon_end,
             self.epsilon_decay_frac * context.total_timesteps,
         )
+        return lambda timestep: decay(timestep - self.epsilon_decay_start)
 
     def choose_behaviour(self, context: TrainContext) -> Callable:
         """Epsilon-greedy collection on the greedy Q-network, uniform (or

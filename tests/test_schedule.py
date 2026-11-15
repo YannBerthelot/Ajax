@@ -3,6 +3,7 @@
 from types import SimpleNamespace
 
 import jax.numpy as jnp
+import numpy as np
 import pytest
 
 from ajax.schedule import at, linear, progress, warmup_cosine_schedule
@@ -42,6 +43,24 @@ def test_warmup_cosine_profile():
     assert jnp.allclose(sched(10), 1.0)
     assert jnp.allclose(sched(100), 0.1)
     assert sched(5) < sched(10) and sched(50) < sched(10) and sched(50) > sched(100)
+
+
+def test_warmup_cosine_fractions_are_of_the_peak():
+    """The start and end values are fractions of the peak, not absolute
+    rates: an end value left unscaled would hold a 3e-4 run at 0.1, 333
+    times its peak. With peak 3e-4, start fraction 0.5 and end fraction
+    0.1: 1.5e-4 at step 0, 3e-4 at the end of the warmup, 3e-5 at the end."""
+    sched = warmup_cosine_schedule(
+        3e-4,
+        warmup_steps=10,
+        total_steps=100,
+        end_value_fraction=0.1,
+        init_value_fraction=0.5,
+    )
+    # float32 rates: 1e-6 relative is a few last digits.
+    np.testing.assert_allclose(sched(0), 1.5e-4, rtol=1e-6)
+    np.testing.assert_allclose(sched(10), 3e-4, rtol=1e-6)
+    np.testing.assert_allclose(sched(100), 3e-5, rtol=1e-6)
 
 
 def test_warmup_cosine_validation():

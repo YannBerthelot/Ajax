@@ -182,7 +182,7 @@ def test_a_resumed_run_goes_on_from_the_normalisers_statistics() -> None:
             reward_normalization_gamma=0.5,
         )
 
-    def reward_statistics(state: Any) -> NormalizationInfo:
+    def reward_statistics(state: Any) -> Any:
         """Copied out: the resumed call takes over the state's arrays."""
         info = normalisation_info(state.collector_state.env_state, "gymnax")
         return jax.tree.map(np.array, info.reward)

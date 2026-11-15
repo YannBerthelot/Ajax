@@ -230,6 +230,7 @@ def rlpd_readings() -> Any:
 
 
 _ONLINE = {"the offline rows unread: the online state's best action": 1.0}
+_OFFLINE = {"the online rows unread: the offline state's best action": -1.0}
 _REPAID = {"the offline rows paid as the env pays, clip(a)": -0.5}
 _NONE = {"no update on the logged rows, the networks at initialisation": 0.0}
 CASES: dict[str, Case] = {
@@ -319,16 +320,18 @@ CASES: dict[str, Case] = {
         "rlpd-offline-half-TD3",
         (
             Query("a(-1)", -1.0, _ONLINE),
-            Query("a(1)", 1.0, {}),
+            Query("a(1)", 1.0, _OFFLINE),
             Query("Q(-1, -0.5)", 0.5, _REPAID),
-            Query("Q(1, 0.5)", 0.5, {}),
+            Query("Q(1, 0.5)", 0.5, {"the online rows paid as the offline, -a": -0.5}),
         ),
         rlpd_readings(),
-        2000,
-        note="uncalibrated",
+        1000,
+        (0.02, 0.02, 0.02, 0.056),
+        note="ladder 250-2000 on 1000-1031, 2000-2031: 500 qualifies; 1000 fills the"
+        " online ring four times, worst 0.001, 0.001, 0.004, 0.028; cert CERT_RLPD",
     ),
 }
-ANSWER_DIGEST = "86d362d0cad7"
+ANSWER_DIGEST = "bb28ab3998cc"
 
 
 @pytest.mark.parametrize("case", params(CASES))

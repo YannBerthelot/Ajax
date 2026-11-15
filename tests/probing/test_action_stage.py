@@ -458,7 +458,7 @@ CASES["cheq-blend-SAC"] = Case(
     "cheq-blend-SAC",
     (
         Query("a(weight 0.6)", best_under(0.6), _UNBLENDED),
-        Query("a(weight 1)", GOAL, {}),
+        Query("a(weight 1)", GOAL, {"the actor ignores the weight": best_under(0.6)}),
         Query(
             "Q(weight 0.6, 0.2)",
             -10.0 * (0.4 * PRIOR + 0.6 * GOAL - GOAL) ** 2,
@@ -466,13 +466,13 @@ CASES["cheq-blend-SAC"] = Case(
         ),
     ),
     cheq_readings("SAC", fixed_alpha=True, alpha_init=1e-4),
-    4000,
-    note="uncalibrated",
+    8000,
+    (0.1, 0.082, 0.092),
+    note="ladder 2000-16000 on 1000-1031, 4000-8000 on 2000-2031: worst 0.060,"
+    " 0.041, 0.046 at 8000 (0.111 at 4000); the first action at the ceiling; TD3"
+    " left seeds 0.155 off at 8000; cert CERT_CHEQ",
 )
-CASES["cheq-blend-TD3"] = dataclasses.replace(
-    CASES["cheq-blend-SAC"], id="cheq-blend-TD3", readings=cheq_readings("TD3")
-)
-ANSWER_DIGEST = "697b096ae7a0"
+ANSWER_DIGEST = "5d7c415e94f3"
 
 
 @pytest.mark.parametrize("case", params(CASES))

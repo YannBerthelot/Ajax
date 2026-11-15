@@ -3122,9 +3122,10 @@ end-to-end JAX libraries, not beside these two.</p>
   checker for it (<a href="https://stable-baselines3.readthedocs.io/en/master/guide/custom_env.html">custom envs</a>, <a href="https://github.com/araffin/sbx">README</a>); TorchRL and
   Tianshou take them too (<a href="https://github.com/pytorch/rl">TorchRL</a>, <a href="https://github.com/thu-ml/tianshou">Tianshou</a>). For such
   environments at scale, Stoix has its Sebulba architecture (<a href="https://github.com/EdanToledo/Stoix">Stoix</a>).</li>
-<li><strong>You train on several devices.</strong> Ajax runs on one device for now; it has
-  no <code>pmap</code> or sharding. Brax's training agents and Stoix train across
-  devices (<a href="https://github.com/google/brax/tree/main/brax/training/agents">Brax</a>, <a href="https://github.com/EdanToledo/Stoix">Stoix</a>).</li>
+<li><strong>You train one run on several devices.</strong> Ajax splits a run's seeds
+  over devices (<a href="../../guide/performance/">Performance</a>), but each seed
+  trains on one: it has no <code>pmap</code> or sharding. Brax's training agents and
+  Stoix train across devices (<a href="https://github.com/google/brax/tree/main/brax/training/agents">Brax</a>, <a href="https://github.com/EdanToledo/Stoix">Stoix</a>).</li>
 <li><strong>You want a hyperparameter sweep in one program.</strong> Ajax compiles the
   hyperparameters into the program, so each trial of a sweep compiles anew
   (<a href="../../guide/performance/">Performance</a>). Rejax vmaps over

@@ -836,6 +836,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#seeds-over-several-devices" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Seeds over several devices
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#parallel-environments" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2755,6 +2766,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#seeds-over-several-devices" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Seeds over several devices
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#parallel-environments" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2927,6 +2949,24 @@ hyperparameter sweeps (wide networks, critic ensembles), going from 20 to 50
 seeds made the time per seed and step worse for several method and
 environment pairs, by up to 81%. Measure your own configuration before
 settling on a seed count.</p>
+<h2 id="seeds-over-several-devices">Seeds over several devices<a class="headerlink" href="#seeds-over-several-devices" title="Permanent link">&para;</a></h2>
+<p>Once one device is busy, <code>train(devices=...)</code> splits the seeds (or a
+sweep's configurations over the seeds) over several: each device trains a
+consecutive slice of them at the same time, and the results come back in
+the usual order, on the first device.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">jax</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax</span><span class="w"> </span><span class="kn">import</span> <span class="n">PPO</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="n">agent</span> <span class="o">=</span> <span class="n">PPO</span><span class="p">(</span><span class="s2">&quot;Pendulum-v1&quot;</span><span class="p">,</span> <span class="n">n_envs</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">n_steps</span><span class="o">=</span><span class="mi">8</span><span class="p">)</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="n">state</span><span class="p">,</span> <span class="n">out</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">seed</span><span class="o">=</span><span class="nb">range</span><span class="p">(</span><span class="mi">4</span><span class="p">),</span> <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">64</span><span class="p">,</span> <span class="n">devices</span><span class="o">=</span><span class="n">jax</span><span class="o">.</span><span class="n">devices</span><span class="p">())</span>
+</code></pre></div>
+<p>Each seed trains as it does on one device, but for rounding, which a long
+run can amplify, as a change of the seed count does on one device. Each replay
+buffer lives on the device that trains its seed, so the memory is split
+too. A slice of another size is another program to compile: a number of
+seeds the devices divide compiles once per device at most. One run is
+never spread over devices: its environments and its updates stay on one.
+A Gymnasium environment and an <code>evaluation_device</code> take no <code>devices</code>.</p>
 <h2 id="parallel-environments">Parallel environments<a class="headerlink" href="#parallel-environments" title="Permanent link">&para;</a></h2>
 <p><code>n_envs</code> copies of the environment step together inside each seed, as one
 vectorised operation. Unlike seeds, they change the algorithm: an

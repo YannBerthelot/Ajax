@@ -33,7 +33,7 @@ from .oracles import RIGHT, Rule
 from .verdict import STAGE_1, Case, Query, check, params
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "75e5b6c3c7d6"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "24303a97f4f7"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P6: the time-limit twin --------------------------------------------------
@@ -913,14 +913,15 @@ CASES["q1-ASAC-truncation"] = Case(
 )
 
 
-def _q1_apo(spec: envs.Spec, at: dict[str, float]) -> Callable:
+def _q1_apo(spec: envs.Spec, at: dict[str, float], **kw: Any) -> Callable:
     """APO's own lambda, alpha and nu, no entropy bonus; V and b."""
+    kw = kw or {"ent_coef": 0.0}
 
     def read(run: runs.Run) -> dict:
         ns, b = R.nets(run.state), {"b": run.state.b}
         return R.per_seed(lambda n: {k: R.critic(n, x) for k, x in at.items()}, ns) | b
 
-    build = functools.partial(agents.make, "APO", *spec.make(), ent_coef=0.0)
+    build = functools.partial(agents.make, "APO", *spec.make(), **kw)
     return runs.readings(build, read)
 
 
@@ -1039,6 +1040,94 @@ def test_q1_apo_termination_cycle_keeps_b_bounded() -> None:
     case = CASES["q1-APO-termination"]
     b = case.readings(STAGE_1, case.budget)["b"]
     assert (np.abs(b) < 100.0).all(), f"b reads {b}"
+
+
+# --- the shipped PPO: its normalised returns and clipped value loss ---------
+# PPO as shipped (ppo2's MuJoCo run: observations and returns normalised, the
+# value loss clipped, TensorFlow 1's Adam) on a two-step cycle showing 5 then
+# 1 and paying (2, 6) whatever the action. Its reward normaliser divides by
+# the spread of the running return R = r + gamma R, restarted after an end: R
+# alternates 2 and 6 + 2 gamma, so sigma = (6 - 2 (1 - gamma)) / 2 = 2.99 from
+# the second step on, and the critic, fitted on the divided rewards, reads
+# V(s1) = 6 / sigma and V(s0) = (2 + 6 gamma) / sigma. The clipped value loss
+# stops pulling a value once it has moved clip_range (0.2) from the one its
+# rollout was collected with, so a clip around 0 instead holds it there.
+PPO_R, PPO_G = (2.0, 6.0), 0.99
+NORMALISED = cycle((5.0, 1.0), PPO_R, True)
+SIGMA = (PPO_R[1] - (1 - PPO_G) * PPO_R[0]) / 2
+
+
+def normalised_values(sigma: float, shift: float = 0.0) -> tuple[float, float]:
+    """(V(s0), V(s1)) of the rewards less ``shift``, divided by ``sigma``."""
+    r0, r1 = ((r - shift) / sigma for r in PPO_R)
+    return r0 + PPO_G * r1, r1
+
+
+NORM_WRONG = {
+    "the single-step reward's spread": normalised_values((PPO_R[1] - PPO_R[0]) / 2),
+    "rewards not normalised": normalised_values(1.0),
+    "rewards centred on the mean return": normalised_values(
+        SIGMA, (PPO_R[1] + (1 + PPO_G) * PPO_R[0]) / 2
+    ),
+    "each value clipped around 0: held near clip_range": (0.2, 0.2),
+}
+
+
+def _shipped_ppo(run: runs.Run) -> dict:
+    n = R.nets(run.state, stats=R.env_stats(run))
+    return R.per_seed(
+        lambda n: {"V(s0)": R.critic(n, 5.0), "V(s1)": R.critic(n, 1.0)}, n
+    )
+
+
+CASES["defaults-PPO-normalised"] = Case(
+    "defaults-PPO-normalised",
+    tuple(
+        Query(
+            name, normalised_values(SIGMA)[i], {k: v[i] for k, v in NORM_WRONG.items()}
+        )
+        for i, name in enumerate(("V(s0)", "V(s1)"))
+    ),
+    runs.readings(
+        functools.partial(agents.make, "PPO", *NORMALISED.make(), preset=None),
+        _shipped_ppo,
+    ),
+    32_768,
+    (0.02, 0.02),
+    note="ladder 32768-98304 on 1000-1031, 32768-49152 on 2000-2031: 32768, its"
+    " first rung (worst error 0.0003)",
+)
+
+
+# --- the shipped APO: its reference's rule -------------------------------------
+# APO as shipped (xtma/apo's mujoco_appo.py: 10 envs of 200 steps, 20
+# minibatches, nu 1, advantages as computed, its entropy bonus, which the
+# rewards ignore) on q1-APO-termination's cycle: its closed forms at nu 1.
+
+
+def apo_termination(nu: float, lam: float = 0.95) -> tuple[float, float, float]:
+    """(b, V(A), V(B)) on the termination cycle (the derivation above)."""
+    b = 0.5 / (2 + nu * (3 - lam))
+    return b, -(2 - lam) * nu * b, 0.5 - nu * b
+
+
+NU_KEPT = {"nu not forwarded (0.1, its default before)": apo_termination(0.1)}
+CASES["defaults-APO-termination"] = Case(
+    "defaults-APO-termination",
+    tuple(
+        Query(
+            name,
+            apo_termination(1.0)[i],
+            {k: v[i] for k, v in NU_KEPT.items()} | {"untrained": 0.0},
+        )
+        for i, name in enumerate(("b", "V(A)", "V(B)"))
+    ),
+    _q1_apo(APO_TERM, {"V(A)": 0.0, "V(B)": 1.0}, preset=None),
+    40_000,
+    (0.02, 0.021, 0.02),
+    note="ladder 20000-160000 on 1000-1031, 40000-80000 on 2000-2031: 40000"
+    " (20000: worst errors 0.094, 0.100, 0.094)",
+)
 
 
 # --- every judged case --------------------------------------------------------

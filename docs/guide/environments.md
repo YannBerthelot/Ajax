@@ -113,8 +113,10 @@ tasks set their own. A step that runs out of contact, convex-collision or
 constraint room stops the run with an error, rather than going on with
 dropped contacts.
 
-Warp runs only on an NVIDIA GPU, and nothing can be differentiated through
-it: it refuses a CPU, `differentiable_reset=True` and APG.
+Warp runs only on an NVIDIA GPU with MuJoCo 3.13 or newer (the first whose
+Warp reports the convex collisions it drops), and nothing can be
+differentiated through it: it refuses an older MuJoCo, a CPU,
+`differentiable_reset=True` and APG.
 
 ### Gymnasium's MuJoCo tasks in JAX
 

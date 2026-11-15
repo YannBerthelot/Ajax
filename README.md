@@ -53,8 +53,8 @@ covers the other extras and `uv sync` from a clone.
 from ajax import PPO
 from ajax.logging import LoggingConfig
 
-agent = PPO("CartPole-v1")  # 4 environments x 2048-step rollouts: one update per 8,192 steps
-# Evaluate after every update; backends=() keeps the results in memory only.
+agent = PPO("CartPole-v1")  # one environment, 2048-step rollouts: one update per 2,048 steps
+# Evaluate every 4 updates; backends=() keeps the results in memory only.
 logging = LoggingConfig(log_frequency=8_192, backends=())
 state, evaluations = agent.train(seed=[1, 2, 3], n_timesteps=40_960, logging_config=logging)
 
@@ -89,8 +89,8 @@ agent = PPO("ant", n_envs=8)
 - **Differentiable simulation**: [APG](docs/algorithms/apg.md)
 
 DQN and PQN take discrete actions; PPO, APO, DAgger, UDRL and DreamerV3 take
-both; the others continuous ones. SAC, TD3, REDQ, ASAC and DQN also train
-offline (`train_offline`). Each name opens the agent's page, with its paper;
+both; the others continuous ones. SAC, TD3, REDQ, TQC, CrossQ, ASAC, RVI-SAC,
+DQN, IQL and DAgger also train offline (`train_offline`). Each name opens the agent's page, with its paper;
 the [compatibility table](docs/guide/compatibility.md) lists every extension
 per agent.
 

@@ -144,7 +144,7 @@ requires-dist = [
     { name = "flashbax", specifier = ">=0.1.3,<0.2" },
     { name = "flax", specifier = ">=0.12.8" },
     { name = "gymnasium", extras = ["mujoco"], marker = "extra == 'gymnasium'", specifier = ">=1.0" },
-    { name = "gymnasium-mjx", extras = ["playground"], marker = "extra == 'gymnasium-mjx'", git = "https://github.com/YannBerthelot/gymnasium-mjx.git?branch=feat%2Fwarp-convex-room" },
+    { name = "gymnasium-mjx", extras = ["playground"], marker = "extra == 'gymnasium-mjx'", specifier = ">=0.2" },
     { name = "gymnax", specifier = ">=1.0.1,<2" },
     { name = "huggingface-hub", marker = "extra == 'reproduction'", specifier = ">=0.30,<2" },
     { name = "jax", specifier = ">=0.10.0" },
@@ -914,11 +914,15 @@ mujoco = [
 [[package]]
 name = "gymnasium-mjx"
 version = "0.2.0"
-source = { git = "https://github.com/YannBerthelot/gymnasium-mjx.git?branch=feat%2Fwarp-convex-room#21acc277be32a959e71c35b99ed13800580108ad" }
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "jax" },
     { name = "mujoco" },
     { name = "mujoco-mjx" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/c1/46/7de20813c88556dceaa7963e3da2c9ce6f443fa8419740bb62436047bbd7/gymnasium_mjx-0.2.0.tar.gz", hash = "sha256:f201618109f42785b5d1d1a8d1155413ec0671fed564637930f33507c56e9f04", size = 26626, upload-time = "2026-11-15T00:13:22.242Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ba/91/c97ac61de5b2903d1a5dcf518c5ef38a2a1b8dcfedd8fb4acebb5d8a1856/gymnasium_mjx-0.2.0-py3-none-any.whl", hash = "sha256:e0b8f9847570b9fdf2b96b71c730cb0d0cda5f39b6a935646d69fb347262b905", size = 35588, upload-time = "2026-11-15T00:13:21.193Z" },
 ]
 
 [package.optional-dependencies]

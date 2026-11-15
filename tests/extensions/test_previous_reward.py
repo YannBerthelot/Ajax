@@ -152,6 +152,18 @@ def test_the_policy_refuses_an_act_with_done_and_no_reward():
         policy.act(jnp.zeros((2, 3)), carry, jnp.zeros(2, bool))
 
 
+def test_the_policy_refuses_a_later_act_with_no_done_and_no_reward():
+    """An episode's first act has no reward to read. A later one given
+    neither done nor reward would read zero in its place, silently (the
+    bug): it is refused as the act with a done is."""
+    agent = _pendulum_sac()
+    state, _ = agent.train(seed=0, n_timesteps=0)
+    policy = agent.policy(state)
+    _, carry = policy.act(jnp.zeros((2, 3)), policy.reset(2))
+    with pytest.raises(ValueError, match="reward"):
+        policy.act(jnp.zeros((2, 3)), carry)
+
+
 def test_the_policy_reads_the_reward_it_is_given():
     """Two acts from one carry, one key, differing only in the reward: the
     actor reads it through the feature, so the actions differ."""

@@ -7,9 +7,12 @@ numbers all come from MJX's pure-JAX physics):
 - ``physics="warp"`` reaches Playground;
 - the evaluation rebuild keeps the training environment's physics;
 - an unknown name is refused rather than passed on to Playground;
-- Warp is refused, with its reason, where it cannot run: without a GPU (its
-  kernels are CUDA only), and wherever gradients must cross the physics
-  (``differentiable_reset``, APG), as MJX gives Warp no gradient rule;
+- Warp is refused, with its reason, where it cannot run: on a MuJoCo before
+  3.13, whose Warp does not export the flag for dropped convex collisions
+  (checked in the mujoco-mjx 3.6 to 3.15 wheels: the flag appears in 3.11,
+  its export in 3.13), without a GPU (its kernels are CUDA only), and
+  wherever gradients must cross the physics (``differentiable_reset``, APG),
+  as MJX gives Warp no gradient rule;
 - a Warp step that ran out of contact, convex-collision or constraint room
   stops the run rather than going on with dropped contacts.
 
@@ -17,17 +20,43 @@ How much convex-collision scratch a ``"mujoco:"`` task's physics call
 allocates is the gymnasium-mjx package's contract, tested there.
 """
 
+import importlib.metadata
+
 import jax
 import jax.numpy as jnp
 import pytest
 from flax import struct
 
-from ajax.environments.create import build_env_from_id
+from ajax.environments.create import build_env_from_id, warp_supported
 from ajax.evaluate import setup_environment
 
 registry = pytest.importorskip("mujoco_playground").registry
 
 TASK = "CartpoleBalance"
+
+WARP_SUPPORTED = warp_supported(importlib.metadata.version("mujoco-mjx"))
+needs_warp = pytest.mark.skipif(
+    not WARP_SUPPORTED, reason="Warp is refused on a MuJoCo before 3.13"
+)
+
+
+@pytest.mark.parametrize(
+    "version, supported",
+    [("3.6.0", False), ("3.12.0", False), ("3.13.0", True), ("3.15.0", True)],
+)
+def test_warp_is_supported_from_mujoco_3_13(version, supported):
+    assert warp_supported(version) is supported
+
+
+def test_warp_on_this_mujoco_is_built_or_refused_by_its_version(monkeypatch):
+    """Catches an old MuJoCo reaching Warp, whose dropped convex collisions
+    Ajax could not see: the build is refused there, naming the version needed,
+    before anything else is asked of the machine."""
+    monkeypatch.setattr(jax, "default_backend", lambda: "cpu")
+    reason = "needs an NVIDIA GPU" if WARP_SUPPORTED else "needs MuJoCo 3.13"
+
+    with pytest.raises(ValueError, match=reason):
+        build_env_from_id(TASK, physics="warp")
 
 
 def physics_of(env) -> str:
@@ -51,6 +80,8 @@ def physics_requested(monkeypatch):
     build and no test machine has one, so the backend query is stubbed to pass
     the GPU check and the request is what can be observed: every build
     underneath stays pure JAX."""
+    if not WARP_SUPPORTED:
+        pytest.skip("Warp is refused on a MuJoCo before 3.13")
     monkeypatch.setattr(jax, "default_backend", lambda: "gpu")
     requested = []
     load = registry.load
@@ -87,6 +118,7 @@ def test_an_unknown_physics_is_refused():
         build_env_from_id(TASK, physics="mujoco")
 
 
+@needs_warp
 def test_warp_without_a_gpu_is_refused_with_the_reason(monkeypatch):
     """Catches Warp reaching MJX on a CPU, which fails deep in tracing with
     "Unknown backend cuda", naming neither the option nor a way out."""
@@ -169,7 +201,7 @@ def _overflow_bits() -> tuple[int, int]:
     return int(OverflowType.CCD), int(OverflowType.ITERATIONS)
 
 
-CONVEX, ITERATIONS = _overflow_bits()
+CONVEX, ITERATIONS = _overflow_bits() if WARP_SUPPORTED else (None, None)
 
 
 @pytest.mark.parametrize(
@@ -181,6 +213,7 @@ CONVEX, ITERATIONS = _overflow_bits()
         ((0, 0, 0, CONVEX), "convex collisions"),
     ],
 )
+@needs_warp
 def test_a_warp_step_that_ran_out_of_room_stops_the_run(counts, dropped):
     """Catches Warp dropping contacts, constraints or convex collisions with
     only a printed warning: with too many worlds for its contact buffer the
@@ -218,6 +251,7 @@ PUSHER_ARM_ON_OBJECT = [0.633, 0.52, 1.492, -0.427, -1.492, -0.156, -1.399]
 PUSHER_OBJECT_UNDER_TIP = [-0.24, 0.198]
 
 
+@needs_warp
 def test_a_batch_beyond_the_convex_room_stops_the_run(monkeypatch):
     """Catches convex collisions dropped unnoticed, which no counter shows:
     with no room for them, Pusher's arm pressed on its object must stop

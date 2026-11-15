@@ -1732,7 +1732,8 @@ def force_reset(
     and are normalised with the agent's running statistics, which they do
     not count in. A reward normaliser in the env
     stack keeps its running statistics: its reset restarts them, so the
-    saved ones are put back. The cut episodes are abandoned, not finished:
+    saved ones are put back, but for the running discounted return of the
+    abandoned episodes. The cut episodes are abandoned, not finished:
     the next return starts from zero, and they are flagged truncated, so a
     recurrent actor and critic restart their memory on the reset
     observation, as at any episode start, and so does a stateful tracked
@@ -1742,6 +1743,11 @@ def force_reset(
     # forced resets on or off, every other draw stays.
     reset_key = derive_key(agent_state.collector_state.rng, "forced_reset")
     saved = normalisation_info(agent_state.collector_state.env_state, mode)
+    if saved is not None and getattr(saved.reward, "returns", None) is not None:
+        # The abandoned episodes' discounted returns end with them, as SB3's
+        # VecNormalize.reset zeroes its own: the statistics stay.
+        fresh = saved.reward.replace(returns=jnp.zeros_like(saved.reward.returns))
+        saved = saved.replace(reward=fresh)
     reset_keys = env_keys(reset_key, mode, env_args.n_envs)
     new_obs, new_env_state = reset(reset_keys, env_args.env, mode, env_args.env_params)
     if saved is not None:

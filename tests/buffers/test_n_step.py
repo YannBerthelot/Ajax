@@ -96,6 +96,40 @@ def test_a_window_with_no_end_sums_every_reward() -> None:
     assert row["next_a_expert"] == 200.0
 
 
+def reward_statistics(std: float) -> NormalizationInfo:
+    """A reward normaliser's statistics after 4 rewards of spread std."""
+    count = jnp.full((1, 1), 4.0)
+    var = jnp.full((1, 1), std**2)
+    return NormalizationInfo(
+        var=var, count=count, mean=jnp.zeros((1, 1)), mean_2=var * count
+    )
+
+
+def test_normalised_rewards_are_clipped_one_by_one_before_the_sum() -> None:
+    """Rewards 60, 4, 8 over a spread of 2 are 30, 2, 4, and collection clips
+    each at 10 (SB3's NStepReplayBuffer normalises its rewards before summing
+    them): 10 + 0.5 * 2 + 0.25 * 4 = 12. The bug summed first, 64 / 2 = 32,
+    and clipped the sum to 10."""
+    rows = n_step_rows(
+        window(("go", "go", "go"), (60.0, 4.0, 8.0)), GAMMA, reward_statistics(2.0)
+    )
+    # 1e-4: the normaliser adds 1e-8 to the variance.
+    assert float(rows["reward"][0, 0]) == pytest.approx(12.0, abs=1e-4)
+
+
+def test_a_sampled_batch_normalises_each_reward_of_its_rows() -> None:
+    """Steps 0 to 5 pay their index, a spread of 0.1: rewards 0, 10, 10, ...
+    once normalised and clipped. A row from step 0 sums 0 + 5 + 2.5, any
+    later one 10 + 5 + 2.5; the sum clipped instead reads 10 everywhere."""
+    buffer = get_buffer(16, 4, n_step=3, gamma=GAMMA)
+    state = written(buffer, buffer.init(SCHEMA), range(6))
+    batch = get_batch_from_buffer(
+        buffer, state, jax.random.PRNGKey(0), reward_statistics(0.1)
+    )
+    want = np.where(np.asarray(batch.obs[:, 0]) == 0.0, 7.5, 17.5)
+    np.testing.assert_allclose(batch.reward[:, 0], want, atol=1e-3)
+
+
 def test_a_row_keeps_its_first_steps_state_and_action() -> None:
     """The critics fit Q(s_t, a_t): an update on another step's pair would
     credit the action with rewards that came before it."""

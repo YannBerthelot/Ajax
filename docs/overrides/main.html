@@ -5,7 +5,8 @@
 {% block outdated %}
   {% if config.extra.source_ref == "main" %}
     This is the development version, built from main: it may describe changes
-    not released yet.
+    not released yet. To install it:
+    <code>pip install git+https://github.com/YannBerthelot/Ajax.git</code>.
   {% else %}
     This is the documentation of an earlier release.
   {% endif %}

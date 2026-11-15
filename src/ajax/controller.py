@@ -1,8 +1,8 @@
 """What a policy acts on, the same in collection and evaluation.
 
 The controller is everything a policy does when it acts, the part that would
-ship with it (side-session design note ``controller-design.md``): its
-features, normaliser, expert, carry, choice of action and action transforms.
+ship with it: its features, normaliser, expert, carry, choice of action and
+action transforms.
 A step acts on an :class:`ActingState`. Collection builds it from the
 collector and the actor (:func:`acting_state`), and evaluation from its own
 rollout, so the action pipelines read one state whichever runs them.

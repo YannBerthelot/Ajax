@@ -26,6 +26,16 @@ Fitting Q at the policy's choice on the expert's steps regresses half of
 Q(1)'s rows on the first step's target: DQN's 0 + gamma Q(1), so Q(1) = 1
 / (2 - gamma); PQN's Q(lambda) return 0 + gamma ((1 - lambda) Q(1) +
 lambda), so Q(1) = (1 + gamma lambda) / (2 - gamma (1 - lambda)).
+
+CHEQ (Cramer et al., 2024) executes (1 - lambda) a_prior + lambda a_RL and
+trains on a_RL with lambda in the observation. One-step episodes pay -10
+(a - 0.2)^2 for the executed action a, the prior takes -0.2, and each
+episode runs on one weight of [0.5, 1] (the warm-up's band, kept for the
+whole run): the actor's best a_RL is (0.2 + 0.2 (1 - lambda)) / lambda,
+0.2 at weight 1 and 0.467 at 0.6, and Q(lambda = 0.6, a_RL = 0.2) = -10
+(0.4 (-0.2) + 0.6 (0.2) - 0.2)^2 = -0.256. A replay holding the blend, or
+an env executing a_RL unblended, puts the best action at 0.2 whatever the
+weight, and that Q at 0.
 """
 
 from __future__ import annotations
@@ -41,6 +51,7 @@ import pytest
 from scipy.stats import norm
 
 from ajax.agents.DAgger.DAgger import ExponentialBetaSchedule, OnlineFit
+from ajax.extensions.cheq import CHEQ
 from ajax.extensions.expert import JSRLCurriculum
 from ajax.extensions.exploration import EDGEExploration
 from ajax.extensions.target_mods import IBRL
@@ -405,6 +416,58 @@ CASES["q7-ibrl-soft-SAC"] = dataclasses.replace(
     id="q7-ibrl-soft-SAC",
     readings=soft_readings("SAC", **SAC_HELD),
     tol=(0.084, 0.036),
+)
+GOAL, PRIOR = 0.2, -0.2
+BAND = CHEQ(lambda_min=0.5, warmup_lambda_max=1.0, adaptation_start=2**30)
+
+
+def best_under(weight: float) -> float:
+    return (GOAL - (1.0 - weight) * PRIOR) / weight
+
+
+def cheq_readings(agent: str, **kw: Any) -> Callable:
+    """The agent under CHEQ's blend with a prior taking PRIOR, on one-step
+    episodes paying -10 (a - GOAL)^2: its action at weights 0.6 and 1, and
+    its critics' value of GOAL at weight 0.6."""
+
+    def transition(st: envs.State, a: jax.Array, key: Any) -> tuple:
+        executed = jnp.clip(a.reshape(-1)[0], -1.0, 1.0)
+        return st.replace(s=st.s + 1), -10.0 * (executed - GOAL) ** 2, True
+
+    spec = envs.Spec("goal", transition, lambda st: jnp.ones(1, jnp.float32))
+    env, params = dataclasses.replace(spec, limit=2).make()
+
+    def build() -> Any:
+        expert = Takes(PRIOR)
+        return agents.make(
+            agent, env, params, extensions=(BAND,), expert_policy=expert, **kw
+        )
+
+    def read(run: runs.Run) -> dict:
+        def at(n: R.Nets) -> dict:
+            actions = {f"a(weight {w:g})": R.action(n, (1.0, w)) for w in (0.6, 1.0)}
+            return actions | {"Q(weight 0.6, 0.2)": R.critic(n, (1.0, 0.6), GOAL)}
+
+        return R.per_seed(at, R.nets(run.state))
+
+    return runs.readings(build, read)
+
+
+_UNBLENDED = {"the replay holds the blend, or the env executes a_RL": GOAL}
+CASES["cheq-blend-SAC"] = Case(
+    "cheq-blend-SAC",
+    (
+        Query("a(weight 0.6)", best_under(0.6), _UNBLENDED),
+        Query("a(weight 1)", GOAL, {}),
+        Query(
+            "Q(weight 0.6, 0.2)",
+            -10.0 * (0.4 * PRIOR + 0.6 * GOAL - GOAL) ** 2,
+            {"the replay holds the blend, or the env executes a_RL": 0.0},
+        ),
+    ),
+    cheq_readings("SAC", fixed_alpha=True, alpha_init=1e-4),
+    4000,
+    note="uncalibrated",
 )
 ANSWER_DIGEST = "697b096ae7a0"
 

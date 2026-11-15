@@ -29,6 +29,13 @@ ReBRAC's TargetBC (Tarasov et al., 2023) on TD3, two-step episodes paying 0
 (chain_rows): the data's next action at s1 is 0, which the cloning term
 pins the actor to; the target scores TD3's smoothed next action, 0 plus
 noise clipped to +-0.5, so Q(s0, a) = -gamma beta E[clip(0.2 e, +-0.5)^2].
+
+RLPD (Ball et al., 2023) on TD3, trained online: the env shows s = 1 alone
+and pays clip(a); the offline ring holds SignedActionEnv's rows of s = -1
+(minus_rows), paid -a, a state no online step visits. Half of every batch
+is theirs for the whole run, in a replay the online rows fill several times
+over: a(-1) = -1 and Q(-1, -0.5) = 0.5 come from the offline rows alone,
+a(1) = 1 and Q(1, 0.5) = 0.5 from the online ones.
 """
 
 from __future__ import annotations
@@ -41,10 +48,12 @@ import pytest
 from ajax.buffers.dataset import TransitionDataset
 from ajax.extensions.expert import ImitationLoss
 from ajax.extensions.offline import ConservativeQ, TargetBC
+from ajax.extensions.retained import RLPD
 from ajax.networks.networks import predict_value
 
 from . import agents, envs, oracles, runs
 from . import readouts as R
+from .test_action_stage import steps_on_one_observation
 from .test_extensions import GAMMA, signed_rows
 from .verdict import Case, Query, check, params
 
@@ -192,6 +201,36 @@ def rebrac_readings() -> Any:
     return runs.readings(build, read, offline_data=chain_rows())
 
 
+def minus_rows() -> TransitionDataset:
+    a = np.linspace(-1.0, 1.0, 21)[:, None]
+    s, ends = -np.ones((21, 1)), np.ones(21, bool)
+    return TransitionDataset(s, a, -a[:, 0], ends, ~ends, s)
+
+
+def rlpd_readings() -> Any:
+    """TD3 on the one online observation, RLPD holding minus_rows, in a
+    replay of 256 online rows."""
+
+    def build() -> Any:
+        rlpd = RLPD(0, minus_rows(), critic_layer_norm=False)
+        env = steps_on_one_observation(1).make()
+        return agents.make("TD3", *env, extensions=(rlpd,), buffer_size=256)
+
+    def read(run: runs.Run) -> dict:
+        def at(n: R.Nets) -> dict:
+            actions = {f"a({x:g})": R.action(n, x) for x in (-1.0, 1.0)}
+            values = {
+                f"Q({x:g}, {x / 2:g})": R.critic(n, x, x / 2) for x in (-1.0, 1.0)
+            }
+            return actions | values
+
+        return R.per_seed(at, R.nets(run.state))
+
+    return runs.readings(build, read)
+
+
+_ONLINE = {"the offline rows unread: the online state's best action": 1.0}
+_REPAID = {"the offline rows paid as the env pays, clip(a)": -0.5}
 _NONE = {"no update on the logged rows, the networks at initialisation": 0.0}
 CASES: dict[str, Case] = {
     "offline-TD3": Case(
@@ -275,6 +314,18 @@ CASES: dict[str, Case] = {
         (0.1,),
         note="ladder 500-4000 on 1000-1031, 2000-2031: medians at the answer, worst"
         " 0.104, 0.071 at 2000; the ceiling; cert 32/32",
+    ),
+    "rlpd-offline-half-TD3": Case(
+        "rlpd-offline-half-TD3",
+        (
+            Query("a(-1)", -1.0, _ONLINE),
+            Query("a(1)", 1.0, {}),
+            Query("Q(-1, -0.5)", 0.5, _REPAID),
+            Query("Q(1, 0.5)", 0.5, {}),
+        ),
+        rlpd_readings(),
+        2000,
+        note="uncalibrated",
     ),
 }
 ANSWER_DIGEST = "86d362d0cad7"

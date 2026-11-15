@@ -87,7 +87,8 @@ agent = PPO("Pendulum-v1", n_envs=2, n_steps=8)
 state, out = agent.train(seed=range(4), n_timesteps=64, devices=jax.devices())
 ```
 
-Each seed trains as it does on one device, but for rounding. Each replay
+Each seed trains as it does on one device, but for rounding, which a long
+run can amplify, as a change of the seed count does on one device. Each replay
 buffer lives on the device that trains its seed, so the memory is split
 too. A slice of another size is another program to compile: a number of
 seeds the devices divide compiles once per device at most. One run is

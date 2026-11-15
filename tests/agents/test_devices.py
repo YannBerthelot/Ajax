@@ -22,7 +22,9 @@ import pytest
 from ajax.agents.devices import member_slices, train_on_devices
 from ajax.agents.PPO.PPO import PPO
 from ajax.agents.SAC.SAC import SAC
+from ajax.agents.TDMPC2.TDMPC2 import TDMPC2
 from ajax.logging.wandb_logging import LoggingConfig
+from tests.agents.TDMPC2.test_TDMPC2 import PENDULUM_PARAMS, PENDULUM_S, TINY
 from tests.probing import readouts
 
 CPU = jax.devices("cpu")[0]
@@ -128,6 +130,25 @@ def test_a_sweep_split_over_devices_trains_each_member_as_on_one():
         seed=[0, 1], n_timesteps=48, sweep=sweep, devices=[CPU, CPU]
     )
     assert len(split_agent.members) == 4
+    assert not readouts.differing_leaves(whole, split, **ROUNDING)
+
+
+def test_an_agent_with_its_own_replay_splits_its_seeds():
+    """TD-MPC2 and DreamerV3 size their replay for the call before training
+    (their own ``train``): three seeds split 2 + 1 train as on one device."""
+
+    def agent() -> TDMPC2:
+        return TDMPC2(
+            "Pendulum-v1",
+            env_params=PENDULUM_PARAMS,
+            n_envs=2,
+            seed_steps=PENDULUM_S,
+            **TINY,
+        )
+
+    options = {"seed": [0, 1, 2], "n_timesteps": 52, "num_episode_test": 2}
+    whole, _ = agent().train(**options)
+    split, _ = agent().train(**options, devices=[CPU, CPU])
     assert not readouts.differing_leaves(whole, split, **ROUNDING)
 
 

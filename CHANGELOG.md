@@ -597,6 +597,12 @@ before this version do not restore at the new defaults. The rest:
   constants now). *What to do:* code calling these by keyword renames or
   drops the argument; no result changes.
 
+- **`train(devices=...)` splits the seeds over several devices.** Each
+  device trains a consecutive slice of the seeds, or of a sweep's
+  configurations over the seeds, at the same time; the results come back
+  in the usual order on the first device. Without `devices` nothing
+  changes.
+
 ## 0.5.0
 
 What a user of 0.4.0 meets:

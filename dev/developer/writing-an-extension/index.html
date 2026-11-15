@@ -13,7 +13,7 @@
         <link rel="canonical" href="https://yannberthelot.github.io/Ajax/dev/developer/writing-an-extension/">
       
       
-        <link rel="prev" href="../contributing/">
+        <link rel="prev" href="../extension-phases/">
       
       
         <link rel="next" href="../testing/">
@@ -329,6 +329,8 @@
       
         
       
+        
+      
     
     
     
@@ -445,6 +447,34 @@
     
   
     Why Ajax
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/coming-from-sb3/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Coming from SB3
   
 
     
@@ -1837,6 +1867,8 @@
       
         
       
+        
+      
     
     
     
@@ -1925,6 +1957,34 @@
     
   
     Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../extension-phases/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Extension phases
   
 
     
@@ -2242,7 +2302,7 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_6" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_7" >
         
           
           <div class="md-nav__link md-nav__container">
@@ -2264,14 +2324,14 @@
             </a>
             
               
-              <label class="md-nav__link " for="__nav_6_6" id="__nav_6_6_label" tabindex="0">
+              <label class="md-nav__link " for="__nav_6_7" id="__nav_6_7_label" tabindex="0">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_6_6_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_6_6">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_6_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_7">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -2767,6 +2827,127 @@
   
 
     
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Releases
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Releases
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../upgrading/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Upgrading
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
   </ul>
 </nav>
                   </div>
@@ -3090,7 +3271,7 @@ extensions were given.</p>
 <td><code>choose_warmup_action(uniform_actions, inputs)</code></td>
 <td><code>(actions, expert_took)</code>: the actions a warm-up step takes instead of the uniform ones, and whether the expert took them (<code>ajax.controller.WarmupInputs</code>)</td>
 <td>one per agent</td>
-<td>the agents with a uniform warm-up (SAC, TD3, REDQ, ASAC, CrossQ, IQL, AVG), before <code>learning_starts</code></td>
+<td>the agents whose uniform warm-up takes one (<!-- agents: warmup-action -->SAC, ASAC, RVI-SAC, REDQ, CrossQ, TD3, IQL, DQN, AVG<!-- /agents -->), before <code>learning_starts</code></td>
 </tr>
 <tr>
 <td><code>choose_replay_action(executed_actions, policy_actions)</code></td>

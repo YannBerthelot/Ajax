@@ -329,6 +329,8 @@
       
         
       
+        
+      
     
     
     
@@ -445,6 +447,34 @@
     
   
     Why Ajax
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/coming-from-sb3/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Coming from SB3
   
 
     
@@ -2095,6 +2125,8 @@
       
         
       
+        
+      
     
     
     
@@ -2183,6 +2215,34 @@
     
   
     Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../developer/extension-phases/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Extension phases
   
 
     
@@ -2315,7 +2375,7 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_6" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_7" >
         
           
           <div class="md-nav__link md-nav__container">
@@ -2337,14 +2397,14 @@
             </a>
             
               
-              <label class="md-nav__link " for="__nav_6_6" id="__nav_6_6_label" tabindex="0">
+              <label class="md-nav__link " for="__nav_6_7" id="__nav_6_7_label" tabindex="0">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_6_6_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_6_6">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_6_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_7">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -2820,6 +2880,127 @@
     
   
     Comparing agents
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Releases
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Releases
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../upgrading/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Upgrading
   
 
     
@@ -3557,7 +3738,9 @@ openai/baselines ppo2's <code>VecNormalize</code> keeps it. The statistics live 
 <code>state.collector_state.obs_norm_info</code>, with <code>mean</code> and <code>var</code>. To run the
 policy on a new observation yourself, normalise it as <code>(obs - mean) /
 sqrt(var + 1e-8)</code> first.</p>
-<p>The replay agents (SAC, TD3, REDQ, ASAC, DQN, UDRL) learn from rows
+<p>The <a href="../../algorithms/#agent-families">replay agents</a> and UDRL
+(<!-- agents: raw-replay -->SAC, ASAC, RVI-SAC, REDQ, CrossQ, TQC, TD3, IQL, DQN, DAgger, UDRL<!-- /agents -->)
+learn from rows
 collected long before, so their replay keeps the environment's own
 observations and rewards, and a replayed row is normalised with the current
 statistics, as Stable-Baselines3's replay buffer does under <code>VecNormalize</code>.

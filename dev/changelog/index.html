@@ -1,0 +1,4829 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Reinforcement learning agents in JAX: whole training runs compiled end to end, research features composed as extensions.">
+      
+      
+      
+        <link rel="canonical" href="https://yannberthelot.github.io/Ajax/dev/changelog/">
+      
+      
+        <link rel="prev" href="../api/compare/">
+      
+      
+        <link rel="next" href="../upgrading/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Changelog - Ajax</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/_mkdocstrings.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#changelog" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+          <aside class="md-banner md-banner--warning">
+            <div class="md-banner__inner md-grid md-typeset">
+              
+  
+    This is the development version, built from main: it may describe changes
+    not released yet. To install it:
+    <code>pip install git+https://github.com/YannBerthelot/Ajax.git</code>.
+  
+  <a href="../..">
+    <strong>Read the latest release's documentation.</strong>
+  </a>
+
+            </div>
+            <script>var el=document.querySelector("[data-md-component=outdated]"),base=new URL(".."),outdated=__md_get("__outdated",sessionStorage,base);!0===outdated&&el&&(el.hidden=!1)</script>
+          </aside>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="Ajax" class="md-header__button md-logo" aria-label="Ajax" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Ajax
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Changelog
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Follow system theme"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Follow system theme" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m14.3 16-.7-2h-3.2l-.7 2H7.8L11 7h2l3.2 9zM20 8.69V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12zm-9.15 3.96h2.3L12 9z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_2" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_2">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/YannBerthelot/Ajax" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    YannBerthelot/Ajax
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="Ajax" class="md-nav__button md-logo" aria-label="Ajax" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Ajax
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/YannBerthelot/Ajax" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    YannBerthelot/Ajax
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/why-ajax/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Why Ajax
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/coming-from-sb3/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Coming from SB3
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/training/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Training an agent
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/deploy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Train, evaluate, deploy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/environments/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Environments
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/networks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Networks and the PID policy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/memory/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Memory
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/logging/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Logging
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/checkpoints/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Checkpoints and resuming
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/performance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Performance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/comparing-agents/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Comparing agents
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/extensions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Extensions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/representations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Representations during training
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/compatibility/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Compatibility
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/expert-guidance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Expert guidance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/differentiable-simulation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Differentiable simulation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/world-models/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    World models
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../algorithms/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Algorithms
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_4" id="__nav_4_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Algorithms
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../algorithms/sac/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SAC
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../algorithms/asac/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ASAC
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../algorithms/rvisac/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    RVI-SAC
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../algorithms/redq/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    REDQ
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../algorithms/crossq/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CrossQ
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../algorithms/td3/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TD3
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../algorithms/tqc/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TQC
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../algorithms/iql/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    IQL
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../algorithms/avg/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AVG
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../algorithms/dqn/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DQN
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../algorithms/pqn/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PQN
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../algorithms/ppo/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PPO
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../algorithms/apo/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    APO
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../algorithms/udrl/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    UDRL
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../algorithms/dagger/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DAgger
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../algorithms/apg/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    APG
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../algorithms/dreamerv3/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DreamerV3
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../algorithms/tdmpc2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TD-MPC2
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../reproduction/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reproduction
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_5" id="__nav_5_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reproduction
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reproduction/protocol/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Protocol
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reproduction/specs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Specifications
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reproduction/results/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Results
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reproduction/expert-guidance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Expert guidance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reproduction/benchmark/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent benchmark
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Developer guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Developer guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../developer/architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../developer/contributing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../developer/extension-phases/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Extension phases
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../developer/writing-an-extension/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Writing an extension
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../developer/testing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../developer/performance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Performance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_7" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../world_models/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    World model design notes
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6_7" id="__nav_6_7_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_6_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    World model design notes
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../world_models/DESIGN/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Design
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../world_models/deviations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deviations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../world_models/dreamerv3_spec/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DreamerV3 specification
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../world_models/tdmpc2_spec/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TD-MPC2 specification
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../world_models/shared_blocks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Shared building blocks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../world_models/VALIDATION/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Validation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/agents/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agents
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/training-loop/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Training loop
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/extensions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Extensions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/environments/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Environments and wrappers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/networks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Networks and modules
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/buffers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Buffers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/logging/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Logging, evaluation and checkpoints
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/compare/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Comparing agents
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Releases
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Releases
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#unreleased" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Unreleased
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Unreleased">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#upgrading-from-050" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Upgrading from 0.5.0
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#050" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.5.0
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.5.0">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#upgrading-from-040" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Upgrading from 0.4.0
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#new-since-040-in-brief" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        New since 0.4.0, in brief
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#changes-in-detail" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Changes in detail
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#default-changes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Default changes
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#removed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Removed
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#040" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.4.0
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.4.0">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#default-changes_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Default changes
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../upgrading/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Upgrading
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#unreleased" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Unreleased
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Unreleased">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#upgrading-from-050" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Upgrading from 0.5.0
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#050" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.5.0
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.5.0">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#upgrading-from-040" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Upgrading from 0.4.0
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#new-since-040-in-brief" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        New since 0.4.0, in brief
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#changes-in-detail" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Changes in detail
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#default-changes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Default changes
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#removed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Removed
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#040" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.4.0
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.4.0">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#default-changes_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Default changes
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/YannBerthelot/Ajax/edit/main/docs/changelog.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="changelog">Changelog<a class="headerlink" href="#changelog" title="Permanent link">&para;</a></h1>
+<p>Versions follow semantic versioning; before 1.0, a breaking change bumps
+the minor version. Each release is tagged <code>vX.Y.Z</code> on main and published to
+PyPI as <code>ajax-rl</code>.</p>
+<h2 id="unreleased">Unreleased<a class="headerlink" href="#unreleased" title="Permanent link">&para;</a></h2>
+<p>The next release is 0.6.0: the first item changes results.</p>
+<ul>
+<li>
+<p><strong>Fixed: a forced reset kept the reward normaliser's running return.</strong>
+  With <code>normalize_rewards</code> and forced resets (<code>num_resets_per_eval</code>), the
+  abandoned episodes' discounted return carried into the new episodes'
+  rewards and statistics. It now restarts at zero, as SB3's
+  <code>VecNormalize.reset</code> does; the statistics stay.</p>
+</li>
+<li>
+<p><strong>DQN's Atari preset holds epsilon at 1 during the warm-up.</strong> Mnih et
+  al.'s code starts the decay after its 50,000 warm-up steps and ends it a
+  million steps later (google-deepmind/dqn@9d9b1d1,
+  <code>NeuralQLearner.lua:369-371</code>); the preset decayed from step 0 to the same
+  end, so its epsilon was up to 0.043 lower in between. DQN gains
+  <code>epsilon_decay_start</code> (0 by default: other runs are unchanged), which the
+  preset sets to 50,000 with <code>epsilon_decay_frac=0.02</code>. Upgrade: for the
+  earlier schedule, pass <code>epsilon_decay_start=0,
+  epsilon_decay_frac=0.021</code> to <code>DQN.preset("Atari", ...)</code>.</p>
+</li>
+<li>
+<p><strong>Fixed: n-step rewards were clipped after the sum.</strong> With <code>n_step</code> above
+  1 and <code>normalize_rewards</code>, each reward of a row is now divided and clipped
+  at 10 before the discounted sum, as collection clips it and as SB3's
+  <code>NStepReplayBuffer</code> does. Results change only where a normalised reward
+  exceeds the clip.</p>
+</li>
+<li>
+<p><strong><code>agent.policy</code>'s <code>act</code> refuses a missing reward after an episode's first
+  step.</strong> A policy that reads the last reward (<code>PreviousReward</code>, on by
+  default with <code>memory</code> on SAC, TD3, REDQ, ASAC, TQC and RVI-SAC; UDRL)
+  read zero when <code>act</code> was given neither <code>done</code> nor <code>reward</code>. Upgrade: pass
+  <code>done</code> and <code>reward</code> to every <code>act</code> after the first.</p>
+</li>
+<li>
+<p><strong>Fixed: <code>PreviousReward</code> read the normalised reward in training.</strong> With
+  <code>normalize_rewards</code>, collection appended the normalised reward where an
+  evaluation and <code>agent.policy</code> append the environment's own, about 35
+  times apart on Pendulum. Collection now appends the environment's own.
+  Recurrent SAC, TD3, REDQ, ASAC, TQC and RVI-SAC add the feature by
+  default, so their results with <code>normalize_rewards</code> change.</p>
+</li>
+<li>
+<p><strong>Fixed: <code>CloningPretrain</code> made APO and AVG normalise observations
+  twice.</strong> APO with <code>normalize_observations</code> and AVG store normalised
+  observations; cloning also put the dataset's statistics on their
+  networks, which normalised them again, and dropped <code>observation_clip</code>.
+  Their results with <code>CloningPretrain</code> change.</p>
+</li>
+<li>
+<p><strong>PPO clips its value loss, as ppo2 does.</strong> Each squared value error is
+  the larger of its own and that of the value clipped to <code>clip_range</code>
+  around the value the rollout was collected with (Baselines' ppo2,
+  <code>model.py:66-75</code>; PureJaxRL's recurrent PPO does the same). The new
+  <code>clip_value_loss</code> turns it off; by default (<code>None</code>) PPO clips, except
+  with <code>unroll_length</code>, Brax's PPO, which does not. PPO's results change.
+  Upgrade: pass <code>clip_value_loss=False</code> for the old loss.</p>
+</li>
+<li>
+<p><strong>PPO steps TensorFlow 1's Adam, as ppo2 does.</strong> ppo2's
+  <code>tf.train.AdamOptimizer</code> adds epsilon to the square root of the second
+  moment before the bias correction; optax's Adam adds it after, an
+  epsilon 32 times smaller at the first step and about the same after a
+  few thousand. The new update rule <code>"tf1_adam"</code> (<code>OptimizerConfig</code>,
+  <code>ajax.networks.utils.scale_by_tf1_adam</code>) is PPO's; with <code>memory</code> or
+  <code>unroll_length</code> PPO keeps optax's Adam, as PureJaxRL and Brax use it.
+  PPO's results change. Upgrade: no option restores optax's Adam on
+  feedforward PPO; compare with runs of this version.</p>
+</li>
+<li>
+<p><strong><code>PreviousAction()</code> appends the action executed before each
+  observation</strong> (<code>ajax.extensions.observe</code>): zero at an episode's first
+  observation, in agent units, a discrete action one-hot, never
+  normalised. Collection stores it, and evaluation and <code>agent.policy</code>
+  append it as collection does, so an actor with memory can read its own
+  past actions, as Ni et al. (2022)'s recurrent actor does; a recurrent
+  Q-critic then reads it from the observation instead of appending its
+  own. It is opt-in: default runs do not change. Observation features
+  read the action through <code>ObserveInputs.previous_action</code>.</p>
+</li>
+<li><strong><code>PreviousReward()</code> appends the reward paid for the action executed
+  before each observation</strong> (<code>ajax.extensions.observe</code>), raw, zero at an
+  episode's first observation, as Ni et al.'s recurrent networks read it.
+  Collection stores it, evaluation appends it, and <code>agent.policy</code>'s <code>act</code>
+  reads the reward it is given (it refuses <code>done</code> without <code>reward</code>).
+  Features read it through <code>ObserveInputs.previous_reward</code>. APG refuses it:
+  its closed-loop rollout passes the features no reward yet.</li>
+<li><strong>Breaking: SAC, TD3, REDQ, ASAC, TQC and RVI-SAC with <code>memory=</code> build
+  Ni et al. (2022)'s recurrent networks</strong> (twni2016/pomdp-baselines, the
+  owner's reference for them; TQC and RVI-SAC by analogy). The memory reads
+  the previous action, the previous reward and the observation through
+  embeddings of 16, 16 and 32 units; a run with memory adds
+  <code>PreviousAction()</code> and <code>PreviousReward()</code> where its extensions hold
+  neither, so <code>agent.policy</code>'s <code>act</code> needs each reward. The memory is 128
+  units wide and starts as Ni et al.'s unless the <code>MemoryConfig</code> sets
+  them. The networks' layers run after the memory, on its output joined
+  with a shortcut embedding of the observation (the critic's with the
+  action asked about), and the critics read one memory. Every layer starts
+  as Ni et al.'s. <code>NetworkConfig</code> gains <code>input_embedding</code>,
+  <code>shortcut_widths</code>, <code>embedding_kernel_init</code> and <code>critics_share_encoder</code>;
+  <code>MemoryConfig.hidden_size</code> defaults to <code>None</code>, the agent's reference
+  width (64 where an agent has none, as before). <em>Upgrade:</em> a checkpoint of
+  one of these agents trained with memory does not restore into this
+  version: its parameters are another network's. Retrain, or pin the
+  previous version to use it.</li>
+<li><strong>Breaking: their replay takes Ni et al.'s windows</strong>: <code>burn_in=0</code> (was 8),
+  <code>sequence_length=64</code> (was 16) and, with memory, <code>batch_size=64</code> windows
+  (was 256). <code>batch_size</code> now defaults to <code>None</code>: 256 rows without memory,
+  as before. A window's first row reads no previous action or reward (Ni et
+  al.'s <code>a[0] = r[0] = 0</code>), unless the window starts from a stored memory.
+  <em>Upgrade:</em> pass <code>burn_in=8, sequence_length=16, batch_size=256</code> to train
+  as before.</li>
+<li><strong>Recurrent TD3 is Ni et al.'s</strong>: its actor maximises min(Q1, Q2), and
+  <code>policy_delay</code> defaults to <code>None</code>, 2 without memory as before and 1 with
+  it; with memory, TD3's and REDQ's critics read the agent's [-1, 1]
+  actions, not the env's units. Results with memory change. Upgrade: pass
+  <code>policy_delay=2</code> for the delayed actor; the critics' action units have no
+  option.</li>
+<li><strong>Recurrent SAC's numerics are Ni et al.'s</strong>: with memory, the squashed
+  log-density subtracts log(1 − tanh² + 1e-6) (also TQC's and RVI-SAC's;
+  REDQ's and ASAC's already did), the critics' squared errors are summed,
+  and the temperature steps alpha on the actor loss's own log-densities.
+  Results with memory change, and no option restores the earlier numerics.</li>
+<li>
+<p><strong>SAC, TD3, REDQ, TQC, ASAC and RVI-SAC can share a memory.</strong> With
+  <code>share_encoder=True</code>, <code>memory=</code> and <code>PreviousAction()</code>, the critic's
+  encoder and memory block read the observation and the previous action
+  for both networks, as Ni et al.'s shared recurrent network does; the
+  action the critic is asked about joins after the memory. The critic's
+  loss trains it and the actor reads it without a gradient. Without
+  <code>PreviousAction()</code> the agent refuses a shared memory.</p>
+</li>
+<li>
+<p><strong>Three defaults now come from the agents' reference code.</strong> An audit of
+  every agent's defaults against its original code found these without a
+  source:</p>
+</li>
+<li>SAC's actor and temperature step from the first update, as
+    softlearning's do; <code>policy_update_start</code> and <code>alpha_update_start</code> were
+    2,000. Default runs do not change (the warm-up is 10,000 steps); runs
+    with a shorter <code>learning_starts</code> do. Upgrade: pass both at 2,000 for the
+    old behaviour.</li>
+<li>REDQ warms up for 5,000 steps (<code>learning_starts</code>), its official code's
+    <code>start_steps</code>, not 10,000. Upgrade: pass <code>learning_starts=10_000</code>.</li>
+<li>
+<p>DAgger's expert share falls linearly from 1 to 0 over 15 iterations,
+    the reference code's <code>LinearBetaSchedule(15)</code>. <code>beta_decay</code> becomes
+    <code>beta_schedule</code>: <code>LinearBetaSchedule(rampdown_rounds)</code> or
+    <code>ExponentialBetaSchedule(decay)</code>, both in <code>ajax.agents.DAgger.DAgger</code>.
+    Upgrade: <code>beta_decay=d</code> becomes
+    <code>beta_schedule=ExponentialBetaSchedule(d)</code>; the old default was
+    <code>ExponentialBetaSchedule(0.0)</code>.</p>
+</li>
+<li>
+<p><strong>DAgger fits its policy as its reference code does.</strong> At the end of each
+  iteration of <code>iteration_steps</code> steps, it trains for 4 epochs over every
+  state the replay holds, in shuffled minibatches of 32
+  (HumanCompatibleAI/imitation's <code>DAggerTrainer</code>); before, it took one
+  gradient step per environment step. Its policy is a Gaussian with one
+  learned standard deviation per action dimension (categorical for discrete
+  actions), fitted by likelihood with an entropy bonus of weight 1e-3, and it
+  acts by sampling; before, it was deterministic and fitted by squared error.
+  This changes results. The new <code>fit</code> argument picks the fit:
+  <code>IterationFit(epochs=4, entropy_weight=1e-3)</code>, the default, or
+  <code>OnlineFit()</code>, the earlier one; both are in <code>ajax.agents.DAgger.DAgger</code>.
+  DAgger takes no <code>train_frequency</code>: its fit sets it. Upgrade: pass
+  <code>fit=OnlineFit()</code> for the old behaviour, and to restore a DAgger
+  checkpoint saved before this release.</p>
+</li>
+<li>
+<p><strong><code>normalize_rewards</code> divides by the discounted return's spread and
+  clips, as SB3's <code>VecNormalize</code> does.</strong> It divided each reward by the
+  running standard deviation of the single-step reward, which is 0 for a
+  constant reward (CartPole, MountainCar, Acrobot): every reward became
+  ±10,000, and recurrent PPO with normalised rewards failed masked
+  CartPole. <code>reward_normalization_gamma</code> now defaults to the agent's
+  <code>gamma</code> (0.99 for APO, ASAC and RVI-SAC), and normalised rewards are
+  clipped to ±10, at collection, at replay sampling and in evaluation.
+  This changes results for runs with <code>normalize_rewards=True</code>. Upgrade:
+  pass <code>reward_normalization_gamma=0</code> to divide by the single-step
+  reward's standard deviation again (now clipped).</p>
+</li>
+<li><strong>PPO normalises observations and returns by default</strong>, as ppo2's MuJoCo
+  run wraps its env in <code>VecNormalize</code>: <code>normalize_observations=True</code>,
+  <code>normalize_rewards=True</code> (the return's spread, with <code>gamma</code>, clipped at
+  10) and the new <code>observation_clip=10.0</code>, which on-policy agents take
+  (replay agents refuse it). This changes PPO's results. A sweep no longer
+  varies <code>gamma</code> while the reward normaliser discounts with it; set
+  <code>reward_normalization_gamma</code> to sweep it. Upgrade: pass
+  <code>normalize_observations=False, normalize_rewards=False</code> for the old
+  behaviour.</li>
+<li><strong>PPO's defaults are ppo2's MuJoCo run</strong>: one env (was 4) and 64-64 tanh
+  layers (was 128-128), so 2048 steps make ppo2's 32 minibatches of 64.
+  This changes results. Upgrade: pass <code>n_envs=4, actor_architecture=("128",
+  "tanh", "128", "tanh"), critic_architecture=("128", "tanh", "128",
+  "tanh")</code>.</li>
+<li><strong>APG's in-context controller, IQL and PQN follow their reference code.</strong></li>
+<li><code>APG.contextual_controller</code> builds the reference's transformer layers:
+    no bias outside the input embedding, LayerNorm epsilon 1e-5, and an MLP
+    four times as wide (buswayne/in-context-controller, <code>--bias False</code>).
+    <code>MemoryConfig</code> gains <code>bias</code>, <code>layer_norm_epsilon</code> and <code>mlp_ratio</code>, whose
+    defaults keep every other memory unchanged. Upgrade: a controller saved
+    before restores with <code>bias=True, layer_norm_epsilon=1e-6, mlp_ratio=2</code>.</li>
+<li>IQL's actor learning rate decays to 0 by a cosine over the run's
+    updates, its reference Learner's default (<code>actor_lr_decay="cosine"</code>).
+    A run split into calls passes its whole horizon (<code>total_timesteps</code>) to
+    each. Upgrade: <code>actor_lr_decay=None</code> keeps the rate constant, as the
+    reference's fine-tuning config does; pass it to fine-tune a state
+    trained offline.</li>
+<li>
+<p>PQN's defaults are purejaxql's MinAtar config: 128 envs of 32 steps, 2
+    epochs of 32 minibatches, RAdam at 5e-4 decayed linearly over the run
+    (<code>lr_linear_decay</code>), epsilon decaying over the first 10% of the run.
+    Upgrade: <code>n_envs=8, n_steps=128, n_epochs=4, num_minibatches=4,
+    learning_rate=2.5e-4, lr_linear_decay=False, epsilon_decay_frac=0.5</code>.</p>
+</li>
+<li>
+<p><strong>DQN's defaults are CleanRL's <code>dqn.py</code></strong> (cleanrl <code>fe8d8a0</code>), its
+  vector-observation reference: a 120-84 ReLU network (was 128-128), a
+  replay of 10,000 (was 100,000), batches of 128 (was 64), 10,000 warm-up
+  steps (was 1,000), one update every 10 environment steps (was every
+  iteration) and a target refresh every 50 updates (was 500), CleanRL's
+  500 environment steps. The authors' centered RMSProp and Huber loss stay.
+  This changes results. Upgrade: pass <code>architecture=("128", "relu", "128",
+  "relu"), buffer_size=100_000, batch_size=64, learning_starts=1_000,
+  train_frequency=1, target_update_interval=500</code> for the old behaviour.</p>
+</li>
+<li>
+<p><strong>Replay agents take <code>train_frequency</code></strong>, SB3's <code>train_freq</code>: from
+  <code>learning_starts</code>, an update each time the steps collected reach a
+  multiple of it. The default, 1, updates every iteration, as before, on
+  every agent but DQN. An evaluation between two updates logs the last
+  one's training metrics.</p>
+</li>
+<li>
+<p><strong>APO's defaults are its reference code's MuJoCo config</strong> (xtma/apo,
+  <code>mujoco_appo.py</code>): rollouts of 10 envs x 200 steps (was 4 x 2,048), 20
+  minibatches per epoch (<code>num_minibatches=20</code>; was cut by <code>batch_size</code>),
+  advantages not normalised (was normalised) and <code>nu=1.0</code> (was 0.1). This
+  changes results. A rollout's <code>n_steps * n_envs</code> must now be a multiple of
+  <code>num_minibatches</code>; <code>num_minibatches=0</code> cuts it by <code>batch_size</code> as before.
+  To reproduce earlier runs, pass <code>n_envs=4, n_steps=2048,
+  num_minibatches=0, batch_size=64, normalize_advantage=True, nu=0.1</code>. The
+  benchmark's APO entry runs 500 such rollouts, evaluated every 20,000
+  steps, as the reference.</p>
+</li>
+<li><strong>Per-task presets.</strong> <code>Agent.preset(name, env_id, **overrides)</code> builds an
+  agent with the values its reference code tunes for one task, named after
+  the task ("Hopper", "AntMaze", "Atari") rather than an env id; the
+  arguments given win, and the run config records the name under
+  <code>"preset"</code>. Each agent module keeps its presets, with their sources, in a
+  <code>PRESETS</code> table: ASAC's ten Gymnasium MuJoCo tasks, TQC's and REDQ's five
+  MuJoCo tasks, CrossQ's Swimmer, IQL's AntMaze, TD3's D4RL (TD3+BC), PPO's,
+  PQN's and DQN's Atari, PQN's CartPole, and DreamerV3's DMC, whose values the
+  world-model paper protocol now reads. No default changes.</li>
+<li><strong>Hyperparameter sweeps in one program.</strong> <code>agent.train(seed=...,
+  sweep={"actor_learning_rate": [1e-4, 3e-4]})</code> trains several
+  configurations, each with every seed, in one compiled program, as
+  PureJaxRL does by vmapping over hyperparameters. Each member trains as a
+  separate run of its configuration would, up to floating-point rounding,
+  and <code>agent.members</code> lists the seed and values of each leading row. SAC
+  and PPO declare which fields can vary (their learning rates, <code>gamma</code> and
+  the like); other agents, and settings that change shapes, are refused.
+  To allow it, PPO's GAE no longer takes <code>gamma</code> and <code>gae_lambda</code> as
+  static jit arguments; results are unchanged.</li>
+<li><strong>DreamerV3 can keep its replay latents in host memory.</strong> With
+  <code>replay_on_host=True</code>, the posterior latents stored with each replay row
+  (about 99% of the replay's bytes: 8 GB per seed for 2^20 rows at 12M) stay
+  in pinned host memory, inside the training state, so that more seeds fit
+  on one accelerator, or a run fits on a busy one. Results are bitwise those
+  of the default; each update is a little slower. A checkpoint restores
+  each array into the memory its skeleton keeps it in, so a resumed run
+  keeps the latents on the host.</li>
+<li><strong>The actor and the critic can share their encoder; image PPO now does
+  by default.</strong> PPO, APO, SAC, TD3, REDQ, TQC, ASAC, RVI-SAC, AVG and IQL
+  take <code>share_encoder</code>. With <code>True</code> the two networks read the observations
+  through one encoder (the hidden layers or the CNN, and with PPO or APO
+  the memory block). The critic owns it, and the actor reads a copy
+  refreshed after every update. PPO and APO train it with both losses, as
+  ppo2's one network; the off-policy agents with the critic's loss alone,
+  the actor reading it without a gradient, as SAC-AE and DrQ do; their
+  encoder is <code>actor_architecture</code>, and the critic's <code>critic_architecture</code>
+  layers read its features with the action. <code>None</code>,
+  the default, follows each agent's reference code: PPO shares its CNN, as
+  ppo2 and CleanRL do on Atari; every other network stays apart, as
+  before. This changes the results of PPO with <code>cnn_image_shape</code>.</li>
+<li><strong>Upgrade:</strong> to resume an image PPO checkpoint saved before, or to
+    keep the earlier networks, pass <code>share_encoder=False</code>.</li>
+<li><strong>Recurrent PPO's heads each read the memory through a layer of their
+  own</strong>, as PureJaxRL's recurrent PPO does (<code>ppo_rnn.py</code>: a Dense(128) and
+  a ReLU per head, orthogonal with gain 2). The new
+  <code>NetworkConfig.head_architecture</code> gives any agent's networks such hidden
+  layers after the encoder and the memory block, and <code>head_kernel_init</code>
+  their initialiser. This changes the results of PPO with <code>memory</code>. Its
+  actor and critic keep separate memories: a shared one fails the memory
+  probe, even with these layers.</li>
+<li><strong>Upgrade:</strong> to resume a recurrent PPO checkpoint saved before, or to
+    keep the earlier networks, set
+    <code>agent.network_args = agent.network_args.replace(head_architecture=())</code>.</li>
+<li><strong>DreamerV3 trains faster on the GPU.</strong> The world model's gradient
+  through its 64 filtering steps now takes each RSSM weight's gradient once
+  per update, as one product over all steps, instead of adding 64 small
+  per-step products. Results are the same up to floating-point rounding.
+  On a shared L40S (MuJoCo Warp Hopper), an update took 6-10% less time at
+  1 and 2 seeds; it has not been timed on a machine with no other job. It uses about
+  0.2 GB more GPU memory per seed, and the CPU bench's DreamerV3 run is
+  about 6% slower.</li>
+<li><strong>The <code>playground</code> extra allows MuJoCo up to 3.15.</strong> It held <code>mujoco</code>
+  and <code>mujoco-mjx</code> below 3.10 for one bug: Playground 0.2 compares MuJoCo
+  versions as strings, so its <code>ReacherEasy</code> and <code>ReacherHard</code> failed on 3.10
+  and later with <code>'MjSpec' object has no attribute 'find_body'</code>. As a
+  deliberate workaround, Ajax now gives Playground's Reacher builder
+  upstream's fix (Playground commit 33f1b284), only while the installed
+  Playground still compares strings; it goes once a Playground 0.x release
+  holds that commit. Every Playground task, Reacher included, takes MuJoCo
+  3.6 to 3.15 (MuJoCo Warp computes contact forces from 3.14).</li>
+<li><strong>MEW temperature annealing.</strong> <code>MEW()</code> (Adamczyk et al., 2026) lowers the
+  temperature of a maximum-entropy agent (SAC, ASAC, AVG, CrossQ, REDQ,
+  RVI-SAC, TQC) at a pace set by how much its recent rewards vary, in place
+  of the agent's own temperature rule. It is opt-in: no agent's default
+  changes. Other agents refuse it, naming the <code>entropy_temperature</code>
+  capability they lack.</li>
+<li><strong>Logged runs evaluate between training chunks.</strong> With a <code>LoggingConfig</code>,
+  training runs up to each evaluation as one compiled chunk, and the
+  evaluation runs between chunks as a program of its own, as Brax does.
+  Before, the evaluation sat inside every training step, which slowed the
+  steps between evaluations too. Evaluations come at the same steps as
+  before, with the same results up to floating-point rounding. On MuJoCo
+  Warp (L40S, 10 seeds), a million-step run evaluated every 10,000 steps
+  took 4% less time with SAC and 1% less with PPO.</li>
+<li><strong>Faster REDQ, and SAC without its unneeded gates.</strong> REDQ evaluates only
+  the 2 target critics its target draws, as its official code does (Ajax
+  evaluated all 10), and its 20 critic steps no longer copy every critic at
+  each step. SAC no longer checks its 2,000-step actor and temperature
+  starts at every update when, as by default, its updates start later.
+  Results are the same up to floating-point rounding. At 10 seeds on a
+  GTX 1080 Ti, REDQ took 20% less time and SAC 5% less; REDQ took 10%
+  less on a CPU.</li>
+<li><strong>Datasets load into the replay in one step.</strong> <code>train_offline</code>,
+  <code>PriorData</code> and retained data used to write a dataset into the replay
+  one row per env at a time, which took about 20 s per million rows on a
+  GPU. They now write it at once, with the same result. IQL's offline run
+  on a million rows (1080 Ti, 2,000 updates) went from 17 s to 3 s.
+  <code>fill_replay(buffer_state, data)</code> and <code>seed_replay(agent_state, data,
+  env_args)</code> no longer take the replay's buffer: drop that argument.</li>
+<li><strong>Evaluation on another device.</strong> <code>LoggingConfig(evaluation_device=...)</code>
+  scores each evaluation in a thread on that device, a second GPU or the
+  CPU, while training goes on. The scores are those of the evaluation in
+  place, and they reach the backends under their own timestep. It is
+  opt-in: by default training still waits for each evaluation.</li>
+<li><strong>Training on MuJoCo Warp.</strong> On an NVIDIA GPU, agents now train on
+  Playground tasks and the <code>"mujoco:"</code> tasks built with
+  <code>build_env_from_id(..., physics="warp")</code>, about five times faster than on
+  pure JAX for SAC and PPO on an L40S. Every online continuous-action agent
+  was checked. Before, every agent failed on its first step: the auto-reset
+  merged each physics array env by env, and Warp keeps its contact buffer
+  for the whole batch of environments. That buffer now passes through the
+  reset. Warp refuses a MuJoCo before 3.13 (the first whose Warp reports
+  the convex collisions it drops), a CPU, <code>differentiable_reset=True</code> and
+  APG, saying why. Pure-JAX runs are unchanged.</li>
+<li><strong>Warp's contact room.</strong> MuJoCo Warp keeps one contact buffer for all the
+  worlds a run steps at once (seeds times envs). The <code>"mujoco:"</code> tasks left
+  it at MuJoCo Warp's default, 48 contacts in all, which 47 Hopper worlds
+  overflowed, and Warp then drops contacts with only a printed warning. They
+  now give it 49,152 (1,024 worlds of 48), and a Warp step that runs out of
+  contact or constraint room stops the run with an error.</li>
+<li><strong>Warp's convex-collision room.</strong> MuJoCo Warp sizes the buffer of its
+  convex (GJK/EPA) collisions like the contact buffer unless told, and each
+  physics call allocates scratch for every slot: 320 MB on
+  <code>"mujoco:Pusher-v5"</code>. Each CUDA graph Warp captures of a call reserves
+  its own addresses for that scratch, and on an 11 GB GPU, after about 76
+  graphs (a few PPO evaluations on Pusher), new ones failed with an
+  out-of-memory error while under 1.4 GB was in use. The <code>"mujoco:"</code> tasks now give the buffer a slot for each of
+  their geom pairs in 1,024 worlds (47 MB of scratch on Pusher), and a step
+  that drops convex collisions stops the run with an error.</li>
+<li><strong>Gymnasium's MuJoCo tasks in JAX.</strong> <code>"mujoco:HalfCheetah-v5"</code>,
+  <code>"mujoco:Hopper-v5"</code>, <code>"mujoco:Walker2d-v5"</code>, <code>"mujoco:Swimmer-v5"</code>,
+  <code>"mujoco:Reacher-v5"</code>, <code>"mujoco:Pusher-v5"</code>,
+  <code>"mujoco:InvertedPendulum-v5"</code> and <code>"mujoco:InvertedDoublePendulum-v5"</code>
+  run Gymnasium's own models and rules on MJX, inside the compiled program.
+  They need the <code>playground</code> extra. Ant, Humanoid and HumanoidStandup
+  follow.</li>
+<li><strong>Agent benchmark filled in.</strong> SAC, TD3, RVI-SAC and ASAC now have scores
+  on all fifteen DeepMind Control tasks, APO's HumanoidWalk run finished, and
+  REDQ, TQC, CrossQ, TD-MPC2 and DreamerV3 have CheetahRun scores, from runs
+  on a GPU (<a href="../reproduction/benchmark/">Agent benchmark</a>).</li>
+<li><strong>Agent benchmark rerun at the new defaults.</strong> PPO, APO, DQN and PQN were
+  rerun at <code>2ef57fe</code>; the page lists what moved (PPO on CheetahRun 215 to
+  497, PQN on Breakout 24 to 71, DQN on Breakout 84 to 50). REDQ's row and
+  the other agents' are from the earlier commits
+  (<a href="../reproduction/benchmark/">Agent benchmark</a>).</li>
+<li><strong>Agent benchmark page in tabs.</strong> One tab per suite, each with its table, a
+  heatmap and learning curves. <code>benchmarks/suite/publish.py</code> writes the
+  tables, figures and the README summary from the records, and a test checks
+  they still match.</li>
+<li><strong>Adam keeps its moments as one vector per optimiser.</strong> Each agent's Adam
+  runs on the gradients joined into one vector; weight decay, the learning
+  rate and gradient clipping stay per array. The maths is unchanged: float32
+  results move by an ulp or two. On an L40S, agents ran 6% to 17% faster;
+  on a Mac's CPU, IQL runs about 17% slower. A checkpoint saved with one
+  moment per array restores: its moments are joined on load.
+  <code>ajax.networks.utils.map_optimizer_moments(opt_state, params, edit)</code>
+  edits moments in either layout. Upgrade: code reading
+  <code>opt_state</code> moments by the parameters' tree calls
+  <code>map_optimizer_moments</code> instead.</li>
+<li><strong>Three ways to keep an expert and change what is around it</strong>
+  (<code>ajax.extensions.structure</code>), all off unless asked for:
+  <code>OuterLoopReference(target_channels, max_change)</code> has the policy move the
+  target the unchanged expert reads (Arroyo and Giraldo, 2020);
+  <code>GainScheduledLaw(expert, obs_width)</code> under <code>ExpertGains(max_factor=...)</code>
+  has it set a rate-limited multiplier per gain (Bloor et al., 2024); and
+  <code>BumplessTracking(reading_channels)</code> has the expert's memory follow the
+  action applied (Hanus et al., 1987). APG and UDRL refuse tracking.</li>
+<li><strong>A final evaluation and a step ledger.</strong> <code>ajax.log.final_evaluation</code>
+  scores a run's seeds on fixed episode sets, keyed by the task and the seed
+  number, so every arm and the expert meet the same episodes; it returns
+  per-episode costs and trip counts. <code>ajax.ledger</code> counts every environment
+  step of a run against one budget, pretraining included:
+  <code>online_steps(agent, budget)</code> gives the <code>n_timesteps</code> that spends it
+  exactly.</li>
+<li><strong>AdaStop compares paired runs.</strong> <code>AdaStop(..., paired=True)</code> and
+  <code>compare(..., paired=True)</code> test the differences between same-numbered
+  seeds, for runs whose seed <code>i</code> shares something across agents, such as its
+  evaluation episodes. The default test is unchanged.</li>
+<li><strong>Runs at any sensor noise level, and a measured reward.</strong> Evaluation and
+  UDRL read the expert's observation under the run's params, not the env's
+  defaults. <code>MeasuredRewardWrapper(env)</code> trains on the env's
+  <code>info["measured_reward"]</code>; evaluation still reports the true reward.</li>
+<li><strong>TD-MPC2 evaluates at multiples of <code>log_frequency</code>.</strong> Its evaluations
+  drifted from the env steps (65,535, 98,302, ...) and a long call returned
+  one empty row. They now land on exact multiples, one row each, so its
+  evaluation numbers shift slightly; training is unchanged.</li>
+<li><strong>Faster APG, TD-MPC2, UDRL and DQN on MinAtar</strong>, with the same maths.
+  APG's transformer controller caches its keys and values during a rollout
+  (<code>MemoryCell(..., cache_keys_values=True)</code>, off for every other agent).
+  TD-MPC2's planner rolls its policy-prior candidates out once per decision,
+  not once per iteration (12% less time per decision on an L40S; results
+  move by rounding). UDRL's episode-stream scan is unrolled (54% faster on
+  MinAtar on a GPU, same bits). DQN's replay keeps MinAtar's 0/1
+  observations in a byte, a quarter of the memory, and reads them back as
+  the same float32.</li>
+<li><strong>PORL.</strong> <code>porl(CloningPretrain(expert))</code> gives SAC's keyword arguments for
+  Xiao et al. (2025): the expert's clone stays frozen and acts epsilon-greedily
+  (<code>EpsilonGreedyPresample</code>) while a fresh critic trains, then the agent
+  fine-tunes it. The update ratio and the critics stay the agent's own settings.
+  The module's docstring lists where it departs from the paper.</li>
+<li><strong>Three more ways to use an expert or recorded data.</strong> <code>RLPD</code> and
+  <code>RetainedDemonstrations</code> keep their rows in a ring of their own, which no
+  later step evicts, and <code>RLPD</code> fills half of each batch from it. <code>CHEQ</code> blends
+  the agent's action with the expert's, by a weight that falls as the critics
+  disagree. The update ratio and the critics stay the agent's own settings.
+  Each one's docstring lists where it departs from its paper.</li>
+<li><strong>n-step returns on SAC.</strong> <code>n_step</code> sums that many rewards before the
+  critics' target bootstraps, stopping at an episode's end. The return is
+  uncorrected, as Rainbow's is, with no entropy bonus for the steps between.
+  The first update waits for each env's replay to hold <code>n_step</code> rows. 1 is the
+  default and changes nothing.</li>
+<li><strong>An offline phase on the agent's own observations.</strong> <code>ExpertPrefill</code> takes
+  <code>offline_updates</code>, as <code>PriorData</code> does, so an agent reading observation
+  features has offline updates on rows that hold them, which a dataset cannot.</li>
+<li><strong>A recording expert of its own.</strong> <code>ExpertPrefill</code>, <code>RetainedDemonstrations</code>
+  and <code>RLPD</code> take <code>expert=</code>. The agent's <code>expert_policy</code> is called on every
+  step collected; this one on the recording's steps alone, so an arm with no
+  expert online queries none.</li>
+<li><strong>IQL takes <code>normalize_rewards</code></strong>, as SAC does. Off by default.</li>
+<li><strong><code>ajax.ledger</code> charges <code>JSRLCurriculum</code>'s gate</strong> and
+  <code>ResidualPolicy(zero_start=True)</code>, whose pretraining costs no step, where it
+  refused one and missed the other. A run with a gate can stop short of its
+  budget by less than one evaluation, which no run length spends exactly, and
+  <code>assert_budget</code> takes that.</li>
+<li><strong>Representations during training.</strong> <code>RepresentationProbe</code> reads an
+  agent's activations and parameters on a fixed set of states every
+  <code>probe_interval</code> steps, writes them to a directory per seed, and logs each
+  layer's effective rank, alignment with the previous probe, activation norm
+  and dead units. Off unless listed. An architecture's activations are now
+  layers without parameters, so flax's <code>capture_intermediates</code> reads a layer
+  after its nonlinearity; saved parameters are unchanged. The agents on the
+  on-policy family now bind <code>env_args</code> for their extensions. <code>python -m
+  ajax.representation</code>, with the new <code>manifolds</code> extra, embeds a run's
+  activations (Aligned UMAP, M-PHATE) and weights (PCA beside a matched random
+  walk) and plots its metrics. <code>replay_states=</code> also keeps observations of a
+  training batch at each probe, on a replay agent.</li>
+<li><strong>On-policy agents train the steps they are asked for.</strong> PPO (with or
+  without memory), APO and PQN trained one rollout more than their budget
+  in every <code>train</code> call. They now train the whole rollouts the budget
+  holds, at least one, as their original implementations do, and a run
+  split into calls of whole rollouts ends where one call does.</li>
+<li><strong>APO evaluates at PPO's cost, as its official code does.</strong> Its reward
+  rate (<code>Eval/mean average reward</code>) took 10,000 more steps per test episode,
+  so each of APO's evaluations lasted up to ten times as long as PPO's. It
+  now follows the official evaluation: 10 environments of 1,000 steps,
+  stopped once 10 trajectories have ended, and the mean of their return /
+  length. With the default <code>num_episode_test=10</code> it shares the test
+  episodes' run.</li>
+<li><strong>A simulator that diverges no longer ends a run.</strong> On a Brax or Playground
+  env, a step whose observation or reward is not finite now ends its episode
+  as a termination, with reward 0, and the run goes on. Before, one such step
+  made every network parameter NaN. This is a workaround: the physics behind
+  it, on Playground's humanoid tasks, is unchanged. Runs log the count as
+  <code>Train/non-finite env steps</code>, and the benchmark's records keep it per seed.
+  Runs without such a step are unchanged, and checkpoints saved before this
+  restore, their count at 0.</li>
+<li><strong>Playground tasks run on a GPU.</strong> They crashed there, because Ajax chose
+  pure-JAX physics on a CPU only and a GPU fell through to Playground's Warp
+  default. Pure JAX is now the default on every device, so a run's physics no
+  longer depends on the device; <code>build_env_from_id(..., physics="warp")</code>
+  selects Warp, which needs a GPU.</li>
+<li><strong>Reproduction protocol, version 2.</strong> A comparison whose score range says
+  nothing about learning registers its own margin, with the reason. SAC and
+  TD3 against Stable-Baselines3 on Pendulum (specs version 2) register ±14
+  and list what their matched arms still cannot match. PQN's specs (version
+  3) drop the optimiser from that list, since Ajax's PQN now uses
+  purejaxql's.</li>
+<li><strong>Expert guidance on Pendulum.</strong> A pre-registered comparison of
+  <code>ExpertPrefill</code>, <code>JSRLCurriculum</code>, <code>IBRL</code> and <code>ResidualPolicy</code> against SAC
+  alone, with a swing-up controller as the expert; the results are in the
+  reproduction docs.</li>
+<li><strong>A benchmark of every agent</strong> (<code>benchmarks/suite/agent_suite.py</code>): the
+  continuous agents on MuJoCo Playground's CheetahRun, the discrete ones on
+  Breakout-MinAtar, each at its defaults. <code>time</code> measures an agent's
+  compile time, speed and memory; <code>run</code> trains a range of seeds in chunks
+  that resume where the last one stopped and commits a record after each.
+  <a href="../reproduction/benchmark/">Its results</a> cover ten agents on nineteen
+  tasks.</li>
+<li><strong>The SAC family shares its update steps.</strong> REDQ, TQC, ASAC and RVI-SAC
+  share one actor step (<code>update_soft_actor</code>), and the soft actor-critics
+  keep their actor's and temperature's steps through one helper
+  (<code>keep_actor_then_update_temperature</code>), both in <code>ajax.agents.temperature</code>,
+  so <code>fixed_alpha</code> works one way in SAC, ASAC and RVI-SAC. REDQ and AVG use SAC's soft Bellman target, and
+  IQL's update reads as its value, actor and critic steps. Results do not
+  change.</li>
+<li><strong>Known issue: the hopper and finger tasks with several seeds.</strong> An XLA
+  bug stops Playground's <code>HopperHop</code>, <code>HopperStand</code>, <code>FingerSpin</code>,
+  <code>FingerTurnEasy</code> and <code>FingerTurnHard</code> from compiling when they are batched
+  two ways, such as several seeds evaluated over several episodes.
+  The environments guide gives the workaround, an XLA flag.</li>
+</ul>
+<h3 id="upgrading-from-050">Upgrading from 0.5.0<a class="headerlink" href="#upgrading-from-050" title="Permanent link">&para;</a></h3>
+<p>The default changes above each end with an "Upgrade:" line giving the
+arguments that restore the earlier behaviour: PPO (value clip, normalisation,
+one env and 64-64 layers), DQN, PQN, APO, REDQ's warm-up, DAgger's fit and
+<code>beta_schedule</code>, <code>normalize_rewards</code>, and the recurrent SAC family's networks
+and windows. Checkpoints of recurrent SAC-family agents and of DAgger saved
+before this version do not restore at the new defaults. The rest:</p>
+<ul>
+<li><strong>On-policy runs train one rollout fewer per <code>train</code> call</strong>, so their
+  results move a little. A call asked for 8,192 steps of 1,024-step rollouts
+  now stops at 8,192, not 9,216. <em>What to do:</em> compare with runs of this
+  version. Code that took a second call's budget from the timestep reached
+  can pass the run's remaining budget instead.</li>
+<li><strong><code>JSRLCurriculum</code> follows its paper by default.</strong> It read a default of 1000
+  steps and fell with time. It now reads the horizon from the task and moves
+  to the next stage when a moving average of the combined policy's evaluations
+  comes within a tolerance of its best. <code>schedule="random"</code> is JSRL-Random.
+  To keep the old form, pass <code>schedule="time"</code>: <code>decay_frac</code> alone now raises.
+  <code>eval_episodes</code> now defaults to 1, Ajax's value and not the paper's, since
+  each evaluation spends steps on the plant. <em>What to do:</em> pass
+  <code>eval_episodes=10</code> for the old gate.</li>
+<li><strong><code>ResidualPolicy</code> keeps the expert during the warm-up.</strong> Its warm-up executed
+  uniform actions without the expert; it now draws uniform residuals around
+  it. <code>zero_start=True</code> starts the policy as the expert, and
+  <code>critic_reads_residual=True</code> has the critics read the residual, as both
+  papers do. Runs with a residual policy and a warm-up change. <em>What to
+  do:</em> compare with runs of this version.</li>
+<li><strong><code>PriorData</code>'s offline updates train SAC's actor and temperature.</strong> They
+  ran below <code>policy_update_start</code> and <code>alpha_update_start</code>, so only the critics
+  moved. Those starts still count the env steps collected online. Runs with
+  <code>PriorData</code> change. <em>What to do:</em> compare with runs of this version.</li>
+<li><strong>IQL's state value reads normalised observations</strong>, as its actor and critics
+  do. Runs with <code>normalize_observations=True</code> change. <em>What to do:</em> retrain;
+  no option restores the raw read.</li>
+<li><strong>A replay row keeps the action executed.</strong> IQL's unsquashed samples left the
+  action box, the env clipped them, and the replay kept the raw sample beside
+  the reward of the clipped one. Rows now hold the clipped action, as IQL's
+  reference does. Runs training IQL online change. On other replay agents only
+  a row where an expert's action left the box changes.</li>
+<li><strong>Cloning reads its inputs as the run does.</strong> It divided by another standard
+  deviation than the run on low-variance columns, and padded each epoch's last
+  batch with zero rows. Runs with <code>CloningPretrain</code> change, and
+  <code>reset_actor_head=True</code> now reaches TD3's output layer.</li>
+<li><strong>An expert reads the run's params.</strong> It read the env's default params, so a
+  sensor set through params reached the agent and not the expert. Evaluation
+  and UDRL pass them too.</li>
+<li><strong>The <code>plane</code> group takes <code>target-gym&gt;=0.7,&lt;0.9</code></strong>, from a commit until 0.8.0
+  is released. Build its experts with
+  <code>REGISTRY[name].make_pid_controller().batched()</code>.</li>
+<li><strong>Fresh <code>playground</code> installs build the Reacher tasks.</strong> MuJoCo Playground
+  0.2.0 compares versions as strings, so <code>ReacherEasy</code> and <code>ReacherHard</code>
+  failed on <code>mujoco</code> 3.10 and later with
+  <code>'MjSpec' object has no attribute 'find_body'</code>. Ajax now patches
+  Playground's Reacher builder, and the extra takes <code>mujoco</code> 3.6 to 3.15
+  (see "The <code>playground</code> extra allows MuJoCo up to 3.15" above).</li>
+<li><strong>APO's <code>Eval/mean average reward</code> changes.</strong> It was the mean reward over
+  10,000 steps per test episode, the episodes restarting. It is now the
+  official code's measure: the mean return / length of the first 10
+  trajectories to end on 10 environments of up to 1,000 steps, whatever
+  <code>num_episode_test</code> is. <em>What to do:</em> compare with runs of this version.</li>
+<li><strong>Fresh <code>playground</code> installs import MuJoCo again.</strong> The extra now holds
+  <code>mujoco-mjx</code> to <code>mujoco</code>'s range, <code>&gt;=3.6,&lt;3.16</code>. <code>mujoco-mjx</code> 4.0 requires
+  <code>mujoco-core</code>, which MuJoCo 4 split out of <code>mujoco</code>, so installers paired it
+  with <code>mujoco</code> 3.9 and <code>import mujoco</code> failed with
+  <code>OSError: libmujoco.so.3.9.0: cannot open shared object file</code>. The two
+  ranges move together.</li>
+<li><strong><code>log_frequency=1</code> evaluates from the first step.</strong> With one env it skipped
+  the evaluation at step 1, so the run came out one evaluation short and its
+  last row stayed empty. Other settings evaluate as before.</li>
+<li><strong><code>LoggingConfig</code> evaluates every 10,000 steps by default</strong>, not every
+  1,000: 100 evaluations over a million steps. At 1,000, evaluation took
+  about half the time of a 10-seed SAC run on MuJoCo Warp. <em>What to do:</em> pass
+  <code>log_frequency=1_000</code> to keep the old rate.</li>
+<li><strong><code>ajax.state.BaseAgentConfig</code> and <code>ajax.agents.recurrent.RecurrentReplayConfig</code>
+  are removed.</strong> Nothing has read them since 0.4.0: <code>expose_recent_rollout</code>,
+  <code>burn_in</code>, <code>sequence_length</code> and <code>stored_state</code> are each agent's own fields.
+  <em>What to do:</em> drop any import of them.</li>
+<li>
+<p><strong>The SAC family's update functions.</strong> <code>critic_value_readers</code> moved from
+  <code>ajax.agents.critics</code> to <code>ajax.agents.update_steps</code>, and <code>critic_step</code>
+  builds it unless an agent passes its own. The SAC family's TD targets and
+  SAC's soft policy loss take their key as <code>key</code>, not <code>rng</code>.
+  <code>SAC.compute_td_target</code> no longer takes <code>recurrent</code>, nor <code>pre_train</code>
+  <code>bc_min_log_std</code> and <code>bc_action_clip_eps</code>, which no caller set (they are
+  constants now). <em>What to do:</em> code calling these by keyword renames or
+  drops the argument; no result changes.</p>
+</li>
+<li>
+<p><strong><code>train(devices=...)</code> splits the seeds over several devices.</strong> Each
+  device trains a consecutive slice of the seeds, or of a sweep's
+  configurations over the seeds, at the same time; the results come back
+  in the usual order on the first device. Without <code>devices</code> nothing
+  changes.</p>
+</li>
+</ul>
+<h2 id="050">0.5.0<a class="headerlink" href="#050" title="Permanent link">&para;</a></h2>
+<p>What a user of 0.4.0 meets:</p>
+<ul>
+<li><strong>Three new agents</strong>, CrossQ (Bhatt et al., ICLR 2024), TQC (Kuznetsov
+  et al., ICML 2020) and RVI-SAC (Hisaki and Ono, ICML 2024), an
+  average-reward SAC, each checked one training step at a time against its
+  authors' code. Ajax has nineteen agents.</li>
+<li><strong>Gymnasium environments, if you choose them</strong> (<code>"gymnasium:&lt;id&gt;"</code>, the
+  <code>gymnasium</code> extra): slower, as they step in Python, and a warning says
+  so.</li>
+<li><strong>A trained agent acts and loads in one call</strong>: <code>agent.policy</code>,
+  <code>agent.predict</code> and <code>load_checkpoint</code>.</li>
+<li><strong>Logging goes through backends</strong>, TensorBoard by default.</li>
+<li><strong>Each agent is one file on a shared family</strong>, and the expert tools
+  (residual RL, gain mode, observation features, EDGE, IBRL, JSRL, the
+  warm-up and the prefill) work on every agent they fit.</li>
+<li><strong>Random numbers are stable</strong>: keys are derived by name, so an option or
+  an extension leaves every other draw as it was, and resets are keyed by
+  episode.</li>
+<li><strong>Agents do what their authors' code does</strong> where they differed: ASAC,
+  REDQ, AVG, PQN, APO, IQL, APG's schedule and IBRL.</li>
+<li><strong>A replay reserves memory for the rows a run writes</strong>, and the replay
+  and incremental agents' updates run faster on a CPU.</li>
+<li><strong>The documentation site has a version per release.</strong></li>
+</ul>
+<h3 id="upgrading-from-040">Upgrading from 0.4.0<a class="headerlink" href="#upgrading-from-040" title="Permanent link">&para;</a></h3>
+<p>Each change below can break code or results that worked on 0.4.0, with
+what to do about it. The sections after it give the details.</p>
+<ul>
+<li><strong>Every run draws other numbers from the same seed.</strong> Keys are derived
+  by name, collection and updates draw on two streams, resets are keyed by
+  episode and evaluations by phase and timestep; several agents now follow
+  their authors' code (next item); and the replay and incremental agents'
+  update runs under a jit of its own, which XLA rounds differently.
+  <em>What to do:</em> compare 0.5.0 results with 0.5.0 runs, not with 0.4.0's.
+  <code>episode_keys=False</code> (<code>ajax.environments.create.build_env_from_id</code>, or
+  <code>with_episode_keys(env, on=False)</code>) keeps 0.4.0's resets, but not its
+  other draws.</li>
+<li><strong>Agents that now follow their authors' code</strong>, so their results move:
+  ASAC (a termination drops the next value), REDQ, AVG (its log-std head
+  read as a log-variance), PQN and APO (time limits), IQL (its two
+  critics' errors summed), APG (its learning-rate schedule steps the
+  matrices alone), IBRL (its target selects on a fresh critic subset),
+  EDGE (it scores the action executed). DQN draws its warm-up actions as
+  the other agents do; PPO, APO and IQL start a PID actor's log-std at -1,
+  as the others do; PPO, APO, PQN and AVG keep one set of observation
+  statistics, in the collector. A pretraining that runs the agent's updates
+  (<code>PriorData</code>, <code>BellmanPretrain</code>) keeps the states those updates give the
+  other extensions, where the next phase read their initial states.
+  <em>What to do:</em> nothing; re-run results you compare against.</li>
+<li><strong>IBRL acts as its authors' code does by default</strong>
+  (<code>IBRL(hybrid_acting=True)</code>): collection and evaluation execute the
+  expert's action where the target critics rate it higher. <em>What to do:</em>
+  <code>IBRL(hybrid_acting=False)</code> keeps 0.4.0's IBRL, which changed the target
+  alone.</li>
+<li><strong>SAC with an expert no longer adds <code>ExpertWarmup(fraction=0.7)</code> and
+  <code>ExpertPrefill(n_steps=20_000)</code> on its own.</strong> <em>What to do:</em> pass them in
+  <code>extensions=</code> to keep them.</li>
+<li><strong>Runs log to TensorBoard by default</strong>, under <code>./tensorboard/&lt;run id&gt;/</code>,
+  where 0.4.0 logged to Weights &amp; Biases. <code>use_wandb</code> and
+  <code>use_tensorboard</code> still work, with a FutureWarning. <em>What to do:</em>
+  <code>LoggingConfig(backends=(WandbBackend(project, group),))</code> for W&amp;B (with
+  <code>pip install "ajax-rl[wandb]"</code>), <code>backends=()</code> for no files.</li>
+<li><strong>Checkpoints are written in format 3.</strong> One saved before resets were
+  keyed by episode is refused by an agent whose environment keys them.
+  <em>What to do:</em> resume it with the environment built with
+  <code>episode_keys=False</code>. <code>load_checkpoint(agent, path)</code> restores a
+  checkpoint without a 0-step <code>train</code> call.</li>
+<li><strong>Brax environments reset as Playground's do</strong> (<code>FreshAutoResetWrapper</code>)
+  when resets are keyed by episode, the default. <em>What to do:</em>
+  <code>episode_keys=False</code> keeps 0.4.0's stack.</li>
+<li><strong>Public names removed or moved.</strong> The 0.4.0 compatibility layer is gone
+  (Removed, below): each agent's <code>train_&lt;A&gt;</code>, <code>state</code>, <code>utils</code> and <code>core</code>
+  modules, the <code>&lt;A&gt;Config</code> views and <code>agent.agent_config</code>, SAC's
+  deprecated keywords, and the old step and loss names. Besides:</li>
+<li><code>agent.dreamer_config</code>, and TD-MPC2's <code>agent.agent_config</code>, are
+    <code>agent.model_config</code>;</li>
+<li><code>ajax.agents.DreamerV3</code> and <code>ajax.agents.TDMPC2</code> no longer re-export
+    <code>DreamerV3Config</code>, <code>MODEL_SIZES</code> and <code>TDMPC2Config</code>: import them from
+    <code>ajax.agents.DreamerV3.state</code> and <code>ajax.agents.TDMPC2.state</code>;</li>
+<li>the agents' target helpers (<code>compute_td_target</code>, <code>compute_td3_td_target</code>
+    and the others), now in their agents' files, also return the value they
+    bootstrapped: unpack one more value;</li>
+<li><code>PIDTermsWrapper</code> is the <code>PIDTermsInput</code> extension;
+    <code>ActionPipelineResult.rng</code> is gone; <code>ajax.agents.steps</code> is
+    <code>ajax.agents.update_steps</code>; the ring rules moved from
+    <code>ajax.agents.DreamerV3.replay</code> to <code>ajax.buffers.ring</code>;</li>
+<li>a name an agent module only imported for its own use (<code>ActorCritic</code>,
+    <code>EnvParams</code>, <code>CNNSpec</code>, <code>AlphaConfig</code>, <code>run_config</code> and the like) no
+    longer imports from that module: import it from its own module;</li>
+<li>the helpers of SAC's removed observation keywords (<code>augment_obs</code>,
+    <code>augment_from_batch</code>, <code>expert_state_dim</code>, <code>flatten_expert_state</code> and
+    <code>maybe_append_train_frac</code> in <code>ajax.evaluate</code> and
+    <code>ajax.environments.interaction</code>, <code>expert_next_actions</code>) are gone:
+    <code>ExpertActionInput</code>, <code>ExpertStateInput</code> and <code>TrainingProgressInput</code> do
+    their work.</li>
+<li><strong>Calls that ran on 0.4.0 and now raise</strong>, each naming what to pass:
+  <code>EDGEExploration</code> under gain mode (EDGE executes the expert's env action
+  where the policy's gains go), refused when the agent is built; <code>BellmanPretrain</code> without a seeded replay
+  (<code>ExpertPrefill</code> or <code>PriorData</code>), where it ran on an empty one;
+  <code>ConditioningMetrics</code> and <code>BiasVoreDecomposition</code> on an agent that
+  stores no steps (APG), where they logged nothing; IBRL's acting with an
+  expert other than the agent's under a residual policy; a replay that has
+  wrapped, resumed by an agent with a larger <code>buffer_size</code>.</li>
+<li><strong>No dependency moved into an extra.</strong> A new one, <code>gymnasium</code>, installs
+  Gymnasium with MuJoCo for the opt-in Gymnasium environments. In a
+  checkout, <code>uv sync</code> no longer installs wandb: <code>uv sync --group wandb</code>
+  does.</li>
+<li><strong>The benchmark</strong> (<code>benchmarks/agent_bench.py</code>) adds CrossQ, TQC, IQL
+  and DAgger and records each row's device; the other agents' runs are
+  unchanged, and its baseline is re-recorded with five trials.</li>
+</ul>
+<h3 id="new-since-040-in-brief">New since 0.4.0, in brief<a class="headerlink" href="#new-since-040-in-brief" title="Permanent link">&para;</a></h3>
+<p>Not all of it has a section below:</p>
+<ul>
+<li><strong>CrossQ</strong> and <strong>TQC</strong>: declared agents, with conformance checks against
+  their authors' code; critics may predict quantiles
+  (<code>NetworkConfig(critic_quantiles=N)</code>).</li>
+<li><strong>RVI-SAC</strong> and the pieces it brings to the discounted agents:
+  <code>ValueCentering</code> (a target centred on a learned reward rate) and
+  <code>ResetCost</code> (terminations charged a learned cost); an extension's
+  <code>on_target</code> may now learn from the target.</li>
+<li><strong>Gymnasium environments</strong>, opt-in, by id or as <code>GymnasiumEnv</code>.</li>
+<li><strong>IBRL</strong> acts as its authors' code does (<code>hybrid_acting</code>, on by default)
+  and can choose softly (<code>soft_choice=True</code>, <code>soft_choice_beta</code>), as their
+  <code>ibrl_soft</code>; its target selects on a fresh critic subset.</li>
+<li><strong>The expert tools reach every agent they fit</strong>: EDGE's gates every
+  continuous off-policy agent with an expert; residual RL and gain mode
+  every continuous agent with one; the observation features
+  (<code>ExpertActionInput</code>, <code>ExpertStateInput</code>, <code>TrainingProgressInput</code>,
+  <code>PIDTermsInput</code>) every agent on the shared collector. Evaluations log
+  the replay's expert share (<code>Eval/expert share</code>).</li>
+<li><strong>Evaluation acts through the agent's controller</strong>, as collection does.
+  Fixed: Brax and Playground evaluation now keeps the wrappers a user put
+  over Ajax's environment; it ran without them.</li>
+<li><strong>The update's own jit</strong>: the replay and incremental agents' update is
+  compiled as a call of its own, which XLA's CPU pipeline runs about 8-10%
+  faster (DQN, SAC, AVG; PERFORMANCE_REPORT.md), a deliberate workaround
+  for its scheduling.</li>
+</ul>
+<h3 id="changes-in-detail">Changes in detail<a class="headerlink" href="#changes-in-detail" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Gymnasium environments, if you choose them</strong>: <code>"gymnasium:HalfCheetah-v5"</code>
+  (or <code>GymnasiumEnv(...)</code> for an environment of your own) trains any agent on
+  a Gymnasium environment, MuJoCo's tasks included. It steps in Python,
+  outside the compiled program, so it is slower and its seeds train one after
+  another; a warning says so and names the closest JAX tasks, with what
+  differs. The new <code>gymnasium</code> extra installs MuJoCo for it. Nothing changes
+  for JAX environments.</li>
+<li><strong>RVI-SAC.</strong> A new average-reward agent, <code>RVISAC</code> (Hisaki and Ono, ICML
+  2024): SAC learned by RVI Q-learning, its target <code>r - c 1(terminated) -
+  xi + V'(s')</code> going on through terminations, <code>xi</code> following the batch mean
+  of the next values, and a reset cost <code>c</code> learned as a Lagrange
+  multiplier on the termination rate. Its defaults, initialisation,
+  update order and evaluation action are the authors'
+  (yhisaki/average-reward-drl); one update matches theirs leaf by leaf
+  (<code>tests/conformance/test_rvisac_original.py</code>).</li>
+<li><strong>ValueCentering and ResetCost.</strong> Two extensions bring RVI-SAC's pieces
+  to the discounted agents. <code>ValueCentering(rule)</code> centres a one-step
+  target on a learned reward rate (Naik et al., RLC 2024) by one of three
+  rules in <code>ajax.agents.centering</code>: <code>RVIBatchMean</code>, <code>TDErrorCentering</code>,
+  <code>ReferencePoint</code>. <code>ResetCost()</code> has the target go on through
+  terminations and charges them a learned cost (<code>ajax.agents.reset_cost</code>).
+  RVI-SAC calls the same functions.</li>
+<li><strong>What <code>on_target</code> may learn from.</strong> An extension's <code>on_target</code> may now
+  return <code>(target, metrics, ext_state)</code> to update its own state, and its
+  batch holds <code>next_values</code> (the value the target bootstrapped),
+  <code>terminated</code>, <code>predictions()</code> and <code>target_value_at(obs, actions)</code>.
+  <code>update_steps.critic_step</code> returns the agent state (its critics stepped,
+  the extensions' states updated) in place of the critic state, and
+  <code>ExtensionStack.apply_on_target</code> returns the states as a third value.
+  The agents' target helpers (<code>compute_td_target</code>, <code>compute_td3_td_target</code>,
+  <code>compute_redq_td_target</code>, <code>compute_tqc_td_target</code>,
+  <code>compute_asac_td_target</code>, <code>compute_avg_td_target</code>, IQL's
+  <code>compute_bellman_target</code>, DQN's two) also return the value they
+  bootstrapped. DQN's <code>td_target_fn</code> may return <code>(target, next_actions,
+  next_values)</code>; one returning the target alone still works. Two new
+  capabilities: <code>one_step_target</code> and <code>continuing_target</code>. An
+  <code>Extension.check_stack(stack)</code> hook refuses a stack that cannot hold an
+  extension. The outputs of every existing agent and extension are
+  unchanged.</li>
+<li><strong>Pretraining keeps the states its updates move.</strong> A pretraining that
+  runs the agent's updates (PriorData, BellmanPretrain) now keeps the
+  states those updates gave the other extensions, and a later pretraining
+  reads the states the earlier ones left, where it read their initial
+  ones.</li>
+<li><strong><code>NetworkConfig.squash_sigma_point_mean</code>.</strong> A squashed policy's
+  deterministic action can be the mean of <code>tanh</code> at the latent mean plus
+  and minus its standard deviation (RVI-SAC's authors' evaluation action),
+  in place of <code>tanh</code> of the mean.</li>
+<li><strong>A replay reserves memory for the rows its run writes.</strong> The replay
+  agents' replays (SAC, TD3, REDQ, ASAC, TQC, CrossQ, IQL, DQN, DAgger,
+  their recurrent forms too) held <code>buffer_size // n_envs</code> rows per env
+  however short the run: 38 MB per seed on Pendulum. A run now holds the
+  rows it writes, those written before training (ExpertPrefill, PriorData,
+  an offline dataset) included, plus one, at most <code>buffer_size // n_envs</code>
+  per env; a resumed run grows the replay to the uninterrupted run's, as
+  the world models' do. The numbers are unchanged: the runs replay the
+  same rows. A checkpoint saved before restores and resumes as it did.
+  A replay that has wrapped and is resumed by an agent with a larger
+  <code>buffer_size</code> now raises, naming <code>buffer_size</code>, as DreamerV3's does; it
+  kept its smaller ring silently.
+  The ring rules moved from <code>ajax.agents.DreamerV3.replay</code> to
+  <code>ajax.buffers.ring</code>: <code>count_ring_rows</code> as it was, <code>size_ring</code> now
+  returning the ring length alone (each replay grows its own state).</li>
+<li><strong>Logging backends.</strong> <code>LoggingConfig(backends=(...))</code> names where every
+  run logs its evaluations: <code>TensorBoardBackend(folder)</code>,
+  <code>WandbBackend(project, group)</code>, or a backend of your own, any picklable
+  object with <code>open(run)</code>, <code>log(run_id, step, metrics)</code> and <code>close()</code>
+  (<code>LoggingBackend</code>; an optional <code>start(run)</code> runs in the caller before
+  training). One backend object serves every seed's run. <code>ajax.logging</code> now
+  exports <code>LoggingConfig</code>, <code>LoggingBackend</code>, <code>RunInfo</code>,
+  <code>TensorBoardBackend</code> and <code>WandbBackend</code>; <code>ajax.logging.wandb_logging</code>
+  still works. <code>backends=()</code> logs nowhere; train still returns the evaluations.
+  Nothing default changes: without <code>backends</code>, <code>use_wandb</code> (on
+  by default) and <code>use_tensorboard</code> decide as before. Setting either flag
+  together with <code>backends</code> is refused. <code>config</code> defaults to an empty dict.
+  <code>WandbBackend(steps=False)</code> creates each run and sends it no evaluation,
+  which <code>use_wandb</code> with <code>sweep=True</code> names, as before.</li>
+<li><strong>The documentation site has a version per release.</strong> It opens on the
+  latest release's documentation; each release keeps its own as X.Y, and
+  main's is the development version, dev, marked as such. A release's
+  pages link to its source at its tag. The Release workflow deploys a
+  release's version (mike).</li>
+<li><strong>A trained agent acts and loads in one call.</strong> <code>agent.policy(state,
+  seed_index)</code> returns a policy: <code>carry = policy.reset(n_envs)</code>, then
+  <code>action, carry = policy.act(obs, carry, done, reward)</code> acts on the
+  environment's own observations, in its units, exactly as the agent's
+  evaluation acts (the observation normalised as the agent does, its
+  features, a residual policy or gain mode, a recurrent actor's memory,
+  UDRL's command, a world model's state). <code>agent.predict(state,
+  observation)</code> returns one action for an agent without memory.
+  <code>load_checkpoint(agent, path, **train_options)</code> restores a saved state
+  into an agent built with the same arguments, its skeleton built with the
+  run's train options where they shape the update (APG's schedule). TDMPC2MultiTask has no policy yet.
+  Training and evaluation are unchanged: their programs are the same.</li>
+<li>A gymnax step no longer warns that float64 is unavailable: its
+  terminated and truncated flags convert to float32 directly. Every
+  number is unchanged.</li>
+<li><strong>ConditioningMetrics and BiasVoreDecomposition log on PPO, APO, PQN
+  and AVG without <code>expose_recent_rollout</code>.</strong> An extension declaring
+  <code>reads_last_rollout</code> has an on-policy or incremental agent keep its
+  latest rollout; before, these logged nothing. They now require
+  <code>stored_steps</code> (a replay or such a rollout), which APG lacks.
+  <code>expose_recent_rollout</code> still works. Runs that logged these metrics
+  are unchanged.</li>
+<li>An extension passed bare (<code>extensions=X</code>) is refused with a TypeError
+  that shows the tuple to write, <code>extensions=(X(...),)</code>, instead of
+  saying only that it is not iterable.</li>
+<li><strong>Documentation</strong>: the agent and extension totals match the code
+  (thirty-two extensions; <code>PIDTermsInput</code> joins the catalogue), the memory
+  table lists every agent, and Why Ajax adds TorchRL and Tianshou, drops
+  TQC and CrossQ from what Ajax lacks and installs from PyPI. A fast test
+  checks the totals and lists against the code.</li>
+<li><strong>Documentation examples run in the tests</strong>, as the README's do: each
+  page's Python blocks in order, the pages that train in the slow tier.
+  Two examples did not run and are fixed: Environments used an undefined
+  environment, and Comparing agents' <code>estimate</code> trained 100,000 steps, which
+  ends inside a PPO rollout and leaves the last evaluation NaN.</li>
+<li><strong>Documentation site</strong>: the world models' reference-comparison records
+  (protocol, pre-registrations, diagnosis, results) leave the site and stay
+  on GitHub, where the site's links to them now point; the design notes
+  move under the Developer guide.</li>
+<li>The README says Ajax runs on a CPU or a GPU, and that its GPU speed is
+  not yet measured, instead of putting every run on the GPU.</li>
+<li><strong>Resets are keyed by episode</strong> (PEGASUS, Ng and Jordan 2000), on by
+  default: env i's k-th episode starts on a key of (i, k), and a gymnax
+  env's step t in it draws on a key of (i, k, t), so runs that differ by an
+  option, an extension or their updates start every episode alike. gymnax
+  envs get <code>EpisodeKeyedAutoResetWrapper</code> under their own wrappers, and
+  brax stacks auto-reset as playground's (<code>FreshAutoResetWrapper</code>).
+  <code>episode_keys=False</code> (<code>build_env_from_id</code>, or <code>with_episode_keys(env,
+  on=False)</code>) reproduces earlier runs. Checkpoints are format 3; one from
+  before is refused with episode keys on. Every run draws other numbers.</li>
+<li><strong>An evaluation's keys follow its training phase and timestep</strong>
+  (<code>ajax.log.evaluation_keys</code>), not its count: the log frequency no longer
+  changes an evaluation's episodes, and the online evaluations after
+  <code>train_offline</code> no longer replay the offline ones' keys. Every logged
+  evaluation draws other episodes; training is unchanged.</li>
+<li><strong>No key is drawn twice.</strong> The observation noise (gymnax and brax),
+  InitialStateWrapper's initial state and ModelReferenceWrapper's reference
+  draw on keys derived by name from the key the inner env is handed whole,
+  so wrapping an env leaves the env's own draws as they were. The expert's
+  collection (ExpertPrefill, MCPretrain, CloningPretrain, recorded datasets)
+  splits its carry first instead of carrying an env's step key on, and
+  TD-MPC2's task embeddings no longer draw on the policy's initialisation
+  key. Runs with these draw other numbers.</li>
+<li><strong>Each extension draws on keys of its own, by name.</strong> In every phase an
+  extension's key is derived from its name and its occurrence among the
+  stack's extensions of that name (<code>ajax.extensions.base.extension_key_names</code>),
+  so adding, removing or moving another extension changes none of its keys.
+  A pretrain or post_update running the agent's own steps (BellmanPretrain,
+  PriorData, PhiRefresh, MCPretrain's rollout) draws on a key lent off the
+  agent's, which then gets its own back. The action stage's extensions (EDGE's
+  gates, IBRL's choice) and evaluation's choosers draw on keys derived from
+  the step's instead of advancing the collection's or the evaluation's
+  stream, and IBRL's subset and soft choice draw by name, so either option
+  leaves the other's draw. <code>ActionPipelineResult.rng</code> is removed: a
+  pipeline's key argument is the action stage's. Runs with extensions draw
+  other numbers; runs without keep theirs.</li>
+<li><strong>Options and extensions no longer move the updates' keys.</strong> A key
+  that exists only under an option, a count or an extension is derived by
+  name or index instead of drawn from the stream: the extensions'
+  post_update, an actor that steps on some updates only (policy_delay,
+  policy_update_start), several critic or gradient steps per update
+  (num_critic_updates, n_gradient_steps), PPO's and APO's minibatches,
+  ExpertWarmup's decision and a recurrent network's initial carry. Runs that
+  differ by one of them share every other draw, and SAC, REDQ, TQC, ASAC
+  and AVG no longer draw a dropped actor step's keys again before
+  policy_update_start. The agents using any of these draw other numbers.</li>
+<li><strong>Updates and collection draw on two streams of keys.</strong> Collection draws
+  on its own key, <code>collector_state.rng</code>, and the updates on the agent
+  state's, each handing out its keys after its carry
+  (<code>ajax.random_keys</code>): an update drawing more or fewer keys leaves the env
+  steps, the action noise and the warm-up as they were, and a forced reset
+  draws on a key derived from the collection's. Every agent but APG and the
+  world models draws other numbers from the same seed. Checkpoints are
+  written in format 2; an older one restores with the collection's key
+  derived from the updates'.</li>
+<li><strong>DreamerV3 is a declared agent</strong>, read from <code>agents/DreamerV3/DreamerV3.py</code>
+  on a new family, <code>OwnReplayAgent</code> (<code>ajax.agents.families</code>): each tick its
+  row collector stores one row per env in a replay of its own, sized for
+  each <code>train</code> call (<code>prepare_replay</code>), and it runs the updates its
+  schedule gives the absolute tick. Its keywords are fixed fields,
+  keyword-only after <code>env_id</code>; <code>gamma</code> is derived, no keyword.
+  <code>agent.dreamer_config</code> is renamed <code>agent.model_config</code>. Deleted, without
+  a deprecation path: <code>train_DreamerV3</code>, <code>DreamerV3AgentConfig</code> and
+  <code>agent.agent_config</code> (its four fields are DreamerV3's) and
+  <code>agent.train_kwargs</code>'s entries. The names moved: <code>TrainRatio</code>, <code>EnvSpec</code>,
+  <code>env_spec</code> (now <code>measure_env</code>) and <code>DreamerV3State</code> to <code>DreamerV3.py</code>;
+  <code>policy_step</code> (now <code>observe_and_act</code>), <code>PolicyCarry</code> and
+  <code>initial_policy_carry</code> (now <code>make_initial_carry</code>) to <code>world_model.py</code>;
+  <code>train_metric_keys</code> (now <code>learner.list_train_metrics</code>); <code>bytes_per_row</code>
+  (now <code>replay.count_row_bytes</code>); <code>MetricsAccumulator</code> to <code>ajax.log</code>. Its
+  extension context drops <code>agent_config</code> and <code>total_timesteps</code>, which no
+  extension read. Training is unchanged, bitwise.</li>
+<li><strong>TD-MPC2 is a declared agent</strong> on the own-replay family, read from
+  <code>agents/TDMPC2/TDMPC2.py</code>: its keywords are fixed fields, keyword-only
+  after <code>env_id</code>. The <code>gamma</code> and <code>seed_steps</code> fields keep the values
+  passed (<code>None</code>: derived from the episode length); the values used are
+  <code>agent.resolved_gamma</code> and <code>agent.resolved_seed_steps</code> (read
+  <code>agent.gamma</code> for the derived discount no more). <code>agent.agent_config</code> is
+  renamed <code>agent.model_config</code>, on <code>TDMPC2MultiTask</code> too, and
+  <code>TDMPC2Config</code> no longer subclasses <code>BaseAgentConfig</code> (its
+  <code>expose_recent_rollout</code> is gone). Deleted, without a deprecation path:
+  <code>train_TDMPC2</code> and <code>agent.train_kwargs</code>'s entries. The names moved:
+  <code>Schedule</code> (now <code>FixedLengthSchedule</code>), <code>EpisodicSchedule</code> and
+  <code>TDMPC2State</code> to <code>TDMPC2.py</code>; <code>planner_policy</code> (now
+  <code>planner.plan_for_envs</code>); <code>update_metrics_zeros</code> (now
+  <code>core.make_zero_update_metrics</code>); <code>clip_grad_norm</code>, <code>make_world_model_tx</code>
+  and <code>make_policy_tx</code> from <code>core</code> to <code>TDMPC2/optim.py</code>; the ring's creation
+  to <code>buffer.make_episode_buffer</code>. <code>agents.TDMPC2</code> no longer re-exports
+  the classes (import them from <code>ajax</code> or their modules). Its extensions
+  are bound, to an empty context. Training is unchanged, bitwise.</li>
+<li><strong>UDRL runs the action stage.</strong> <code>JSRLCurriculum</code> and EDGE's fixed gate
+  hand its expert steps, and its segment keeps the choice executing the
+  expert's action (the expert's own, or a residual of 0), which its actor
+  fits; <code>StorePolicyAction</code> keeps the policy's own instead. The gates draw
+  on a fourth split of the step's key, taken only with an action extension.
+  Runs without one are unchanged, bitwise.</li>
+<li><strong>UDRL observes the observation features.</strong> <code>ExpertActionInput</code>,
+  <code>ExpertStateInput</code>, <code>TrainingProgressInput</code> and <code>PIDTermsInput</code> join each
+  observation of its segments, before the command, in collection and
+  evaluation; UDRL's collector calls the expert through the shared wrapper
+  (the expert first, gain mode last). Runs without features are
+  unchanged, bitwise.</li>
+<li><strong>The world models observe the training progress and PID terms.</strong>
+  <code>TrainingProgressInput</code> and <code>PIDTermsInput</code> join each observation DreamerV3
+  and TD-MPC2 collect and evaluate: their encoders read them, and DreamerV3's
+  decoder reconstructs them with the env's columns. <code>TDMPC2MultiTask</code>, which
+  trains on logged observations, refuses them. Runs without features are
+  unchanged, bitwise.</li>
+<li><strong>DQN and PQN take an expert.</strong> <code>expert_policy=</code> (an index per row) and
+  <code>eval_expert_policy=</code>: collection tracks the expert, evaluations log its
+  return, and <code>JSRLCurriculum</code> and the expert's observation features run on
+  both; DQN, which stores the expert's actions, also takes <code>ExpertPrefill</code>,
+  <code>ExpertWarmup</code> and <code>ExpertValueMetrics</code> (Q at the stored index). PQN now
+  fits Q at the actions its steps executed, the policy's own without an
+  action extension. Runs without an expert are unchanged, bitwise.</li>
+<li><strong>IQL under a residual policy takes JSRL, EDGE and IBRL's acting.</strong> Where
+  one hands the agent's expert the step, IQL's replay keeps the residual
+  that executes the expert's action, 0, beside the executed action, which
+  its actor fits; IBRL acting with another expert is refused (a residual
+  need not reach that expert's action). <code>StorePolicyAction</code> still stores
+  the policy's choice. The action pipelines' result carries the new
+  columns (<code>policy_action_for_expert</code>, <code>stored_policy_action</code>). Runs that
+  were accepted before are unchanged, bitwise.</li>
+<li><strong>APG logs its expert's return.</strong> Each evaluation also rolls out
+  <code>eval_expert_policy</code>, else the agent's <code>expert_policy</code>, alone on the same
+  systems, and logs <code>Eval/episodic mean expert reward</code> and <code>Eval/expert
+  bias</code> (NaN without an expert), as every agent does; APG takes
+  <code>eval_expert_policy</code>, which it refused before. Training is unchanged,
+  bitwise; evaluations gain the two keys.</li>
+<li><strong>APG observes the observation features.</strong> <code>ExpertActionInput</code>,
+  <code>ExpertStateInput</code>, <code>TrainingProgressInput</code> and <code>PIDTermsInput</code> join the
+  observation its controller reads in the differentiable rollout, their
+  memory afresh at each episode start; the expert's features keep their
+  gradient there (<code>ObserveInputs.differentiable</code>), as the expert a residual
+  policy acts with does. <code>closed_loop_rollout</code> takes <code>observe</code> and its
+  <code>Rollout</code> keeps <code>policy_observation</code>. Runs without features are
+  unchanged, bitwise.</li>
+<li><strong>DQN takes StorePolicyAction.</strong> Its replay, on the replay family's
+  collector, stores the policy's index where the run picks it; DAgger
+  refuses the ablation as missing a capability (<code>reward_learning</code>: it
+  learns from its expert's labels alone, no stored action). Runs without
+  it are unchanged, bitwise.</li>
+<li><strong>Fixed: EDGE scores the executed action.</strong> Under <code>ResidualPolicy</code>,
+  <code>EDGEExploration</code>'s scoring gates compared the expert's action with the
+  policy's residual, while every critic is trained on the executed action
+  (the residual through the expert). They now compare it with the action
+  the step would execute, as <code>IBRL</code>'s acting does. Runs with EDGE and a
+  residual policy train differently; other EDGE runs do not change.</li>
+<li><strong>Gain mode refuses <code>EDGEExploration</code></strong> when the agent is built, as it
+  refuses <code>JSRLCurriculum</code> and <code>ValueBox</code>: EDGE executes the expert's env
+  action where the policy's gains go. It ran unnoticed when the expert had
+  as many gains as the env has action dimensions, and failed when training
+  started otherwise.</li>
+<li><strong>APG's schedule steps its matrices alone</strong>, as its reference does: with
+  <code>lr_schedule="warmup_cosine"</code> (<code>contextual_controller</code>'s default) the
+  biases, LayerNorm scales and PID gains keep <code>learning_rate</code>. Scheduled
+  APG runs train differently from before. The shared optimiser takes the
+  option as <code>OptimizerConfig.vector_learning_rate</code>.</li>
+<li><strong>DQN, DAgger, UDRL and APG are declared agents</strong>, each read from
+  <code>agents/&lt;A&gt;/&lt;A&gt;.py</code>: keyword-only after <code>env_id</code> (DAgger's
+  <code>expert_policy</code> included), fixed fields, <code>&lt;A&gt;Config</code> a view of them.
+  DQN and DAgger are on the replay family, UDRL and APG on a new one,
+  <code>OwnIterationAgent</code> (<code>ajax.agents.families</code>): the agent writes its
+  iteration, report and evaluation, the loop resumes and logs; a train
+  call's options (APG's <code>reset_optimizer_on_resume</code>) go to its
+  <code>configure_call</code>, and <code>train_offline</code> refuses it. Their old modules
+  are deleted, without a deprecation path (<code>train_DQN</code>, <code>train_DAgger</code>,
+  <code>train_UDRL</code>, <code>train_APG</code>, each agent's <code>state</code>, UDRL's <code>utils</code>): the 0.4.0 compatibility layer is removed in this release. Their names are in
+  the agent files, some renamed: APG's <code>make_controller</code>,
+  <code>make_agent_state</code>, <code>compute_rollout_returns</code> (its <code>key</code> and
+  <code>n_systems</code>), <code>make_step_through_expert</code>; UDRL's <code>scale_command</code> and
+  <code>compute_actor_loss</code>; DAgger's <code>compute_beta</code> and
+  <code>choose_learner_action</code>; init, update and evaluation are methods. UDRL
+  takes <code>cnn_extra_obs_dim</code> and <code>cnn_spec</code>; DAgger and UDRL take
+  <code>eval_expert_policy</code>, which APG refuses (<code>NotWired</code>) until its evaluation
+  rolls out an expert; APG refuses a bad <code>lr_schedule</code> when it is built.
+  Training is unchanged, bitwise, but for DAgger's replay, which now
+  stores the expert's next action (<code>next_a_expert</code>, unread): its pipeline
+  reads the expert's action collection computes, as every pipeline does.</li>
+<li><strong>UDRL logs its eval_expert_policy's return.</strong> UDRL takes
+  <code>eval_expert_policy</code>, as every agent with an expert does: each evaluation
+  logs that expert's return on its episodes (<code>Eval/episodic mean expert
+  reward</code> and <code>Eval/expert bias</code>), the expert taking no other part in the
+  run. Runs without one are unchanged, bitwise.</li>
+<li><strong>The row collector and evaluate_policy observe features.</strong> With
+  observation features (<code>env_args.observers</code>), the world models' row
+  collector appends them to every row, fresh at each episode's start, and
+  <code>evaluate_policy</code> takes <code>agent_state</code> for the frozen training progress, as
+  <code>evaluate</code> does. Runs without features are unchanged, bitwise.</li>
+<li><strong>Discrete experts outside DAgger.</strong> A discrete expert's action index, an
+  int <code>(n, 1)</code> column, now steps the env in the expert's own rollouts (the
+  replay prefill, the cloning and Monte-Carlo rollouts), enters
+  <code>ExpertWarmup</code>'s mix as the policy's index, and enters <code>ExpertActionInput</code>
+  one-hot (<code>ExpertInAgentUnits.action_count</code>): PPO and APO run with one on
+  CartPole. Continuous runs are unchanged, bitwise.</li>
+<li><strong>A skipped actor step logs the last one that ran.</strong> On the updates whose
+  actor step is skipped (TD3's and CrossQ's <code>policy_delay</code>, any agent's
+  <code>policy_update_start</code>), the actor's logged metrics are now those of its
+  last real step, NaN before its first (<code>update_steps.run_actor_if</code>; the
+  state keeps them in <code>last_actor_metrics</code>). TD3 logged zeros there,
+  CrossQ and IQL NaN, and SAC, TQC, REDQ, ASAC and AVG the metrics of the
+  step they computed and dropped before <code>policy_update_start</code>. Training
+  is unchanged; only the logs move. A checkpoint saved without the field
+  restores it as NaN. <code>run_if</code> lost its <code>fill</code> option, which TD3 alone
+  used.</li>
+<li><strong>AVG is a declared agent</strong>, <code>agents/AVG/AVG.py</code>, on a new family,
+  <code>IncrementalAgent</code> (<code>ajax.agents.families</code>): one update on each step as
+  it comes, no replay. Keyword-only after <code>env_id</code>, fixed fields,
+  <code>AVGConfig</code> a view of them; <code>train_AVG</code>, <code>AVG.state</code> and <code>AVG.utils</code>
+  are removed in this release, their names moved
+  (<code>value_loss_function</code> and <code>policy_loss_function</code> are
+  <code>compute_critic_loss</code> and <code>compute_policy_loss</code>; <code>init_AVG</code>,
+  <code>update_AVG_values</code> (<code>update_step_statistics</code>), <code>update_agent</code>,
+  <code>update_value_functions</code>, <code>update_policy</code> and <code>make_train</code> became
+  methods). AVG claims the warm-up it always had before a positive
+  <code>learning_starts</code>, so <code>ExpertWarmup</code> reaches it, and it takes
+  <code>policy_update_start</code> and <code>eval_expert_policy</code>. Training is unchanged,
+  bitwise.</li>
+<li><strong>ASAC is a declared agent</strong>, <code>agents/ASAC/ASAC.py</code>, as SAC is:
+  keyword-only after <code>env_id</code>, fixed fields, <code>ASACConfig</code> a view of them;
+  <code>train_ASAC</code>, <code>ASAC.state</code> and <code>ASAC.utils</code> are removed in this release, their names moved (<code>value_loss_function</code> is <code>compute_critic_loss</code>;
+  <code>init_ASAC</code>, <code>update_agent</code>, <code>update_value_functions</code>, <code>update_policy</code>
+  and <code>make_train</code> became methods). ASAC now takes <code>policy_update_start</code>,
+  <code>alpha_update_start</code>, <code>eval_expert_policy</code> and <code>StorePolicyAction</code>, and a
+  scheduled <code>target_entropy_per_dim</code>. A recurrent ASAC given extensions is
+  refused by the family's check, as every recurrent agent is, with its
+  message. Training is unchanged, bitwise.</li>
+<li><strong>REDQ is a declared agent</strong>, <code>agents/REDQ/REDQ.py</code>, as SAC is:
+  keyword-only after <code>env_id</code>, fixed fields, <code>REDQConfig</code> a view of them
+  (no longer a <code>SACConfig</code> subclass); <code>train_REDQ</code> and <code>REDQ.state</code> are removed in this release, their names moved (<code>value_loss_function</code> is
+  <code>compute_critic_loss</code>; <code>init_REDQ</code>, <code>update_agent</code>,
+  <code>update_value_functions</code>, <code>update_policy</code> and <code>make_train</code> became
+  methods). REDQ now takes <code>policy_update_start</code>, <code>alpha_update_start</code>,
+  <code>eval_expert_policy</code>, <code>BellmanPretrain</code> and <code>StorePolicyAction</code>, and
+  <code>target_entropy_per_dim</code> takes a schedule besides a number and
+  <code>"mbpo"</code>. Training is unchanged, bitwise.</li>
+<li><strong>TQC is a declared agent</strong>, <code>agents/TQC/TQC.py</code>, as SAC is: keyword-only
+  after <code>env_id</code>, fixed fields, <code>TQCConfig</code> a view of them (no longer a
+  <code>SACConfig</code> subclass); <code>train_TQC</code> and <code>TQC.state</code> are removed in this release, their names moved (<code>init_TQC</code>, <code>update_agent</code>,
+  <code>update_value_functions</code>, <code>update_policy</code> and <code>make_train</code> became
+  methods). TQC now takes <code>policy_update_start</code>, <code>alpha_update_start</code>,
+  <code>eval_expert_policy</code>, <code>BellmanPretrain</code> and <code>StorePolicyAction</code>, and
+  a scheduled <code>target_entropy_per_dim</code>. Training is unchanged, bitwise.</li>
+<li><strong>SAC is a declared agent</strong>, <code>agents/SAC/SAC.py</code> on the replay family, as
+  IQL, CrossQ and TD3 are. What changes for a caller:</li>
+<li>the constructor is keyword-only after <code>env_id</code>; its fields and
+    <code>agent_config</code> are fixed once built; <code>SACConfig</code>, a view of the fields, is removed in this release;</li>
+<li><code>train_kwargs</code> is empty: read the fields (<code>agent.policy_update_start</code>);
+    <code>expert_policy</code> holds the expert as passed, <code>agent.expert</code> the one in
+    agent units;</li>
+<li>SAC's equations are in <code>SAC.py</code>, renamed by their verb:
+    <code>compute_soft_bellman_target</code>, <code>compute_soft_policy_loss</code>,
+    <code>compute_soft_policy_objective</code>, <code>compute_temperature_loss</code>,
+    <code>compute_alpha_temperature_loss</code> (<code>compute_td_target</code> and
+    <code>sample_next_actions</code> keep their names); the temperature is in
+    <code>ajax.agents.temperature</code>, the action pipeline in
+    <code>ajax.agents.action_pipeline</code>;</li>
+<li>the old modules (<code>train_SAC</code>, <code>SAC.state</code>, <code>SAC.core</code>,
+    <code>SAC.action_pipeline</code>) are removed in this release, their names moved; the functions that became methods (<code>init_SAC</code>, <code>update_agent</code>,
+    <code>update_value_functions</code>, <code>update_policy</code>, <code>make_train</code>) raise
+    TypeError with the method's call form; <code>SAC.core</code> keeps
+    <code>init_soft_actor_critic</code>, <code>soft_actor_step</code> and the 0.4.0
+    <code>update_temperature</code>;</li>
+<li>the deprecated keywords are fields of <code>SACDeprecatedKeywords</code>:
+    <code>store_policy_action</code> builds <code>StorePolicyAction</code> where it acted (with
+    an expert, outside gain mode), and <code>target_entropy_initial_per_dim</code>
+    with <code>target_entropy_ramp_frac</code> builds the ramp <code>target_entropy_per_dim</code>
+    now takes as a schedule; both warn.</li>
+</ul>
+<p>Training is unchanged: every final state is bitwise the same, and so is
+  the training program's text.
+- <strong>StorePolicyAction</strong> (<code>ajax.extensions.expert</code>), SAC's
+  <code>store_policy_action</code> as an extension for every replay agent on the
+  family: the replay stores the action the policy chose, not the one
+  executed. It acts in the controller alone, through a new controller
+  phase, <code>choose_replay_action</code>; TD3, CrossQ and IQL take it now, and the SAC family (SAC's <code>store_policy_action</code> keyword is removed in this release).
+- <strong>A soft actor-critic's target entropy may be a schedule</strong>:
+  <code>target_entropy_per_dim</code> takes a function of the timestep
+  (<code>ajax.schedule</code>, as TD3's <code>exploration_noise</code>) on every agent with the
+  shared entropy temperature (<code>EntropyTemperature</code>): CrossQ now, the SAC
+  family as each is declared. SAC's <code>target_entropy_initial_per_dim</code> and <code>target_entropy_ramp_frac</code> are removed in this release: pass <code>target_entropy_per_dim=linear(...)</code>.
+- <strong>Every agent with an expert takes eval_expert_policy</strong>, SAC's option:
+  the expert whose return each evaluation logs, if not the training one
+  (<code>ExpertGuided</code>). <strong>Every agent on the shared loop reads
+  LoggingConfig.sweep</strong>, which only SAC read: a sweep evaluates only in the
+  last fifth of training. Runs without either are unchanged.
+- <strong>BellmanPretrain runs on TD3</strong>, as on SAC: a replay agent with a
+  discounted Q critic and target critics gives it its critic step without
+  extensions (<code>ReplayAgent.extension_values</code>); REDQ and TQC take it once
+  declared. It now requires target critics, so CrossQ and DreamerV3 refuse
+  it for that reason, as they refused it before for another.
+- <strong>Every replay actor-critic takes policy_update_start</strong>, SAC's knob:
+  TD3, CrossQ and IQL keep the actor's steps from that timestep on, and
+  CrossQ, as every soft actor-critic, takes alpha_update_start for its
+  temperature. Both default to 0, no wait: runs that leave them unset are
+  bitwise the same.
+- <strong>IQL, CrossQ and TD3 are declared agents.</strong> Each is one file,
+  <code>agents/&lt;AGENT&gt;/&lt;AGENT&gt;.py</code>, on the replay family of the new
+  <code>ajax.agents.families</code>: its hyperparameters are dataclass fields, declared
+  once with the paper's defaults. What changes for a caller:
+  - the constructor is keyword-only after <code>env_id</code>;
+  - an agent's fields and <code>agent_config</code> are fixed once built
+    (<code>dataclasses.replace(agent, gamma=0.9)</code> builds another), and
+    <code>agent_config</code> is a view of the fields;
+  - <code>TD3Config</code>'s <code>learning_starts</code> default (100) gives way to TD3's
+    (25 000), which TD3 always used;
+  - <code>IQLConfig</code>, <code>CrossQConfig</code> and <code>TD3Config</code> were views of the fields and are removed in this release;
+  - <code>train_kwargs</code> is empty: read the agent's fields and attributes
+    (<code>agent.buffer</code>, TD3's <code>agent.pipeline</code>, CrossQ's read-only
+    <code>agent.alpha_args</code>); <code>make_train</code> takes only the keywords every agent's
+    takes (no <code>buffer</code>, <code>expert_policy</code> or <code>action_pipeline</code>);
+  - <code>expert_policy</code> holds the expert as passed, which the run config logs;
+    <code>agent.expert</code> is the one read in agent units;
+  - the old modules (<code>train_IQL</code>, <code>IQL.state</code>, <code>train_CrossQ</code>,
+    <code>CrossQ.state</code>, <code>train_TD3</code>, <code>TD3.state</code>) are removed in this release, their names moved (<code>train_TD3.update_target_networks</code> is
+    <code>TD3.update_targets</code>). Their functions that became methods (the update
+    functions, <code>init_&lt;AGENT&gt;</code>, <code>make_train</code>) take other arguments: calling
+    one raises TypeError with the method's call form.</p>
+<p>Training is unchanged: every final state is bitwise the same, and so is
+  the compiled program.
+- <strong>PPO, APO and PQN are declared agents</strong>, on the on-policy family
+  (<code>OnPolicyAgent</code> in <code>ajax.agents.families</code>): each is one file,
+  <code>agents/&lt;AGENT&gt;/&lt;AGENT&gt;.py</code>. What changes for a caller, as for IQL,
+  CrossQ and TD3:
+  - the constructor is keyword-only after <code>env_id</code>;
+  - an agent's fields and <code>agent_config</code> are fixed once built, and
+    <code>agent_config</code> is a view of the fields;
+  - <code>PPOConfig</code>, <code>APOConfig</code> and <code>PQNConfig</code> were views of the fields and are removed in this release;
+  - <code>train_kwargs</code> is empty: PQN's <code>epsilon_start</code>, <code>epsilon_end</code>,
+    <code>epsilon_decay_frac</code> and <code>td_loss_fn</code> are its fields; <code>make_train</code>
+    takes only the keywords every agent's takes;
+  - PPO's and APO's <code>expert_policy</code> holds the expert as passed, which the
+    run config logs; <code>agent.expert</code> is the one read in agent units;
+  - PPO's <code>encoder_kernel_init</code> defaults to <code>"orthogonal(np.sqrt(2))"</code>,
+    which None still means: <code>PPO(encoder_kernel_init=None)</code> trains as
+    before but logs None in the run config;
+  - the old modules (<code>train_PPO</code>, <code>PPO.state</code>, <code>PPO.utils</code>, <code>PPO.core</code>,
+    <code>train_APO</code>, <code>APO.state</code>, <code>train_PQN</code>, <code>PQN.state</code>, <code>PQN.utils</code>) are removed in this release, their names moved.
+    <code>policy_loss_function</code> and <code>value_loss_function</code> keep their
+    parameters. The functions that became methods (<code>init_PPO</code>,
+    <code>init_APO</code>, the <code>update_agent</code>s, APO's <code>update_networks</code>, <code>make_train</code>)
+    take other arguments: calling one raises TypeError with the method's
+    call form.</p>
+<p>Training is unchanged: every final state is bitwise the same, and so is
+  the compiled program.
+- <strong><code>RolloutSplit</code>.</strong> <code>ajax.agents.minibatch.Geometry</code>, how an on-policy
+  rollout is cut into minibatches, is now <code>RolloutSplit</code>, and
+  <code>minibatch_geometry</code> is <code>choose_rollout_split</code>: same arguments and fields,
+  <code>kind</code> still <code>"flat"</code>, <code>"time"</code> or <code>"recurrent"</code>. The split also says
+  where the advantages are computed (<code>advantages_per_minibatch</code>) and cuts
+  the rollout (<code>minibatches</code>). The old names are removed in this release.
+- <strong>Extension phases are applied.</strong> <code>ExtensionStack.fold_reward</code>,
+  <code>fold_on_target</code> and <code>fold_post_update</code> are now <code>apply_reward</code>,
+  <code>apply_on_target</code> and <code>apply_post_update</code>, <code>fold_init</code>,
+  <code>fold_init_states</code>, <code>fold_pretrain</code> and <code>fold_eval_metrics</code> are
+  <code>apply_init</code>, <code>apply_init_states</code>, <code>apply_pretrain</code> and
+  <code>apply_eval_metrics</code>, and the two loss terms, <code>fold_critic_loss</code> and
+  <code>fold_actor_loss</code>, are computed: <code>compute_extensions_critic_loss</code> and
+  <code>compute_extensions_actor_loss</code>. So are <code>ajax.agents.loop</code>'s
+  <code>fold_on_target</code>, <code>fold_critic_loss</code> and <code>fold_post_update</code> (also in
+  <code>ajax.agents.update_steps</code>): same arguments. The old names are removed in this release. <code>TrainContext.stack</code> is
+  <code>TrainContext.extensions</code>, and so is <code>TrainLoop.stack</code>.
+- <code>ajax.agents.minibatch.rollout_actions</code> (<code>ajax.agents.PPO.core</code>'s
+  before) is <code>get_actions_and_log_probs</code>; the old names are removed in this release.
+- <code>ajax.agents.SAC.SAC.augmentation_features</code> is removed in this release, with SAC's deprecated keywords.
+- <code>ajax.agents.SAC.expert.collect_and_store_expert_transitions</code> lives in
+  <code>ajax.extensions.pretrain</code>, for every replay agent, and writes its rows as
+  the live collector does (<code>policy_action</code> and <code>next_action</code> too); the old path is removed in this release.
+- The extension phases' <code>ExtensionContext</code> parameter is named <code>context</code>
+  (was <code>ctx</code>). The stack passes it positionally, so an extension that
+  still names it <code>ctx</code> keeps working.
+- Writing a name on a module it moved out of (<code>monkeypatch.setattr</code> on an
+  old path) raises AttributeError naming its new home, where it is read:
+  the write would have changed nothing.
+- <code>checkpoint.py</code> reads PPO's and APO's restore rules off their state
+  classes (<code>joint_gradient_clip</code>, <code>restore_hint</code>); <code>PPOState</code> is a class of
+  its own, no longer an alias of <code>BaseAgentState</code>.
+- <code>BaseAgentState.get_keys_and_new_state(n=1)</code> draws <code>n</code> keys from the
+  training key and returns them, then the new agent state:
+  <code>shuffle_key, agent_state = agent_state.get_keys_and_new_state()</code>.
+  <code>next_keys</code> returns the same, the state first, until the agents still
+  calling it are converted.
+- <code>ajax.agents.update_steps.compute_gradients(loss, params)</code> returns the gradients
+  of a loss of the parameters alone, and its aux; <code>gradient_step</code> and PPO's
+  and APO's minibatch steps take their gradients with it.
+- <code>update_steps.joint_step</code> is now <code>apply_gradients_clipped_together</code>, which also
+  returns each network's gradient norm before the clip. <code>joint_step</code> is removed in this release.
+- The declared agents (PPO, APO, PQN, TD3, IQL, CrossQ) and the shared
+  modules they use name their parameters and locals in full words: an
+  agent's <code>state</code> parameter is <code>agent_state</code>; the on-policy <code>update</code>'s
+  <code>start</code> (and <code>compute_values_from_rollout_sequence</code>') is
+  <code>agent_state_at_rollout_start</code>; APO's <code>minibatch_step</code> takes
+  <code>value_bias</code> (was <code>b</code>); <code>get_sequence_minibatches</code> takes <code>shuffle_key</code>
+  (was <code>rng</code>); PPO's <code>advantages</code> method is <code>compute_advantages</code>. A caller
+  passing them by position, as the loop does, sees no change.
+- The functions added since 0.4.0 that these modules define are named by
+  verbs: <code>steps.when</code> is <code>run_if</code>, <code>steps.extension_key</code> is
+  <code>derive_extensions_key</code> (its tag <code>EXTENSIONS</code> is <code>EXTENSIONS_KEY_TAG</code>),
+  TD3's and CrossQ's <code>critic_update</code> and <code>actor_update</code> are <code>update_critic</code>
+  and <code>update_actor</code>, IQL's equations start with <code>compute_</code>,
+  <code>RolloutSplit.minibatches</code> is <code>cut_into_minibatches</code>,
+  <code>sequence_minibatches</code> is <code>get_sequence_minibatches</code>, <code>recurrent</code>'s
+  <code>rollout_sequence_values</code> is <code>compute_values_from_rollout_sequence</code>,
+  its <code>actor_dist_train</code> is <code>ajax.networks.networks</code>'
+  <code>get_policy_updating_batch_statistics</code> (beside
+  <code>predict_value_updating_batch_statistics</code>, was <code>predict_value_train</code>),
+  and PQN's <code>epsilon_schedule</code> method is <code>make_epsilon_schedule</code>.
+- <code>recurrent.py</code> is split into labelled sections, and the machinery that
+  inserts the final observation of an episode a time limit cut is named
+  for it: <code>stream_positions</code> is <code>row_positions_with_final_observations</code>
+  (the old name is removed in this release), and <code>RecurrentCarries.positions</code> is
+  <code>row_positions_with_final_observations</code>.
+- <strong>Verb names.</strong> <code>ajax.agents.steps</code> is <code>ajax.agents.update_steps</code>. A
+  function returning a loss or a target value starts with <code>compute_</code>, one
+  building a function or a network with <code>make_</code>: <code>critics</code>'
+  <code>critic_loss_fn</code>, <code>q_regression_loss</code>, <code>q_loss_fn</code>, <code>mse_td_loss</code> and
+  <code>huber_1_td_loss</code> are <code>compute_mean_critic_loss</code>,
+  <code>compute_q_regression_loss</code>, <code>compute_q_loss</code>, <code>compute_mse_td_loss</code> and
+  <code>compute_huber_1_td_loss</code>; IQL's <code>expectile_loss</code> is
+  <code>compute_expectile_loss</code>; PQN's <code>half_mse_td_loss</code> is
+  <code>compute_half_mse_td_loss</code>; TD3's <code>critic_loss</code> and <code>policy_loss_function</code>
+  are <code>compute_critic_loss</code> and <code>compute_policy_loss</code>, and
+  <code>gaussian_exploration</code> is <code>make_gaussian_exploration</code>; CrossQ's
+  <code>batch_renorm_mlp</code> is <code>make_batch_renorm_mlp</code>. The 0.4.0 paths
+  (<code>train_DQN.huber_1_td_loss</code>, <code>train_DQN.mse_td_loss</code>,
+  <code>train_DQN.q_loss_fn</code>, <code>train_IQL.expectile_loss</code>,
+  <code>train_PQN.half_mse_td_loss</code>, <code>SAC.core.critic_loss_fn</code>,
+  <code>train_TD3.policy_loss_function</code>) are removed in this release. A declared agent's hooks that build an object
+  start with <code>make_</code>: <code>make_context(total_timesteps)</code> (was <code>context</code>),
+  <code>make_collector</code> (was <code>collector</code>, also the <code>TrainContext</code> field),
+  <code>make_replay_buffer</code> (was <code>replay_buffer</code>) and
+  <code>TrainContext.make_actor_critic</code> (was <code>actor_critic</code>); <code>behaviour</code> is
+  <code>choose_behaviour</code>. The hooks that declare settings keep their names.
+- <strong>PPO's memory handling lives in <code>recurrent.py</code>.</strong> PPO's losses are
+  <code>compute_value_loss</code> and <code>compute_policy_loss</code>: they take the minibatch
+  and no <code>recurrent</code>, <code>resets</code> or <code>initial_hidden</code>, and their keywords are
+  <code>critic_state</code>, <code>normalize_advantage</code>, <code>entropy_key</code> and
+  <code>compute_extensions_loss</code> (were <code>critic_states</code>,
+  <code>advantage_normalization</code>, <code>entropy_rng</code> and <code>extra_loss_fn</code>). The
+  networks run through <code>ajax.agents.recurrent</code>'s <code>get_policy_on_minibatch</code>
+  and <code>predict_values_on_minibatch</code>, and the values GAE reads come from
+  <code>compute_rollout_values</code>; each serves a network with or without memory.
+  <code>RolloutSplit.cut_into_minibatches</code> and <code>get_sequence_minibatches</code> take
+  what a recurrent split's sequences replay from (the episode starts and
+  each network's memory at every sequence's start) as one dict. APO's
+  losses take the same names, with the keywords <code>critic_state</code> and
+  <code>value_bias</code> (was <code>b</code>). The 0.4.0 forms (<code>train_PPO.value_loss_function</code> and <code>policy_loss_function</code>, <code>train_APO.value_loss_function</code> and <code>policy_loss_function</code>) are removed in this release: call <code>compute_value_loss</code> and <code>compute_policy_loss</code>. <code>PPO.py</code> and
+  <code>APO.py</code> no longer define the old names. Training is unchanged: every
+  final state is bitwise the same, and so is the program.</p>
+<ul>
+<li><strong>ASAC</strong> now does what the authors' code does (<code>darer/ASAC.py</code>): a
+  termination drops the next value in the critic's target (it bootstrapped
+  through it); the termination penalty follows their rule, <code>p_0</code> times the
+  larger reward of the batch's first two rows; <code>theta</code> averages the reward
+  without the penalty, at the actions the actor step sampled, which the
+  temperature step reads too; the entropy terms are measured from
+  <code>log(1/nA)</code>; and the policy's log-probability takes stable-baselines3's
+  <code>+1e-6</code> in the <code>tanh</code> correction. Runs with terminations learn other
+  values; continuing tasks change less.</li>
+<li><strong>REDQ</strong> now does what the authors' code does (<code>watchernyu/REDQ</code>): its
+  first update's critic targets and actor loss read the temperature 0.2,
+  which the code's constructor leaves until its first temperature step, and
+  the policy's log-probability takes the code's <code>+1e-6</code> in the <code>tanh</code>
+  correction. Later updates read <code>exp(log_alpha)</code> as before.</li>
+<li><strong>AVG</strong> reads its log-std head as a log-variance, as the authors' code
+  does (<code>gauthamvasan/avg</code>): the policy's standard deviation is
+  <code>exp(out / 2)</code>, its clip bounding the log-variance. Runs start with a
+  different spread and learn otherwise.</li>
+<li><strong>PQN</strong> now does what purejaxql does: a time limit ends an episode in
+  its returns (it bootstrapped there), epsilon is read once per update
+  instead of at every step, and the rollout's second-to-last step reads
+  the last step's bootstrap, as purejaxql's backward pass does. Its
+  reproduction comparisons become version 2.</li>
+<li><strong>APO</strong> ends an episode at a time limit, its next value dropped, and
+  leaves that step out of the loss, as xtma/apo does (<code>bootstrap_timelimit</code>):
+  it bootstrapped on the final observation and trained on the step. With
+  <code>normalize_advantage</code>, the advantages use the other steps' mean and
+  unbiased standard deviation, floored at <code>1e-6</code>.</li>
+<li><strong>IQL</strong> sums its two critics' squared errors, as the reference does
+  (<code>ikostrikov/implicit_q_learning</code>, <code>update_q</code>): it averaged them, which
+  halved the critics' gradient against Adam's eps and <code>max_grad_norm</code>.</li>
+<li><strong><code>ExpertWarmup(fraction)</code></strong> (<code>ajax.extensions.expert</code>): during the
+  warm-up the agent's expert takes a share of the steps, uniform actions the
+  others, through a new controller phase, <code>choose_warmup_action</code> (no state
+  and no key in the learner). SAC, TD3, REDQ, ASAC, CrossQ and IQL (with
+  <code>learning_starts</code> above 0) run it, under residual RL and gain mode too,
+  where the expert's steps store the policy action that executes its own
+  action. DQN (no expert yet) and TD-MPC2 (its own collector) refuse it as
+  not wired yet; TQC and AVG, which have no uniform warm-up, refuse it, as
+  does TD3 given its own <code>action_pipeline</code>. SAC's <code>expert_fraction</code> keyword is removed in this release, and SAC with an expert no longer builds <code>ExpertWarmup(fraction=0.7)</code> on its own: pass the extension.</li>
+<li><strong><code>ExpertPrefill(n_steps)</code></strong> (<code>ajax.extensions.pretrain</code>): the agent's
+  expert acts <code>n_steps</code> steps in every env before training and its
+  transitions go to the replay as collection writes its own, on SAC, REDQ,
+  ASAC, TQC, TD3, CrossQ and IQL. The rows count once in the observation
+  and reward normalisers, as <code>PriorData</code>'s do (one shared function,
+  <code>ajax.agents.loop.count_in_normalisers</code>), and in no timestep. The
+  pretraining now runs the replay's seeders (<code>ExpertPrefill</code>,
+  <code>PriorData</code>) first, in stack order; <code>train_offline</code> refuses a prefill
+  that would overwrite the dataset's rows. SAC's <code>expert_buffer_n_steps</code> keyword is removed in this release, and SAC with an expert no longer builds <code>ExpertPrefill(n_steps=20_000)</code> on its own: pass the extension.</li>
+<li><strong>SAC's expert prefill runs in the pretraining</strong>, as <code>ExpertPrefill</code>:
+  <code>init_SAC</code> and SAC's <code>make_train</code> lose it and <code>expert_buffer_n_steps</code>.
+  It is the same algorithm on other random numbers: the prefill draws the
+  extension's key, and a run whose stack held no other learner extension
+  now draws one more key per update. Under its old key the prefill's rows,
+  statistics and timestep are bitwise the old ones. Under <code>train_offline</code>
+  its rows now come after the dataset's, and a prefill that would overwrite
+  them is refused. Its rows now count in the
+  observation and reward normalisers, which they skipped: a run combining
+  the prefill with normalisation starts from other statistics.</li>
+<li><strong><code>BellmanPretrain</code> requires a seeded replay</strong> (<code>ExpertPrefill</code> or
+  <code>PriorData</code> in the stack) instead of the agent's expert: with an expert
+  and <code>expert_buffer_n_steps=0</code> it ran on an empty replay, where it
+  pre-trained on nothing, and now it is refused. Beside <code>PriorData</code> it
+  runs without an expert.</li>
+<li><strong>Fixed: gain mode's expert columns.</strong> Under <code>ExpertGains</code> the replay's
+  <code>a_expert</code> and <code>next_a_expert</code> took the width of the gains, while they
+  hold the expert's env action: an expert with fewer gains than action
+  dimensions crashed collection, and one with more had its action copied
+  into every column. They now take the env's action width. Gain mode
+  refuses an extension that uses an expert's actions where the policy's go
+  (<code>Extension.uses_expert_actions_as_policy_actions</code>: ImitationLoss cloning
+  its expert, OnlineBC, IBRL, LCBGatedBootstrap, CriticBlend, PhiRefresh,
+  ExpertValueMetrics, CloningPretrain, MCPretrain): those are env actions,
+  the policy's are gains.</li>
+<li><strong>Fixed: the expert prefill under an action transform.</strong> SAC's prefill
+  (<code>expert_buffer_n_steps</code>, now <code>ExpertPrefill</code>) wrote the expert's env
+  action into the action column, which gain mode keeps for the gains. A
+  prefill row now stores what
+  collection stores when the expert acts as itself, the policy action each
+  transform names (<code>policy_action_for_expert</code>): the anchor gains (0) under
+  <code>ExpertGains</code>, and under <code>ResidualPolicy</code> a residual of 0 as the policy's
+  action (IQL fits those) beside the expert's executed action. SAC runs in
+  gain mode with a prefill learn other values. A prefill row ending in a
+  termination keeps the reset observation as its next one, as collection
+  does (ASAC's differential target continues from it); it kept the final
+  one.</li>
+<li><code>NetworkConfig.squash_log_det_eps</code> sets the guard inside the <code>tanh</code>
+  log-det, <code>log(1 - tanh(u)^2 + eps)</code>, for an agent whose reference uses
+  one; 0, the exact log-det, by default. <code>NetworkConfig.log_variance_head</code>
+  reads the log-std head as a log-variance, for the same reason.</li>
+<li><strong>Development</strong>: pull requests run the fast tier alone: the tests not
+  marked slow, each under 128 gradient steps, and the conformance checks.
+  The probes and every other training run in the slow tier, daily on main,
+  on a labelled pull request and before a release.</li>
+</ul>
+<h3 id="default-changes">Default changes<a class="headerlink" href="#default-changes" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Runs log to TensorBoard by default.</strong> A <code>LoggingConfig</code> that names no
+  backends writes each run's TensorBoard events and <code>config.json</code> under
+  <code>&lt;folder&gt;/tensorboard/&lt;run id&gt;/</code> (the working directory by default),
+  where it logged to Weights &amp; Biases before. W&amp;B needs the <code>wandb</code> extra
+  and an account; name it with <code>backends=(WandbBackend(project, group),)</code>.</li>
+<li><code>use_wandb</code> and <code>use_tensorboard</code> are deprecated: set, they warn with a
+  FutureWarning pointing to <code>backends</code>, and log as before (W&amp;B on unless
+  <code>use_wandb=False</code>).</li>
+<li><code>uv sync</code> no longer installs wandb in a checkout: <code>uv sync --group wandb</code>
+  does. <code>pip install ajax-rl</code> never did; <code>ajax-rl[wandb]</code> does.</li>
+</ul>
+<h3 id="removed">Removed<a class="headerlink" href="#removed" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>The 0.4.0 compatibility layer.</strong> A project pinned to 0.4.0 moves to the
+  new forms when it upgrades:</li>
+<li>the modules that only served moved names: each agent's <code>train_&lt;A&gt;</code>,
+    <code>state</code>, <code>utils</code> and <code>core</code>, DQN's and TD3's <code>networks</code>, SAC's <code>expert</code>
+    and <code>action_pipeline</code>. Each name is in <code>ajax.agents.&lt;A&gt;.&lt;A&gt;</code> or in the
+    shared module it moved to; <code>init_&lt;A&gt;</code>, <code>update_agent</code> and <code>make_train</code>
+    are the agent's <code>init</code>, <code>update</code> and its family's <code>make_train</code>. SAC's
+    <code>core.soft_actor_step</code> and <code>init_soft_actor_critic</code> and the 0.4.0 loss
+    forms (<code>train_PPO.value_loss_function</code>, <code>policy_loss_function</code>,
+    <code>train_APO.value_loss_function</code>) have no replacement: call
+    <code>compute_value_loss</code> and <code>compute_policy_loss</code>;</li>
+<li>the former names <code>Geometry</code>, <code>minibatch_geometry</code>, <code>rollout_actions</code>,
+    <code>stream_positions</code>, <code>joint_step</code> and the <code>fold_&lt;phase&gt;</code> aliases (now
+    <code>RolloutSplit</code>, <code>choose_rollout_split</code>, <code>get_actions_and_log_probs</code>,
+    <code>row_positions_with_final_observations</code>,
+    <code>apply_gradients_clipped_together</code> and <code>apply_&lt;phase&gt;</code>), and the step
+    functions <code>ajax.agents.loop</code> re-exported (import them from
+    <code>ajax.agents.update_steps</code>);</li>
+<li>SAC's keywords <code>expert_buffer_n_steps</code>, <code>expert_fraction</code>,
+    <code>use_pid_policy</code>, <code>use_train_frac</code>, <code>augment_obs_with_expert_action</code>,
+    <code>augment_obs_with_expert_state</code>, <code>store_policy_action</code>,
+    <code>normalize_obs_running</code> and <code>target_entropy_initial_per_dim</code> with
+    <code>target_entropy_ramp_frac</code>: pass <code>ExpertPrefill</code>, <code>ExpertWarmup</code>,
+    <code>ExpertGains</code>, <code>TrainingProgressInput</code>, <code>ExpertActionInput</code>,
+    <code>ExpertStateInput.for_expert(expert)</code>, <code>StorePolicyAction</code>,
+    <code>normalize_observations=True</code> and <code>target_entropy_per_dim=linear(...)</code>.
+    <code>jsrl_curriculum</code> and <code>skip_critic_pretrain</code> had no effect. SAC with an
+    expert no longer adds <code>ExpertWarmup(fraction=0.7)</code> and
+    <code>ExpertPrefill(n_steps=20_000)</code> on its own: pass them to keep them;</li>
+<li>each declared agent's <code>&lt;A&gt;Config</code> view and <code>agent.agent_config</code>, and
+    the <code>agent_config</code> argument of their <code>make_train</code>: read the agent's
+    fields. DreamerV3 and TD-MPC2 keep their configs;</li>
+<li>the six-argument action pipeline TD3 adapted (a pipeline takes the
+    step's <code>ActingState</code> second), <code>LoggingConfig.horizon</code>,
+    <code>PIDTermsWrapper</code> (pass <code>PIDTermsInput</code>) and <code>ajax.deprecation</code>.</li>
+</ul>
+<h2 id="040">0.4.0<a class="headerlink" href="#040" title="Permanent link">&para;</a></h2>
+<p>The first release since 0.3.1 (April 2025), which held SAC alone. Ajax has
+since been reworked; the <a href="https://yannberthelot.github.io/Ajax/">documentation</a>
+describes the result. What a user of 0.3.1 meets:</p>
+<ul>
+<li><strong>Requirements</strong>: Python 3.12 or newer; JAX 0.10 and flax 0.12.8 or newer,
+  with no upper bounds; gymnax 1.0.1 from PyPI instead of a fork. Ajax
+  declares only the packages it imports, so gymnasium, mujoco, mujoco-mjx,
+  pandas, matplotlib, pydantic and scipy are no longer installed with it.
+  pip installs Ajax from PyPI or from its repository.</li>
+<li><strong>Distribution name</strong>: Ajax is on PyPI as <code>ajax-rl</code> (<code>pip install
+  ajax-rl</code>); the import is unchanged, <code>import ajax</code>. A project that declares
+  <code>ajax</code> from git or a path renames it <code>ajax-rl</code>.</li>
+<li><strong>Breaking</strong>: Brax and MuJoCo Playground are no longer installed with
+  Ajax. A project that uses their environments asks for <code>ajax-rl[playground]</code>
+  (which brings Brax) or <code>ajax-rl[brax]</code>; without them, building one of their
+  environments raises an error that names the extra.</li>
+<li><strong>Extras</strong>: <code>ajax-rl[cuda]</code> (JAX with CUDA, Linux), <code>ajax-rl[brax]</code>,
+  <code>ajax-rl[playground]</code>, <code>ajax-rl[compare]</code>, <code>ajax-rl[reproduction]</code> and
+  <code>ajax-rl[wandb]</code>.</li>
+<li><strong>Agents</strong>: sixteen, each from a published paper: SAC, ASAC, REDQ, TD3,
+  AVG, DQN, PQN, PPO, APO, UDRL, APG, DreamerV3, TDMPC2, TDMPC2MultiTask,
+  IQL and DAgger, on one training loop, with several seeds in one compiled
+  program. Each starts from its reference code's initialisation and
+  optimiser settings where its algorithm page says so. TD3 makes the update
+  of sfujim/TD3, its critics reading actions in the environment's units, as
+  REDQ's do.</li>
+<li><strong>Extensions</strong>: research features passed as <code>extensions=(...)</code>; an agent
+  refuses, when built, one it cannot run.</li>
+<li><strong>Learning from data</strong>: <code>train_offline(dataset, n_updates)</code> trains a replay
+  agent (SAC, TD3, REDQ, ASAC, DQN, IQL) on a transition dataset before it
+  acts, then <code>train</code> fine-tunes it online. On it run TD3+BC
+  (<code>ImitationLoss(None, target="replay", alpha=2.5)</code>, the paper's actor
+  loss), ReBRAC (with <code>TargetBC</code>), CQL and Cal-QL (<code>ConservativeQ</code>, <code>CalQL</code>,
+  for a policy with a density) and IQL. GAIL (<code>AdversarialReward</code> on PPO)
+  and DAgger imitate with no reward, and the expert-guidance extensions
+  learn from an existing controller.</li>
+<li><strong>New modules</strong>: <code>ajax.compare</code> (AdaStop and confidence sequences),
+  transition datasets (<code>ajax.buffers.dataset</code>), checkpoints
+  (<code>ajax.checkpoint</code>), recurrent memory, and the reference comparisons
+  under <code>benchmarks/reference</code>.</li>
+<li><strong>Development</strong>: dependency floors without caps, tested weekly at the
+  newest and the oldest versions allowed; <code>uv.lock</code> refreshed monthly.
+  Conformance checks (<code>tests/conformance</code>) compare one update of an agent
+  with its original implementation's: PQN, TD3, TD3+BC, REDQ and AVG so
+  far. The tests come in
+  two tiers (CONTRIBUTING.md, Testing): the slow tier, every test that
+  trains, also runs daily on main, on a pull request labelled
+  <code>run-slow-tier</code> and before each release; tags come only from the Release
+  workflow, once the slow tier passed on main's head.</li>
+</ul>
+<h3 id="default-changes_1">Default changes<a class="headerlink" href="#default-changes_1" title="Permanent link">&para;</a></h3>
+<p>For projects that pin an Ajax commit: the merges since 2026-10-17 that move
+default runs. Each pull request says how.</p>
+<table>
+<thead>
+<tr>
+<th>Agent</th>
+<th>What changed</th>
+<th>Pull requests</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>SAC, TD3, REDQ, ASAC, DQN, IQL, DAgger</td>
+<td>the replay also draws each environment's newest row</td>
+<td>#210</td>
+</tr>
+<tr>
+<td>SAC</td>
+<td>Xavier-uniform layers, as softlearning; Adam eps 1e-8</td>
+<td>#193, #197</td>
+</tr>
+<tr>
+<td>ASAC</td>
+<td>torch's layer init; temperature fixed at 0.2; learning rates 1e-4 and 5e-4, gradient clip 10; Adam eps 1e-8</td>
+<td>#193, #196, #197</td>
+</tr>
+<tr>
+<td>REDQ</td>
+<td>Xavier-uniform layers; Adam eps 1e-8; critics read actions in the environment's units</td>
+<td>#193, #197, #227</td>
+</tr>
+<tr>
+<td>TD3</td>
+<td>the 2019 code's settings (256-256, learning rate 3e-4, batch 256, 25,000 warm-up steps); torch's layer init; Adam eps 1e-8; summed critic losses, first actor step at the <code>policy_delay</code>-th update, critics in the environment's units</td>
+<td>#193, #196, #197, #220, #224</td>
+</tr>
+<tr>
+<td>TD3+BC, ReBRAC</td>
+<td><code>ImitationLoss(alpha=...)</code> is the paper's actor loss, <code>λ</code> times the agent's own plus the cloning term, actions compared in the environment's units</td>
+<td>#225</td>
+</tr>
+<tr>
+<td>AVG</td>
+<td>orthogonal layers; Adam eps 1e-8</td>
+<td>#193, #197</td>
+</tr>
+<tr>
+<td>DQN</td>
+<td>torch's layer init; centered RMSProp with a Huber loss, as Mnih et al.</td>
+<td>#193, #197</td>
+</tr>
+<tr>
+<td>PQN</td>
+<td>flax's <code>lecun_normal</code> layers; RAdam after a gradient clip of 10</td>
+<td>#193, #197</td>
+</tr>
+<tr>
+<td>PPO</td>
+<td>flat minibatches, GAE once per rollout; ppo2's orthogonal layers; Adam eps 1e-5, one gradient clip over both networks, <code>vf_coef</code> 0.5</td>
+<td>#146, #159, #183</td>
+</tr>
+<tr>
+<td>PPO with memory</td>
+<td>PureJaxRL's layer init; <code>num_minibatches</code> sets the sequence length</td>
+<td>#170, #188</td>
+</tr>
+<tr>
+<td>PPO, APO, UDRL, discrete actions</td>
+<td>the logits head starts at orthogonal(0.01)</td>
+<td>#147</td>
+</tr>
+<tr>
+<td>APO</td>
+<td>its official code's actor head, 64-64 tanh layers, joint optimiser step and entropy bonus 0.01</td>
+<td>#192</td>
+</tr>
+<tr>
+<td>APG</td>
+<td>Adam eps 1e-8; <code>APG.contextual_controller</code> does not clip its gradient</td>
+<td>#175</td>
+</tr>
+<tr>
+<td>twin and ensemble critics, with <code>max_grad_norm</code></td>
+<td>each critic clipped on its own</td>
+<td>#196</td>
+</tr>
+</tbody>
+</table>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Copyright &copy; Yann Berthelot
+    </div>
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.instant", "navigation.tracking", "navigation.sections", "navigation.top", "navigation.indexes", "toc.follow", "content.code.copy", "content.action.edit", "content.tabs.link", "search.suggest", "search.highlight"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"alias": true, "default": "latest", "provider": "mike"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+        <script src="../javascripts/mathjax.js"></script>
+      
+        <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+      
+    
+  </body>
+</html>

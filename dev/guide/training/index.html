@@ -13,7 +13,7 @@
         <link rel="canonical" href="https://yannberthelot.github.io/Ajax/dev/guide/training/">
       
       
-        <link rel="prev" href="../../getting-started/why-ajax/">
+        <link rel="prev" href="../../getting-started/coming-from-sb3/">
       
       
         <link rel="next" href="../deploy/">
@@ -329,6 +329,8 @@
       
         
       
+        
+      
     
     
     
@@ -445,6 +447,34 @@
     
   
     Why Ajax
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/coming-from-sb3/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Coming from SB3
   
 
     
@@ -2039,6 +2069,8 @@
       
         
       
+        
+      
     
     
     
@@ -2127,6 +2159,34 @@
     
   
     Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../developer/extension-phases/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Extension phases
   
 
     
@@ -2259,7 +2319,7 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_6" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_7" >
         
           
           <div class="md-nav__link md-nav__container">
@@ -2281,14 +2341,14 @@
             </a>
             
               
-              <label class="md-nav__link " for="__nav_6_6" id="__nav_6_6_label" tabindex="0">
+              <label class="md-nav__link " for="__nav_6_7" id="__nav_6_7_label" tabindex="0">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_6_6_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_6_6">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_6_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_7">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -2784,6 +2844,127 @@
   
 
     
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Releases
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Releases
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../upgrading/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Upgrading
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
   </ul>
 </nav>
                   </div>
@@ -3114,62 +3295,75 @@ preprocessing stay yours.</p>
 <tr>
 <th>Agent</th>
 <th>Presets</th>
+<th>Fields a preset sets</th>
 <th>Source</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><a href="../../algorithms/asac/#presets">ASAC</a></td>
-<td>the ten Gymnasium MuJoCo tasks</td>
+<td><code>Ant</code>, <code>HalfCheetah</code>, <code>Hopper</code>, <code>Humanoid</code>, <code>InvertedDoublePendulum</code>, <code>InvertedPendulum</code>, <code>Pusher</code>, <code>Reacher</code>, <code>Swimmer</code>, <code>Walker2d</code></td>
+<td><code>alpha_init</code>, <code>tau_theta</code>, <code>buffer_size</code>, <code>learning_starts</code></td>
 <td>the authors' tuned runs</td>
 </tr>
 <tr>
 <td><a href="../../algorithms/crossq/#presets">CrossQ</a></td>
 <td><code>Swimmer</code></td>
+<td><code>gamma</code></td>
 <td>the authors' <code>train.py</code></td>
 </tr>
 <tr>
 <td><a href="../../algorithms/dreamerv3/#presets">DreamerV3</a></td>
 <td><code>DMC</code></td>
+<td><code>model_size</code>, <code>train_ratio</code>, <code>n_envs</code>, <code>action_repeat</code></td>
 <td><code>configs.yaml</code></td>
 </tr>
 <tr>
 <td><a href="../../algorithms/dqn/#presets">DQN</a></td>
 <td><code>Atari</code></td>
+<td><code>learning_rate</code>, <code>gamma</code>, <code>buffer_size</code>, <code>batch_size</code>, <code>learning_starts</code>, <code>train_frequency</code>, <code>target_update_interval</code>, <code>epsilon_start</code>, <code>epsilon_end</code>, <code>epsilon_decay_frac</code></td>
 <td>Mnih et al.'s <code>run_gpu</code></td>
 </tr>
 <tr>
 <td><a href="../../algorithms/iql/#presets">IQL</a></td>
 <td><code>AntMaze</code></td>
+<td><code>expectile</code>, <code>temperature</code></td>
 <td><code>antmaze_config.py</code></td>
 </tr>
 <tr>
 <td><a href="../../algorithms/ppo/#presets">PPO</a></td>
 <td><code>Atari</code></td>
+<td><code>n_envs</code>, <code>n_steps</code>, <code>n_epochs</code>, <code>num_minibatches</code>, <code>actor_learning_rate</code>, <code>critic_learning_rate</code>, <code>clip_range</code>, <code>ent_coef</code>, <code>share_encoder</code></td>
 <td>ppo2's <code>defaults.py</code></td>
 </tr>
 <tr>
 <td><a href="../../algorithms/pqn/#presets">PQN</a></td>
 <td><code>CartPole</code>, <code>Atari</code></td>
+<td><code>architecture</code>, <code>n_envs</code>, <code>n_steps</code>, <code>n_epochs</code>, <code>num_minibatches</code>, <code>learning_rate</code>, <code>lr_linear_decay</code>, <code>epsilon_end</code>, <code>epsilon_decay_frac</code>, <code>q_lambda</code>, <code>reward_scale</code></td>
 <td>purejaxql's configs</td>
 </tr>
 <tr>
 <td><a href="../../algorithms/redq/#presets">REDQ</a></td>
 <td><code>Hopper</code>, <code>HalfCheetah</code>, <code>Walker2d</code>, <code>Ant</code>, <code>Humanoid</code></td>
+<td><code>target_entropy_per_dim</code></td>
 <td>MBPO's target entropies</td>
 </tr>
 <tr>
 <td><a href="../../algorithms/td3/#presets">TD3</a></td>
 <td><code>D4RL</code> (TD3+BC)</td>
+<td><code>normalize_observations</code>, <code>extensions</code></td>
 <td>TD3_BC's <code>main.py</code></td>
 </tr>
 <tr>
 <td><a href="../../algorithms/tqc/#presets">TQC</a></td>
 <td><code>Hopper</code>, <code>HalfCheetah</code>, <code>Walker2d</code>, <code>Ant</code>, <code>Humanoid</code></td>
+<td><code>top_quantiles_to_drop_per_net</code></td>
 <td>the authors' README</td>
 </tr>
 </tbody>
 </table>
+<p>Each agent's page gives the values. A test compares this table with the
+<code>PRESETS</code> tables (<code>tests/test_docs_agent_sets.py</code>).</p>
 <h2 id="train"><code>train</code><a class="headerlink" href="#train" title="Permanent link">&para;</a></h2>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax</span><span class="w"> </span><span class="kn">import</span> <span class="n">SAC</span>
 <a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>
@@ -3330,8 +3524,9 @@ budget under one rollout trains one.</p>
 <p>The call may reuse the memory of the state you pass in. Read or save
 anything you need from it before the call.</p>
 <h2 id="training-offline">Training offline<a class="headerlink" href="#training-offline" title="Permanent link">&para;</a></h2>
-<p>A replay agent (SAC, TD3, REDQ, TQC, CrossQ, ASAC, RVI-SAC, DQN, IQL,
-DAgger) can train on a
+<p>A <a href="../../algorithms/#agent-families">replay agent</a>
+(<!-- agents: offline -->SAC, TD3, REDQ, TQC, CrossQ, ASAC, RVI-SAC, DQN, IQL,
+DAgger<!-- /agents -->) can train on a
 <a href="../../api/buffers/">transition dataset</a> alone, with no environment step.
 <code>train_offline(dataset, n_updates)</code> puts the dataset's rows in the replay
 and in the normalisers, then runs the agent's own update <code>n_updates</code> times.

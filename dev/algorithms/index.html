@@ -329,6 +329,8 @@
       
         
       
+        
+      
     
     
     
@@ -445,6 +447,34 @@
     
   
     Why Ajax
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/coming-from-sb3/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Coming from SB3
   
 
     
@@ -1837,6 +1867,8 @@
       
         
       
+        
+      
     
     
     
@@ -1925,6 +1957,34 @@
     
   
     Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../developer/extension-phases/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Extension phases
   
 
     
@@ -2057,7 +2117,7 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_6" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_7" >
         
           
           <div class="md-nav__link md-nav__container">
@@ -2079,14 +2139,14 @@
             </a>
             
               
-              <label class="md-nav__link " for="__nav_6_6" id="__nav_6_6_label" tabindex="0">
+              <label class="md-nav__link " for="__nav_6_7" id="__nav_6_7_label" tabindex="0">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_6_6_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_6_6">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_6_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_7">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -2582,6 +2642,127 @@
   
 
     
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Releases
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Releases
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../upgrading/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Upgrading
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
   </ul>
 </nav>
                   </div>
@@ -2613,6 +2794,17 @@
     <span class="md-ellipsis">
       
         Overview
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#agent-families" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Agent families
       
     </span>
   </a>
@@ -2868,6 +3060,60 @@ several seeds in a single compiled program with
   critic's estimate minus the discounted return actually obtained, averaged
   over the evaluated steps.</li>
 </ul>
+<h2 id="agent-families">Agent families<a class="headerlink" href="#agent-families" title="Permanent link">&para;</a></h2>
+<p>An agent belongs to a family according to where its updates take their data
+from. The other pages use these names, and a family's class in
+<code>ajax.agents.families</code> builds its agents' training loop.</p>
+<table>
+<thead>
+<tr>
+<th>Family</th>
+<th>Agents</th>
+<th>Its updates learn from</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Replay agents (<code>ReplayAgent</code>)</td>
+<td><!-- agents: replay -->SAC, ASAC, RVI-SAC, REDQ, CrossQ, TQC, TD3, IQL, DQN, DAgger<!-- /agents --></td>
+<td>rows sampled from a replay buffer of past transitions</td>
+</tr>
+<tr>
+<td>On-policy agents (<code>OnPolicyAgent</code>)</td>
+<td><!-- agents: on-policy -->PPO, APO, PQN<!-- /agents --></td>
+<td>the rollout just collected, then discarded</td>
+</tr>
+<tr>
+<td>Incremental agent (<code>IncrementalAgent</code>)</td>
+<td><!-- agents: incremental -->AVG<!-- /agents --></td>
+<td>each step as it comes, with no replay</td>
+</tr>
+<tr>
+<td>Agents with an iteration of their own (<code>OwnIterationAgent</code>)</td>
+<td><!-- agents: own-iteration -->UDRL, APG<!-- /agents --></td>
+<td>UDRL: a replay of episode segments; APG: gradients through the simulator</td>
+</tr>
+<tr>
+<td>World models (<code>OwnReplayAgent</code>)</td>
+<td><!-- agents: own-replay -->DreamerV3, TD-MPC2<!-- /agents --></td>
+<td>a replay of their own, which trains the model and the policy</td>
+</tr>
+</tbody>
+</table>
+<p><code>TDMPC2MultiTask</code> is outside the families: it learns from a dataset only.</p>
+<p>Two properties follow the replay agents:</p>
+<ul>
+<li><strong>Training offline.</strong> The replay agents
+  (<!-- agents: offline -->SAC, ASAC, RVI-SAC, REDQ, CrossQ, TQC, TD3, IQL, DQN, DAgger<!-- /agents -->)
+  accept a dataset in place of the environment
+  (<a href="../guide/training/#training-offline"><code>train_offline</code></a>).</li>
+<li><strong>Sequence replay.</strong> Six of them
+  (<!-- agents: sequence-replay -->SAC, ASAC, RVI-SAC, REDQ, TQC, TD3<!-- /agents -->)
+  take <code>memory=</code> and then replay sequences
+  (<a href="../guide/memory/#off-policy-sequence-replay">Memory</a>).</li>
+</ul>
+<p>A test compares each of these lists with the classes
+(<code>tests/test_docs_agent_sets.py</code>).</p>
 <h2 id="which-agent-should-i-use">Which agent should I use?<a class="headerlink" href="#which-agent-should-i-use" title="Permanent link">&para;</a></h2>
 <p>Start from your problem, not from the algorithm.</p>
 <p><strong>Discrete actions.</strong> <a href="ppo/">PPO</a> is the general choice; it also takes

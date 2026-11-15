@@ -409,6 +409,8 @@
       
         
       
+        
+      
     
     
     
@@ -525,6 +527,34 @@
     
   
     Why Ajax
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="getting-started/coming-from-sb3/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Coming from SB3
   
 
     
@@ -1915,6 +1945,8 @@
       
         
       
+        
+      
     
     
     
@@ -2003,6 +2035,34 @@
     
   
     Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="developer/extension-phases/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Extension phases
   
 
     
@@ -2135,7 +2195,7 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_6" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_7" >
         
           
           <div class="md-nav__link md-nav__container">
@@ -2157,14 +2217,14 @@
             </a>
             
               
-              <label class="md-nav__link " for="__nav_6_6" id="__nav_6_6_label" tabindex="0">
+              <label class="md-nav__link " for="__nav_6_7" id="__nav_6_7_label" tabindex="0">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_6_6_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_6_6">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_6_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_7">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -2660,6 +2720,127 @@
   
 
     
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Releases
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Releases
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="upgrading/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Upgrading
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
   </ul>
 </nav>
                   </div>
@@ -2794,7 +2975,10 @@ extension it cannot run; <a href="guide/compatibility/">Compatibility</a> shows 
 agent runs which.</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>pip<span class="w"> </span>install<span class="w"> </span>ajax-rl<span class="w">                 </span><span class="c1"># imports as ajax; Python 3.12 or newer</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>pip<span class="w"> </span>install<span class="w"> </span><span class="s2">&quot;ajax-rl[playground]&quot;</span><span class="w">   </span><span class="c1"># adds Brax and MuJoCo Playground environments</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>pip<span class="w"> </span>install<span class="w"> </span><span class="s2">&quot;ajax-rl[cuda]&quot;</span><span class="w">         </span><span class="c1"># adds CUDA, on Linux with an NVIDIA GPU</span>
 </code></pre></div>
+<p><a href="getting-started/installation/">Installation</a> covers the other extras and
+installing from a clone.</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax</span><span class="w"> </span><span class="kn">import</span> <span class="n">PPO</span>
 <a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax.logging</span><span class="w"> </span><span class="kn">import</span> <span class="n">LoggingConfig</span>
 <a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>
@@ -2861,6 +3045,11 @@ agent runs which.</p>
   changes, actor and critic pre-training, offline RL, adversarial imitation
   and diagnostics, each usable with the agents that run the training phases
   it touches.</li>
+<li><a href="guide/training/#presets">Presets</a>: the settings an agent's reference
+  code tunes for one task, as <code>Agent.preset(task, env_id)</code>.</li>
+<li><a href="guide/training/#hyperparameter-sweeps">Hyperparameter sweeps</a>:
+  <code>train(sweep=...)</code> trains several configurations, each with every seed, in
+  one compiled program.</li>
 <li><a href="guide/training/#training-offline">Training offline</a>: a replay agent
   trains on a transition dataset before it acts, then fine-tunes online.</li>
 <li><a href="guide/expert-guidance/">Expert guidance</a>: learn from an existing
@@ -2868,7 +3057,10 @@ agent runs which.</p>
   its action units.</li>
 <li><a href="guide/memory/">Memory</a>: GRU, LSTM, transformer or Mamba blocks, with
   R2D2-style sequence replay.</li>
-<li><a href="guide/networks/">PID policy</a>: a PID controller as the actor, whose learned
+<li><a href="guide/networks/">Networks</a>: hidden layers, initialisers, a shared
+  encoder, and hidden layers per output head
+  (<a href="guide/networks/#layers-per-head"><code>head_architecture</code></a>).</li>
+<li><a href="guide/networks/#the-pid-policy">PID policy</a>: a PID controller as the actor, whose learned
   gains deploy as a plain PID.</li>
 <li><a href="guide/differentiable-simulation/">Differentiable simulation</a>: APG through
   gymnax dynamics, across distributions of physical parameters.</li>
@@ -2878,8 +3070,17 @@ agent runs which.</p>
   id, with wrappers for normalisation, observation noise, reference tracking
   and more; every continuous agent's <code>[-1, 1]</code> actions are mapped onto the
   environment's bounds.</li>
+<li><a href="guide/environments/#gymnasiums-mujoco-tasks-in-jax">Gymnasium's MuJoCo tasks in JAX</a>
+  (<code>"mujoco:&lt;id&gt;"</code>) and <a href="guide/environments/#mujoco-warp-on-a-gpu">MuJoCo Warp physics</a>
+  on an NVIDIA GPU (<code>physics="warp"</code>).</li>
+<li><a href="guide/environments/#normalisation">Normalisation</a>: running observation
+  statistics, and rewards divided by the spread of the discounted return
+  (<code>normalize_rewards</code>).</li>
 <li><a href="guide/logging/">Logging</a> and <a href="guide/checkpoints/">checkpoints</a>:
   evaluations as arrays, W&amp;B or TensorBoard, resuming in another process.</li>
+<li><a href="guide/logging/#evaluating-on-another-device">Evaluating on another device</a>:
+  with <code>LoggingConfig(evaluation_device=...)</code>, training goes on while a
+  thread scores the policy.</li>
 <li><a href="guide/performance/">Performance</a>: every seed in one program, a persistent
   compile cache, one per machine and JAX version.</li>
 <li><a href="guide/comparing-agents/">Comparing agents</a>: AdaStop, which trains more
@@ -2896,6 +3097,7 @@ agent runs which.</p>
 <p><a href="getting-started/installation/">Installation</a> ·
 <a href="getting-started/quickstart/">Quickstart</a> ·
 <a href="getting-started/why-ajax/">Why Ajax</a> ·
+<a href="getting-started/coming-from-sb3/">Coming from SB3</a> ·
 <a href="guide/training/">Training an agent</a> ·
 <a href="algorithms/">Algorithms</a></p>
 </li>

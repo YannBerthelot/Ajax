@@ -218,6 +218,14 @@ class ActorCritic:
     # construction check reads. Each is covered by a test that a sweep trains
     # as separate runs of its configurations would.
     sweepable: ClassVar[frozenset[str]] = frozenset()
+    # What construction builds from a field and keeps: the field's name, then
+    # the attribute built and the field of it that holds the value. A sweep
+    # member's copy rebuilds each one it sets (member); an agent building
+    # more from a sweepable field adds it here.
+    derived_at_construction: ClassVar[Mapping[str, tuple[str, str]]] = {
+        "actor_learning_rate": ("actor_optimizer_args", "learning_rate"),
+        "critic_learning_rate": ("critic_optimizer_args", "learning_rate"),
+    }
     #: Each leading row of the last train call's state: its seed and its
     #: configuration's swept values, configuration-major.
     members: list[dict[str, float]]
@@ -594,8 +602,9 @@ class ActorCritic:
 
     def member(self, values: Mapping[str, Any]) -> "ActorCritic":
         """This agent as one member of a sweep: the fields named in values
-        set to them, traced numbers, and the optimiser configs construction
-        built from its learning rates rebuilt (ajax.agents.sweep).
+        set to them, traced numbers, and what construction built from them
+        rebuilt (derived_at_construction: the optimiser configs, from the
+        learning rates; ajax.agents.sweep).
 
         The copy is not constructed again: a sweepable field is one no
         construction check reads, and a traced value could not be checked.
@@ -605,15 +614,10 @@ class ActorCritic:
         member = copy.copy(self)
         for name, value in values.items():
             object.__setattr__(member, name, value)
-        for name, config in (
-            ("actor_learning_rate", "actor_optimizer_args"),
-            ("critic_learning_rate", "critic_optimizer_args"),
-        ):
+        for name, (built, held) in self.derived_at_construction.items():
             if name in values:
-                rebuilt = getattr(self, config).replace(
-                    learning_rate=getattr(member, name)
-                )
-                object.__setattr__(member, config, rebuilt)
+                rebuilt = getattr(self, built).replace(**{held: values[name]})
+                object.__setattr__(member, built, rebuilt)
         return member
 
     def get_make_train(self) -> Callable:

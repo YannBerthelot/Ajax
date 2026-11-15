@@ -46,6 +46,7 @@ from ajax.agents.base import ActorCritic, run_horizon, shared_counters
 from ajax.agents.loop import LOOP_PHASES, Evaluation, TrainLoop
 from ajax.agents.presets import presets_of
 from ajax.agents.recurrent import (
+    NI_FEATURES,
     NI_LAYOUT,
     NI_MEMORY_INITS,
     NI_MEMORY_WIDTH,
@@ -54,6 +55,7 @@ from ajax.agents.recurrent import (
     replayed_window,
     stored_actor_carry_dim,
     unsupported_recurrent_options,
+    with_features,
 )
 
 # Imported under another name: ReplayAgent's own hook is make_replay_buffer.
@@ -82,7 +84,6 @@ from ajax.environments.row_collector import resume_tick
 from ajax.environments.utils import get_state_action_shapes
 from ajax.evaluate import ValueEstimate
 from ajax.extensions.base import Extension, ExtensionStack, holds_expert
-from ajax.extensions.observe import PreviousAction, PreviousReward
 from ajax.networks.memory import (
     MemoryConfig,
     parse_memory_config,
@@ -1112,7 +1113,9 @@ class RecurrentReplayAgent(ReplayAgent):
     the agent's actor_critic_args takes). They read the previous action and
     the previous reward, so a run with memory observes both: PreviousAction
     and PreviousReward join its extensions where it has none of them (owner,
-    2026-11-13: on by default, as Ni et al.'s networks read them).
+    2026-11-13: on by default, as Ni et al.'s networks read them). The
+    family names neither: reference_features and reference_layout do, and a
+    subclass overrides the two together.
 
     Its batch_size counts rows without memory, windows with it; None is
     256 rows (each agent's reference's) or Ni et al.'s 64 windows. The
@@ -1147,13 +1150,27 @@ class RecurrentReplayAgent(ReplayAgent):
             self.memory = with_reference_defaults(
                 parse_memory_config(self.memory), NI_MEMORY_INITS, NI_MEMORY_WIDTH
             )
-            self.extensions = with_ni_features(self.extensions)
+            self.extensions = with_features(self.extensions, self.reference_features())
         super().__post_init__()
 
     def _build_family(self) -> None:
         if self.memory is not None:
-            self.network_args = self.network_args.replace(**NI_LAYOUT)
+            self.network_args = self.network_args.replace(**self.reference_layout())
         super()._build_family()
+
+    def reference_features(self) -> tuple[Extension, ...]:
+        """The observation features a run with memory observes, each added
+        where its extensions have none of the kind: those reference_layout's
+        memory reads (Ni et al.'s previous action and previous reward). A
+        subclass returning none also returns a reference_layout embedding
+        none; a Q-critic's memory then reads the previous action the replay
+        appends (ajax.agents.recurrent.previous_actions)."""
+        return NI_FEATURES
+
+    def reference_layout(self) -> dict[str, Any]:
+        """The NetworkConfig fields of the networks with memory (Ni et
+        al.'s layout); {} keeps the agent's own."""
+        return NI_LAYOUT
 
     def make_replay_buffer(self) -> BufferType:
         return make_recurrent_replay_buffer(
@@ -1172,14 +1189,10 @@ class RecurrentReplayAgent(ReplayAgent):
 
 
 def with_ni_features(extensions: Sequence[Extension]) -> tuple[Extension, ...]:
-    """extensions with the features Ni et al.'s recurrent networks read,
-    the previous action and the previous reward (PreviousAction,
-    PreviousReward), each appended where none is there."""
-    kept = tuple(extensions)
-    for feature in (PreviousAction(), PreviousReward()):
-        if not any(isinstance(extension, type(feature)) for extension in kept):
-            kept = (*kept, feature)
-    return kept
+    """Deprecated: with_features(extensions, NI_FEATURES)
+    (ajax.agents.recurrent). Kept while the name is on the agents' recorded
+    surface (CLAUDE.md, refactoring rule 10: expand, then contract)."""
+    return with_features(extensions, NI_FEATURES)
 
 
 @dataclass(kw_only=True, eq=False, repr=False)

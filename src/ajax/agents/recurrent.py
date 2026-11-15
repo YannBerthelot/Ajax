@@ -42,7 +42,7 @@ another action never changes the memory (Critic.query_dim), as in Ni et al.
 policies/models/recurrent_critic.py:129-139 and 165-186).
 """
 
-from typing import Any, Optional, Tuple
+from typing import Any, Optional, Sequence, Tuple
 
 import jax
 import jax.numpy as jnp
@@ -55,6 +55,8 @@ from ajax.buffers.utils import (
     normalized_rewards,
 )
 from ajax.environments.interaction import get_pi, get_pi_sequence, reward_statistics
+from ajax.extensions.base import Extension
+from ajax.extensions.observe import PreviousAction, PreviousReward
 from ajax.networks.memory import (
     MemoryConfig,
     flat_carry_dim,
@@ -117,6 +119,22 @@ NI_LAYOUT: dict[str, Any] = {
     "critics_share_encoder": True,
     "squash_log_det_eps": 1e-6,
 }
+
+
+#: The observation features NI_LAYOUT's memory reads beside the observation.
+NI_FEATURES: Tuple[Extension, ...] = (PreviousAction(), PreviousReward())
+
+
+def with_features(
+    extensions: Sequence[Extension], features: Sequence[Extension]
+) -> Tuple[Extension, ...]:
+    """extensions with each of features appended where none of its kind is
+    there."""
+    kept = tuple(extensions)
+    for feature in features:
+        if not any(isinstance(extension, type(feature)) for extension in kept):
+            kept = (*kept, feature)
+    return kept
 
 
 def ni_initialisation(deterministic: bool = False) -> dict[str, Any]:

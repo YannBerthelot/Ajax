@@ -38,10 +38,11 @@ Every agent but DreamerV3 and TD-MPC2 is a declared agent: its
 hyperparameters are the fields of a dataclass on a family of
 `ajax.agents.families`, which builds its constructor (keyword-only after
 `env_id`), run config and train function: a replay
-(SAC, TQC, REDQ, ASAC, RVISAC, CrossQ, TD3, IQL, DQN, DAgger: `ReplayAgent`), each
+(<!-- agents: replay -->SAC, TQC, REDQ, ASAC, RVISAC, CrossQ, TD3, IQL, DQN, DAgger<!-- /agents -->: `ReplayAgent`), each
 step as it comes (AVG: `IncrementalAgent`), rollouts (PPO, APO, PQN:
 `OnPolicyAgent`) or an iteration of its own (UDRL, APG:
-`OwnIterationAgent`). Its fields are fixed once built:
+`OwnIterationAgent`); [Agent families](../algorithms/index.md#agent-families)
+lists them. Its fields are fixed once built:
 `dataclasses.replace(agent, gamma=0.9)` builds another.
 
 ::: ajax.agents.base.ActorCritic

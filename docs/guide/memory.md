@@ -175,7 +175,8 @@ positive, otherwise `max(n_steps, batch_size) // min(n_steps, batch_size)`
 
 ## Off-policy: sequence replay
 
-The replay agents (SAC, ASAC, REDQ, TD3, TQC, RVI-SAC) store whole
+Six of the [replay agents](../algorithms/index.md#agent-families)
+(<!-- agents: sequence-replay -->SAC, ASAC, REDQ, TD3, TQC, RVI-SAC<!-- /agents -->) store whole
 trajectories and learn from contiguous sequences, as Ni et al. (2022) do,
 with R2D2's burn-in and stored state as options (Kapturowski et al., 2019):
 

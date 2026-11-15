@@ -58,6 +58,36 @@ several seeds in a single compiled program with
   critic's estimate minus the discounted return actually obtained, averaged
   over the evaluated steps.
 
+## Agent families
+
+An agent belongs to a family according to where its updates take their data
+from. The other pages use these names, and a family's class in
+`ajax.agents.families` builds its agents' training loop.
+
+| Family | Agents | Its updates learn from |
+| --- | --- | --- |
+| Replay agents (`ReplayAgent`) | <!-- agents: replay -->SAC, ASAC, RVI-SAC, REDQ, CrossQ, TQC, TD3, IQL, DQN, DAgger<!-- /agents --> | rows sampled from a replay buffer of past transitions |
+| On-policy agents (`OnPolicyAgent`) | <!-- agents: on-policy -->PPO, APO, PQN<!-- /agents --> | the rollout just collected, then discarded |
+| Incremental agent (`IncrementalAgent`) | <!-- agents: incremental -->AVG<!-- /agents --> | each step as it comes, with no replay |
+| Agents with an iteration of their own (`OwnIterationAgent`) | <!-- agents: own-iteration -->UDRL, APG<!-- /agents --> | UDRL: a replay of episode segments; APG: gradients through the simulator |
+| World models (`OwnReplayAgent`) | <!-- agents: own-replay -->DreamerV3, TD-MPC2<!-- /agents --> | a replay of their own, which trains the model and the policy |
+
+`TDMPC2MultiTask` is outside the families: it learns from a dataset only.
+
+Two properties follow the replay agents:
+
+- **Training offline.** The replay agents
+  (<!-- agents: offline -->SAC, ASAC, RVI-SAC, REDQ, CrossQ, TQC, TD3, IQL, DQN, DAgger<!-- /agents -->)
+  accept a dataset in place of the environment
+  ([`train_offline`](../guide/training.md#training-offline)).
+- **Sequence replay.** Six of them
+  (<!-- agents: sequence-replay -->SAC, ASAC, RVI-SAC, REDQ, TQC, TD3<!-- /agents -->)
+  take `memory=` and then replay sequences
+  ([Memory](../guide/memory.md#off-policy-sequence-replay)).
+
+A test compares each of these lists with the classes
+(`tests/test_docs_agent_sets.py`).
+
 ## Which agent should I use?
 
 Start from your problem, not from the algorithm.

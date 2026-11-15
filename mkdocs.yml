@@ -190,3 +190,6 @@ nav:
       - Buffers: api/buffers.md
       - Logging, evaluation and checkpoints: api/logging.md
       - Comparing agents: api/compare.md
+  - Releases:
+      - Changelog: changelog.md
+      - Upgrading: upgrading.md

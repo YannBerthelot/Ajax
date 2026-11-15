@@ -53,7 +53,11 @@ agent runs which.
 ```bash
 pip install ajax-rl                 # imports as ajax; Python 3.12 or newer
 pip install "ajax-rl[playground]"   # adds Brax and MuJoCo Playground environments
+pip install "ajax-rl[cuda]"         # adds CUDA, on Linux with an NVIDIA GPU
 ```
+
+[Installation](getting-started/installation.md) covers the other extras and
+installing from a clone.
 
 ```python
 from ajax import PPO

@@ -1658,6 +1658,7 @@ class OwnReplayAgent(DeclaredAgent):
         initial_state: Any = None,
         total_timesteps: Optional[int] = None,
         sweep: Optional[Sweep] = None,
+        devices: Optional[Sequence[Any]] = None,
         **kwargs: Any,
     ) -> tuple[Any, Any]:
         """ActorCritic.train on the call's replay (prepare_replay), which
@@ -1687,6 +1688,7 @@ class OwnReplayAgent(DeclaredAgent):
             initial_state=state,
             total_timesteps=total_timesteps,
             sweep=sweep,
+            devices=devices,
             replay=replay,
             start_tick=start_tick,
             **kwargs,

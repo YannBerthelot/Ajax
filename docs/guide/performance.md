@@ -72,6 +72,29 @@ seeds made the time per seed and step worse for several method and
 environment pairs, by up to 81%. Measure your own configuration before
 settling on a seed count.
 
+## Seeds over several devices
+
+Once one device is busy, `train(devices=...)` splits the seeds (or a
+sweep's configurations over the seeds) over several: each device trains a
+consecutive slice of them at the same time, and the results come back in
+the usual order, on the first device.
+
+```python
+import jax
+from ajax import PPO
+
+agent = PPO("Pendulum-v1", n_envs=2, n_steps=8)
+state, out = agent.train(seed=range(4), n_timesteps=64, devices=jax.devices())
+```
+
+Each seed trains as it does on one device, but for rounding, which a long
+run can amplify, as a change of the seed count does on one device. Each replay
+buffer lives on the device that trains its seed, so the memory is split
+too. A slice of another size is another program to compile: a number of
+seeds the devices divide compiles once per device at most. One run is
+never spread over devices: its environments and its updates stay on one.
+A Gymnasium environment and an `evaluation_device` take no `devices`.
+
 ## Parallel environments
 
 `n_envs` copies of the environment step together inside each seed, as one

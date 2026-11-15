@@ -241,9 +241,10 @@ end-to-end JAX libraries, not beside these two.
   checker for it ([custom envs][sb3-env], [README][sbx]); TorchRL and
   Tianshou take them too ([TorchRL][torchrl], [Tianshou][tianshou]). For such
   environments at scale, Stoix has its Sebulba architecture ([Stoix][stoix]).
-- **You train on several devices.** Ajax runs on one device for now; it has
-  no `pmap` or sharding. Brax's training agents and Stoix train across
-  devices ([Brax][brax-agents], [Stoix][stoix]).
+- **You train one run on several devices.** Ajax splits a run's seeds
+  over devices ([Performance](../guide/performance.md)), but each seed
+  trains on one: it has no `pmap` or sharding. Brax's training agents and
+  Stoix train across devices ([Brax][brax-agents], [Stoix][stoix]).
 - **You want a hyperparameter sweep in one program.** Ajax compiles the
   hyperparameters into the program, so each trial of a sweep compiles anew
   ([Performance](../guide/performance.md)). Rejax vmaps over

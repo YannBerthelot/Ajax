@@ -9,6 +9,7 @@ import jax.numpy as jnp
 import numpy as np
 from gymnax import EnvParams
 
+from ajax.agents.devices import checked_devices, train_on_devices
 from ajax.agents.sweep import Sweep, member_row, member_values
 from ajax.agents.sweep import check as check_sweep
 from ajax.agents.sweep import configurations as sweep_configurations
@@ -570,6 +571,13 @@ class ActorCritic:
         del initial_state
         return 0
 
+    def resume_offset_kwargs(self, initial_state: BaseAgentState) -> dict:
+        """:meth:`resume_iteration_offset` as the train function's keyword.
+        Only passed when non-zero: the default (0) keeps the call -- and the
+        train functions that predate the offset -- unchanged."""
+        offset = int(self.resume_iteration_offset(initial_state))
+        return {"iteration_offset": jnp.asarray(offset, jnp.int32)} if offset else {}
+
     def resumed_state(
         self, state: BaseAgentState, n_timesteps: int, train_options: dict
     ) -> BaseAgentState:
@@ -628,6 +636,7 @@ class ActorCritic:
         initial_state: Optional[BaseAgentState] = None,
         total_timesteps: Optional[int] = None,
         sweep: Optional[Sweep] = None,
+        devices: Optional[Sequence[Any]] = None,
         **kwargs,
     ) -> tuple[BaseAgentState, Any]:
         """
@@ -654,6 +663,11 @@ class ActorCritic:
                 configurations, over the agent's sweepable fields
                 (:meth:`sweepable_fields`). A sweep resumes with the same
                 seed and sweep.
+            devices: JAX devices (``jax.devices()``) to split the members
+                over, each training a slice of them at the same time; the
+                results come back on the first. A member trains as it does
+                on one device, but for rounding. ``None``: the default
+                device trains them all.
 
         Returns ``(state, out)``, each leaf with a leading axis over the
         members: the seeds, or the sweep's configurations, each over the
@@ -674,6 +688,7 @@ class ActorCritic:
                 " simulator's state lives in Python, outside the state, so the"
                 " episodes it was in cannot continue."
             )
+        devices = checked_devices(devices, in_python, logging_config)
         found = sweep_configurations(sweep)
         if found:
             check_sweep(type(self).__name__, self.sweepable_fields(), list(found[0]))
@@ -771,21 +786,18 @@ class ActorCritic:
         values = member_values([configuration for configuration, _ in pairs])
         index = jnp.arange(len(pairs))
         keys = jax.vmap(jax.random.PRNGKey)(jnp.array([s for _, s in pairs]))
-        if in_python:
-            result = _seed_by_seed(partial(run, values={}), keys, index)
-        elif initial_state is None:
-            result = jax.vmap(run)(keys, index, values)
-        else:
-            # Only passed when non-zero: the default (0) keeps the call --
-            # and the train functions that predate the offset -- unchanged.
-            iteration_offset = int(self.resume_iteration_offset(initial_state))
-            offset_kwargs = (
-                {}
-                if iteration_offset == 0
-                else {"iteration_offset": jnp.asarray(iteration_offset, jnp.int32)}
-            )
+        batched: tuple = (keys, index, values)
+        train_members: Callable = jax.vmap(run)
+        if initial_state is not None:
+            offset_kwargs = self.resume_offset_kwargs(initial_state)
 
-            def resume(key, index, values, state, counters, offset_kwargs):
+            def resume(counters, offset_kwargs, key, index, values, state):
+                # Copies: the training program takes over the buffers of the
+                # state the counters go into, and each device's slice
+                # passes through here.
+                counters, offset_kwargs = jax.tree.map(
+                    jnp.copy, (counters, offset_kwargs)
+                )
                 state = with_shared_counters(state, counters)
                 return run(
                     key,
@@ -799,9 +811,17 @@ class ActorCritic:
             # The offset and the shared counters are unbatched (in_axes
             # None): every schedule and gate derived from them must stay
             # unbatched under the vmap.
-            result = jax.vmap(resume, in_axes=(0, 0, 0, 0, None, None))(
-                keys, index, values, initial_state, counters, offset_kwargs
+            batched = (keys, index, values, initial_state)
+            train_members = partial(
+                jax.vmap(resume, in_axes=(None, None, 0, 0, 0, 0)),
+                counters,
+                offset_kwargs,
             )
+
+        if in_python:
+            result = _seed_by_seed(partial(run, values={}), keys, index)
+        else:
+            result = train_on_devices(train_members, batched, devices)
         # Block until all XLA computation and debug.callbacks complete, then
         # drain and stop the logging worker.  Calling stop_async_logging()
         # inside the vmapped function was wrong: it ran as a Python side effect

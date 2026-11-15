@@ -100,6 +100,12 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         default=None,
         help="I/N: run shard I of N, split by recorded durations (tests/shards.py)",
     )
+    parser.addoption(
+        "--shard-by",
+        choices=("test", "file"),
+        default="test",
+        help="what --shard splits: tests, or files whose tests stay together",
+    )
 
 
 def pytest_itemcollected(item: pytest.Item) -> None:
@@ -117,10 +123,12 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list) -> None:
         raise pytest.UsageError(f"--shard {option}: need 1 <= I <= N")
     from tests import shards
 
-    mine = [
-        s == index - 1
-        for s in shards.assign([i.nodeid for i in items], shards.load(), n)
-    ]
+    nodeids = [i.nodeid for i in items]
+    if config.getoption("--shard-by") == "file":
+        picked = shards.assign_files(nodeids, shards.load(shards.FILE_DURATIONS), n)
+    else:
+        picked = shards.assign(nodeids, shards.load(), n)
+    mine = [s == index - 1 for s in picked]
     config.hook.pytest_deselected(
         items=[i for i, keep in zip(items, mine, strict=False) if not keep]
     )

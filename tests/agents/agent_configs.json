@@ -267,6 +267,7 @@
    "env_params": null,
    "episode_length": null,
    "epsilon_decay_frac": 0.5,
+   "epsilon_decay_start": 0,
    "epsilon_end": 0.05,
    "epsilon_start": 1.0,
    "eval_expert_policy": null,

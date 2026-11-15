@@ -14,6 +14,16 @@ The next release is 0.6.0: the first item changes results.
   rewards and statistics. It now restarts at zero, as SB3's
   `VecNormalize.reset` does; the statistics stay.
 
+- **DQN's Atari preset holds epsilon at 1 during the warm-up.** Mnih et
+  al.'s code starts the decay after its 50,000 warm-up steps and ends it a
+  million steps later (google-deepmind/dqn@9d9b1d1,
+  `NeuralQLearner.lua:369-371`); the preset decayed from step 0 to the same
+  end, so its epsilon was up to 0.043 lower in between. DQN gains
+  `epsilon_decay_start` (0 by default: other runs are unchanged), which the
+  preset sets to 50,000 with `epsilon_decay_frac=0.02`. Upgrade: for the
+  earlier schedule, pass `epsilon_decay_start=0,
+  epsilon_decay_frac=0.021` to `DQN.preset("Atari", ...)`.
+
 - **Fixed: n-step rewards were clipped after the sum.** With `n_step` above
   1 and `normalize_rewards`, each reward of a row is now divided and clipped
   at 10 before the discounted sum, as collection clips it and as SB3's

@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from types import SimpleNamespace
 
 import jax
 import jax.numpy as jnp
@@ -104,6 +105,40 @@ def test_an_evaluation_between_updates_logs_the_last_update_s_metrics():
     np.testing.assert_array_equal(np.ravel(out["timestep"]), [5, 10, 15, 20, 25, 30])
     expected = [np.nan, 0.683333, 0.683333, 0.366667, 0.366667, 0.05]
     np.testing.assert_allclose(np.ravel(out["policy/epsilon"]), expected, rtol=1e-5)
+
+
+def test_epsilon_holds_until_its_decay_start_then_decays():
+    """Catches a decay that starts at step 0 whatever epsilon_decay_start.
+    Held at 1 for 10 steps, then to 0.1 over 20 (two thirds of 30): the
+    updates at 10, 20 and 30 read 1, 0.1 + 0.9 * 10 / 20 = 0.55, and 0.1;
+    the evaluations between log the update before them."""
+    logging = LoggingConfig(log_frequency=5, backends=())
+    agent = DQN(
+        env_id="CartPole-v1",
+        architecture=("16", "relu"),
+        learning_starts=10,
+        batch_size=8,
+        epsilon_end=0.1,
+        epsilon_decay_start=10,
+        epsilon_decay_frac=20 / 30,
+    )
+    _, out = agent.train(
+        seed=0, n_timesteps=30, num_episode_test=1, logging_config=logging
+    )
+    expected = [np.nan, 1.0, 1.0, 0.55, 0.55, 0.1]
+    np.testing.assert_allclose(np.ravel(out["policy/epsilon"]), expected, rtol=1e-5)
+
+
+def test_the_atari_preset_s_epsilon_is_mnih_et_al_s():
+    """Catches a decay from step 0, or one that ends elsewhere. The
+    reference (google-deepmind/dqn@9d9b1d1, NeuralQLearner.lua:369-371, with
+    run_gpu's ep=1, ep_end=0.1, ep_endt=1e6, learn_start=5e4, steps=5e7):
+    ep_end + max(0, 0.9 * (1e6 - max(0, step - 5e4)) / 1e6), so 1 until
+    step 50,000, 0.55 at 550,000, 0.1 from 1,050,000."""
+    agent = DQN.preset("Atari", "CartPole-v1")
+    schedule = agent.make_epsilon_schedule(SimpleNamespace(total_timesteps=50_000_000))
+    steps = np.array([0, 50_000, 550_000, 1_050_000, 2_000_000])
+    np.testing.assert_allclose(schedule(steps), [1.0, 1.0, 0.55, 0.1, 0.1], rtol=1e-5)
 
 
 def test_dqn_defaults_are_cleanrl_s():

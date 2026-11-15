@@ -76,6 +76,7 @@ and loss (see Notes).
 | `tau` | `1.0` | refresh rate: `1.0` copies the weights, below `1` is a Polyak step |
 | `epsilon_start`, `epsilon_end` | `1.0`, `0.05` | exploration rate at the start and the end of its decay |
 | `epsilon_decay_frac` | `0.5` | fraction of the run over which epsilon decays |
+| `epsilon_decay_start` | `0` | step at which the decay starts; epsilon is `epsilon_start` until then |
 | `reward_scale` | `1.0` | multiplies the rewards in the target |
 | `max_grad_norm` | `None` | gradient clipping |
 | `normalize_observations`, `normalize_rewards` | `False` | running normalisation |
@@ -94,9 +95,10 @@ and loss (see Notes).
 [Presets](../guide/training.md#presets)): a 1,000,000-row replay, batches of
 32, 50,000 warm-up steps, one update every 4 steps (`train_frequency=4`), the
 target refreshed every 10,000 steps (`target_update_interval=2_500`
-updates), epsilon falling to 0.1 by step 1,050,000. That last is a fraction
-of the reference's 50M-step run (`epsilon_decay_frac=0.021`), so it comes
-sooner in a shorter run. Atari's frame skip and stack, no-op starts and
+updates), epsilon held at 1 for the warm-up (`epsilon_decay_start=50_000`)
+then falling to 0.1 over a million steps. That million is a fraction
+of the reference's 50M-step run (`epsilon_decay_frac=0.02`), so it is
+shorter in a shorter run. Atari's frame skip and stack, no-op starts and
 reward clipping are the environment's.
 
 ## Notes
@@ -126,7 +128,8 @@ reward clipping are the environment's.
   optimiser and Huber loss (below).
 - **Exploration.** Epsilon decays linearly with the training fraction (the
   timestep over the run's total), from `epsilon_start` to `epsilon_end`
-  over the first `epsilon_decay_frac` of the run. Before `learning_starts`
+  over `epsilon_decay_frac` of the run, starting at step
+  `epsilon_decay_start` (0 by default). Before `learning_starts`
   every action is uniform. Evaluation is greedy.
 - **Time limits.** A transition cut by a time limit bootstraps on its final
   observation; only a termination stops the bootstrap.

@@ -63,6 +63,25 @@ def test_it_logs_the_term_the_kernel_and_the_bandwidth() -> None:
     assert metrics["kernel_repulsion/term"] is term
 
 
+def test_the_kernel_is_the_mean_rbf_of_the_critics_squared_distances() -> None:
+    """mean over critic pairs of exp(-d_ij^2 / h), h the median heuristic
+    (Liu & Wang 2016), worked in NumPy from the critics' predictions. A
+    kernel growing with the distance (a lost minus sign) would pull the
+    critics together; the step test below passed with that fault planted
+    (2026-11-15). float32: 1e-5 relative."""
+    params = {"w": jnp.array([1.0, 1.5, 3.0, 4.0])}
+    _, metrics = _phase(params)
+    feats = np.asarray(_apply(params, jnp.concatenate((OBS, ACTIONS), axis=-1)))
+    feats = feats.reshape(4, -1).astype(np.float64)
+    sq_dists = ((feats[:, None] - feats[None]) ** 2).sum(-1)
+    bandwidth = np.median(sq_dists) / np.log(4)
+    np.testing.assert_allclose(
+        metrics["kernel_repulsion/kernel"],
+        np.exp(-sq_dists / bandwidth).mean(),
+        rtol=1e-5,
+    )
+
+
 def test_its_gradient_pushes_the_critics_apart() -> None:
     params = {"w": jnp.array([1.0, 1.1, 1.2, 1.3])}
     grads = jax.grad(_term)(params)

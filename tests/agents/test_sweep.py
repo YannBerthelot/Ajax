@@ -24,6 +24,7 @@ import numpy as np
 import pytest
 
 from ajax import PPO, SAC, TDMPC2
+from ajax.agents.sweep import configurations
 from ajax.logging.wandb_logging import LoggingConfig
 from tests.agents.TDMPC2.common import TINY_AGENT as TDMPC2_TINY
 
@@ -138,6 +139,20 @@ def test_sac_members_train_and_evaluate_as_their_separate_runs() -> None:
     assert_members_train_as_separate_runs(
         tiny_sac, configurations, configurations, 64, evaluations
     )
+
+
+def test_a_dict_sweep_is_the_grid_of_its_lists_with_the_last_field_fastest() -> None:
+    """Two fields of two values give the four combinations, in the order
+    the docstring promises (the last field varies fastest): lists paired
+    element by element would give two, and another order would label each
+    member's results with another member's settings."""
+    grid = {"actor_learning_rate": [3e-4, 1e-3], "gamma": [0.9, 0.99]}
+    assert configurations(grid) == [
+        {"actor_learning_rate": 3e-4, "gamma": 0.9},
+        {"actor_learning_rate": 3e-4, "gamma": 0.99},
+        {"actor_learning_rate": 1e-3, "gamma": 0.9},
+        {"actor_learning_rate": 1e-3, "gamma": 0.99},
+    ]
 
 
 def test_ppo_trains_a_dict_sweeps_grid_configuration_major() -> None:

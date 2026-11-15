@@ -75,8 +75,11 @@ def steps(batch_stats: Any) -> set:
 
 
 def test_the_actor_trains_on_every_policy_delay_th_update() -> None:
-    """Updates from the 8th collected step to the 64th: 57 critic passes, 19
-    actor ones (the 3rd, 6th, ..., 57th update), each layer counting its own."""
+    """Updates from the 8th collected step to the 63rd: 56 critic passes, 18
+    actor ones (the 3rd, 6th, ..., 54th update, as the authors'
+    (n_updates + 1) % policy_delay), each layer counting its own. 56 is no
+    multiple of 3, so an actor stepping on the 1st, 4th, ..., 55th update
+    instead would count 19."""
     agent = CrossQ(
         "Pendulum-v1",
         actor_width=8,
@@ -85,7 +88,7 @@ def test_the_actor_trains_on_every_policy_delay_th_update() -> None:
         batch_size=8,
         buffer_size=128,
     )
-    state, _ = agent.train(seed=0, n_timesteps=64)
-    assert int(jnp.asarray(state.n_updates)[0]) == 57
-    assert steps(state.critic_state.batch_stats) == {57}
-    assert steps(state.actor_state.batch_stats) == {19}
+    state, _ = agent.train(seed=0, n_timesteps=63)
+    assert int(jnp.asarray(state.n_updates)[0]) == 56
+    assert steps(state.critic_state.batch_stats) == {56}
+    assert steps(state.actor_state.batch_stats) == {18}

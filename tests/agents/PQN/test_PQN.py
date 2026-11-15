@@ -135,6 +135,22 @@ def test_pqn_starts_every_dense_as_flax_default():
         np.testing.assert_array_equal(params[name]["bias"], 0.0, err_msg=name)
 
 
+def test_pqn_normalises_after_every_hidden_dense():
+    """PQN's defining layer: LayerNorm after each hidden Dense (Gallici et
+    al. 2024; purejaxql's pqn_gymnax.py). At initialisation the biases are
+    zero, so a Dense scales with its input and the LayerNorm after it
+    removes the scale: Q(10 x) = Q(x). Without the LayerNorms the Q-values
+    would be 10 times larger. LayerNorm's epsilon (1e-6 under the root)
+    leaves a relative difference of about 1e-6 here; 1e-4 allows float32."""
+    network = PQNNetwork(input_architecture=("16", "relu", "16", "relu"), n_actions=3)
+    obs = jax.random.normal(jax.random.PRNGKey(1), (5, 4))
+    params = network.init(jax.random.PRNGKey(0), obs)
+    q_values = network.apply(params, obs).q_values
+    scaled = network.apply(params, 10.0 * obs).q_values
+    assert float(jnp.abs(q_values).max()) > 1e-2  # not trivially equal at zero
+    np.testing.assert_allclose(scaled, q_values, rtol=1e-4, atol=1e-5)
+
+
 def test_pqn_images_build_purejaxql_s_network_and_train_on_minatar():
     """purejaxql's image networks: Mnih et al.'s from 36 px a side, MinAtar's
     below, he_normal with a LayerNorm after every layer, straight into the

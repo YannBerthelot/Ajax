@@ -3178,7 +3178,9 @@ reference's <code>dmc_proprio</code> (danijar/dreamerv3@<code>29eb964</code>, <c
 and <code>action_repeat=2</code>. The reference's other domains (Atari, Crafter, DMLab,
 Procgen) observe images, which Ajax's DreamerV3 does not encode yet.</p>
 <h2 id="key-hyperparameters">Key hyperparameters<a class="headerlink" href="#key-hyperparameters" title="Permanent link">&para;</a></h2>
-<p>Every default is the paper-era value.</p>
+<p>Every default is the paper-era value; <code>model_size</code> and <code>train_ratio</code> are
+those of the reference's <code>dmc_proprio</code> config (its own defaults block has
+the 200m widths and a ratio of 32).</p>
 <table>
 <thead>
 <tr>
@@ -3422,6 +3424,10 @@ optimiser (weight_decay included) is the DreamerV3Config field of the
 same name and default, documented there; setup builds model_config from
 them, the widths left None taking the model_size preset's. The env must
 not normalise observations or rewards.</p>
+<p>model_size and train_ratio default to the reference's dmc_proprio
+block, its config for vector observations (29eb964 configs.yaml:232-235:
+size12m, train_ratio 512), not to its defaults block (:113 the 200m
+widths, :52 train_ratio 32); every other default is that block's.</p>
 
 
 

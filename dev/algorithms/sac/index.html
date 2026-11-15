@@ -3280,6 +3280,14 @@ only SAC supports.</p>
   update: <code>num_critic_updates</code> critic steps, one actor step, one temperature
   step and one target update. With <code>n_envs=4</code> that is one update per four
   environment steps.</li>
+<li><strong>Update order, a deviation from the reference.</strong> <code>softlearning</code> at the
+  time of the learned-temperature paper (<code>a1253bc</code>, <code>sac.py:348-353</code>) runs
+  the critic, actor and temperature steps in one <code>session.run</code>: every
+  gradient reads the parameters from before the update, and the temperature
+  reads the actor loss's own sample. Ajax makes the steps one after the
+  other: the actor reads the stepped critics, and the temperature a fresh
+  sample of the stepped actor, as <code>softlearning</code>'s TensorFlow 2 port
+  (<code>13cf187</code>, <code>sac.py:277-281</code>) and CleanRL do.</li>
 <li><strong>Time limits.</strong> A transition cut by a time limit still bootstraps on its
   final observation; only a termination stops the bootstrap.</li>
 <li><strong>Temperature.</strong> The <code>alpha</code> step is never gradient-clipped, as in the
@@ -3455,7 +3463,10 @@ compilation) at main <code>a8a13c2</code> (see
 <p>Defaults are the learned-temperature version's (rail-berkeley/
 softlearning): 256-256 ReLU networks, two critics, Adam at 3e-4 with
 TensorFlow's eps 1e-8, tau 0.005, gamma 0.99, a target entropy of -1
-per action dimension, a 1e6 replay, batch 256 and 1e4 warm-up steps.
+per action dimension, a 1e6 replay, batch 256 and 1e4 warm-up steps
+(softlearning@a1253bc examples/development/variants.py:92-95, ten
+episodes of 1,000 steps on its benchmark domains; its base value, :51,
+is 1e3).
 The actor and the temperature step with the critics from the first
 update, as softlearning's single session.run of all its training ops
 does (a1253bc sac.py:348-353); policy_update_start and

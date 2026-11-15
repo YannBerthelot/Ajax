@@ -3198,6 +3198,11 @@ and loss (see Notes).</p>
 <td>fraction of the run over which epsilon decays</td>
 </tr>
 <tr>
+<td><code>epsilon_decay_start</code></td>
+<td><code>0</code></td>
+<td>step at which the decay starts; epsilon is <code>epsilon_start</code> until then</td>
+</tr>
+<tr>
 <td><code>reward_scale</code></td>
 <td><code>1.0</code></td>
 <td>multiplies the rewards in the target</td>
@@ -3255,9 +3260,10 @@ and loss (see Notes).</p>
 <a href="../../guide/training/#presets">Presets</a>): a 1,000,000-row replay, batches of
 32, 50,000 warm-up steps, one update every 4 steps (<code>train_frequency=4</code>), the
 target refreshed every 10,000 steps (<code>target_update_interval=2_500</code>
-updates), epsilon falling to 0.1 by step 1,050,000. That last is a fraction
-of the reference's 50M-step run (<code>epsilon_decay_frac=0.021</code>), so it comes
-sooner in a shorter run. Atari's frame skip and stack, no-op starts and
+updates), epsilon held at 1 for the warm-up (<code>epsilon_decay_start=50_000</code>)
+then falling to 0.1 over a million steps. That million is a fraction
+of the reference's 50M-step run (<code>epsilon_decay_frac=0.02</code>), so it is
+shorter in a shorter run. Atari's frame skip and stack, no-op starts and
 reward clipping are the environment's.</p>
 <h2 id="notes">Notes<a class="headerlink" href="#notes" title="Permanent link">&para;</a></h2>
 <ul>
@@ -3286,7 +3292,8 @@ reward clipping are the environment's.</p>
   optimiser and Huber loss (below).</li>
 <li><strong>Exploration.</strong> Epsilon decays linearly with the training fraction (the
   timestep over the run's total), from <code>epsilon_start</code> to <code>epsilon_end</code>
-  over the first <code>epsilon_decay_frac</code> of the run. Before <code>learning_starts</code>
+  over <code>epsilon_decay_frac</code> of the run, starting at step
+  <code>epsilon_decay_start</code> (0 by default). Before <code>learning_starts</code>
   every action is uniform. Evaluation is greedy.</li>
 <li><strong>Time limits.</strong> A transition cut by a time limit bootstraps on its final
   observation; only a termination stops the bootstrap.</li>
@@ -3379,10 +3386,11 @@ updates from step 1,000) DQN ran at 16,662 steps per second of execution
 <a id="__codelineno-0-31" name="__codelineno-0-31" href="#__codelineno-0-31"></a>    <span class="n">epsilon_start</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span>
 <a id="__codelineno-0-32" name="__codelineno-0-32" href="#__codelineno-0-32"></a>    <span class="n">epsilon_end</span><span class="o">=</span><span class="mf">0.05</span><span class="p">,</span>
 <a id="__codelineno-0-33" name="__codelineno-0-33" href="#__codelineno-0-33"></a>    <span class="n">epsilon_decay_frac</span><span class="o">=</span><span class="mf">0.5</span><span class="p">,</span>
-<a id="__codelineno-0-34" name="__codelineno-0-34" href="#__codelineno-0-34"></a>    <span class="n">td_target_fn</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-35" name="__codelineno-0-35" href="#__codelineno-0-35"></a>    <span class="n">td_loss_fn</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-36" name="__codelineno-0-36" href="#__codelineno-0-36"></a>    <span class="n">q_network_cls</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-37" name="__codelineno-0-37" href="#__codelineno-0-37"></a><span class="p">)</span>
+<a id="__codelineno-0-34" name="__codelineno-0-34" href="#__codelineno-0-34"></a>    <span class="n">epsilon_decay_start</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+<a id="__codelineno-0-35" name="__codelineno-0-35" href="#__codelineno-0-35"></a>    <span class="n">td_target_fn</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-36" name="__codelineno-0-36" href="#__codelineno-0-36"></a>    <span class="n">td_loss_fn</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-37" name="__codelineno-0-37" href="#__codelineno-0-37"></a>    <span class="n">q_network_cls</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-38" name="__codelineno-0-38" href="#__codelineno-0-38"></a><span class="p">)</span>
 </code></pre></div>
 
     <div class="doc doc-contents first">
@@ -3469,8 +3477,9 @@ steps collected before the first update (ReplayAgent).</p>
 
     <div class="doc doc-contents ">
 
-        <p>The exploration rate at a timestep: linear over the first
-epsilon_decay_frac of the horizon, then flat.</p>
+        <p>The exploration rate at a timestep: epsilon_start until
+epsilon_decay_start, linear over the next epsilon_decay_frac of the
+horizon, then flat.</p>
 
 
     </div>

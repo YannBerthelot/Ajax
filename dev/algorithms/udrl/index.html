@@ -3238,8 +3238,15 @@ training metrics of those iterations
   that collection adds, and the command decreases as in collection. The
   policy acts deterministically.</li>
 <li><strong>Command scaling.</strong> The command enters the network multiplied by
-  <code>command_scale_r</code> and <code>command_scale_h</code> (the paper's LunarLander values), so
+  <code>command_scale_r</code> and <code>command_scale_h</code> (two values of the paper's LunarLander search), so
   that it is of order one; the replay keeps it unscaled.</li>
+<li><strong>Deviations from Srivastava et al.</strong> (arXiv:1912.02877v2). The replay is
+  first-in first-out; the paper's keeps the best episodes by return
+  (Sec. 2.2.1). A training interval ends at a random later step of its
+  episode, the paper's general form; its experiments all end it at the
+  episode's end (Sec. 2.2.3). There is no warm-up; the paper first fills
+  the replay with 30 to 50 episodes of random actions (Algorithm 1,
+  Table 4).</li>
 <li>The policy's encoder ends with a LayerNorm, as Ajax's earlier networks did.</li>
 <li>The command is carried in the last two entries of the observation, after
   the observation features; with <code>cnn_image_shape</code> the image is flattened in

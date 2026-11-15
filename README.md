@@ -131,16 +131,16 @@ more comparisons (one inconclusive) and the speed of each side; the
 | ASAC | 626 | 878 |
 | RVI-SAC | 827 | 959 |
 | AVG | 330 | 420 |
-| APO | 213 | 196 |
-| PPO | 215 | 261 |
+| APO | 299 | 273 |
+| PPO | 497 | 248 |
 | DreamerV3 | 762 | – |
 | TD-MPC2 | 827 | – |
 
 | Agent | Breakout | SpaceInvaders |
 |---|---|---|
-| DQN | 84 | 143 |
-| PQN | 24 | 138 |
-| PPO | 27 | 150 |
+| DQN | 50 | 150 |
+| PQN | 71 | 155 |
+| PPO | 29 | 141 |
 | UDRL | 4 | 9 |
 
 [Agent benchmark](docs/reproduction/benchmark.md) has every task, the spread over seeds, learning curves and what to keep in mind when reading them.

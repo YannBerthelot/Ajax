@@ -39,7 +39,14 @@ def test_dqn_variants_smoke():
         td_loss_fn=make_huber_td_loss(1.0),
         q_network_cls=DuelingQNetwork,
     )
-    agent.train(seed=42, n_timesteps=128)
+    state, _ = agent.train(seed=42, n_timesteps=128)
+    # CleanRL's rule (the test below): an update at each step past
+    # learning_starts (32) that train_frequency (10, the default) divides,
+    # 40, 50, ..., 120. Catches a hook combination that skips the updates or
+    # diverges at once.
+    assert np.asarray(state.n_updates).tolist() == [9]
+    for leaf in jax.tree.leaves(state.actor_state.params):
+        assert np.isfinite(np.asarray(leaf)).all()
 
 
 @dataclass(frozen=True)

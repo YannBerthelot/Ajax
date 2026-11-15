@@ -257,9 +257,19 @@ def test_apg_differentiates_through_the_residual():
         )
         return agent.train(seed=0, n_timesteps=n_timesteps)[0].actor_state.params
 
+    # Two runs build their first parameters in two compiled programs, which
+    # can differ in float32's last digits (seen: 2.8e-7 relative, about two
+    # steps of float32, on the newest dependencies). "Stays" allows 1e-6;
+    # "learns" asks for a move ten times beyond it.
     start = run(0.0, 0)
-    jax.tree.map(np.testing.assert_array_equal, run(0.0, 32), start)
-    moved = jax.tree.map(lambda a, b: bool((a != b).any()), run(1.0, 32), start)
+    jax.tree.map(
+        lambda a, b: np.testing.assert_allclose(a, b, rtol=1e-6, atol=1e-8),
+        run(0.0, 32),
+        start,
+    )
+    moved = jax.tree.map(
+        lambda a, b: not np.allclose(a, b, rtol=1e-5, atol=1e-7), run(1.0, 32), start
+    )
     assert any(jax.tree.leaves(moved))
 
 

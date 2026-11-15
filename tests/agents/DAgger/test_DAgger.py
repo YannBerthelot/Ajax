@@ -294,7 +294,7 @@ def test_an_iteration_fit_actor_starts_as_the_references_gaussian():
 
 @pytest.mark.parametrize(
     "fit, spread",
-    list(zip(FITS, [(0.7, 1.3), (0.0, 0.0)], strict=True)),
+    list(zip(FITS, [(0.7, 1.3), (0.0, 1e-6)], strict=True)),
     ids=FIT_NAMES,
 )
 def test_the_actor_acts_by_sampling_under_an_iteration_fit(fit, spread):
@@ -302,7 +302,13 @@ def test_the_actor_acts_by_sampling_under_an_iteration_fit(fit, spread):
     samples (dagger.py:511): where the actor acted, the stored action is a
     draw around its mean, of std 1 at its start (62 rows: within 0.3). An
     OnlineFit's actor acts with its mean. A batch of 64 holds the fits back
-    to the last tick."""
+    to the last tick.
+
+    The mean is recomputed here by another compiled program than the one
+    that stored the action, so the two can differ in float32's last digits
+    (2.4e-7 at Pendulum's largest action, 2; seen: a std of 5e-10 on the
+    newest dependencies): 1e-6 allows that and is far below a sampled
+    action's spread."""
     agent = DAgger(
         "Pendulum-v1",
         expert_policy=push,

@@ -61,8 +61,14 @@ jobs:
       # put out of date to `--locked`; CI's Conformance job runs it. The
       # exact-output pins are left out: they detect change against the
       # locked versions, and other versions move them by rounding.
-      - run: >-
-          uv run --no-sync pytest tests -m "not slow" --ignore=tests/probing
+      # One xdist worker per vCPU and XLA's optimisation level 0, as in CI's
+      # test shards: in one process at the default level this step took
+      # about 2 h 30 min, the job's limit.
+      - env:
+          XLA_FLAGS: --xla_backend_optimization_level=0 --xla_llvm_disable_expensive_passes=true
+        run: >-
+          uv run --no-sync pytest tests -m "not slow" -n auto
+          --ignore=tests/probing
           --ignore=tests/conformance
           --ignore=tests/agents/test_agent_pins.py
           --ignore=tests/agents/SAC/test_sac_parity.py

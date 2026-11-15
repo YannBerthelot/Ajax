@@ -9,7 +9,7 @@ CPU_ENV := CUDA_VISIBLE_DEVICES="" JAX_PLATFORMS=cpu JAX_PLATFORM_NAME=cpu
 # level 0 compiles them faster (as ci.yml's test shards do).
 FAST_XLA := XLA_FLAGS="--xla_backend_optimization_level=0 --xla_llvm_disable_expensive_passes=true"
 
-.PHONY: ci ci-all ci-precommit ci-test ci-slow ci-probe ci-conformance docs docs-serve test-cpu probe-cpu durations help
+.PHONY: ci ci-all ci-precommit ci-test ci-slow ci-probe ci-conformance docs docs-serve test-cpu probe-cpu durations file-durations help
 
 help:  ## Show this help message
 	@awk 'BEGIN {FS = ":.*##"} /^[a-zA-Z_-]+:.*##/ { printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
@@ -17,7 +17,7 @@ help:  ## Show this help message
 # ---------------------------------------------------------------------------
 # Canonical local-CI -- mirrors .github/workflows/ci.yml (the pull-request
 # gate, `ci`) and slow.yml (the slow tier, `ci-slow`): the same commands, CPU
-# environment and markers. CI splits ci-test across three runners and only
+# environment and markers. CI splits ci-test across four runners and only
 # adds reporting flags (--durations, -v). Use these instead of ad-hoc
 # commands so the local checks match what merges.
 # ---------------------------------------------------------------------------
@@ -45,6 +45,9 @@ ci-conformance:  ## Each agent's training step against its original implementati
 
 durations:  ## Refresh tests/.durations (pytest --shard) from junit reports: make durations REPORTS="a.xml b.xml"
 	uv run python .github/scripts/durations.py $(REPORTS)
+
+file-durations:  ## Refresh tests/.file_durations (the fast shards, pytest --shard-by file) from CI's junit-fast reports: make file-durations REPORTS="a.xml b.xml"
+	uv run python .github/scripts/durations.py --files $(REPORTS)
 
 docs:  ## Build the documentation site into site/, strictly, as CI does
 	uv run --group docs mkdocs build --strict

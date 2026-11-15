@@ -53,9 +53,9 @@ from ajax.agents.APG.networks import Controller, PIDHeadConfig
 from ajax.agents.families import (
     ExpertGuided,
     GradientClipping,
-    OwnIterationAgent,
     TrainContext,
 )
+from ajax.agents.own_loop import OwnIterationAgent
 from ajax.agents.update_steps import apply_post_update
 from ajax.controller import (
     ActingState,

@@ -53,11 +53,11 @@ from ajax.agents.families import (
     GradientClipping,
     ImageObservations,
     ObservationNormalization,
-    OwnIterationAgent,
     RewardNormalization,
     TrainContext,
 )
 from ajax.agents.loop import with_obs_norm
+from ajax.agents.own_loop import OwnIterationAgent
 from ajax.agents.UDRL.buffer import (
     SegmentBuffer,
     add_segment,

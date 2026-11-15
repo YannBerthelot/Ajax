@@ -43,7 +43,8 @@ import jax.numpy as jnp
 import numpy as np
 from flax import struct
 
-from ajax.agents.families import OwnReplayAgent, TrainContext
+from ajax.agents.families import TrainContext
+from ajax.agents.own_loop import OwnReplayAgent
 from ajax.agents.TDMPC2 import core
 from ajax.agents.TDMPC2.buffer import (
     EpisodeBuffer,

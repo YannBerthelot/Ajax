@@ -99,7 +99,10 @@ class SAC(
     Defaults are the learned-temperature version's (rail-berkeley/
     softlearning): 256-256 ReLU networks, two critics, Adam at 3e-4 with
     TensorFlow's eps 1e-8, tau 0.005, gamma 0.99, a target entropy of -1
-    per action dimension, a 1e6 replay, batch 256 and 1e4 warm-up steps.
+    per action dimension, a 1e6 replay, batch 256 and 1e4 warm-up steps
+    (softlearning@a1253bc examples/development/variants.py:92-95, ten
+    episodes of 1,000 steps on its benchmark domains; its base value, :51,
+    is 1e3).
     The actor and the temperature step with the critics from the first
     update, as softlearning's single session.run of all its training ops
     does (a1253bc sac.py:348-353); policy_update_start and
@@ -205,11 +208,11 @@ class SAC(
         # kernels and zero biases in both: haarnoja/sac @8258e33
         # (sac/misc/mlp.py:24-25, :41-49: tf.contrib's
         # xavier_initializer(), uniform by default at tensorflow 1.4, its
-        # environment.yml's) and rail-berkeley/softlearning @13cf187,
+        # environment.yml's) and rail-berkeley/softlearning @a1253bc,
         # the learned-temperature code (softlearning/models/
-        # feedforward.py:28-34: Keras Dense, glorot_uniform and zeros by
-        # default at tensorflow 2.4.1, its requirements'). Both draw the
-        # mean and the log-std from one output layer; here each head
+        # feedforward.py:33-40: Keras Dense, glorot_uniform and zeros by
+        # default at tensorflow 1.12.0, its requirements.txt:87). Both draw
+        # the mean and the log-std from one output layer; here each head
         # takes Glorot's bound for its own width.
         # Recurrent SAC (memory set) starts as its reference, Ni et al.'s.
         args: dict[str, Any] = {"squash": True}

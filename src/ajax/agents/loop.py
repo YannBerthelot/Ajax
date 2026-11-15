@@ -375,9 +375,9 @@ class TrainLoop:
     expert_policy: Any = None
     #: A transition dataset to train on alone (:meth:`offline`).
     offline_data: Optional[TransitionDataset] = None
-    #: Evaluate only in the last fifth of training (LoggingConfig.sweep, for
-    #: hyperparameter sweeps).
-    sweep: bool = False
+    #: Evaluate only in the last fifth of training
+    #: (LoggingConfig.evaluate_last_fifth_only).
+    evaluate_last_fifth_only: bool = False
     #: Scores the evaluations on a device of its own while training goes on
     #: (LoggingConfig.evaluation_device); None: each evaluation runs between
     #: chunks of training.
@@ -425,7 +425,9 @@ class TrainLoop:
             end_timestep=end_timestep,
             expert_policy=expert_policy,
             offline_data=offline_data,
-            sweep=logging_config is not None and logging_config.sweep,
+            evaluate_last_fifth_only=(
+                logging_config is not None and logging_config.evaluate_last_fifth_only
+            ),
             evaluator=evaluator,
         )
 
@@ -498,7 +500,7 @@ class TrainLoop:
         """Which ticks of this call (a NumPy array) evaluate_and_log's gate
         opens after, each tick taking steps_per_tick steps from the call's
         start_timestep: those whose steps reach a multiple of log_frequency.
-        The gate itself still decides (the horizon, a sweep's last fifth).
+        The gate itself still decides (the horizon, the last fifth alone).
         The ticks count from the call's first, as the families planning with
         it number them (their resume_iteration_offset is 0)."""
         f = self.log_frequency
@@ -640,7 +642,7 @@ class TrainLoop:
         (ajax.log.evaluate_and_log), the agent's family's agent_metrics and
         the extensions' eval metrics included; returns the state and the
         metrics (None without logging), only in the last fifth of training
-        in a sweep. An agent storing normalised observations evaluates with
+        when the logging configuration says so. An agent storing normalised observations evaluates with
         them normalised by its running statistics, unless its own controller
         says how it acts."""
         controller = make_run_controller(
@@ -648,8 +650,8 @@ class TrainLoop:
         )
         if controller != Controller():
             kwargs.update({"controller": controller})
-        if self.sweep:
-            kwargs.setdefault("sweep", True)
+        if self.evaluate_last_fifth_only:
+            kwargs.setdefault("last_fifth_only", True)
         return evaluate_and_log(
             agent_state,
             aux,

@@ -46,9 +46,11 @@ class LoggingConfig:
     log_frequency: environment steps between evaluations.
     folder: where use_tensorboard writes, folder/tensorboard/<run_id>/ (the
         working directory when None).
-    sweep: for hyperparameter sweeps, evaluate only in the last fifth of
-        training; with use_wandb, the W&B run gets no steps
-        (WandbBackend(steps=False)).
+    evaluate_last_fifth_only: evaluate only in the last fifth of training,
+        for hyperparameter searches that read the final scores; with
+        use_wandb, the W&B run gets no steps (WandbBackend(steps=False)).
+    sweep: deprecated, the earlier name of evaluate_last_fifth_only (not
+        train's sweep, which trains several configurations in one program).
     evaluation_device: a JAX device, such as jax.devices("cpu")[0] or a
         second GPU, to evaluate on in a thread while training goes on
         (ajax.async_evaluation); None: training waits for each evaluation.
@@ -66,12 +68,26 @@ class LoggingConfig:
     # None: not set, which tells the flags apart from backends.
     use_tensorboard: Optional[bool] = None
     use_wandb: Optional[bool] = None
-    sweep: bool = False
+    evaluate_last_fifth_only: bool = False
+    # None: not set. Deprecated for evaluate_last_fifth_only.
+    sweep: Optional[bool] = None
     # None: not given, so the flags decide; () names no backend at all.
     backends: Optional[tuple] = struct.field(pytree_node=False, default=None)
     evaluation_device: Any = struct.field(pytree_node=False, default=None)
 
     def __post_init__(self) -> None:
+        if self.sweep is not None:
+            # stacklevel 3: the caller of LoggingConfig(...), past __init__.
+            warnings.warn(
+                "LoggingConfig's sweep is deprecated: it is now"
+                " evaluate_last_fifth_only (train's sweep is another thing).",
+                FutureWarning,
+                stacklevel=3,
+            )
+            if self.sweep:
+                object.__setattr__(self, "evaluate_last_fifth_only", True)
+            # Read once: a copy (replace) does not warn again.
+            object.__setattr__(self, "sweep", None)
         flag_set = self.use_wandb is not None or self.use_tensorboard is not None
         if flag_set and self.backends is None:
             # stacklevel 3: the caller of LoggingConfig(...), past __init__.
@@ -113,7 +129,7 @@ class LoggingConfig:
                 WandbBackend(
                     project=self.project_name,
                     group=self.group_name,
-                    steps=not self.sweep,
+                    steps=not self.evaluate_last_fifth_only,
                 )
             )
         if self.use_tensorboard:

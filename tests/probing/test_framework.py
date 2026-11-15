@@ -109,7 +109,7 @@ from . import readouts as R
 # The source files that had no fault (43 faults): faults/ + 43, this + 1.
 # RLPD's and CHEQ's cells: test_offline + 54 (cap + 39), test_action_stage + 66, faults/ + 2, this + 2.
 CAPS = {"verdict.py": 255, "envs.py": 255, "agents.py": 171, "runs.py": 250}
-CAPS.update({"readouts.py": 220, "oracles.py": 198, "faults.py": 152, "faults/": 473})
+CAPS.update({"readouts.py": 220, "oracles.py": 198, "faults.py": 152, "faults/": 479})
 CAPS.update({"test_average_reward.py": 186})
 CAPS.update({"test_framework.py": 345, "test_value_chains.py": 1163})
 CAPS.update({"test_episode_ends.py": 1138, "test_bookkeeping.py": 1013})
@@ -311,14 +311,14 @@ def test_the_directory_keeps_to_its_budget() -> None:
     The shipped defaults' cells, faults and notes (2026-11-14): 61 for PPO's,
     35 for APO's, 21 for DAgger's, 24 for DQN's, 33 for PQN's, 84 for the
     shared encoder's. 44 for the source files that had no fault (2026-11-15).
-    124 for RLPD's and CHEQ's cells and their two faults."""
+    124 for RLPD's and CHEQ's cells and their two faults; 6 for options' faults."""
     cmd = ["git", "ls-files", "--cached", "--others", "--exclude-standard"]
     out = subprocess.run(
         [*cmd, "tests/probing"], cwd=faults.REPO, capture_output=True, text=True
     )
     files = [f for f in out.stdout.split() if f.count("/") == 2 or "/faults/" in f]
     total = sum(_lines(os.path.join(faults.REPO, f)) for f in files)
-    assert total <= 9311, total
+    assert total <= 9317, total
 
 
 def test_every_fault_names_the_fast_tests_that_catch_it() -> None:

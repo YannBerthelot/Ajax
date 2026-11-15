@@ -8,6 +8,13 @@ PyPI as `ajax-rl`.
 
 The next release is 0.6.0: the first item changes results.
 
+- **Deprecated: `LoggingConfig(sweep=...)` is now
+  `evaluate_last_fifth_only`.** The flag evaluates only in the last fifth
+  of training; its name was also that of `train(sweep=...)`, which trains
+  several configurations in one program. `sweep` is still accepted, warns
+  (`FutureWarning`) and sets the new field, and reads `None` afterwards.
+  Upgrade: rename the argument, and read `evaluate_last_fifth_only`.
+
 - **Fixed: a forced reset kept the reward normaliser's running return.**
   With `normalize_rewards` and forced resets (`num_resets_per_eval`), the
   abandoned episodes' discounted return carried into the new episodes'

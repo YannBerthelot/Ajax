@@ -487,7 +487,7 @@ def _make_no_op(extra_eval_metrics=None, choosers=False):
         "avg_reward_mode",
         "expert_policy",
         "eval_expert_policy",
-        "sweep",
+        "last_fifth_only",
         "extra_eval_metrics",
         "controller",
         "phase",
@@ -509,7 +509,7 @@ def evaluate_and_log(
     avg_reward_mode: bool = False,
     expert_policy: Optional[Callable] = None,
     eval_expert_policy: Optional[Callable] = None,
-    sweep: bool = False,
+    last_fifth_only: bool = False,
     extra_eval_metrics: Optional[Callable] = None,
     controller: Optional[Controller] = None,
     value_estimate: Optional[ValueEstimate] = None,
@@ -532,7 +532,7 @@ def evaluate_and_log(
     log_flag = timestep - (agent_state.n_logs * log_frequency) >= log_frequency
     not_finished_flag = timestep <= total_timesteps if log_frequency else False
 
-    if sweep:
+    if last_fifth_only:
         close_to_end_flag = timestep >= 0.8 * total_timesteps
     else:
         close_to_end_flag = True

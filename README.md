@@ -89,8 +89,8 @@ agent = PPO("ant", n_envs=8)
 - **Differentiable simulation**: [APG](docs/algorithms/apg.md)
 
 DQN and PQN take discrete actions; PPO, APO, DAgger, UDRL and DreamerV3 take
-both; the others continuous ones. SAC, TD3, REDQ, TQC, CrossQ, ASAC, RVI-SAC,
-DQN, IQL and DAgger also train offline (`train_offline`). Each name opens the agent's page, with its paper;
+both; the others continuous ones. <!-- agents: offline -->SAC, TD3, REDQ, TQC, CrossQ, ASAC, RVI-SAC,
+DQN, IQL and DAgger<!-- /agents --> also train offline (`train_offline`). Each name opens the agent's page, with its paper;
 the [compatibility table](docs/guide/compatibility.md) lists every extension
 per agent.
 

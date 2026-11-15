@@ -1881,6 +1881,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#what-the-new-defaults-changed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What the new defaults changed
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#agents-not-in-the-tables" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2733,6 +2744,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#what-the-new-defaults-changed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What the new defaults changed
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#agents-not-in-the-tables" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2772,22 +2794,28 @@
 <p>Every agent at its default settings, with 10 seeds each, apart from <code>n_envs</code>,
 which follows each agent's paper. DreamerV3 also keeps its replay in host
 memory (<code>replay_on_host=True</code>), which gives the same numbers with less GPU
-memory. How Ajax's agents
+memory. PPO, APO, DQN and PQN were rerun on 2026-11-14 at the defaults
+they have had since 2026-11-13; the other agents' rows, REDQ's included,
+are from the earlier commits named below. How Ajax's agents
 compare with other implementations is in the <a href="../results/">results</a>.</p>
 <h2 id="setup">Setup<a class="headerlink" href="#setup" title="Permanent link">&para;</a></h2>
 <ul>
 <li><strong>Tasks.</strong> Fifteen DeepMind Control tasks on MuJoCo Playground, trained for
-  1,048,576 steps (APO 1,024,000, a whole number of its rollouts), and four
+  1,048,576 steps (APO 1,000,000, a whole number of its rollouts), and four
   MinAtar games on gymnax, trained for 5,242,880 steps.</li>
-<li><strong>Machines.</strong> Seeds 0 to 9 trained together. Most cells ran on 4-core
-  cloud CPUs. The cells added later ran on one shared NVIDIA L40S GPU: SAC,
+<li><strong>Machines.</strong> Seeds 0 to 9 trained together. Most of the earlier cells
+  ran on 4-core cloud CPUs, and the PPO, APO, DQN and PQN reruns on 4 cores
+  each of a shared 192-core machine. The cells added later ran on one shared NVIDIA L40S GPU: SAC,
   TD3, RVI-SAC and ASAC on the twelve tasks beyond CheetahRun, WalkerWalk and
   HopperHop, APO on HumanoidWalk, and the five agents in the second table.
   The physics is MJX's pure-JAX version on both. DQN on Freeway and
-  SpaceInvaders ran in two halves, for memory, and DreamerV3 one seed at a
-  time.</li>
-<li><strong>Code.</strong> The main branch at <code>acd1626</code>, after 0.5.0, for the CPU cells, and
-  at <code>e7647bc</code> for the GPU cells. TD-MPC2 moved to <code>eeb029d</code> after its first
+  SpaceInvaders ran in two halves, for memory, before its rerun, and
+  DreamerV3 one seed at a time.</li>
+<li><strong>Code.</strong> PPO, APO, DQN and PQN: the main branch at <code>2ef57fe</code>. The other
+  agents: the main branch at <code>acd1626</code>, after 0.5.0, for the CPU cells, and
+  at <code>e7647bc</code> for the GPU cells. REDQ's default warm-up has changed since
+  (to 5,000 steps), and its rerun was still in progress when this page was
+  written. TD-MPC2 moved to <code>eeb029d</code> after its first
   32,768 steps, which only changed how often it evaluates.</li>
 <li><strong>Score.</strong> The return at the last evaluation, as mean ± standard deviation
   over the seeds (a sample standard deviation), with the best mean in each
@@ -2795,7 +2823,9 @@ compare with other implementations is in the <a href="../results/">results</a>.<
   small gap between two agents means little. DeepMind Control scores run from
   0 to 1000.</li>
 <li><strong>Records.</strong> <a href="https://github.com/YannBerthelot/Ajax/tree/main/benchmarks/suite"><code>benchmarks/suite</code></a>
-  holds the driver and each run's records.</li>
+  holds the driver and each run's records. The records of PPO, APO, DQN
+  and PQN at their earlier defaults are in each run's <code>earlier-defaults</code>
+  folder.</li>
 </ul>
 <h2 id="results">Results<a class="headerlink" href="#results" title="Permanent link">&para;</a></h2>
 <p>Each tab has the final returns, as a table and as a heatmap that scales each
@@ -2827,8 +2857,8 @@ from the records.</p>
 <td>625.9 ± 21.5</td>
 <td>827.4 ± 42.7</td>
 <td>330.1 ± 9.5</td>
-<td>212.7 ± 67.6</td>
-<td>214.9 ± 74.0</td>
+<td>298.8 ± 65.9</td>
+<td>497.2 ± 99.5</td>
 </tr>
 <tr>
 <td>WalkerWalk</td>
@@ -2837,8 +2867,8 @@ from the records.</p>
 <td>877.9 ± 77.6</td>
 <td>959.3 ± 26.0</td>
 <td>420.2 ± 203.8</td>
-<td>196.1 ± 43.9</td>
-<td>260.6 ± 76.4</td>
+<td>272.5 ± 112.5</td>
+<td>248.0 ± 121.1</td>
 </tr>
 <tr>
 <td>WalkerRun</td>
@@ -2847,8 +2877,8 @@ from the records.</p>
 <td>23.6 ± 1.4</td>
 <td>720.8 ± 25.9</td>
 <td>27.5 ± 5.5</td>
-<td>53.9 ± 7.0</td>
-<td>74.0 ± 14.7</td>
+<td>48.1 ± 3.5</td>
+<td>60.5 ± 14.2</td>
 </tr>
 <tr>
 <td>WalkerStand</td>
@@ -2857,8 +2887,8 @@ from the records.</p>
 <td>830.5 ± 232.5</td>
 <td>972.2 ± 21.3</td>
 <td>264.8 ± 46.6</td>
-<td>270.1 ± 39.3</td>
-<td>254.6 ± 54.2</td>
+<td>321.8 ± 34.0</td>
+<td>246.8 ± 35.6</td>
 </tr>
 <tr>
 <td>HopperHop</td>
@@ -2867,8 +2897,8 @@ from the records.</p>
 <td>0.2 ± 0.3</td>
 <td>0.1 ± 0.3</td>
 <td>0.0 ± 0.0</td>
-<td><strong>0.6 ± 0.9</strong></td>
-<td>0.3 ± 0.5</td>
+<td>0.4 ± 0.7</td>
+<td><strong>7.5 ± 22.1</strong></td>
 </tr>
 <tr>
 <td>HopperStand</td>
@@ -2877,8 +2907,8 @@ from the records.</p>
 <td>373.8 ± 394.6</td>
 <td><strong>843.5 ± 291.2</strong></td>
 <td>2.2 ± 2.1</td>
-<td>13.6 ± 20.7</td>
-<td>25.9 ± 55.3</td>
+<td>7.4 ± 7.2</td>
+<td>23.5 ± 49.2</td>
 </tr>
 <tr>
 <td>FingerSpin</td>
@@ -2887,8 +2917,8 @@ from the records.</p>
 <td>0.1 ± 0.3</td>
 <td>765.5 ± 193.0</td>
 <td>0.1 ± 0.2</td>
-<td>231.1 ± 98.6</td>
-<td>324.2 ± 275.6</td>
+<td>425.9 ± 144.0</td>
+<td>259.8 ± 329.1</td>
 </tr>
 <tr>
 <td>FingerTurnHard</td>
@@ -2897,8 +2927,8 @@ from the records.</p>
 <td>93.8 ± 78.7</td>
 <td>176.8 ± 169.9</td>
 <td>97.5 ± 103.8</td>
-<td>75.7 ± 62.0</td>
-<td>86.6 ± 32.0</td>
+<td>133.0 ± 91.0</td>
+<td>94.5 ± 129.3</td>
 </tr>
 <tr>
 <td>ReacherHard</td>
@@ -2907,8 +2937,8 @@ from the records.</p>
 <td>53.1 ± 118.7</td>
 <td>26.7 ± 39.4</td>
 <td>141.9 ± 250.4</td>
-<td>87.5 ± 154.9</td>
-<td>38.2 ± 55.2</td>
+<td>19.7 ± 28.0</td>
+<td>456.3 ± 210.2</td>
 </tr>
 <tr>
 <td>CartpoleSwingup</td>
@@ -2917,8 +2947,8 @@ from the records.</p>
 <td>867.4 ± 9.9</td>
 <td>855.5 ± 13.6</td>
 <td>144.0 ± 52.7</td>
-<td>769.2 ± 146.0</td>
-<td>716.7 ± 183.7</td>
+<td>452.6 ± 181.6</td>
+<td>610.5 ± 202.6</td>
 </tr>
 <tr>
 <td>AcrobotSwingup</td>
@@ -2927,8 +2957,8 @@ from the records.</p>
 <td>1.4 ± 1.3</td>
 <td>6.3 ± 8.6</td>
 <td>2.1 ± 2.1</td>
-<td>48.0 ± 16.4</td>
-<td>33.3 ± 15.2</td>
+<td>48.6 ± 13.8</td>
+<td>22.8 ± 8.1</td>
 </tr>
 <tr>
 <td>PendulumSwingup</td>
@@ -2937,8 +2967,8 @@ from the records.</p>
 <td>49.6 ± 96.4</td>
 <td>176.2 ± 346.5</td>
 <td>0.3 ± 0.7</td>
-<td>31.0 ± 24.2</td>
-<td>407.5 ± 241.2</td>
+<td>9.2 ± 15.6</td>
+<td>118.9 ± 249.0</td>
 </tr>
 <tr>
 <td>BallInCup</td>
@@ -2947,8 +2977,8 @@ from the records.</p>
 <td>0.0 ± 0.0</td>
 <td>0.0 ± 0.0</td>
 <td>0.0 ± 0.0</td>
-<td>0.0 ± 0.0</td>
-<td>565.1 ± 486.8</td>
+<td>321.9 ± 421.0</td>
+<td>755.5 ± 398.4</td>
 </tr>
 <tr>
 <td>FishSwim</td>
@@ -2957,8 +2987,8 @@ from the records.</p>
 <td>69.4 ± 22.2</td>
 <td>65.3 ± 9.9</td>
 <td>64.0 ± 17.3</td>
-<td>76.9 ± 11.9</td>
-<td>88.0 ± 31.8</td>
+<td>82.7 ± 13.0</td>
+<td>89.4 ± 12.6</td>
 </tr>
 <tr>
 <td>HumanoidWalk</td>
@@ -2967,8 +2997,8 @@ from the records.</p>
 <td>16.1 ± 1.2</td>
 <td>11.4 ± 10.2</td>
 <td>15.8 ± 4.8</td>
-<td>13.8 ± 2.9</td>
-<td>6.4 ± 3.3</td>
+<td>5.1 ± 3.0</td>
+<td>16.8 ± 4.5</td>
 </tr>
 </tbody>
 </table>
@@ -3012,30 +3042,30 @@ from the records.</p>
 <tbody>
 <tr>
 <td>Breakout</td>
-<td><strong>83.6 ± 12.3</strong></td>
-<td>23.8 ± 1.8</td>
-<td>27.1 ± 14.0</td>
+<td>50.3 ± 17.9</td>
+<td><strong>70.7 ± 18.0</strong></td>
+<td>28.8 ± 6.5</td>
 <td>4.0 ± 1.3</td>
 </tr>
 <tr>
 <td>Asterix</td>
-<td>1.0 ± 0.6</td>
-<td>4.1 ± 2.0</td>
-<td><strong>5.8 ± 2.0</strong></td>
+<td>2.1 ± 1.2</td>
+<td><strong>18.7 ± 11.1</strong></td>
+<td>3.4 ± 1.6</td>
 <td>0.4 ± 0.3</td>
 </tr>
 <tr>
 <td>Freeway</td>
-<td><strong>51.9 ± 4.0</strong></td>
-<td>23.4 ± 14.1</td>
-<td>41.7 ± 4.7</td>
+<td>55.8 ± 3.0</td>
+<td><strong>65.1 ± 0.7</strong></td>
+<td>24.1 ± 4.0</td>
 <td>2.7 ± 5.7</td>
 </tr>
 <tr>
 <td>SpaceInvaders</td>
-<td>143.1 ± 20.3</td>
-<td>137.6 ± 26.3</td>
-<td><strong>149.9 ± 34.2</strong></td>
+<td>150.1 ± 14.9</td>
+<td><strong>154.7 ± 5.7</strong></td>
+<td>141.0 ± 38.4</td>
 <td>8.9 ± 2.0</td>
 </tr>
 </tbody>
@@ -3049,25 +3079,44 @@ from the records.</p>
 
 <h2 id="reading-the-tables">Reading the tables<a class="headerlink" href="#reading-the-tables" title="Permanent link">&para;</a></h2>
 <ul>
-<li><strong>APO on HumanoidWalk was rerun on the GPU.</strong> The CPU run stopped at step
-  81,920 of 1,024,000 when a chunk hit non-finite values twice. The rerun
-  finished, with no non-finite step.</li>
 <li><strong>The simulator diverged on HumanoidWalk</strong> on some training steps of SAC
-  (173), TD3 (474) and RVI-SAC (37), out of over 10 million steps per agent.
-  The guard against non-finite values handled them and the runs went on.</li>
-<li><strong>Two runs are second attempts, from step 0.</strong> PPO's first attempt on
-  HumanoidWalk also hit non-finite values, past step 327,680, and AVG's on
+  (173), TD3 (474), RVI-SAC (37), PPO (4) and APO (2), out of about 10
+  million steps per agent. The guard against non-finite values handled them
+  and the runs went on.</li>
+<li><strong>One run is a second attempt, from step 0.</strong> AVG's first attempt on
   HopperStand was cut off by a machine restart.</li>
-<li><strong>No agent learned HopperHop</strong> at this budget. Its best mean is below 1,
-  so its heatmap colours compare noise.</li>
-<li><strong>The last evaluation can swing.</strong> On BallInCup, 6 of PPO's seeds ended above
-  890 and 4 at 0, and APO ended at 0 after scoring higher earlier.</li>
+<li><strong>No agent learned HopperHop</strong> at this budget. PPO's mean of 7.5 comes
+  from one seed that ended at 70; every other mean is below 1, so its
+  heatmap colours compare noise.</li>
+<li><strong>The last evaluation can swing.</strong> On BallInCup, 8 of PPO's seeds ended above
+  910 and 2 at 0, and 4 of APO's ended above 630 and 6 at 0.</li>
 <li><strong>Hopper and Finger runs turned an XLA pass off</strong>, as
   <a href="../../guide/environments/#brax-and-playground">Environments</a> explains.</li>
 <li><strong>GPU runs used deterministic operations</strong>, so a run repeats exactly,
   except the twelve SAC, TD3, RVI-SAC and ASAC cells on HopperStand,
   FingerSpin and FingerTurnHard, where XLA fails to compile them together
   with that pass turned off.</li>
+</ul>
+<h2 id="what-the-new-defaults-changed">What the new defaults changed<a class="headerlink" href="#what-the-new-defaults-changed" title="Permanent link">&para;</a></h2>
+<p>PPO, APO, DQN and PQN took their reference implementations' defaults on
+2026-11-13. Final returns before and after, on the same tasks and seeds
+(APO ran 1,024,000 steps before). With 10 seeds, only the larger gaps mean
+much.</p>
+<ul>
+<li><strong>PPO on DeepMind Control</strong> rose on CheetahRun (215 to 497), ReacherHard
+  (38 to 456) and HumanoidWalk (6 to 17), and fell on PendulumSwingup (408
+  to 119). The other tasks moved less; the largest of those gaps is
+  WalkerRun's (74 to 61).</li>
+<li><strong>PPO on MinAtar</strong> fell on Freeway (41.7 to 24.1) and Asterix (5.8 to
+  3.4), and stayed level on Breakout and SpaceInvaders.</li>
+<li><strong>APO</strong> rose on CheetahRun (213 to 299), FingerSpin (231 to 426),
+  WalkerStand (270 to 322) and BallInCup (0 to 322), and fell on
+  CartpoleSwingup (769 to 453), HumanoidWalk (14 to 5) and PendulumSwingup
+  (31 to 9).</li>
+<li><strong>DQN</strong> fell on Breakout (83.6 to 50.3) and moved little on the other
+  three games.</li>
+<li><strong>PQN</strong> rose on all four games: Breakout 23.8 to 70.7, Asterix 4.1 to
+  18.7, Freeway 23.4 to 65.1 and SpaceInvaders 137.6 to 154.7.</li>
 </ul>
 <h2 id="agents-not-in-the-tables">Agents not in the tables<a class="headerlink" href="#agents-not-in-the-tables" title="Permanent link">&para;</a></h2>
 <p>APG needs a differentiable task, IQL a dataset and DAgger an expert to query,

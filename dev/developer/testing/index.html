@@ -3380,12 +3380,12 @@ runs on CPU for every pull request and every push to <code>main</code>:</p>
 <td>ruff lint, ruff-format and mypy on every file</td>
 </tr>
 <tr>
-<td>Tests (3 shards)</td>
-<td>the tests not marked slow (the probing harness's checks among them), conformance excluded, under coverage, a pytest-xdist worker per vCPU, at XLA optimisation level 0, on arm64 runners. Shards 1 and 2 name directories; shard 3 runs everything else, so a new test file always runs somewhere</td>
+<td>Tests (4 shards)</td>
+<td>the tests not marked slow (the probing harness's checks among them), conformance excluded, under coverage, a pytest-xdist worker per vCPU, at XLA optimisation level 0, on arm64 runners. The shards split the test files by recorded time (<code>--shard I/4 --shard-by file</code>, <code>tests/.file_durations</code>); a file without a recorded time still lands in one, so a new test file always runs somewhere</td>
 </tr>
 <tr>
 <td>Coverage</td>
-<td>the three shards' data combined; fails below 90%</td>
+<td>the four shards' data combined; fails below 90%</td>
 </tr>
 <tr>
 <td>Conformance</td>

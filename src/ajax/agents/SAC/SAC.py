@@ -20,6 +20,15 @@ The actor's and the temperature's steps are kept from their starts
 (policy_update_start, alpha_update_start); the temperature reads the
 log-probabilities of a fresh sample of the stepped actor. A residual policy
 makes the critics score the executed actions, from the expert's stored ones.
+
+Deviation from the reference code (rail-berkeley/softlearning@a1253bc): it
+runs the critics', the actor's and the temperature's training ops in one
+session.run (softlearning/algorithms/sac.py:348-353), so every gradient
+reads the parameters from before the update, and the temperature's loss the
+actor loss's own sample (:266-267, :283-284). Here the steps follow one
+another: the actor reads the stepped critics, the temperature a fresh sample
+of the stepped actor. That is the order of softlearning's later TensorFlow 2
+code (@13cf187, sac.py:277-281) and of CleanRL.
 """
 
 from __future__ import annotations

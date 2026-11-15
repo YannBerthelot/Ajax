@@ -25,7 +25,7 @@ Deviation from the reference code (rail-berkeley/softlearning@a1253bc): it
 runs the critics', the actor's and the temperature's training ops in one
 session.run (softlearning/algorithms/sac.py:348-353), so every gradient
 reads the parameters from before the update, and the temperature's loss the
-actor loss's own sample (:266-267, :283-284). Here the steps follow one
+actor loss's own sample (:267-268, :279-280). Here the steps follow one
 another: the actor reads the stepped critics, the temperature a fresh sample
 of the stepped actor. That is the order of softlearning's later TensorFlow 2
 code (@13cf187, sac.py:277-281) and of CleanRL.
@@ -210,7 +210,7 @@ class SAC(
         # xavier_initializer(), uniform by default at tensorflow 1.4, its
         # environment.yml's) and rail-berkeley/softlearning @a1253bc,
         # the learned-temperature code (softlearning/models/
-        # feedforward.py:33-40: Keras Dense, glorot_uniform and zeros by
+        # feedforward.py:34-41: Keras Dense, glorot_uniform and zeros by
         # default at tensorflow 1.12.0, its requirements.txt:87). Both draw
         # the mean and the log-std from one output layer; here each head
         # takes Glorot's bound for its own width.

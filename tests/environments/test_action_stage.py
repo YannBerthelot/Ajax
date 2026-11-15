@@ -220,6 +220,8 @@ def test_a_cheq_row_stores_the_chosen_action_and_executes_the_blend(uniform) -> 
     0.75 * 0.1 + 0.25 * 0.5 = 0.2, stored 0.5, not the policy's -0.5."""
     result = _stage_rows(CHEQ(weight_column=2), uniform)
     np.testing.assert_allclose(result.env_action, 0.2, rtol=1e-6)
+    # None: the stage stores what it executes, the blend.
+    assert result.buffer_action is not None
     np.testing.assert_allclose(np.asarray(result.buffer_action), 0.5, rtol=1e-6)
 
 

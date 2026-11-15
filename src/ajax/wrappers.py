@@ -318,15 +318,21 @@ class _OnlineNormalization:
         gamma: Optional[float] = None,
     ):
         super().__init__(env)  # type: ignore[call-arg]
-        self.obs_shape, _ = get_state_action_shapes(env)
         self.raw_columns = raw_obs_columns(env)
         self.train = train
         self.normalize_obs = normalize_obs
         self.normalize_reward = normalize_reward
         self.norm_info = norm_info
         self.gamma = gamma
-        obs_shape = self._trace_reset().shape
-        self.batch_size = obs_shape[0] if len(obs_shape) > 1 else 1
+        traced = self._trace_reset().shape
+        # A brax stack's width is read off a traced reset
+        # (get_state_action_shapes): the one trace serves both, since an MJX
+        # reset takes about 0.7 s to trace, paid at every agent built on a
+        # normalised env.
+        self.obs_shape = (
+            (traced[-1],) if self.mode == "brax" else get_state_action_shapes(env)[0]
+        )
+        self.batch_size = traced[0] if len(traced) > 1 else 1
 
     def _trace_reset(self) -> Any:
         """The inner reset's observation, traced, not run (shapes only)."""

@@ -26,6 +26,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 from brax.envs.base import Env, State
+from brax.envs.base import Wrapper as BraxWrapper
 from brax.envs.wrappers import training as brax_training
 from flax import struct
 from mujoco_playground._src.mjx_env import State as PlaygroundState
@@ -280,3 +281,25 @@ def test_a_wrapper_reports_its_own_final_observation(name):
         assert final.shape == obs.shape
         going = ~((terminated > 0) | (truncated > 0))
         np.testing.assert_allclose(final[going], obs[going], rtol=1e-6)
+
+
+def test_a_brax_normaliser_is_built_from_one_traced_reset() -> None:
+    """Building the normaliser traces the stack's reset once, for the
+    observation width and the env count together: an MJX reset takes most
+    of a second to trace, and a second trace doubled what every agent on a
+    normalised env pays to be built. The shapes are the stack's."""
+    stack = brax_stack()
+    width = jax.eval_shape(stack.reset, jax.random.key(0)).obs.shape[-1]
+
+    class CountedResets(BraxWrapper):
+        resets = 0
+
+        def reset(self, rng: jax.Array) -> State:
+            CountedResets.resets += 1
+            return self.env.reset(rng)
+
+    normaliser = W.NormalizeVecObservationBrax(CountedResets(stack), gamma=0.9)
+
+    assert CountedResets.resets == 1
+    assert normaliser.obs_shape == (width,)
+    assert normaliser.batch_size == N_ENVS

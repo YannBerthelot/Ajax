@@ -22,6 +22,7 @@ import pytest
 from ajax import SAC
 from ajax.agents.families import DeclaredAgent
 from ajax.agents.presets import Preset, presets_of
+from ajax.extensions.expert import ImitationLoss
 from tests.doc_examples import ROOT
 from tests.test_exports import library_agents
 
@@ -122,3 +123,155 @@ def test_every_shipped_preset_is_named_on_its_algorithm_page(cls, name):
     section = page.read_text().split("\n## Presets\n", 1)[1].split("\n## ", 1)[0]
 
     assert re.search(f'[`"]{name}[`"]', section)
+
+
+def asac_task(beta, tau_theta, learning_starts=10_000, buffer_size=1_000_000):
+    """One hparams/<task>-v5/asac.yaml: beta (:3), buffer_size (:5),
+    learning_starts (:9) and tau_theta (:12). Ajax's alpha_init is the
+    temperature 1 / beta."""
+    return {
+        "alpha_init": 1 / beta,
+        "tau_theta": tau_theta,
+        "learning_starts": learning_starts,
+        "buffer_size": buffer_size,
+    }
+
+
+#: Each shipped preset as its reference states it, read from the reference's
+#: own files (local clones at the cited commits), not from Ajax's tables.
+#: Where Ajax's field has another unit than the reference's, the comment
+#: works the conversion.
+REFERENCE = {
+    # BobMak/asac@4b68862, hparams/<task>-v5/asac.yaml.
+    ("ASAC", "Ant"): asac_task(5, 0.005),
+    ("ASAC", "HalfCheetah"): asac_task(5, 0.005),
+    ("ASAC", "Hopper"): asac_task(5, 0.001),
+    ("ASAC", "Humanoid"): asac_task(20, 0.001),
+    ("ASAC", "InvertedDoublePendulum"): asac_task(5, 0.001, learning_starts=0),
+    ("ASAC", "InvertedPendulum"): asac_task(5, 0.005, learning_starts=0),
+    ("ASAC", "Pusher"): asac_task(5, 0.005),
+    ("ASAC", "Reacher"): asac_task(5, 0.005, buffer_size=100_000),
+    ("ASAC", "Swimmer"): asac_task(20, 0.005),
+    ("ASAC", "Walker2d"): asac_task(5, 0.0005),
+    # adityab/CrossQ@a318a26 train.py:200: 0.99 unless the env is Swimmer-v4.
+    ("CrossQ", "Swimmer"): {"gamma": 0.9999},
+    # google-deepmind/dqn@9d9b1d1 run_gpu:12-32: lr 0.00025, discount 0.99,
+    # replay_memory 1000000, minibatch_size 32, learn_start 50000,
+    # update_freq 4, ep 1 to eps_end 0.1 over eps_endt = replay_memory steps
+    # counted from learn_start (NeuralQLearner.lua:368-370), target_q 10000,
+    # steps 50000000. Ajax counts the target's interval in updates,
+    # 10000 / 4, and the decay as a fraction of the run, 1e6 / 5e7.
+    ("DQN", "Atari"): {
+        "learning_rate": 0.00025,
+        "gamma": 0.99,
+        "buffer_size": 1_000_000,
+        "batch_size": 32,
+        "learning_starts": 50_000,
+        "train_frequency": 4,
+        "target_update_interval": 2_500,
+        "epsilon_start": 1.0,
+        "epsilon_end": 0.1,
+        "epsilon_decay_start": 50_000,
+        "epsilon_decay_frac": 0.02,
+    },
+    # danijar/dreamerv3@29eb964 configs.yaml: run.num_envs 16 (:44), dmc
+    # repeat 2 (:84), dmc_proprio takes size12m and train_ratio 512 (:232-234).
+    ("DreamerV3", "DMC"): {
+        "model_size": "12m",
+        "train_ratio": 512,
+        "n_envs": 16,
+        "action_repeat": 2,
+    },
+    # Kostrikov et al. (2021), Appendix B: expectile 0.9 and inverse
+    # temperature 10 on AntMaze (the cited config file was not at hand).
+    ("IQL", "AntMaze"): {"expectile": 0.9, "temperature": 10.0},
+    # openai/baselines@ea25b9e ppo2/defaults.py:15-22: nsteps 128,
+    # nminibatches 4, noptepochs 4, ent_coef .01, lr 2.5e-4 (times the
+    # remaining fraction), cliprange 0.1, and no value_network='copy' (the
+    # MuJoCo block's), so one network. 8 actors: Schulman et al. (2017),
+    # Table 5.
+    ("PPO", "Atari"): {
+        "n_envs": 8,
+        "n_steps": 128,
+        "num_minibatches": 4,
+        "n_epochs": 4,
+        "actor_learning_rate": 2.5e-4,
+        "critic_learning_rate": 2.5e-4,
+        "clip_range": 0.1,
+        "ent_coef": 0.01,
+        "share_encoder": True,
+    },
+    # mttga/purejaxql@47af6d7 config/alg/pqn_cartpole.yaml: NUM_ENVS 32,
+    # NUM_STEPS 64, EPS_FINISH 0.2, EPS_DECAY 0.2, NUM_MINIBATCHES 16,
+    # NUM_EPOCHS 4, HIDDEN_SIZE 256 x NUM_LAYERS 2, LR 0.0001,
+    # LR_LINEAR_DECAY True, REW_SCALE 0.1, LAMBDA 0.95.
+    ("PQN", "CartPole"): {
+        "n_envs": 32,
+        "n_steps": 64,
+        "epsilon_end": 0.2,
+        "epsilon_decay_frac": 0.2,
+        "num_minibatches": 16,
+        "n_epochs": 4,
+        "architecture": ("256", "relu", "256", "relu"),
+        "learning_rate": 0.0001,
+        "lr_linear_decay": True,
+        "reward_scale": 0.1,
+        "q_lambda": 0.95,
+    },
+    # The same repository's pqn_atari.yaml: NUM_ENVS 128, NUM_STEPS 32,
+    # EPS_FINISH 0.001, EPS_DECAY 0.1, NUM_MINIBATCHES 32, NUM_EPOCHS 2,
+    # LR 0.00025, LR_LINEAR_DECAY False, no REW_SCALE (1), LAMBDA 0.65.
+    ("PQN", "Atari"): {
+        "n_envs": 128,
+        "n_steps": 32,
+        "epsilon_end": 0.001,
+        "epsilon_decay_frac": 0.1,
+        "num_minibatches": 32,
+        "n_epochs": 2,
+        "learning_rate": 0.00025,
+        "lr_linear_decay": False,
+        "reward_scale": 1.0,
+        "q_lambda": 0.65,
+    },
+    # watchernyu/REDQ@7b5d1bf redq/algos/core.py:11: MBPO's target entropy
+    # of the whole action, Hopper -1, HalfCheetah -3, Walker2d -3, Ant -4,
+    # Humanoid -2, over the gym task's action dimensions (3, 6, 6, 8, 17).
+    ("REDQ", "Hopper"): {"target_entropy_per_dim": -1 / 3},
+    ("REDQ", "HalfCheetah"): {"target_entropy_per_dim": -3 / 6},
+    ("REDQ", "Walker2d"): {"target_entropy_per_dim": -3 / 6},
+    ("REDQ", "Ant"): {"target_entropy_per_dim": -4 / 8},
+    ("REDQ", "Humanoid"): {"target_entropy_per_dim": -2 / 17},
+    # sfujim/TD3_BC@8791ad7: alpha 2.5 (TD3_BC.py:76, main.py:56), states
+    # normalised (main.py:57), the cloned actions the dataset's.
+    ("TD3", "D4RL"): {
+        "extensions": (ImitationLoss(None, target="replay", alpha=2.5),),
+        "normalize_observations": True,
+    },
+    # bayesgroup/tqc_pytorch@65114eb README.md:42-48.
+    ("TQC", "Hopper"): {"top_quantiles_to_drop_per_net": 5},
+    ("TQC", "HalfCheetah"): {"top_quantiles_to_drop_per_net": 0},
+    ("TQC", "Walker2d"): {"top_quantiles_to_drop_per_net": 2},
+    ("TQC", "Ant"): {"top_quantiles_to_drop_per_net": 2},
+    ("TQC", "Humanoid"): {"top_quantiles_to_drop_per_net": 2},
+}
+
+
+def test_every_shipped_preset_has_its_reference_statement():
+    """Catches a preset added without the reference's values beside it."""
+    assert {(cls.__name__, name) for cls, name in SHIPPED} == set(REFERENCE)
+
+
+@pytest.mark.parametrize(("cls", "name"), SHIPPED, ids=SHIPPED_IDS)
+def test_every_shipped_preset_holds_its_references_values(cls, name):
+    """Catches a value mistyped in a table, or converted to Ajax's unit
+    wrongly: the other tests here read the table on both sides."""
+    stated = REFERENCE[(cls.__name__, name)]
+    overrides = presets_of(cls)[name].overrides
+
+    assert set(overrides) == set(stated)
+    for field, value in stated.items():
+        if isinstance(value, float):
+            # Fractions written two ways (1 / 5 and 0.2) differ by an ulp.
+            assert overrides[field] == pytest.approx(value, rel=1e-12), field
+        else:
+            assert overrides[field] == value, field

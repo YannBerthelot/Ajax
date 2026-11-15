@@ -26,6 +26,7 @@ import pytest
 from ajax import PPO, SAC, TDMPC2
 from ajax.agents.sweep import configurations
 from ajax.logging.wandb_logging import LoggingConfig
+from ajax.networks.memory import MemoryConfig
 from tests.agents.TDMPC2.common import TINY_AGENT as TDMPC2_TINY
 
 RELU = ("16", "relu", "16", "relu")
@@ -165,6 +166,25 @@ def test_ppo_trains_a_dict_sweeps_grid_configuration_major() -> None:
         {"actor_learning_rate": 1e-3, "gamma": 0.9},
     ]
     assert_members_train_as_separate_runs(tiny_ppo, grid, configurations, 128)
+
+
+def test_recurrent_ppo_members_train_as_their_separate_runs() -> None:
+    """The contract makes no exception for an agent with memory. Catches a
+    recurrent path that still takes a swept number as a constant of the
+    base agent (gamma in the sequence GAE, the learning rate of the
+    optimiser stepping the memory), or members sharing one carry."""
+    gru = MemoryConfig("gru", hidden_size=8)
+    configurations = [
+        {"actor_learning_rate": 3e-4, "gamma": 0.9},
+        {"actor_learning_rate": 1e-3, "gamma": 0.99},
+    ]
+
+    def recurrent_ppo(**fields: Any) -> PPO:
+        return tiny_ppo(memory=gru, **fields)
+
+    assert_members_train_as_separate_runs(
+        recurrent_ppo, configurations, configurations, 64
+    )
 
 
 #: A value off each sweepable field's default; a field joins sweepable with

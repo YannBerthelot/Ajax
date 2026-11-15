@@ -5,7 +5,9 @@ class of ``ajax.agents.families`` an agent is built on, and a property a page
 attributes to a list of agents holds for exactly those agents. A page marks
 such a list ``<!-- agents: KEY -->SAC, TD3 and DQN<!-- /agents -->``; each
 KEY below says how the code answers. ``train_offline``'s refusal names the
-agents that accept a dataset, by the same rule.
+agents that accept a dataset, by the same rule. The presets table of
+docs/guide/training.md names, per agent, the presets of its ``PRESETS`` table
+and the fields they set.
 
 Each test catches a list left behind when an agent joins or leaves a set, as
 the review of 2026-11-14 found on three pages.
@@ -22,7 +24,9 @@ import pytest
 import ajax
 from ajax.agents import families
 from ajax.agents.base import ActorCritic
+from ajax.agents.presets import presets_of
 from tests.doc_examples import ROOT
+from tests.test_exports import library_agents
 
 MARKED = re.compile(r"<!-- agents: ([a-z-]+) -->(.*?)<!-- /agents -->", re.DOTALL)
 #: The names the prose gives two agents, beside their class names.
@@ -99,3 +103,30 @@ def test_the_offline_refusal_names_the_agents_that_accept_a_dataset():
     named = re.search(r"\(([^)]*)\)", str(refusal.value))
     assert named is not None
     assert names_in(named.group(1)) == agents_where(accepts_a_dataset)
+
+
+PRESET_ROW = re.compile(r"^\| \[(\w+)\]\([^)]*#presets\) \| (.*?) \| (.*?) \|", re.M)
+NAME = re.compile(r"`(\w+)`")
+
+
+def test_the_presets_table_names_each_agents_presets_and_their_fields():
+    """Catches a preset added, renamed or given another field without the
+    guide's table following."""
+    guide = (ROOT / "docs" / "guide" / "training.md").read_text()
+    stated = {
+        agent: (set(NAME.findall(presets)), set(NAME.findall(fields)))
+        for agent, presets, fields in PRESET_ROW.findall(guide)
+    }
+    shipped = {
+        agent.__name__: (
+            set(presets_of(agent)),
+            {
+                name
+                for preset in presets_of(agent).values()
+                for name in preset.overrides
+            },
+        )
+        for agent in library_agents()
+        if presets_of(agent)
+    }
+    assert stated == shipped

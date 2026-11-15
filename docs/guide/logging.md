@@ -197,7 +197,8 @@ evaluation due at the end of the run does not happen, and `train` warns.
 
 ## Evaluating on another device
 
-Training waits for each evaluation. With `evaluation_device` it does not: at
+Training waits for each evaluation. With `evaluation_device` it does not
+(asynchronous evaluation, `ajax.async_evaluation`): at
 each evaluation, the training program hands the policy over and goes on, and
 a thread scores it on that device.
 

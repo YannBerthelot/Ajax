@@ -126,8 +126,10 @@ class AsyncEvaluator:
     def score(self, programs: dict, scores: Callable, seeds: list) -> None:
         """Score one evaluation of every seed together, then log each row."""
         states, keys, rows, also = zip(*seeds, strict=True)
-        stacked = jax.tree.map(
-            lambda *leaves: np.stack(leaves), *zip(states, keys, also, strict=True)
+        stacked = (
+            jax.tree.map(lambda *leaves: np.stack(leaves), *states),
+            np.stack(keys),
+            jax.tree.map(lambda *leaves: np.stack(leaves), *also),
         )
         with jax.default_device(self.device):
             if scores not in programs:

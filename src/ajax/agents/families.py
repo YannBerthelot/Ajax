@@ -296,9 +296,11 @@ class EncoderSharing:
     Args:
         share_encoder: One encoder (the MLP or CNN, and the memory block) for
             the actor and the critic (NetworkConfig.share_encoder): the
-            critic owns it, both losses train it and the critic's optimiser
-            steps it, at critic_learning_rate. False: each network has its
-            own. None: what the agent's reference code does
+            critic owns it and the critic's optimiser steps it, at
+            critic_learning_rate. PPO and APO train it with both losses
+            (one step down their sum); an agent with a Q-critic with the
+            critic's loss alone, its actor reading it detached. False: each
+            network has its own. None: what the agent's reference code does
             (reference_share_encoder).
     """
 

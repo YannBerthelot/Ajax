@@ -443,7 +443,9 @@ class NetworkConfig(Replaceable):
     # reference does (AVG's) sets it.
     log_variance_head: bool = False
     # One encoder (and memory block) for the actor and the critic, which
-    # the critic owns and both losses train (get_initialized_actor_critic);
+    # the critic owns (get_initialized_actor_critic) and its optimiser
+    # steps: down both losses in PPO and APO, the critic's alone in an
+    # agent with a Q-critic;
     # False: each network has its own. Static: it decides the networks'
     # structure.
     share_encoder: bool = flax.struct.field(pytree_node=False, default=False)

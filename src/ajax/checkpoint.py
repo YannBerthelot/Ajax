@@ -15,11 +15,14 @@ Typical resume flow (``resume`` in tests/probing/runs.py runs it):
     save_checkpoint(final, path)
 
 load_checkpoint(agent, path) builds that skeleton itself, for as many seeds
-as the file holds.
+as the file holds. agent.save(state, path) also writes the agent's class and
+its plain constructor arguments, from which load(path) builds the agent.
 """
 
 from __future__ import annotations
 
+import dataclasses
+import inspect
 import os
 import pickle
 from collections.abc import Iterator
@@ -30,6 +33,7 @@ import jax.numpy as jnp
 import numpy as np
 from flax import serialization
 
+from ajax.networks.memory import MemoryConfig
 from ajax.random_keys import derive_key
 from ajax.state import CollectorState
 from ajax.wrappers import NON_FINITE_STEPS_KEY
@@ -51,14 +55,56 @@ FORMAT_KEY = "ajax_checkpoint_format"
 FORMAT = 3
 
 
-def save_checkpoint(state: Any, path: str) -> None:
-    """Save the pytree data of ``state`` to ``path``. Atomic write."""
+#: The key under which agent.save records the agent: its class's name, the
+#: constructor arguments stored as written ("arguments") and the names of
+#: those that are objects, which load is given again ("to_pass_again").
+AGENT_KEY = "ajax_agent"
+
+
+def _plain(value: Any) -> bool:
+    """Whether a constructor argument is stored as written: numbers,
+    strings, None, and lists, tuples and string-keyed dicts of them."""
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return True
+    if isinstance(value, (tuple, list)):
+        return all(_plain(item) for item in value)
+    if isinstance(value, dict):
+        return all(isinstance(key, str) and _plain(item) for key, item in value.items())
+    return False
+
+
+def agent_record(agent: Any) -> dict:
+    """What agent.save records of ``agent``: each constructor argument as
+    the agent was given it (its run config), when it is plain; the others
+    (a prebuilt environment, extensions, an expert policy) by name only."""
+    arguments, to_pass_again = {}, []
+    for name in inspect.signature(type(agent)).parameters:
+        value = agent.config.get(name, agent)  # agent: absent from the config
+        if isinstance(value, MemoryConfig):
+            value = dataclasses.asdict(value)  # every agent takes it as a dict
+        if value is not agent and _plain(value):
+            arguments[name] = value
+        else:
+            to_pass_again.append(name)
+    return {
+        "class": type(agent).__name__,
+        "arguments": arguments,
+        "to_pass_again": to_pass_again,
+    }
+
+
+def save_checkpoint(state: Any, path: str, agent: Any = None) -> None:
+    """Save the pytree data of ``state`` to ``path``. Atomic write. With
+    ``agent``, its record too (:func:`agent_record`), which :func:`load`
+    builds the agent from."""
     path = os.path.abspath(path)
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     host_state = _to_host_numpy(state)
     state_dict = serialization.to_state_dict(host_state)
     if isinstance(state_dict, dict):
         state_dict = {**state_dict, FORMAT_KEY: FORMAT}
+    if agent is not None:
+        state_dict = {**state_dict, AGENT_KEY: agent_record(agent)}
     tmp = path + ".tmp"
     with open(tmp, "wb") as f:
         pickle.dump(state_dict, f, protocol=pickle.HIGHEST_PROTOCOL)
@@ -82,6 +128,7 @@ def restore_into(skeleton: Any, path: str) -> Any:
     if isinstance(state_dict, dict):
         state_dict = dict(state_dict)
         saved_format = state_dict.pop(FORMAT_KEY, 0)
+        state_dict.pop(AGENT_KEY, None)
         _check_raw_replay(skeleton, state_dict, saved_format)
     skeleton_dict = serialization.to_state_dict(skeleton)
     _check_episode_keys(skeleton_dict, state_dict, saved_format)
@@ -136,6 +183,59 @@ def load_checkpoint(agent: Any, path: str, **train_options: Any) -> Any:
     seeds = list(range(np.shape(saved["rng"])[0]))
     skeleton, _ = agent.train(seed=seeds, n_timesteps=0, **train_options)
     return restore_into(skeleton, path)
+
+
+def load(
+    path: str,
+    agent_class: Any = None,
+    train_options: Any = None,
+    **arguments: Any,
+) -> tuple[Any, Any]:
+    """The agent and the state that ``agent.save(state, path)`` wrote, as
+    ``(agent, state)``.
+
+    The agent is built from the recorded arguments, then the state is
+    restored into it (:func:`load_checkpoint`, given ``train_options``).
+    ``arguments`` are constructor arguments: those the file could not store
+    (objects: a prebuilt environment, extensions, an expert policy) must be
+    passed again, and any other given here replaces the recorded one.
+    ``agent_class``: the class to build, which must be the one saved
+    (``PPO.load(path)``); None: the class of that name exported by ``ajax``.
+
+    Raises ``ValueError`` on a file ``save_checkpoint`` wrote without an
+    agent, on another class's file, and on an argument to pass again that
+    is missing.
+    """
+    with open(os.path.abspath(path), "rb") as f:
+        saved = pickle.load(f)
+    record = saved.get(AGENT_KEY) if isinstance(saved, dict) else None
+    if record is None:
+        raise ValueError(
+            f"{path} records no agent (agent.save(state, path) writes one):"
+            " build the agent and use load_checkpoint(agent, path)."
+        )
+    if agent_class is None:
+        import ajax  # here: ajax imports this module's users
+
+        agent_class = getattr(ajax, record["class"], None)
+        if agent_class is None or record["class"] not in ajax.__all__:
+            raise ValueError(
+                f"{path} holds a {record['class']}, which ajax does not export:"
+                " load it from its class, as in MyAgent.load(path)."
+            )
+    elif agent_class.__name__ != record["class"]:
+        raise ValueError(
+            f"{path} holds a {record['class']}, not a {agent_class.__name__}."
+        )
+    missing = [name for name in record["to_pass_again"] if name not in arguments]
+    if missing:
+        raise ValueError(
+            f"{path} could not store the {record['class']}'s {', '.join(missing)}"
+            " (objects, not plain values): pass them again, as in"
+            f" load(path, {missing[0]}=...)."
+        )
+    agent = agent_class(**{**record["arguments"], **arguments})
+    return agent, load_checkpoint(agent, path, **(train_options or {}))
 
 
 def _with_collection_stream(state: Any) -> Any:

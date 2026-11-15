@@ -843,6 +843,27 @@ class ActorCritic:
         stop_async_logging()
         return result
 
+    def save(self, state: BaseAgentState, path: str) -> None:
+        """Write ``state`` and this agent's class and plain constructor
+        arguments to ``path``, for :meth:`load` to build both again
+        (``ajax.checkpoint``)."""
+        from ajax.checkpoint import save_checkpoint  # it imports the agents' modules
+
+        save_checkpoint(state, path, agent=self)
+
+    @classmethod
+    def load(
+        cls, path: str, train_options: Optional[dict] = None, **arguments: Any
+    ) -> tuple["ActorCritic", BaseAgentState]:
+        """``(agent, state)`` from a file :meth:`save` wrote for an agent of
+        this class. ``arguments``: the constructor arguments the file could
+        not store (objects: a prebuilt environment, extensions, an expert
+        policy), passed again, and any to replace
+        (:func:`ajax.checkpoint.load`)."""
+        from ajax.checkpoint import load
+
+        return load(path, cls, train_options, **arguments)
+
     def train_offline(
         self,
         dataset: Any,

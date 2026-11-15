@@ -49,7 +49,7 @@ observations (an MLP, or a CNN encoder for images, see
 | `EvalCallback(eval_env, eval_freq=...)` | `LoggingConfig(log_frequency=...)`; `train` returns the evaluations | [Logging](../guide/logging.md) |
 | `tensorboard_log="runs"` | `LoggingConfig(backends=(TensorBoardBackend("runs"),))` | [Logging](../guide/logging.md#backends) |
 | `model.predict(obs, deterministic=True)` | `agent.predict(state, obs)`, or `agent.policy(state)` for a policy with memory | [Train, evaluate, deploy](../guide/deploy.md) |
-| `model.save(path)`, `PPO.load(path)` | `save_checkpoint(state, path)`, `load_checkpoint(agent, path)` | [Checkpoints](../guide/checkpoints.md) |
+| `model.save(path)`, `PPO.load(path)` | `agent.save(state, path)`, `agent, state = PPO.load(path)` | [Checkpoints](../guide/checkpoints.md#save-and-load-an-agent) |
 | `model.learn(..., reset_num_timesteps=False)` | `agent.train(initial_state=state, ...)` | [Training an agent](../guide/training.md#continuing-a-run) |
 | a Gymnasium environment | `"gymnasium:<id>"`, stepped in Python and slower | [Environments](../guide/environments.md#gymnasium-environments) |
 | `RecurrentPPO` (sb3-contrib) | `PPO(env_id, memory={"kind": "lstm", "hidden_size": 64})` | [Memory](../guide/memory.md) |
@@ -80,8 +80,7 @@ something between steps (a memory, a world model) refuses `predict`;
 
 ## Save and load
 
-Ajax has no `agent.save` or `Agent.load`. A checkpoint holds the state, and
-the agent is rebuilt from the same arguments:
+`save` takes the state, and `load` returns the agent with it:
 
 ```python
 # doc: skip (Stable-Baselines3, for comparison)
@@ -93,25 +92,20 @@ model = PPO.load("ppo_cartpole")
 import os
 import tempfile
 
-from ajax.checkpoint import load_checkpoint, save_checkpoint
-
 path = os.path.join(tempfile.mkdtemp(), "ppo_cartpole.pkl")
-save_checkpoint(state, path)
+agent.save(state, path)
 
-# Later, in another process: the same agent, then its state.
-agent = PPO("CartPole-v1")
-state = load_checkpoint(agent, path)
+# Later, in another process.
+agent, state = PPO.load(path)
 print(agent.predict(state, obs))
 ```
 
-The file does not record the agent's arguments: keep them with it, as your
-script or as the run configuration the logging backends store
-([Logging](../guide/logging.md#the-run-configuration)).
+The file records the agent's plain arguments. Objects (a prebuilt
+environment, extensions) are passed to `load` again
+([Checkpoints](../guide/checkpoints.md#save-and-load-an-agent)).
 
 ## What Ajax does not have
 
-- **`save` and `load` on the agent**, as above: checkpoints of the state,
-  and `agent.policy` to act.
 - **Callbacks.** A training run is one compiled program, so no Python runs
   between its steps. What a callback would do goes elsewhere: evaluations
   come from `LoggingConfig`, changes to the training loop are

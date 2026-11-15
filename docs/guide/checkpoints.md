@@ -22,6 +22,41 @@ print(state.collector_state.timestep)  # [2000 2000]
 Pass the same seeds in every call. The call may reuse the memory of the
 state you pass in, so read or save what you need from it first.
 
+## Save and load an agent
+
+`agent.save` writes the state together with the agent's class and its
+arguments, and `load` gives both back, so the loading script does not build
+the agent again:
+
+```python
+import os
+import tempfile
+
+import ajax
+from ajax import PPO
+
+agent = PPO("CartPole-v1", n_envs=8, n_steps=128, gamma=0.98)
+state, _ = agent.train(seed=[0, 1], n_timesteps=2_048)
+path = os.path.join(tempfile.mkdtemp(), "ppo_cartpole.pkl")
+agent.save(state, path)
+
+# Later, in another process.
+agent, state = ajax.load(path)  # or PPO.load(path), which refuses another class's file
+print(agent.gamma)  # 0.98
+state, _ = agent.train(seed=[0, 1], n_timesteps=2_048, initial_state=state)
+```
+
+The file stores the arguments that are plain values: ids, numbers, strings,
+architectures, a memory configuration. An argument that is an object (a
+prebuilt environment, extensions, an expert policy) is not stored: `load`
+refuses, naming it, until you pass it again, as in
+`ajax.load(path, extensions=(...,))`. Any other argument given to `load`
+replaces the stored one. `train_options` goes to the 0-step `train` call
+that rebuilds the state ([below](#across-processes)).
+
+The file is also a checkpoint: `load_checkpoint` and `restore_into` read it.
+Like any checkpoint it is a pickle, so load only files you trust.
+
 ## Across processes
 
 `ajax.checkpoint` has four functions:

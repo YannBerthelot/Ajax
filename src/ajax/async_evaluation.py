@@ -75,14 +75,15 @@ class AsyncEvaluator:
         key: Any,
         metrics: dict,
         index: Any,
+        *also: Any,
     ) -> None:
         """In the evaluation program, in place of logging ``metrics``: when
-        ``flag`` is set, hand the host what ``scores(agent_state, key)``
-        reads, and the metrics to log with its scores. Under the seed vmap,
-        JAX calls the host once per seed."""
+        ``flag`` is set, hand the host what ``scores(agent_state, key,
+        *also)`` reads, and the metrics to log with its scores. Under the
+        seed vmap, JAX calls the host once per seed."""
         receive = functools.partial(self.receive, scores)
         jax.debug.callback(
-            receive, flag, without_replay(agent_state), key, metrics, index
+            receive, flag, without_replay(agent_state), key, metrics, index, *also
         )
 
     def receive(
@@ -93,11 +94,12 @@ class AsyncEvaluator:
         key: Any,
         metrics: dict,
         index: Any,
+        *also: Any,
     ) -> None:
         if not bool(flag):
             return
         # Copies: a callback's arrays may be the program's own buffers.
-        handed = jax.tree.map(np.array, (state, key, metrics))
+        handed = jax.tree.map(np.array, (state, key, metrics, also))
         timestep = int(metrics["timestep"])
         with self.lock:
             seeds = self.waiting.setdefault(timestep, {})
@@ -123,16 +125,18 @@ class AsyncEvaluator:
 
     def score(self, programs: dict, scores: Callable, seeds: list) -> None:
         """Score one evaluation of every seed together, then log each row."""
-        states, keys, rows = zip(*seeds, strict=True)
+        states, keys, rows, also = zip(*seeds, strict=True)
         stacked = (
             jax.tree.map(lambda *leaves: np.stack(leaves), *states),
             np.stack(keys),
+            jax.tree.map(lambda *leaves: np.stack(leaves), *also),
         )
         with jax.default_device(self.device):
             if scores not in programs:
                 programs[scores] = jax.jit(jax.vmap(scores))
             inputs = jax.device_put(stacked, self.device)
-            result = jax.device_get(programs[scores](*inputs))
+            state, key, more = inputs
+            result = jax.device_get(programs[scores](state, key, *more))
         self.scored.append(result)
         for index, row in enumerate(rows):
             row = dict(row)

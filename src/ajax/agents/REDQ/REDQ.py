@@ -133,7 +133,11 @@ class REDQ(
     critics, a subset of two, 20 critic steps per env step (utd_ratio),
     Adam at 3e-4 with torch's eps 1e-8 (redq_sac.py:48, :51), xavier-uniform
     layers, a log-probability subtracting log(1 - tanh^2 + 1e-6)
-    (core.py:232).
+    (core.py:232). One default is not its default: the target entropy is
+    its "auto" option, -1 per action dimension (redq_sac.py:55-56). Its
+    default, "mbpo" (redq_sac.py:33, :57-58), is a table of five tasks
+    (core.py:11-13) that raises on any other env, so it is the option
+    "mbpo" and the presets here.
 
     Args:
         alpha_init: The temperature's initial value: 1.0 as in REDQ's
@@ -143,10 +147,11 @@ class REDQ(
             (:214-236), on the last of the 20 critic updates (utd_ratio) of
             the first env step that trains: those updates' targets and the
             first actor loss read 0.2, and so do Ajax's (FIRST_ALPHA).
-        target_entropy_per_dim: The target entropy per action dimension, a
-            schedule of the timestep, or "mbpo" for MBPO's per-task target
-            entropy (MBPO_TARGET_ENTROPY), the default of REDQ's official
-            code; an env id outside that table raises.
+        target_entropy_per_dim: The target entropy per action dimension
+            (-1, the official code's "auto"), a schedule of the timestep,
+            or "mbpo" for MBPO's per-task target entropy
+            (MBPO_TARGET_ENTROPY), the default of REDQ's official code; an
+            env id outside that table raises.
         num_critic_updates: The critic steps of each update, each on a fresh
             replay batch (SAC's same-named steps share one).
         subset_size: The random target critics whose minimum each target

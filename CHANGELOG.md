@@ -8,18 +8,19 @@ PyPI as `ajax-rl`.
 
 The next release is 0.6.0: the first item changes results.
 
-- **Deprecated: `LoggingConfig(sweep=...)` is now
-  `evaluate_last_fifth_only`.** The flag evaluates only in the last fifth
-  of training; its name was also that of `train(sweep=...)`, which trains
-  several configurations in one program. `sweep` is still accepted, warns
-  (`FutureWarning`) and sets the new field, and reads `None` afterwards.
-  Upgrade: rename the argument, and read `evaluate_last_fifth_only`.
-
 - **Fixed: a forced reset kept the reward normaliser's running return.**
   With `normalize_rewards` and forced resets (`num_resets_per_eval`), the
   abandoned episodes' discounted return carried into the new episodes'
   rewards and statistics. It now restarts at zero, as SB3's
   `VecNormalize.reset` does; the statistics stay.
+
+- **Deprecated: `LoggingConfig(sweep=...)` is now
+  `evaluate_last_fifth_only`.** The flag evaluates only in the last fifth
+  of training; its name was also that of `train(sweep=...)`, which trains
+  several configurations in one program. `sweep=True` is still accepted:
+  it warns (`FutureWarning`), sets the new field and reads `False`
+  afterwards.
+  Upgrade: rename the argument, and read `evaluate_last_fifth_only`.
 
 - **DQN's Atari preset holds epsilon at 1 during the warm-up.** Mnih et
   al.'s code starts the decay after its 50,000 warm-up steps and ends it a

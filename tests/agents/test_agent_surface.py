@@ -163,6 +163,7 @@ LOGGING_DEFAULTS: dict[str, Any] = {
     "sweep": False,
     "backends": None,
     "evaluation_device": None,
+    "evaluate_last_fifth_only": False,
 }
 
 

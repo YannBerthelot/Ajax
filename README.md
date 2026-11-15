@@ -79,6 +79,10 @@ agent = PPO("CartPole-v1", extensions=(ConditioningMetrics(),))
 agent = PPO("ant", n_envs=8)
 ```
 
+A notebook trains, acts and saves step by step: [`notebooks/quickstart.ipynb`](notebooks/quickstart.ipynb)
+([open in Colab](https://colab.research.google.com/github/YannBerthelot/Ajax/blob/main/notebooks/quickstart.ipynb)).
+Complete scripts are in [`examples/`](examples/).
+
 ## Agents
 
 - **Off-policy actor-critic**: [SAC](docs/algorithms/sac.md), [TD3](docs/algorithms/td3.md), [REDQ](docs/algorithms/redq.md), [CrossQ](docs/algorithms/crossq.md) (batch-renormalised, no target networks), [TQC](docs/algorithms/tqc.md) (truncated quantile critics), [AVG](docs/algorithms/avg.md) (no replay), [ASAC](docs/algorithms/asac.md) and [RVISAC](docs/algorithms/rvisac.md) (RVI-SAC; average reward), [IQL](docs/algorithms/iql.md) (offline)

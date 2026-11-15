@@ -4,6 +4,12 @@ This page trains an agent, reads its results, runs the trained policy and
 saves it. Each example runs on a laptop CPU in under a minute, compilation
 included.
 
+The same steps are a notebook,
+[`notebooks/quickstart.ipynb`](https://github.com/YannBerthelot/Ajax/blob/main/notebooks/quickstart.ipynb)
+([open in Colab](https://colab.research.google.com/github/YannBerthelot/Ajax/blob/main/notebooks/quickstart.ipynb)),
+and complete scripts are in
+[`examples/`](https://github.com/YannBerthelot/Ajax/tree/main/examples).
+
 ## Train an agent
 
 An agent takes an environment id and its hyperparameters; `train` runs it.

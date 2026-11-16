@@ -30,7 +30,7 @@ import pytest
 import ajax
 from ajax.buffers.utils import normalized_rewards
 from ajax.environments.create import strip_ajax_wrappers
-from ajax.environments.interaction import reset, step
+from ajax.environments.interaction import normalisation_info, reset, step
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.policy import normalised_reward
 from ajax.types import EnvNormalizationInfo, NormalizationInfo
@@ -151,6 +151,53 @@ def test_the_returns_are_reported_in_the_envs_units(name: str) -> None:
     got = {k: np.asarray(out[k])[evaluated] for k in keys}
     wrong = {k: v for k, v in got.items() if not np.allclose(v, L, rtol=1e-5, atol=0)}
     assert not wrong, wrong
+
+
+def _never_ends(st: envs.State, a: jnp.ndarray, key: object) -> tuple:
+    return st.replace(s=st.s + 1), 1.0, False
+
+
+def test_a_resumed_run_goes_on_from_the_normalisers_statistics() -> None:
+    """train's docstring: a resumed run continues from its state. On a task
+    paying 1 a step with no episode end, at a normalisation discount of 0.5,
+    each env's running return after t steps is 1 + 0.5 + ... + 0.5^(t-1) =
+    2 - 2^(1-t), and SB3's running statistics count one return per env per
+    step. Timesteps count every env's steps: a leg of 8 is 4 steps of each
+    of the 2 envs. A run of 8 resumed for 8 more must stand where 16 stand,
+    8 steps an env: a return of 2 - 2^-7, and 2 x 4 more returns counted
+    than after the first leg. A resume that restarts the normaliser ends at
+    the first leg's 2 - 2^-3 = 1.875 again."""
+    spec = envs.Spec("pays_on", _never_ends, _step_count, obs_dim=L + 1, limit=64)
+    env, params = spec.make()
+
+    def build() -> Any:
+        return ajax.PPO(
+            env_id=env,
+            env_params=params,
+            n_envs=2,
+            n_steps=4,
+            batch_size=4,
+            n_epochs=1,
+            normalize_rewards=True,
+            reward_normalization_gamma=0.5,
+        )
+
+    def reward_statistics(state: Any) -> Any:
+        """Copied out: the resumed call takes over the state's arrays."""
+        info = normalisation_info(state.collector_state.env_state, "gymnax")
+        return jax.tree.map(np.array, info.reward)
+
+    first, _ = build().train(seed=0, n_timesteps=8, total_timesteps=16)
+    before = reward_statistics(first)
+    resumed, _ = build().train(
+        seed=0, n_timesteps=8, total_timesteps=16, initial_state=first
+    )
+    after = reward_statistics(resumed)
+    # float32: sums of 8 powers of two at most, exact but for the last bit.
+    np.testing.assert_allclose(before.returns, 2 - 2.0**-3, rtol=1e-6)
+    np.testing.assert_allclose(after.returns, 2 - 2.0**-7, rtol=1e-6)
+    # Summed: the count may be kept per env or for them all.
+    np.testing.assert_allclose(np.sum(after.count - before.count), 8, rtol=1e-6)
 
 
 def _replayed(reward: jnp.ndarray, stats: NormalizationInfo) -> jnp.ndarray:

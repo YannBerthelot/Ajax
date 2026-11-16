@@ -22,10 +22,15 @@ from tests.probing import readouts
 
 
 def test_PPO_train_playground_smoke():
-    """Smoke test: PPO trains briefly on a playground env (covers playground
-    code path end-to-end including seed vmap and eval)."""
+    """PPO trains on a playground env: train()'s docstring promises the whole
+    iterations the budget holds (50 steps hold one rollout of 2 x 16) and a
+    state with one row per seed. Catches a playground path that returns
+    without updating, or whose first update leaves non-finite parameters."""
     agent = PPO(env_id="PendulumSwingup", n_envs=2, n_steps=16, n_epochs=1)
-    agent.train(seed=42, n_timesteps=50)
+    state, _ = agent.train(seed=42, n_timesteps=50)
+    assert np.asarray(state.n_updates).tolist() == [1]
+    for leaf in jax.tree.leaves((state.actor_state.params, state.critic_state.params)):
+        assert np.isfinite(np.asarray(leaf)).all()
 
 
 @pytest.mark.parametrize("env_id, mode", [("Pendulum-v1", "gymnax"), ("fast", "brax")])

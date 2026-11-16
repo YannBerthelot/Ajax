@@ -197,6 +197,10 @@ def test_gain_mode_refuses_an_extension_using_expert_actions_as_the_policys(exte
 
 def test_gain_mode_takes_imitation_of_the_replayed_gains():
     """ImitationLoss's replayed target clones the stored actions, which are
-    the policy's own gains."""
+    the policy's own gains: the agent is built, and trains with the loss.
+    Catches a refusal of the replayed target, or the loss dropped from the
+    extensions the run folds."""
     imitation = ImitationLoss(None, target="replay")
-    SAC("Pendulum-v1", expert_policy=TwoGains(), extensions=(ExpertGains(), imitation))
+    extensions = (ExpertGains(), imitation)
+    agent = SAC("Pendulum-v1", expert_policy=TwoGains(), extensions=extensions)
+    assert any(isinstance(e, ImitationLoss) for e in agent.extension_stack)

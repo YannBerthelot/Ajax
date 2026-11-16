@@ -102,7 +102,12 @@ def test_pqn_huber_loss_smoke():
         num_minibatches=2,
         td_loss_fn=make_huber_td_loss(1.0),
     )
-    agent.train(seed=42, n_timesteps=256)
+    state, _ = agent.train(seed=42, n_timesteps=256)
+    # 256 steps hold 16 rollouts of 2 envs x 8 steps. Catches a Huber hook
+    # that skips the updates or leaves non-finite parameters.
+    assert np.asarray(state.n_updates).tolist() == [16]
+    for leaf in jax.tree.leaves(state.actor_state.params):
+        assert np.isfinite(np.asarray(leaf)).all()
 
 
 def test_pqn_steps_as_its_reference_optimiser():

@@ -614,6 +614,13 @@ before this version do not restore at the new defaults. The rest:
   in the usual order on the first device. Without `devices` nothing
   changes.
 
+- **`agent.save(state, path)` and `load`.** `save` writes the state with
+  the agent's class and its plain constructor arguments; `ajax.load(path)`
+  or `PPO.load(path)` returns `(agent, state)`. Arguments that are objects
+  (a prebuilt environment, extensions, an expert policy) are passed to
+  `load` again. `save_checkpoint` and `load_checkpoint` are unchanged, and
+  read these files too.
+
 ## 0.5.0
 
 What a user of 0.4.0 meets:

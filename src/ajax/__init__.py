@@ -25,6 +25,10 @@ from ajax.agents.TDMPC2.TDMPC2MultiTask import TDMPC2MultiTask  # noqa: E402
 from ajax.agents.TQC.TQC import TQC  # noqa: E402
 from ajax.agents.UDRL.UDRL import UDRL  # noqa: E402
 
+# ajax.load(path): the agent and state that agent.save wrote. Not in __all__,
+# which lists the agents.
+from ajax.checkpoint import load  # noqa: E402, F401
+
 __all__ = [
     "APG",
     "APO",

@@ -369,10 +369,11 @@ The next release is 0.6.0: the first item changes results.
   on all fifteen DeepMind Control tasks, APO's HumanoidWalk run finished, and
   REDQ, TQC, CrossQ, TD-MPC2 and DreamerV3 have CheetahRun scores, from runs
   on a GPU ([Agent benchmark](docs/reproduction/benchmark.md)).
-- **Agent benchmark rerun at the new defaults.** PPO, APO, DQN and PQN were
-  rerun at `2ef57fe`; the page lists what moved (PPO on CheetahRun 215 to
-  497, PQN on Breakout 24 to 71, DQN on Breakout 84 to 50). REDQ's row and
-  the other agents' are from the earlier commits
+- **Agent benchmark rerun at the new defaults.** PPO, APO, DQN, PQN and
+  REDQ were rerun at `2ef57fe`; the page lists what moved (PPO on CheetahRun
+  215 to 497, PQN on Breakout 24 to 71, DQN on Breakout 84 to 50; REDQ on
+  CheetahRun stays at about 910). The other agents' rows are from the
+  earlier commits
   ([Agent benchmark](docs/reproduction/benchmark.md)).
 - **Agent benchmark page in tabs.** One tab per suite, each with its table, a
   heatmap and learning curves. `benchmarks/suite/publish.py` writes the

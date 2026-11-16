@@ -40,11 +40,10 @@ from ajax.agents.loop import (
 from ajax.buffers.dataset import TransitionDataset
 from ajax.buffers.utils import get_batch_from_buffer
 from ajax.controller import policy_action_dim, reads_agent_expert
-from ajax.environments.interaction import (
+from ajax.environments.expert_collection import (
     collect_experience_from_expert_policy,
-    replay_row,
-    reward_statistics,
 )
+from ajax.environments.interaction import replay_row, reward_statistics
 from ajax.environments.obs_norm import mirror_obs_norm, seeded_obs_norm
 from ajax.environments.utils import raw_obs_columns
 from ajax.extensions.base import Extension, ExtensionContext, ExtensionStack

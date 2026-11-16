@@ -100,17 +100,18 @@ def gated_log_callback(log_fn: Callable, flag: Any, metrics: dict, index: Any) -
 
 
 def scores_now_or_later(
-    scores: Callable[[Any, jax.Array], dict],
+    scores: Callable[..., dict],
     agent_state: Any,
     key: jax.Array,
     evaluator: Optional["AsyncEvaluator"],
+    *also: Any,
 ) -> dict:
-    """The policy's evaluation, ``scores(agent_state, key)``; with an
+    """The policy's evaluation, ``scores(agent_state, key, *also)``; with an
     asynchronous evaluator, its structure filled with NaN: the evaluator
     scores it later (:mod:`ajax.async_evaluation`)."""
     if evaluator is None:
-        return scores(agent_state, key)
-    return unevaluated(jax.eval_shape(scores, agent_state, key))
+        return scores(agent_state, key, *also)
+    return unevaluated(jax.eval_shape(scores, agent_state, key, *also))
 
 
 def send_logs(
@@ -119,17 +120,18 @@ def send_logs(
     metrics: dict,
     index: Any,
     evaluator: Optional["AsyncEvaluator"],
-    scores: Callable[[Any, jax.Array], dict],
+    scores: Callable[..., dict],
     agent_state: Any,
     key: jax.Array,
+    *also: Any,
 ) -> None:
     """Log ``metrics`` when ``flag`` is set (:func:`gated_log_callback`);
     with an asynchronous evaluator, hand them over with what ``scores``
-    reads, to be logged with its scores."""
+    reads (the state, the key and ``also``), to be logged with its scores."""
     if evaluator is None:
         gated_log_callback(log_fn, flag, metrics, index)
     else:
-        evaluator.hand_over(flag, scores, agent_state, key, metrics, index)
+        evaluator.hand_over(flag, scores, agent_state, key, metrics, index, *also)
 
 
 def evaluation_keys(
@@ -485,11 +487,10 @@ def _make_no_op(extra_eval_metrics=None, choosers=False):
         "avg_reward_mode",
         "expert_policy",
         "eval_expert_policy",
-        "sweep",
+        "last_fifth_only",
         "extra_eval_metrics",
         "controller",
         "phase",
-        "value_estimate",
         "evaluator",
     ],
 )
@@ -508,7 +509,7 @@ def evaluate_and_log(
     avg_reward_mode: bool = False,
     expert_policy: Optional[Callable] = None,
     eval_expert_policy: Optional[Callable] = None,
-    sweep: bool = False,
+    last_fifth_only: bool = False,
     extra_eval_metrics: Optional[Callable] = None,
     controller: Optional[Controller] = None,
     value_estimate: Optional[ValueEstimate] = None,
@@ -531,7 +532,7 @@ def evaluate_and_log(
     log_flag = timestep - (agent_state.n_logs * log_frequency) >= log_frequency
     not_finished_flag = timestep <= total_timesteps if log_frequency else False
 
-    if sweep:
+    if last_fifth_only:
         close_to_end_flag = timestep >= 0.8 * total_timesteps
     else:
         close_to_end_flag = True
@@ -541,7 +542,14 @@ def evaluate_and_log(
 
     choosers = controller is not None and bool(controller.choosers)
 
-    def scores(agent_state: BaseAgentState, eval_key: jax.Array) -> dict:
+    # The estimate is an argument, not read from the enclosing scope: its
+    # numbers are traced here, and an asynchronous evaluator scores in a
+    # program of its own.
+    def scores(
+        agent_state: BaseAgentState,
+        eval_key: jax.Array,
+        value_estimate: Optional[ValueEstimate],
+    ) -> dict:
         outputs = evaluate(
             env_args.env,
             actor_state=agent_state.actor_state,
@@ -584,7 +592,9 @@ def evaluate_and_log(
         eval_key, extra_key = evaluation_keys(agent_state, timestep, phase)
         metrics_to_log: dict[str, Any] = {"timestep": timestep}
         metrics_to_log.update(
-            scores_now_or_later(scores, agent_state, eval_key, evaluator)
+            scores_now_or_later(
+                scores, agent_state, eval_key, evaluator, value_estimate
+            )
         )
         metrics_to_log["Train/episodic mean reward"] = (
             agent_state.collector_state.episodic_mean_return
@@ -604,6 +614,7 @@ def evaluate_and_log(
             scores,
             agent_state,
             eval_key,
+            value_estimate,
         )
 
         return metrics_to_log

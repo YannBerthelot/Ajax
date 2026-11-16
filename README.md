@@ -125,7 +125,7 @@ more comparisons (one inconclusive) and the speed of each side; the
 |---|---|---|
 | SAC | 846 | 962 |
 | TD3 | 846 | 968 |
-| REDQ | 913 | – |
+| REDQ | 909 | – |
 | TQC | 906 | – |
 | CrossQ | 905 | – |
 | ASAC | 626 | 878 |

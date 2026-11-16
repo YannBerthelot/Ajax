@@ -3,8 +3,8 @@
 Every agent at its default settings, with 10 seeds each, apart from `n_envs`,
 which follows each agent's paper. DreamerV3 also keeps its replay in host
 memory (`replay_on_host=True`), which gives the same numbers with less GPU
-memory. PPO, APO, DQN and PQN were rerun on 2026-11-14 at the defaults
-they have had since 2026-11-13; the other agents' rows, REDQ's included,
+memory. PPO, APO, DQN, PQN and REDQ were rerun from 2026-11-14 at the defaults
+they have had since 2026-11-13; the other agents' rows
 are from the earlier commits named below. How Ajax's agents
 compare with other implementations is in the [results](results.md).
 
@@ -15,17 +15,15 @@ compare with other implementations is in the [results](results.md).
   MinAtar games on gymnax, trained for 5,242,880 steps.
 - **Machines.** Seeds 0 to 9 trained together. Most of the earlier cells
   ran on 4-core cloud CPUs, and the PPO, APO, DQN and PQN reruns on 4 cores
-  each of a shared 192-core machine. The cells added later ran on one shared NVIDIA L40S GPU: SAC,
+  each of a shared 192-core machine (REDQ's rerun on the GPU below). The cells added later ran on one shared NVIDIA L40S GPU: SAC,
   TD3, RVI-SAC and ASAC on the twelve tasks beyond CheetahRun, WalkerWalk and
   HopperHop, APO on HumanoidWalk, and the five agents in the second table.
   The physics is MJX's pure-JAX version on both. DQN on Freeway and
   SpaceInvaders ran in two halves, for memory, before its rerun, and
   DreamerV3 one seed at a time.
-- **Code.** PPO, APO, DQN and PQN: the main branch at `2ef57fe`. The other
+- **Code.** PPO, APO, DQN, PQN and REDQ: the main branch at `2ef57fe`. The other
   agents: the main branch at `acd1626`, after 0.5.0, for the CPU cells, and
-  at `e7647bc` for the GPU cells. REDQ's default warm-up has changed since
-  (to 5,000 steps), and its rerun was still in progress when this page was
-  written. TD-MPC2 moved to `eeb029d` after its first
+  at `e7647bc` for the GPU cells. TD-MPC2 moved to `eeb029d` after its first
   32,768 steps, which only changed how often it evaluates.
 - **Score.** The return at the last evaluation, as mean ± standard deviation
   over the seeds (a sample standard deviation), with the best mean in each
@@ -33,8 +31,8 @@ compare with other implementations is in the [results](results.md).
   small gap between two agents means little. DeepMind Control scores run from
   0 to 1000.
 - **Records.** [`benchmarks/suite`](https://github.com/YannBerthelot/Ajax/tree/main/benchmarks/suite)
-  holds the driver and each run's records. The records of PPO, APO, DQN
-  and PQN at their earlier defaults are in each run's `earlier-defaults`
+  holds the driver and each run's records. The records of PPO, APO, DQN,
+  PQN and REDQ at their earlier defaults are in each run's `earlier-defaults`
   folder.
 
 ## Results
@@ -69,7 +67,7 @@ from the records.
 
     | Task | REDQ | TQC | CrossQ | DreamerV3 | TD-MPC2 |
     |---|---|---|---|---|---|
-    | CheetahRun | **912.9 ± 5.6** | 906.3 ± 27.2 | 905.2 ± 10.7 | 761.7 ± 56.9 | 827.5 ± 32.0 |
+    | CheetahRun | **909.4 ± 7.6** | 906.3 ± 27.2 | 905.2 ± 10.7 | 761.7 ± 56.9 | 827.5 ± 32.0 |
 
     ![DeepMind Control: final returns, each task scaled to its best mean](benchmark-figures/control-heatmap.svg)
 
@@ -130,6 +128,8 @@ much.
   three games.
 - **PQN** rose on all four games: Breakout 23.8 to 70.7, Asterix 4.1 to
   18.7, Freeway 23.4 to 65.1 and SpaceInvaders 137.6 to 154.7.
+- **REDQ**, whose warm-up went from 10,000 to 5,000 steps, did
+  not move on CheetahRun: 912.9 ± 5.6 before, 909.4 ± 7.6 after.
 
 ## Agents not in the tables
 

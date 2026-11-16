@@ -49,8 +49,6 @@ lists them. Its fields are fixed once built:
 
 ::: ajax.agents.families
 
-::: ajax.agents.own_loop
-
 ## Presets and sweeps
 
 `Agent.preset(task, env_id)` builds an agent from its reference's settings

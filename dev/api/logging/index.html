@@ -3118,6 +3118,17 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#ajax.checkpoint.agent_record" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        agent_record
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#ajax.checkpoint.save_checkpoint" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3144,6 +3155,17 @@
     <span class="md-ellipsis">
       
         load_checkpoint
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.checkpoint.load" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        load
       
     </span>
   </a>
@@ -3819,6 +3841,17 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#ajax.checkpoint.agent_record" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        agent_record
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#ajax.checkpoint.save_checkpoint" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3845,6 +3878,17 @@
     <span class="md-ellipsis">
       
         load_checkpoint
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.checkpoint.load" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        load
       
     </span>
   </a>
@@ -5259,7 +5303,8 @@ the skeleton via <code>flax.serialization.from_state_dict</code>.</p>
     final = agent.train(..., initial_state=skeleton, ...)
     save_checkpoint(final, path)</p>
 <p>load_checkpoint(agent, path) builds that skeleton itself, for as many seeds
-as the file holds.</p>
+as the file holds. agent.save(state, path) also writes the agent's class and
+its plain constructor arguments, from which load(path) builds the agent.</p>
 
 
 
@@ -5284,17 +5329,41 @@ as the file holds.</p>
 <div class="doc doc-object doc-function">
 
 
+<h3 id="ajax.checkpoint.agent_record" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">agent_record</span>
+
+
+<a href="#ajax.checkpoint.agent_record" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">agent_record</span><span class="p">(</span><span class="n">agent</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>What agent.save records of <code>agent</code>: each constructor argument as
+the agent was given it (its run config), when it is plain; the others
+(a prebuilt environment, extensions, an expert policy) by name only.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
 <h3 id="ajax.checkpoint.save_checkpoint" class="doc doc-heading">
             <span class="doc doc-object-name doc-function-name">save_checkpoint</span>
 
 
 <a href="#ajax.checkpoint.save_checkpoint" class="headerlink" title="Permanent link">&para;</a></h3>
-<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">save_checkpoint</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="n">path</span><span class="p">)</span>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">save_checkpoint</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="n">path</span><span class="p">,</span> <span class="n">agent</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
-        <p>Save the pytree data of <code>state</code> to <code>path</code>. Atomic write.</p>
+        <p>Save the pytree data of <code>state</code> to <code>path</code>. Atomic write. With
+<code>agent</code>, its record too (:func:<code>agent_record</code>), which :func:<code>load</code>
+builds the agent from.</p>
 
 
     </div>
@@ -5346,6 +5415,39 @@ It refuses what restore_into refuses. train_options go to that train
 call: a run whose options shape its update rule (APG's learning-rate
 schedule over total_timesteps, its optimiser kept on resume) passes
 them, so the loaded state resumes as the run would have gone on.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="ajax.checkpoint.load" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">load</span>
+
+
+<a href="#ajax.checkpoint.load" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">load</span><span class="p">(</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">path</span><span class="p">,</span> <span class="n">agent_class</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">train_options</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="o">**</span><span class="n">arguments</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>The agent and the state that <code>agent.save(state, path)</code> wrote, as
+<code>(agent, state)</code>.</p>
+<p>The agent is built from the recorded arguments, then the state is
+restored into it (:func:<code>load_checkpoint</code>, given <code>train_options</code>).
+<code>arguments</code> are constructor arguments: those the file could not store
+(objects: a prebuilt environment, extensions, an expert policy) must be
+passed again, and any other given here replaces the recorded one.
+<code>agent_class</code>: the class to build, which must be the one saved
+(<code>PPO.load(path)</code>); None: the class of that name exported by <code>ajax</code>.</p>
+<p>Raises <code>ValueError</code> on a file <code>save_checkpoint</code> wrote without an
+agent, on another class's file, and on an argument to pass again that
+is missing.</p>
 
 
     </div>

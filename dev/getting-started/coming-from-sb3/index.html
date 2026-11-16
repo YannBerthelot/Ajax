@@ -3078,8 +3078,8 @@ observations (an MLP, or a CNN encoder for images, see
 </tr>
 <tr>
 <td><code>model.save(path)</code>, <code>PPO.load(path)</code></td>
-<td><code>save_checkpoint(state, path)</code>, <code>load_checkpoint(agent, path)</code></td>
-<td><a href="../../guide/checkpoints/">Checkpoints</a></td>
+<td><code>agent.save(state, path)</code>, <code>agent, state = PPO.load(path)</code></td>
+<td><a href="../../guide/checkpoints/#save-and-load-an-agent">Checkpoints</a></td>
 </tr>
 <tr>
 <td><code>model.learn(..., reset_num_timesteps=False)</code></td>
@@ -3117,8 +3117,7 @@ something between steps (a memory, a world model) refuses <code>predict</code>;
 <code>agent.policy(state)</code> gives a policy with <code>reset</code> and <code>act</code> instead
 (<a href="../../guide/deploy/">Train, evaluate, deploy</a>).</p>
 <h2 id="save-and-load">Save and load<a class="headerlink" href="#save-and-load" title="Permanent link">&para;</a></h2>
-<p>Ajax has no <code>agent.save</code> or <code>Agent.load</code>. A checkpoint holds the state, and
-the agent is rebuilt from the same arguments:</p>
+<p><code>save</code> takes the state, and <code>load</code> returns the agent with it:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="c1"># doc: skip (Stable-Baselines3, for comparison)</span>
 <a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="n">model</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="s2">&quot;ppo_cartpole&quot;</span><span class="p">)</span>
 <a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="n">model</span> <span class="o">=</span> <span class="n">PPO</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="s2">&quot;ppo_cartpole&quot;</span><span class="p">)</span>
@@ -3126,23 +3125,18 @@ the agent is rebuilt from the same arguments:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
 <a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="kn">import</span><span class="w"> </span><span class="nn">tempfile</span>
 <a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>
-<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax.checkpoint</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_checkpoint</span><span class="p">,</span> <span class="n">save_checkpoint</span>
-<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>
-<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="n">path</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">tempfile</span><span class="o">.</span><span class="n">mkdtemp</span><span class="p">(),</span> <span class="s2">&quot;ppo_cartpole.pkl&quot;</span><span class="p">)</span>
-<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="n">save_checkpoint</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="n">path</span><span class="p">)</span>
-<a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a>
-<a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a><span class="c1"># Later, in another process: the same agent, then its state.</span>
-<a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a><span class="n">agent</span> <span class="o">=</span> <span class="n">PPO</span><span class="p">(</span><span class="s2">&quot;CartPole-v1&quot;</span><span class="p">)</span>
-<a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a><span class="n">state</span> <span class="o">=</span> <span class="n">load_checkpoint</span><span class="p">(</span><span class="n">agent</span><span class="p">,</span> <span class="n">path</span><span class="p">)</span>
-<a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a><span class="nb">print</span><span class="p">(</span><span class="n">agent</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="n">obs</span><span class="p">))</span>
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="n">path</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">tempfile</span><span class="o">.</span><span class="n">mkdtemp</span><span class="p">(),</span> <span class="s2">&quot;ppo_cartpole.pkl&quot;</span><span class="p">)</span>
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="n">agent</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="n">path</span><span class="p">)</span>
+<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>
+<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="c1"># Later, in another process.</span>
+<a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a><span class="n">agent</span><span class="p">,</span> <span class="n">state</span> <span class="o">=</span> <span class="n">PPO</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">path</span><span class="p">)</span>
+<a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a><span class="nb">print</span><span class="p">(</span><span class="n">agent</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="n">obs</span><span class="p">))</span>
 </code></pre></div>
-<p>The file does not record the agent's arguments: keep them with it, as your
-script or as the run configuration the logging backends store
-(<a href="../../guide/logging/#the-run-configuration">Logging</a>).</p>
+<p>The file records the agent's plain arguments. Objects (a prebuilt
+environment, extensions) are passed to <code>load</code> again
+(<a href="../../guide/checkpoints/#save-and-load-an-agent">Checkpoints</a>).</p>
 <h2 id="what-ajax-does-not-have">What Ajax does not have<a class="headerlink" href="#what-ajax-does-not-have" title="Permanent link">&para;</a></h2>
 <ul>
-<li><strong><code>save</code> and <code>load</code> on the agent</strong>, as above: checkpoints of the state,
-  and <code>agent.policy</code> to act.</li>
 <li><strong>Callbacks.</strong> A training run is one compiled program, so no Python runs
   between its steps. What a callback would do goes elsewhere: evaluations
   come from <code>LoggingConfig</code>, changes to the training loop are

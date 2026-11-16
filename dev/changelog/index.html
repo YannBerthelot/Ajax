@@ -3508,10 +3508,11 @@ PyPI as <code>ajax-rl</code>.</p>
   on all fifteen DeepMind Control tasks, APO's HumanoidWalk run finished, and
   REDQ, TQC, CrossQ, TD-MPC2 and DreamerV3 have CheetahRun scores, from runs
   on a GPU (<a href="../reproduction/benchmark/">Agent benchmark</a>).</li>
-<li><strong>Agent benchmark rerun at the new defaults.</strong> PPO, APO, DQN and PQN were
-  rerun at <code>2ef57fe</code>; the page lists what moved (PPO on CheetahRun 215 to
-  497, PQN on Breakout 24 to 71, DQN on Breakout 84 to 50). REDQ's row and
-  the other agents' are from the earlier commits
+<li><strong>Agent benchmark rerun at the new defaults.</strong> PPO, APO, DQN, PQN and
+  REDQ were rerun at <code>2ef57fe</code>; the page lists what moved (PPO on CheetahRun
+  215 to 497, PQN on Breakout 24 to 71, DQN on Breakout 84 to 50; REDQ on
+  CheetahRun stays at about 910). The other agents' rows are from the
+  earlier commits
   (<a href="../reproduction/benchmark/">Agent benchmark</a>).</li>
 <li><strong>Agent benchmark page in tabs.</strong> One tab per suite, each with its table, a
   heatmap and learning curves. <code>benchmarks/suite/publish.py</code> writes the

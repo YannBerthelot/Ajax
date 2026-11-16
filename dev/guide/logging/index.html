@@ -3183,9 +3183,14 @@ your own.</p>
 <td>each run's name prefix: a run is named <code>&lt;run_name&gt;_&lt;run id&gt;</code></td>
 </tr>
 <tr>
+<td><code>evaluate_last_fifth_only</code></td>
+<td><code>False</code></td>
+<td>evaluate only in the last 20% of training, for hyperparameter searches that read the final scores</td>
+</tr>
+<tr>
 <td><code>sweep</code></td>
 <td><code>False</code></td>
-<td>for hyperparameter sweeps: SAC evaluates only in the last 20% of training</td>
+<td>deprecated: the earlier name of <code>evaluate_last_fifth_only</code>. Set <code>True</code>, it warns. It is not <code>train(sweep=...)</code></td>
 </tr>
 <tr>
 <td><code>evaluation_device</code></td>
@@ -3609,7 +3614,7 @@ lists them, and <code>train(..., on_ids_ready=callback)</code> hands them to
   the <code>wandb</code> extra and log in once with <code>wandb login</code>. Each run is created
   in your process before training, so a missing login fails at once.
   <code>WandbBackend(steps=False)</code> creates the runs and sends them no evaluation,
-  as the deprecated <code>use_wandb</code> with <code>sweep=True</code> does.</li>
+  as the deprecated <code>use_wandb</code> with <code>evaluate_last_fifth_only=True</code> does.</li>
 <li>A backend of your own: <a href="#a-backend-of-your-own">below</a>.</li>
 </ul>
 <div class="admonition warning">

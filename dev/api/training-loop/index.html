@@ -4812,7 +4812,7 @@ when it has one and the extensions' <code>eval_metrics</code>;
 <a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>    <span class="n">end_timestep</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>    <span class="n">expert_policy</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>    <span class="n">offline_data</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>    <span class="n">sweep</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>    <span class="n">evaluate_last_fifth_only</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
 <a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>    <span class="n">evaluator</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a><span class="p">)</span>
 </code></pre></div>
@@ -5044,7 +5044,7 @@ comes past the horizon.</p>
         <p>Which ticks of this call (a NumPy array) evaluate_and_log's gate
 opens after, each tick taking steps_per_tick steps from the call's
 start_timestep: those whose steps reach a multiple of log_frequency.
-The gate itself still decides (the horizon, a sweep's last fifth).
+The gate itself still decides (the horizon, the last fifth alone).
 The ticks count from the call's first, as the families planning with
 it number them (their resume_iteration_offset is 0).</p>
 
@@ -5179,7 +5179,7 @@ largest count, each seed's state frozen after its own.</p>
 (ajax.log.evaluate_and_log), the agent's family's agent_metrics and
 the extensions' eval metrics included; returns the state and the
 metrics (None without logging), only in the last fifth of training
-in a sweep. An agent storing normalised observations evaluates with
+when the logging configuration says so. An agent storing normalised observations evaluates with
 them normalised by its running statistics, unless its own controller
 says how it acts.</p>
 

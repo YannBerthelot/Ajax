@@ -3132,6 +3132,15 @@ PyPI as <code>ajax-rl</code>.</p>
   <code>VecNormalize.reset</code> does; the statistics stay.</p>
 </li>
 <li>
+<p><strong>Deprecated: <code>LoggingConfig(sweep=...)</code> is now
+  <code>evaluate_last_fifth_only</code>.</strong> The flag evaluates only in the last fifth
+  of training; its name was also that of <code>train(sweep=...)</code>, which trains
+  several configurations in one program. <code>sweep=True</code> is still accepted:
+  it warns (<code>FutureWarning</code>), sets the new field and reads <code>False</code>
+  afterwards.
+  Upgrade: rename the argument, and read <code>evaluate_last_fifth_only</code>.</p>
+</li>
+<li>
 <p><strong>DQN's Atari preset holds epsilon at 1 during the warm-up.</strong> Mnih et
   al.'s code starts the decay after its 50,000 warm-up steps and ends it a
   million steps later (google-deepmind/dqn@9d9b1d1,

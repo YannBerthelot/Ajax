@@ -6,7 +6,7 @@
    "reward_learning"
   ],
   "extension_context": [],
-  "make_train": "ajax.agents.own_loop:OwnIterationAgent.make_train",
+  "make_train": "ajax.agents.families:OwnIterationAgent.make_train",
   "name": "APG",
   "per_seed_update_counts": false,
   "phase_batch_keys": {
@@ -518,7 +518,7 @@
    "env_args",
    "gamma"
   ],
-  "make_train": "ajax.agents.own_loop:OwnReplayAgent.make_train",
+  "make_train": "ajax.agents.families:OwnReplayAgent.make_train",
   "name": "DreamerV3",
   "per_seed_update_counts": false,
   "phase_batch_keys": {},
@@ -1184,7 +1184,7 @@
    "warmup"
   ],
   "extension_context": [],
-  "make_train": "ajax.agents.own_loop:OwnReplayAgent.make_train",
+  "make_train": "ajax.agents.families:OwnReplayAgent.make_train",
   "name": "TDMPC2",
   "per_seed_update_counts": false,
   "phase_batch_keys": {},
@@ -1341,7 +1341,7 @@
    "reward_learning"
   ],
   "extension_context": [],
-  "make_train": "ajax.agents.own_loop:OwnIterationAgent.make_train",
+  "make_train": "ajax.agents.families:OwnIterationAgent.make_train",
   "name": "UDRL",
   "per_seed_update_counts": false,
   "phase_batch_keys": {

@@ -61,8 +61,7 @@ from ajax.agents.DreamerV3.replay import (
 )
 from ajax.agents.DreamerV3.state import DreamerV3Config, LearningRate
 from ajax.agents.DreamerV3.world_model import make_initial_carry, observe_and_act
-from ajax.agents.families import TrainContext
-from ajax.agents.own_loop import OwnReplayAgent
+from ajax.agents.families import OwnReplayAgent, TrainContext
 from ajax.agents.presets import Preset
 from ajax.buffers.ring import count_ring_rows, size_ring
 from ajax.controller import feature_width

@@ -1,0 +1,21 @@
+name: Feature or agent request
+description: An agent, a module or an option Ajax does not have
+labels: [enhancement]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What you would like
+      description: What it does and what you would use it for.
+    validations:
+      required: true
+  - type: textarea
+    id: source
+    attributes:
+      label: Source
+      description: For an algorithm, its paper and, if there is one, its reference code. Ajax's agents follow their reference implementation.
+  - type: textarea
+    id: today
+    attributes:
+      label: What you do today
+      description: How you work around it, if you do.

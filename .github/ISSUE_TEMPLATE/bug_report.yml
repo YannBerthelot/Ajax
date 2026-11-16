@@ -1,0 +1,31 @@
+name: Bug report
+description: Something raises, or does not do what the documentation says
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you ran, what you expected and what you got. Paste the full error if there is one.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Code to reproduce it
+      description: The smallest script that shows it, with the agent's arguments and the environment id.
+      render: python
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Ajax version
+      description: "`pip show ajax-rl`, or the commit if installed from GitHub."
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Python version, operating system, CPU or GPU, and the versions of jax and of the simulator (gymnax, brax, mujoco) if one is involved.

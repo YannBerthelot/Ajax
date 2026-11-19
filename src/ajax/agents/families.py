@@ -1558,6 +1558,26 @@ class OwnIterationAgent(DeclaredAgent):
         )
 
 
+def release_replaced(given: Any, resumed: Any) -> None:
+    """Frees the arrays of the state a run resumes from that the resumed
+    state no longer holds: the rings prepare_replay grew or moved. A resume
+    donates the state it is given, and these would otherwise stay alive
+    beside their replacements for the whole call: the last chunk of a
+    10-seed DreamerV3 run would hold its 75 GB ring beside the 80 GB one."""
+
+    def buffers(leaf: jax.Array) -> set[int]:
+        return {shard.data.unsafe_buffer_pointer() for shard in leaf.addressable_shards}
+
+    def arrays(tree: Any) -> list[jax.Array]:
+        leaves = jax.tree.leaves(tree)
+        return [x for x in leaves if isinstance(x, jax.Array) and not x.is_deleted()]
+
+    kept = set().union(*(buffers(leaf) for leaf in arrays(resumed)))
+    for leaf in arrays(given):
+        if not buffers(leaf) & kept:
+            leaf.delete()
+
+
 @dataclass(kw_only=True, eq=False, repr=False)
 class OwnReplayAgent(DeclaredAgent):
     """An agent storing rows in a replay of its own (TrainLoop.off_policy's
@@ -1693,14 +1713,16 @@ class OwnReplayAgent(DeclaredAgent):
         run_horizon(start, n_timesteps, total_timesteps)
         start_tick = 0 if state is None else self.resume_iteration_offset(state)
         end_tick = start_tick + self.count_ticks(n_timesteps, start_tick)
-        replay, state = self.prepare_replay(start_tick, end_tick, state)
+        replay, resumed = self.prepare_replay(start_tick, end_tick, state)
+        if state is not None:
+            release_replaced(state, resumed)
         agent_state, out = super().train(
             seed=seed,
             n_timesteps=n_timesteps,
             num_episode_test=num_episode_test,
             logging_config=logging_config,
             on_ids_ready=on_ids_ready,
-            initial_state=state,
+            initial_state=resumed,
             total_timesteps=total_timesteps,
             sweep=sweep,
             devices=devices,

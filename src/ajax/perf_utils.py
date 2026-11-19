@@ -174,6 +174,8 @@ def build_chunked_train(
     absolute ticks, marks those after which ``log_fn`` runs: it must be known
     before the run, so the chunks are. Each chunk length compiles once; they
     are one or two when the evaluations come every so many ticks or steps.
+    The start, every chunk and every evaluation take the state by donation,
+    so a run updates one copy of it in place.
 
     The train function has build_resumable_train's signature but ``shared``,
     and returns ``(agent_state, out)``. It is a Python loop over jitted
@@ -202,7 +204,10 @@ def build_chunked_train(
             lambda state, tick: tick_fn(state, index, tick), agent_state, length, ticks
         )
 
-    log = jax.jit(log_fn)
+    # So are the evaluation's state and rows: it returns the state it reads,
+    # which without donation is a copy of all of it, replay included
+    # (DreamerV3's replay in host memory ran out of its 64 GB pool there).
+    log = jax.jit(log_fn, donate_argnums=(0, 2))
 
     def train(
         key: Any,
@@ -219,15 +224,15 @@ def build_chunked_train(
         begin = first
         for end in sorted(ends):
             with warnings.catch_warnings():
-                # A leaf a chunk leaves as it was (the parameters before the
-                # first update) is passed through, not copied, so its donated
-                # buffer has no use: nothing is lost.
+                # A leaf a chunk or an evaluation leaves as it was (the
+                # parameters before the first update) is passed through, not
+                # copied, so its donated buffer has no use: nothing is lost.
                 warnings.filterwarnings(
                     "ignore", message="Some donated buffers were not usable"
                 )
                 agent_state, aux = chunk(agent_state, index, begin, end - begin + 1)
-            if end in evaluates:
-                agent_state, out = log(agent_state, aux, out, index, end)
+                if end in evaluates:
+                    agent_state, out = log(agent_state, aux, out, index, end)
             begin = end + 1
         return agent_state, out
 

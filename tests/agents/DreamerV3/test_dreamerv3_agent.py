@@ -480,6 +480,22 @@ def test_each_call_resolves_its_ring():
         resolve(agent, N_ENVS * 10, _resumable(50, 40))
 
 
+def test_a_resume_frees_the_rings_it_grows():
+    """Catches a resumed run that keeps the shorter rings of the state it is
+    given alive beside the grown ones for the whole call: the last chunk of a
+    10-seed benchmark run would hold its replay twice in host memory, 75 GB
+    beside 80 GB. A resume donates the state it is given, so the rings it
+    replaces are freed as it starts."""
+    agent = cartpole_agent(replay_on_host=True)
+    given, _ = agent.train(seed=SEEDS, n_timesteps=ROWS // 2)
+    shorter = given.replay_state
+    state, _ = agent.train(seed=SEEDS, n_timesteps=N_ENVS * 8, initial_state=given)
+    # 60 rows per env seen, then 8 more: a 68-row ring, under the capacity's 100.
+    assert state.replay_state.obs.shape == (2, N_ENVS, 68, 4)
+    assert is_on_host(state.replay_state.deter)
+    assert shorter.deter.is_deleted() and shorter.obs.is_deleted()
+
+
 def test_a_resumed_ring_goes_where_the_option_keeps_the_latents():
     """Host-side, no training: under replay_on_host, prepare_replay grows a
     host-memory deter ring in place and moves a device one to the host;

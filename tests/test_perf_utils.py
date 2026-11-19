@@ -351,3 +351,36 @@ def test_a_resumed_chunked_run_evaluates_on_absolute_ticks():
     np.testing.assert_array_equal(rows[:2], [[5, 15, 50], [8, 36, 80]])
     assert int(count) == 2
     assert int(state["sum"]) == 36
+
+
+def test_a_chunked_run_updates_its_replay_in_place_through_its_evaluations():
+    """Catches an evaluation that returns a copy of the state it reads: each
+    one would hold the replay twice (DreamerV3's replay in host memory ran out
+    of its 64 GB pool there), and the run would end on another buffer."""
+
+    def tick_fn(state, index, tick):
+        del index  # a replay-like write: slot ``tick`` holds ``tick``
+        return {"replay": state["replay"].at[tick].set(tick)}, 10 * tick
+
+    def log_fn(state, aux, out, index, tick):
+        del aux, index
+        rows, count = out
+        return state, (rows.at[count].set(state["replay"][tick]), count + 1)
+
+    train = build_chunked_train(
+        init_fn=lambda key, index: {"replay": jnp.full((1 << 16,), -1, jnp.int32)},
+        tick_fn=tick_fn,
+        log_fn=log_fn,
+        due=lambda ticks: (ticks + 1) % 3 == 0,
+        num_updates=8,
+        carry_out=lambda state, index: (jnp.full((4,), -1), jnp.zeros((), int)),
+    )
+    replay = jnp.full((1 << 16,), -1, jnp.int32)
+    storage = replay.unsafe_buffer_pointer()
+    state, (rows, count) = train(
+        jax.random.PRNGKey(0), initial_state={"replay": replay}, resume_from_state=True
+    )
+    # Ticks 2 and 5 are due; each evaluation reads the slot its tick wrote.
+    np.testing.assert_array_equal(rows, [2, 5, -1, -1])
+    np.testing.assert_array_equal(state["replay"][:9], [0, 1, 2, 3, 4, 5, 6, 7, -1])
+    assert state["replay"].unsafe_buffer_pointer() == storage

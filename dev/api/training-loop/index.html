@@ -6582,7 +6582,9 @@ reading the tick's <code>aux</code>, and writes into <code>out</code>, which sta
 <code>carry_out(agent_state, index)</code>. <code>due(ticks)</code>, of a NumPy array of
 absolute ticks, marks those after which <code>log_fn</code> runs: it must be known
 before the run, so the chunks are. Each chunk length compiles once; they
-are one or two when the evaluations come every so many ticks or steps.</p>
+are one or two when the evaluations come every so many ticks or steps.
+The start, every chunk and every evaluation take the state by donation,
+so a run updates one copy of it in place.</p>
 <p>The train function has build_resumable_train's signature but <code>shared</code>,
 and returns <code>(agent_state, out)</code>. It is a Python loop over jitted
 programs: vmap it over the seeds or call it per seed, as

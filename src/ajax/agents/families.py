@@ -1679,10 +1679,13 @@ class OwnReplayAgent(DeclaredAgent):
         total_timesteps: Optional[int] = None,
         sweep: Optional[Sweep] = None,
         devices: Optional[Sequence[Any]] = None,
+        precision: Optional[str] = None,
         **kwargs: Any,
     ) -> tuple[Any, Any]:
         """ActorCritic.train on the call's replay (prepare_replay), which
-        continues the replay of the uninterrupted run when it resumes."""
+        continues the replay of the uninterrupted run when it resumes. The
+        precision is set first: the replay may store what the networks
+        compute in."""
         state = initial_state
         if isinstance(state, tuple) and len(state) == 2:
             state = state[0]
@@ -1691,6 +1694,7 @@ class OwnReplayAgent(DeclaredAgent):
         found = sweep_configurations(sweep)
         if found:
             check_sweep(type(self).__name__, self.sweepable_fields(), list(found[0]))
+        self.use_precision(precision, devices)
         start = 0
         if state is not None:
             counters = shared_counters(state, self.per_seed_update_counts)
@@ -1711,6 +1715,7 @@ class OwnReplayAgent(DeclaredAgent):
             total_timesteps=total_timesteps,
             sweep=sweep,
             devices=devices,
+            precision=precision,
             replay=replay,
             start_tick=start_tick,
             **kwargs,

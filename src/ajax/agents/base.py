@@ -38,6 +38,7 @@ from ajax.logging.wandb_logging import (
 )
 from ajax.networks.memory import MemoryConfig, parse_memory_config
 from ajax.networks.networks import CNNSpec
+from ajax.precision import resolve_precision
 from ajax.state import (
     LOG_STD_BOUNDS,
     BaseAgentState,
@@ -246,6 +247,10 @@ class ActorCritic:
         "actor_learning_rate": ("actor_optimizer_args", "learning_rate"),
         "critic_learning_rate": ("critic_optimizer_args", "learning_rate"),
     }
+    # train's precision when it is given none: the agent's original code's
+    # (ajax.precision). float32 for every agent so far; DreamerV3's original
+    # computes in bfloat16 (deviation D4).
+    default_precision: ClassVar[str] = "float32"
     #: Each leading row of the last train call's state: its seed and its
     #: configuration's swept values, configuration-major.
     members: list[dict[str, float]]
@@ -640,6 +645,26 @@ class ActorCritic:
                 object.__setattr__(member, built, rebuilt)
         return member
 
+    def use_precision(self, precision: Optional[str], devices: Any = None) -> str:
+        """Set this call's compute dtype from train's ``precision`` (None:
+        :attr:`default_precision`) on ``devices``, record it in the run
+        config, and return it: ``"float32"`` or ``"bfloat16"``
+        (:func:`ajax.precision.resolve_precision`)."""
+        dtype = resolve_precision(
+            self.default_precision if precision is None else precision, devices
+        )
+        self.set_compute_dtype(dtype)
+        self.config.update(precision=dtype)
+        return dtype
+
+    def set_compute_dtype(self, dtype: str) -> None:
+        """Build the networks of the next call to compute in ``dtype``: the
+        shared networks read it from :attr:`network_args`; an agent with
+        networks of its own overrides this."""
+        self.network_args = self.network_args.replace(
+            compute_dtype=None if dtype == "float32" else dtype
+        )
+
     def get_make_train(self) -> Callable:
         """:attr:`make_train` with the agent's own arguments
         (:attr:`train_kwargs`) and its extensions; :meth:`train` passes the
@@ -661,6 +686,7 @@ class ActorCritic:
         total_timesteps: Optional[int] = None,
         sweep: Optional[Sweep] = None,
         devices: Optional[Sequence[Any]] = None,
+        precision: Optional[str] = None,
         **kwargs,
     ) -> tuple[BaseAgentState, Any]:
         """
@@ -704,6 +730,14 @@ class ActorCritic:
                 results come back on the first. A member trains as it does
                 on one device, but for rounding. ``None``: the default
                 device trains them all.
+            precision: what the networks compute in (``ajax.precision``):
+                ``"float32"``; ``"bfloat16"``, mixed precision (parameters,
+                optimiser, heads, losses and targets stay float32); or
+                ``"auto"``, bfloat16 where every device has bfloat16 units
+                (NVIDIA compute capability 8.0 or more, TPU), else float32.
+                ``None``: the agent's original code's precision
+                (:attr:`default_precision`). The run config records the
+                result; a run may resume in another precision.
 
         Returns ``(state, out)``, each leaf with a leading axis over the
         members: the seeds, or the sweep's configurations, each over the
@@ -725,6 +759,7 @@ class ActorCritic:
                 " episodes it was in cannot continue."
             )
         devices = checked_devices(devices, in_python, logging_config)
+        self.use_precision(precision, devices)
         found = sweep_configurations(sweep)
         if found:
             check_sweep(type(self).__name__, self.sweepable_fields(), list(found[0]))
@@ -898,6 +933,7 @@ class ActorCritic:
         num_episode_test: int = 10,
         logging_config: Optional[LoggingConfig] = None,
         on_ids_ready: Optional[Callable] = None,
+        precision: Optional[str] = None,
     ) -> tuple[BaseAgentState, Any]:
         """Train on a transition dataset alone, with no environment step.
 
@@ -907,7 +943,8 @@ class ActorCritic:
         ``(state, out)`` as :meth:`train` does, with the state's timestep
         and evaluation count back at 0, so that ``train(initial_state=state,
         ...)`` fine-tunes online from it, its replay keeping the dataset's
-        rows (with ``learning_starts=0``, from the first step).
+        rows (with ``learning_starts=0``, from the first step). ``precision``
+        is :meth:`train`'s.
 
         Raises ``ValueError`` on an agent without a transition replay.
         """
@@ -924,6 +961,7 @@ class ActorCritic:
             num_episode_test=num_episode_test,
             logging_config=logging_config,
             on_ids_ready=on_ids_ready,
+            precision=precision,
             offline_data=dataset,
         )
         collector = state.collector_state

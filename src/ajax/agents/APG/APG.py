@@ -616,6 +616,7 @@ def make_controller(
         pid=pid,
         squash=squash,
         cache_keys_values=True,
+        compute_dtype=network_args.compute_dtype,
     )
 
 

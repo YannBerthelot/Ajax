@@ -13,6 +13,7 @@ from typing import Optional, Tuple, Union
 
 import flax.linen as nn
 import jax
+import jax.numpy as jnp
 
 from ajax.controller import policy_action_dim
 from ajax.extensions.observe import pid_terms_at
@@ -76,6 +77,14 @@ class DeterministicActor(nn.Module):
     input_embedding: EmbeddingParts = ()
     shortcut_width: int = 0
     embedding_kernel_init: Optional[Union[str, InitializationFunction]] = None
+    # The compute dtype of the hidden stack read before any memory
+    # (NetworkConfig.compute_dtype); its features return in float32. In Ni
+    # et al.'s layout the stack follows the memory and stays float32.
+    compute_dtype: Optional[str] = None
+
+    @property
+    def hidden_dtype(self) -> Optional[str]:
+        return None if self.input_embedding else self.compute_dtype
 
     def setup(self):
         if self.input_embedding:
@@ -85,10 +94,13 @@ class DeterministicActor(nn.Module):
             self.encoder = Encoder(
                 input_architecture=self.input_architecture,
                 kernel_init=self.kernel_init,
+                dtype=self.compute_dtype,
             )
         else:
             self.hidden = nn.Sequential(
-                parse_architecture(self.input_architecture, self.kernel_init)
+                parse_architecture(
+                    self.input_architecture, self.kernel_init, dtype=self.hidden_dtype
+                )
             )
         if self.memory is not None:
             self.memory_cell = MemoryCell(self.memory)
@@ -108,6 +120,7 @@ class DeterministicActor(nn.Module):
             h = self.encoder(obs)
         else:
             h = self.encoder(obs) if self.share_encoder else self.hidden(obs)
+            h = h.astype(jnp.float32)
         if self.memory is not None:
             if hidden_state is None or done is None:
                 raise ValueError(
@@ -175,6 +188,7 @@ def get_initialized_td3_actor_critic(
             input_embedding=embedding_parts(network_config, env_config, 0),
             shortcut_width=network_config.shortcut_widths[0],
             embedding_kernel_init=network_config.embedding_kernel_init,
+            compute_dtype=network_config.compute_dtype,
         )
     return get_initialized_actor_critic(
         key,

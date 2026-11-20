@@ -22,10 +22,10 @@ flax's defaults match neither paper (epsilon 1e-6, and LayerNorm's fast
 variance ``E[x^2] - E[x]^2``, off by ~0.2 on mean-1000 unit-variance
 inputs where torch's two-pass variance is within 1e-4), so
 :class:`NormedMLP` sets them explicitly. Statistics are computed in
-float32: DreamerV3 at 2411f7d computed the RMS in its bf16 compute dtype,
-and Ajax runs these agents in float32 throughout (deviation D4 in
-``docs/world_models/deviations.md``). Output layers and heads are composed
-by the agents with :func:`linear`.
+float32 whatever the layers' compute dtype (``dtype``, bfloat16 under
+``train(precision=...)``): DreamerV3 at 2411f7d computed the RMS in its
+bf16 compute dtype (deviation D4 in ``docs/world_models/deviations.md``).
+Output layers and heads are composed by the agents with :func:`linear`.
 """
 
 from __future__ import annotations
@@ -57,6 +57,7 @@ def linear(
     bias_init: Union[str, InitializationFunction] = "zeros",
     outscale: float = 1.0,
     name: Optional[str] = None,
+    dtype: Optional[Any] = None,
 ) -> nn.Dense:
     """``nn.Dense`` with initializers given by name and an output scale.
 
@@ -84,6 +85,7 @@ def linear(
         kernel_init=_scaled(parse_initialization(kernel_init), outscale),
         bias_init=parse_initialization(bias_init),
         name=name,
+        dtype=dtype,
     )
 
 
@@ -113,6 +115,9 @@ class NormedMLP(nn.Module):
     norm_eps: float
     kernel_init: Union[str, InitializationFunction]
     dropout: float = 0.0
+    # The layers' compute dtype (None: float32); the parameters stay float32
+    # and the norm statistics are float32 either way (ajax.precision).
+    dtype: Optional[Any] = None
 
     @classmethod
     def dreamerv3(cls, layers: int, units: int, **module_kwargs: Any) -> NormedMLP:
@@ -169,13 +174,17 @@ class NormedMLP(nn.Module):
         """
         act = parse_activation(self.act)
         for i in range(self.layers):
-            x = linear(self.units, self.kernel_init)(x)
+            x = linear(self.units, self.kernel_init, dtype=self.dtype)(x)
             if i == 0 and self.dropout > 0.0:
                 x = nn.Dropout(self.dropout)(x, deterministic=deterministic)
             if self.norm == "rms":
-                x = nn.RMSNorm(epsilon=self.norm_eps, use_scale=True)(x)
+                x = nn.RMSNorm(epsilon=self.norm_eps, use_scale=True, dtype=self.dtype)(
+                    x
+                )
             elif self.norm == "layer":
-                x = nn.LayerNorm(epsilon=self.norm_eps, use_fast_variance=False)(x)
+                x = nn.LayerNorm(
+                    epsilon=self.norm_eps, use_fast_variance=False, dtype=self.dtype
+                )(x)
             else:
                 raise ValueError(
                     f"NormedMLP norm must be 'rms' or 'layer', got {self.norm!r}"

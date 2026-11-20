@@ -429,6 +429,10 @@ class NetworkConfig(Replaceable):
     # without a constructor argument for it take it through
     # ``agent.network_args.replace(encoder_layer_norm=True)``.
     encoder_layer_norm: bool = False
+    # The observation encoders' compute dtype ("bfloat16"; None: float32),
+    # which ActorCritic.train(precision=...) sets for its call. Parameters,
+    # heads, memory cells and losses stay float32 (ajax.precision).
+    compute_dtype: Optional[str] = flax.struct.field(pytree_node=False, default=None)
     squash: bool = False
     # The tanh log-det's guard, Squash's ``log_det_eps``: 0 keeps the exact
     # log-det; an agent whose reference adds one inside the log sets it.

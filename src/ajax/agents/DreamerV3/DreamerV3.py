@@ -58,6 +58,7 @@ from ajax.agents.DreamerV3.replay import (
     count_replay_bytes,
     grow_rings,
     place_latents,
+    with_deter_dtype,
 )
 from ajax.agents.DreamerV3.state import DreamerV3Config, LearningRate
 from ajax.agents.DreamerV3.world_model import make_initial_carry, observe_and_act
@@ -243,6 +244,13 @@ class DreamerV3(OwnReplayAgent):
         elif self.replay_rows_per_env is not None:
             rows = self.replay_rows_per_env
         if agent_state is not None:
+            # A run resumed in another precision stores its latents in this
+            # call's: reading them into the model would round them so anyway.
+            cast = with_deter_dtype(
+                agent_state.replay_state, self.model_config.compute_dtype
+            )
+            if cast is not agent_state.replay_state:
+                agent_state = agent_state.replace(replay_state=cast)
             placed = place_latents(agent_state.replay_state, self.replay_on_host)
             if placed is not agent_state.replay_state:
                 agent_state = agent_state.replace(replay_state=placed)
@@ -252,8 +260,14 @@ class DreamerV3(OwnReplayAgent):
             batch_size=self.batch_size,
             batch_length=self.batch_length,
             latents_on_host=self.replay_on_host,
+            deter_dtype=self.model_config.compute_dtype,
         )
         return replay, agent_state
+
+    def set_compute_dtype(self, dtype: str) -> None:
+        """The model's layers, recurrent state and stored latents compute in
+        ``dtype`` (:attr:`DreamerV3Config.compute_dtype`)."""
+        self.model_config = dataclasses.replace(self.model_config, compute_dtype=dtype)
 
     def _record_replay_rows(self, rows: int) -> None:
         self.replay_rows_per_env = rows

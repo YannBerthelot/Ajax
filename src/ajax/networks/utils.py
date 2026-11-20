@@ -412,6 +412,7 @@ def parse_layer(
     layer: Union[str, ActivationFunction],
     kernel_init: Optional[Union[str, InitializationFunction]] = None,
     bias_init: Optional[Union[str, InitializationFunction]] = None,
+    dtype: Optional[Any] = None,
 ) -> Union[nn.Module, ActivationFunction]:
     """Parse one architecture token: a width such as ``"256"`` gives a Dense
     layer (:func:`dense`, kernel ``orthogonal(1.0)`` by default),
@@ -424,9 +425,11 @@ def parse_layer(
     only an agent training them in its losses may have (CrossQ).
     """
     if str(layer).isnumeric():
-        return dense(int(cast("str", layer)), kernel_init, bias_init, orthogonal(1.0))
+        return dense(
+            int(cast("str", layer)), kernel_init, bias_init, orthogonal(1.0), dtype=dtype
+        )
     if layer == "layernorm":
-        return nn.LayerNorm()
+        return nn.LayerNorm(dtype=dtype)
     if layer == "batchrenorm":
         return BatchRenorm()
     try:
@@ -498,13 +501,15 @@ def dense(
     bias_init: Optional[Union[str, InitializationFunction]],
     default_kernel_init: InitializationFunction,
     name: Optional[str] = None,
+    dtype: Optional[Any] = None,
 ) -> nn.Module:
     """A Dense layer with ``kernel_init`` (``default_kernel_init`` for None)
     and ``bias_init`` (zeros for None), as :func:`parse_initialization`
     reads them; ``kernel_init="torch_linear"`` builds a
     :class:`TorchLinear`, which draws its bias too, and
     ``kernel_init="rlkit_fanin"`` rlkit's hidden layer (:data:`RLKIT_FANIN`),
-    which sets its bias too."""
+    which sets its bias too. ``dtype``: the compute dtype (None: float32);
+    the parameters stay float32 (``ajax.precision``)."""
     if kernel_init in (TORCH_LINEAR, RLKIT_FANIN):
         if bias_init is not None:
             sets = "draws" if kernel_init == TORCH_LINEAR else "sets"
@@ -517,13 +522,15 @@ def dense(
                 kernel_init=uniform_init(1.0 / math.sqrt(features)),
                 bias_init=constant(0.1),
                 name=name,
+                dtype=dtype,
             )
-        return TorchLinear(features, name=name)
+        return TorchLinear(features, name=name, dtype=dtype)
     return nn.Dense(
         features,
         kernel_init=parse_initialization(kernel_init, default=default_kernel_init),
         bias_init=parse_initialization(bias_init, default=constant(0)),
         name=name,
+        dtype=dtype,
     )
 
 
@@ -531,9 +538,11 @@ def parse_architecture(
     architecture: Sequence[Union[str, ActivationFunction]],
     kernel_init: Optional[Union[str, InitializationFunction]] = None,
     bias_init: Optional[Union[str, InitializationFunction]] = None,
+    dtype: Optional[Any] = None,
 ) -> Sequence[Union[nn.Module, ActivationFunction]]:
-    """Parse a list of string/module architecture into a list of jax modules"""
-    return [parse_layer(layer, kernel_init, bias_init) for layer in architecture]
+    """Parse a list of string/module architecture into a list of jax modules,
+    computing in ``dtype`` (None: float32; :func:`parse_layer`)."""
+    return [parse_layer(layer, kernel_init, bias_init, dtype) for layer in architecture]
 
 
 def uniform_init(bound: float) -> InitializationFunction:
@@ -572,11 +581,14 @@ class TorchLinear(nn.Module):
     """
 
     features: int
+    dtype: Optional[Any] = None
 
     @nn.compact
     def __call__(self, x: jax.Array) -> jax.Array:
         bound = 1.0 / math.sqrt(x.shape[-1])
         init = uniform_init(bound)
-        dense = nn.Dense(self.features, kernel_init=init, bias_init=init)
+        dense = nn.Dense(
+            self.features, kernel_init=init, bias_init=init, dtype=self.dtype
+        )
         nn.share_scope(self, dense)
         return dense(x)

@@ -654,16 +654,22 @@ class ActorCritic:
             self.default_precision if precision is None else precision, devices
         )
         self.set_compute_dtype(dtype)
-        self.config.update(precision=dtype)
+        # An agent written without a run config or network config (a test's
+        # minimal one) trains in float32 as before.
+        config = getattr(self, "config", None)
+        if config is not None:
+            config.update(precision=dtype)
         return dtype
 
     def set_compute_dtype(self, dtype: str) -> None:
         """Build the networks of the next call to compute in ``dtype``: the
         shared networks read it from :attr:`network_args`; an agent with
         networks of its own overrides this."""
-        self.network_args = self.network_args.replace(
-            compute_dtype=None if dtype == "float32" else dtype
-        )
+        network_args = getattr(self, "network_args", None)
+        if network_args is not None:
+            self.network_args = network_args.replace(
+                compute_dtype=None if dtype == "float32" else dtype
+            )
 
     def get_make_train(self) -> Callable:
         """:attr:`make_train` with the agent's own arguments

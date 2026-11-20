@@ -19,6 +19,17 @@ The next release is 0.6.0: the first item changes results.
   latents in the compute dtype: half the replay, without loss
   (`docs/guide/performance.md`, "bfloat16").
 
+- **Changed: a resume holds no second copy of a large replay.** A
+  checkpoint now stores its arrays of 16 MiB or more after the pickle
+  stream, and a restore copies each from the file straight to where the
+  state keeps it (a 10-seed DreamerV3 replay in host memory: 80 GiB, held
+  once instead of up to three times). `load_checkpoint` and `load` no
+  longer keep the file's state while restoring it. Checkpoints written
+  before still load. Upgrade note: a checkpoint holding such an array is
+  no longer one pickle stream: read it with `restore_into`,
+  `load_checkpoint` or `load`, not `pickle.load`, and an older Ajax cannot
+  read it.
+
 - **Fixed: a forced reset kept the reward normaliser's running return.**
   With `normalize_rewards` and forced resets (`num_resets_per_eval`), the
   abandoned episodes' discounted return carried into the new episodes'

@@ -2,6 +2,7 @@
 
 import os
 import pickle
+import tracemalloc
 from types import SimpleNamespace
 from typing import ClassVar, NamedTuple
 
@@ -83,6 +84,88 @@ def test_an_array_restores_into_the_memory_its_skeleton_keeps_it_in(tmp_path):
     )
     np.testing.assert_array_equal(loaded["ring"], np.arange(6.0).reshape(2, 3))
     np.testing.assert_array_equal(loaded["count"], 3)
+
+
+#: 32 MiB of float32: a checkpoint array large enough to be stored after the
+#: pickle stream. A 10-seed DreamerV3 replay ring is 80 GiB.
+LARGE = (4, 1024, 2048)
+
+
+def _pinned_host():
+    return jax.sharding.SingleDeviceSharding(
+        jax.devices()[0], memory_kind="pinned_host"
+    )
+
+
+def _python_peak(call):
+    """call's result, and the most Python-side memory (NumPy arrays and
+    bytes included) it held at once."""
+    tracemalloc.start()
+    try:
+        result = call()
+        return result, tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+
+
+class _LargeRingAgent:
+    """Stands in for an agent whose state keeps a large ring in host memory:
+    load_checkpoint only calls train, for a 0-step skeleton of as many seeds
+    as the file holds."""
+
+    def train(self, seed, n_timesteps, **options):
+        ring = jax.device_put(jnp.zeros(LARGE, jnp.float32), _pinned_host())
+        return {"rng": jnp.zeros((len(seed), 2), jnp.uint32), "ring": ring}, None
+
+
+def _large_ring_state():
+    ring = np.arange(np.prod(LARGE), dtype=np.float32).reshape(LARGE)
+    return {"rng": np.zeros((3, 2), np.uint32), "ring": ring}
+
+
+# Contract (owner, 2026-11-20: load the checkpoint straight into pinned
+# memory): a restore copies each large array of a checkpoint once, from the
+# file to where the state keeps it, with no whole NumPy copy on the way; a
+# file written before, one pickle stream, is read whole once, never twice.
+
+
+def test_a_large_array_restores_into_host_memory_without_a_copy_on_the_way(
+    tmp_path,
+):
+    state = _large_ring_state()
+    path = str(tmp_path / "ckpt.pkl")
+    save_checkpoint(state, path)
+    skeleton = _LargeRingAgent().train(seed=[0, 1, 2], n_timesteps=0)[0]
+
+    loaded, peak = _python_peak(lambda: restore_into(skeleton, path))
+
+    assert peak < state["ring"].nbytes // 4
+    assert loaded["ring"].sharding.memory_kind == "pinned_host"
+    np.testing.assert_array_equal(loaded["ring"], state["ring"])
+
+
+def test_load_checkpoint_reads_a_large_array_once(tmp_path):
+    state = _large_ring_state()
+    path = str(tmp_path / "ckpt.pkl")
+    save_checkpoint(state, path)
+
+    loaded, peak = _python_peak(lambda: load_checkpoint(_LargeRingAgent(), path))
+
+    assert peak < state["ring"].nbytes // 4
+    np.testing.assert_array_equal(loaded["ring"], state["ring"])
+    np.testing.assert_array_equal(loaded["rng"], state["rng"])
+
+
+def test_load_checkpoint_reads_a_file_of_one_pickle_stream_whole_once(tmp_path):
+    state = _large_ring_state()
+    path = str(tmp_path / "ckpt.pkl")
+    with open(path, "wb") as fh:  # as save_checkpoint wrote every file before
+        pickle.dump({**state, "ajax_checkpoint_format": 3}, fh, protocol=5)
+
+    loaded, peak = _python_peak(lambda: load_checkpoint(_LargeRingAgent(), path))
+
+    assert peak < 1.5 * state["ring"].nbytes
+    np.testing.assert_array_equal(loaded["ring"], state["ring"])
 
 
 def test_save_overwrites_existing(tmp_path):

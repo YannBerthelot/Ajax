@@ -648,6 +648,17 @@ before this version do not restore at the new defaults. The rest:
   as `initial_state` was already used up by the call; now its old replay
   is freed too.
 
+- **Faster: training chunks compute only their last update's logs.** A
+  logged run computed the update logs (losses, gradient norms, the
+  ensemble's spread) at every step and read them once per evaluation. Now
+  only the step before an evaluation computes them. Measured on an RTX 2080
+  Ti at 10 seeds: SAC 4.9%, TD3 4.6%, TQC 3.9% less time per step; CrossQ
+  and REDQ unchanged. Same steps in the same order; results move by
+  floating-point rounding at most.
+
+- **Faster: CQL and Cal-QL score their sampled actions in one critic pass**
+  where there were four. Same values to rounding.
+
 ## 0.5.0
 
 What a user of 0.4.0 meets:

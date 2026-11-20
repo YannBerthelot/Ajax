@@ -64,9 +64,9 @@ def test_auto_picks_bfloat16_only_on_hardware_with_bfloat16_units(fake, expected
 
 def test_auto_on_mixed_devices_follows_the_weakest():
     """Catches members of one run computing in different precisions."""
-    assert resolve_precision("auto", [device("cuda", "8.9"), device("cuda", "7.5")]) == (
-        "float32"
-    )
+    assert resolve_precision(
+        "auto", [device("cuda", "8.9"), device("cuda", "7.5")]
+    ) == ("float32")
 
 
 @pytest.mark.parametrize("asked", ["float32", "bfloat16"])

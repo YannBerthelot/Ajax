@@ -54,9 +54,7 @@ def has_fast_bfloat16(device: Any) -> bool:
     return False
 
 
-def resolve_precision(
-    precision: str, devices: Optional[Sequence[Any]] = None
-) -> str:
+def resolve_precision(precision: str, devices: Optional[Sequence[Any]] = None) -> str:
     """The compute dtype's name, ``"float32"`` or ``"bfloat16"``, for a run
     asking for ``precision`` on ``devices`` (None: JAX's default device).
 

@@ -554,6 +554,6 @@ __all__ = [
     "grow_rings",
     "is_on_host",
     "place_latents",
-    "with_deter_dtype",
     "stoch_dtype",
+    "with_deter_dtype",
 ]

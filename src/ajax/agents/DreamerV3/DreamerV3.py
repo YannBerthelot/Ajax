@@ -244,13 +244,10 @@ class DreamerV3(OwnReplayAgent):
         elif self.replay_rows_per_env is not None:
             rows = self.replay_rows_per_env
         if agent_state is not None:
-            # A run resumed in another precision stores its latents in this
-            # call's: reading them into the model would round them so anyway.
-            cast = with_deter_dtype(
-                agent_state.replay_state, self.model_config.compute_dtype
-            )
-            if cast is not agent_state.replay_state:
-                agent_state = agent_state.replace(replay_state=cast)
+            # A run resumed in another precision keeps its latents, stored
+            # and acting, in this call's: reading them into the model would
+            # round them so anyway.
+            agent_state = self._in_compute_dtype(agent_state)
             placed = place_latents(agent_state.replay_state, self.replay_on_host)
             if placed is not agent_state.replay_state:
                 agent_state = agent_state.replace(replay_state=placed)
@@ -263,6 +260,22 @@ class DreamerV3(OwnReplayAgent):
             deter_dtype=self.model_config.compute_dtype,
         )
         return replay, agent_state
+
+    def _in_compute_dtype(self, agent_state: DreamerV3State) -> DreamerV3State:
+        """agent_state with its stored latents and its acting carry's latent
+        in the model's compute dtype."""
+        dtype = self.model_config.dtype
+        replay = with_deter_dtype(agent_state.replay_state, self.model_config.compute_dtype)
+        collector = agent_state.collector_state
+        carry = collector.policy_carry
+        if carry.deter.dtype != dtype:
+            carry = carry._replace(
+                deter=carry.deter.astype(dtype), stoch=carry.stoch.astype(dtype)
+            )
+            collector = collector.replace(policy_carry=carry)
+        if replay is agent_state.replay_state and collector is agent_state.collector_state:
+            return agent_state
+        return agent_state.replace(replay_state=replay, collector_state=collector)
 
     def set_compute_dtype(self, dtype: str) -> None:
         """The model's layers, recurrent state and stored latents compute in

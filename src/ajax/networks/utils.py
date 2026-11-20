@@ -426,7 +426,11 @@ def parse_layer(
     """
     if str(layer).isnumeric():
         return dense(
-            int(cast("str", layer)), kernel_init, bias_init, orthogonal(1.0), dtype=dtype
+            int(cast("str", layer)),
+            kernel_init,
+            bias_init,
+            orthogonal(1.0),
+            dtype=dtype,
         )
     if layer == "layernorm":
         return nn.LayerNorm(dtype=dtype)

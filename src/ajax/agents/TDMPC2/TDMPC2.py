@@ -164,11 +164,6 @@ class TDMPC2(OwnReplayAgent):
     episodic: bool = False
     termination_coef: float = 1.0
 
-    def set_compute_dtype(self, dtype: str) -> None:
-        """The world model's and the policy prior's layers compute in
-        ``dtype`` (:attr:`TDMPC2Config.compute_dtype`)."""
-        self.model_config = self.model_config.replace(compute_dtype=dtype)
-
     def setup(self) -> None:
         self.model_config = TDMPC2Config.from_arguments(self.config)
         env, params = self.env_args.env, self.env_args.env_params
@@ -237,6 +232,11 @@ class TDMPC2(OwnReplayAgent):
             }
         )
         self.config.update(self.model_config.resolved(self.action_dim))
+
+    def set_compute_dtype(self, dtype: str) -> None:
+        """The world model's and the policy prior's layers compute in
+        ``dtype`` (:attr:`TDMPC2Config.compute_dtype`)."""
+        self.model_config = self.model_config.replace(compute_dtype=dtype)
 
     def run_capabilities(self) -> frozenset[str]:
         """The shared run's capabilities, with warmup_steps: whatever

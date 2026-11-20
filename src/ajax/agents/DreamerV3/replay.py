@@ -201,6 +201,9 @@ class StreamReplay:
     batch_size: int
     batch_length: int
     latents_on_host: bool = False
+    # PROTOTYPE (bf16 study): the deter ring's dtype, the compute dtype's
+    # (bfloat16 latents are stored without loss when computed in bfloat16).
+    deter_dtype: str = "float32"
 
     def __post_init__(self) -> None:
         for name in ("n_envs", "capacity", "batch_size", "batch_length"):
@@ -245,9 +248,9 @@ class StreamReplay:
             is_last=jnp.zeros((n, c), bool),
             is_terminal=jnp.zeros((n, c), bool),
             deter=(
-                _host_zeros((n, c, deter), jnp.dtype(jnp.float32))
+                _host_zeros((n, c, deter), jnp.dtype(self.deter_dtype))
                 if self.latents_on_host
-                else jnp.zeros((n, c, deter), jnp.float32)
+                else jnp.zeros((n, c, deter), jnp.dtype(self.deter_dtype))
             ),
             stoch=jnp.zeros((n, c, stoch), stoch_dtype(classes)),
             popped=jnp.zeros((), jnp.int32),

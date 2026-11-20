@@ -177,6 +177,8 @@ class DreamerV3(OwnReplayAgent):
     #: host memory instead of the accelerator's: the same numbers, a little
     #: slower, and seeds then share the device for their working sets only.
     replay_on_host: bool = False
+    # PROTOTYPE (bf16 study): DreamerV3Config.compute_dtype.
+    compute_dtype: str = "float32"
     #: Not a keyword: 1 - 1 / return_horizon (setup), the discount of the
     #: continue target and of the replay critic.
     gamma: float = dataclasses.field(init=False)
@@ -252,6 +254,7 @@ class DreamerV3(OwnReplayAgent):
             batch_size=self.batch_size,
             batch_length=self.batch_length,
             latents_on_host=self.replay_on_host,
+            deter_dtype=self.model_config.compute_dtype,
         )
         return replay, agent_state
 

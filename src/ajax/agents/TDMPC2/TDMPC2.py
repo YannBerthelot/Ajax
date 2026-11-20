@@ -163,6 +163,8 @@ class TDMPC2(OwnReplayAgent):
     # The latest code's episodic mode (deviation T29).
     episodic: bool = False
     termination_coef: float = 1.0
+    # PROTOTYPE (bf16 study): TDMPC2Config.compute_dtype.
+    compute_dtype: str = "float32"
 
     def setup(self) -> None:
         self.model_config = TDMPC2Config.from_arguments(self.config)

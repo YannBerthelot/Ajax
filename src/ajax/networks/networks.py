@@ -1,3 +1,4 @@
+import functools
 import math
 from collections.abc import Callable, Sequence
 from typing import Any, NamedTuple, Optional, Tuple, Union
@@ -59,6 +60,7 @@ from ajax.networks.values import (  # noqa: F401
     predict_value_sequence,
     predict_value_updating_batch_statistics,
 )
+from ajax.precision import cast_floating
 from ajax.random_keys import derive_key
 from ajax.state import (
     LOG_STD_BOUNDS,
@@ -85,17 +87,33 @@ class Encoder(nn.Module):
     # TD3, PPO and DQN papers use plain MLPs. Ignored under
     # penultimate_normalization, which takes precedence.
     layer_norm: bool = False
+    # PROTOTYPE (bf16 study): the layers' compute dtype (None: float32). The
+    # parameters stay float32 and are cast when read; the features return
+    # in float32.
+    dtype: Optional[str] = None
 
     def setup(self):
         layers = parse_architecture(
             self.input_architecture, self.kernel_init, self.bias_init
         )
-        self.network = nn.Sequential(layers)
+        sequential: Any = nn.Sequential
+        # Initialised as in float32 (the same parameter tree and values);
+        # applied reading the parameters cast to the compute dtype.
+        if self.dtype is not None and not self.is_initializing():
+            sequential = nn.map_variables(
+                nn.Sequential,
+                "params",
+                trans_in_fn=functools.partial(cast_floating, dtype=self.dtype),
+            )
+        self.network = sequential(layers)
         if self.layer_norm:
             self.norm = nn.LayerNorm()
 
     def __call__(self, x):
-        features = self.network(x)
+        if self.dtype is None:
+            features = self.network(x)
+        else:
+            features = self.network(x.astype(self.dtype)).astype(jnp.float32)
         if self.penultimate_normalization:
             # Each feature vector (last axis) to unit L2 norm, whatever the
             # leading batch or time axes: flax's _l2_normalize formula and
@@ -203,6 +221,7 @@ def observation_encoder(
         penultimate_normalization=network.penultimate_normalization,
         kernel_init=network.encoder_kernel_init,
         layer_norm=network.encoder_layer_norm,
+        dtype=getattr(network, "compute_dtype", None),
     )
 
 
@@ -428,6 +447,7 @@ class Actor(nn.Module):
     tanh_mean: bool = False
     # Opt-in LayerNorm on the encoder's output (see Encoder.layer_norm).
     encoder_layer_norm: bool = False
+    compute_dtype: Optional[str] = None  # PROTOTYPE (bf16 study)
     # Optional CNN encoder over flat image obs (see `CNNEncoder`); None
     # keeps the MLP encoder.
     cnn_image_shape: Optional[Tuple[int, int, int]] = None
@@ -575,6 +595,7 @@ class Critic(nn.Module):
     encoder_kernel_init: Optional[Union[str, InitializationFunction]] = None
     # Opt-in LayerNorm on the encoder's output (see Encoder.layer_norm).
     encoder_layer_norm: bool = False
+    compute_dtype: Optional[str] = None  # PROTOTYPE (bf16 study)
     # When set, the encoder is a `CNNEncoder` over flat image obs rather
     # than the MLP `Encoder`. See `NetworkConfig.cnn_image_shape`. Valid
     # only for state-value critics (obs-only input); an action-value
@@ -696,6 +717,7 @@ class MultiCritic(nn.Module):
     bias_init: Optional[Union[str, InitializationFunction]] = None
     encoder_kernel_init: Optional[Union[str, InitializationFunction]] = None
     encoder_layer_norm: bool = False
+    compute_dtype: Optional[str] = None  # PROTOTYPE (bf16 study)
     cnn_image_shape: Optional[Tuple[int, int, int]] = None
     cnn_extra_obs_dim: int = 0
     cnn_spec: Optional[CNNSpec] = None
@@ -754,6 +776,7 @@ class MultiCritic(nn.Module):
             bias_init=self.bias_init,
             encoder_kernel_init=self.encoder_kernel_init,
             encoder_layer_norm=self.encoder_layer_norm,
+            compute_dtype=self.compute_dtype,
             cnn_image_shape=self.cnn_image_shape,
             cnn_extra_obs_dim=self.cnn_extra_obs_dim,
             cnn_spec=self.cnn_spec,
@@ -1016,6 +1039,7 @@ def get_initialized_actor_critic(
             log_std_kernel_init=network_config.log_std_kernel_init,
             tanh_mean=network_config.tanh_mean,
             encoder_layer_norm=network_config.encoder_layer_norm,
+            compute_dtype=network_config.compute_dtype,
             memory=memory,
             head_architecture=network_config.head_architecture,
             head_kernel_init=network_config.head_kernel_init,
@@ -1045,6 +1069,7 @@ def get_initialized_actor_critic(
         bias_init=network_config.critic_bias_init,
         encoder_kernel_init=network_config.encoder_kernel_init,
         encoder_layer_norm=network_config.encoder_layer_norm,
+        compute_dtype=network_config.compute_dtype,
         cnn_image_shape=critic_cnn_image_shape,
         cnn_extra_obs_dim=cnn_extra_obs_dim,
         cnn_spec=cnn_spec,

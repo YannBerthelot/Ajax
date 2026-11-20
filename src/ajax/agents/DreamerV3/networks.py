@@ -56,7 +56,7 @@ reward head here emits the 255 that are used, as the later code does
 from __future__ import annotations
 
 import functools
-from typing import NamedTuple, Optional
+from typing import Any, NamedTuple, Optional
 
 import flax.linen as nn
 import jax
@@ -115,8 +115,8 @@ class RSSMFeatures(NamedTuple):
 def initial_state(config: DreamerV3Config, batch_shape: tuple[int, ...]) -> RSSMState:
     """The zero initial state (not learned; dreamerv3_spec 2.2, ``nets.py:39-45``)."""
     return RSSMState(
-        deter=jnp.zeros((*batch_shape, config.deter), jnp.float32),
-        stoch=jnp.zeros((*batch_shape, config.stoch, config.classes), jnp.float32),
+        deter=jnp.zeros((*batch_shape, config.deter), config.dtype),
+        stoch=jnp.zeros((*batch_shape, config.stoch, config.classes), config.dtype),
     )
 
 
@@ -162,6 +162,7 @@ class BlockLinear(nn.Module):
 
     features: int
     blocks: int
+    dtype: Any = None
 
     @nn.compact
     def __call__(self, x: jax.Array) -> jax.Array:
@@ -175,6 +176,8 @@ class BlockLinear(nn.Module):
             "kernel", trunc_normal_fan_in(), (g, width // g, self.features // g)
         )
         bias = self.param("bias", nn.initializers.zeros, (self.features,))
+        if self.dtype is not None:
+            x, kernel, bias = (v.astype(self.dtype) for v in (x, kernel, bias))
         lead = x.shape[:-1]
         y = jnp.einsum("...ki,kio->...ko", x.reshape(*lead, g, width // g), kernel)
         return y.reshape(*lead, self.features) + bias
@@ -192,16 +195,17 @@ class RSSM(nn.Module):
 
     def setup(self) -> None:
         c = self.config
-        self.dynin0 = NormedMLP.dreamerv3(1, c.hidden)
-        self.dynin1 = NormedMLP.dreamerv3(1, c.hidden)
-        self.dynin2 = NormedMLP.dreamerv3(1, c.hidden)
-        self.dynhid0 = BlockLinear(c.deter, c.blocks)
-        self.dynhid0_norm = nn.RMSNorm(epsilon=1e-4)
-        self.dyngru = BlockLinear(3 * c.deter, c.blocks)
-        self.obs = NormedMLP.dreamerv3(POSTERIOR_LAYERS, c.hidden)
-        self.obslogit = linear(c.stoch * c.classes, KERNEL_INIT)
-        self.prior = NormedMLP.dreamerv3(PRIOR_LAYERS, c.hidden)
-        self.priorlogit = linear(c.stoch * c.classes, KERNEL_INIT)
+        dtype = c.dtype
+        self.dynin0 = NormedMLP.dreamerv3(1, c.hidden, dtype=dtype)
+        self.dynin1 = NormedMLP.dreamerv3(1, c.hidden, dtype=dtype)
+        self.dynin2 = NormedMLP.dreamerv3(1, c.hidden, dtype=dtype)
+        self.dynhid0 = BlockLinear(c.deter, c.blocks, dtype=dtype)
+        self.dynhid0_norm = nn.RMSNorm(epsilon=1e-4, dtype=dtype)
+        self.dyngru = BlockLinear(3 * c.deter, c.blocks, dtype=dtype)
+        self.obs = NormedMLP.dreamerv3(POSTERIOR_LAYERS, c.hidden, dtype=dtype)
+        self.obslogit = linear(c.stoch * c.classes, KERNEL_INIT, dtype=dtype)
+        self.prior = NormedMLP.dreamerv3(PRIOR_LAYERS, c.hidden, dtype=dtype)
+        self.priorlogit = linear(c.stoch * c.classes, KERNEL_INIT, dtype=dtype)
 
     def core(self, deter: jax.Array, stoch: jax.Array, action: jax.Array) -> jax.Array:
         """One block-GRU step (Algorithm A; ``nets.py:119-123, :151-173``).
@@ -226,7 +230,7 @@ class RSSM(nn.Module):
         c = self.config
         lead, g = deter.shape[:-1], c.blocks
         stoch = stoch.reshape(*lead, c.stoch * c.classes)
-        action = jnp.asarray(action, jnp.float32)
+        action = jnp.asarray(action, c.dtype)
         action = action / jax.lax.stop_gradient(jnp.maximum(1, jnp.abs(action)))
         x = jnp.concatenate(
             [self.dynin0(deter), self.dynin1(stoch), self.dynin2(action)], -1
@@ -242,7 +246,7 @@ class RSSM(nn.Module):
         reset = jax.nn.sigmoid(reset)
         cand = jnp.tanh(reset * cand)
         update = jax.nn.sigmoid(update - 1)
-        return update * cand + (1 - update) * deter
+        return (update * cand + (1 - update) * deter).astype(c.dtype)
 
     def observe_step(
         self,
@@ -274,6 +278,7 @@ class RSSM(nn.Module):
         deter = self.core(deter, stoch, action)
         logits = self.posterior_logits(deter, token)
         stoch = OneHot.from_logits(logits, self.config.unimix).sample(noise)
+        stoch = stoch.astype(self.config.dtype)
         return RSSMState(deter, stoch), RSSMFeatures(deter, stoch, logits)
 
     def imagine_step(
@@ -290,6 +295,7 @@ class RSSM(nn.Module):
         deter = self.core(carry.deter, carry.stoch, action)
         logits = self.prior_logits(deter)
         stoch = OneHot.from_logits(logits, self.config.unimix).sample(noise)
+        stoch = stoch.astype(self.config.dtype)
         return RSSMState(deter, stoch), RSSMFeatures(deter, stoch, logits)
 
     def posterior_logits(self, deter: jax.Array, token: jax.Array) -> jax.Array:
@@ -299,8 +305,10 @@ class RSSM(nn.Module):
         ``nets.py:66-69, :207-211``; dreamerv3_spec 2.6).
         """
         x = self.obs(jnp.concatenate([deter, token], -1))
-        return self.obslogit(x).reshape(
-            *x.shape[:-1], self.config.stoch, self.config.classes
+        return (
+            self.obslogit(x)
+            .reshape(*x.shape[:-1], self.config.stoch, self.config.classes)
+            .astype(jnp.float32)
         )
 
     def prior_logits(self, deter: jax.Array) -> jax.Array:
@@ -312,8 +320,10 @@ class RSSM(nn.Module):
         after the observe scan (``nets.py:97-99``).
         """
         x = self.prior(deter)
-        return self.priorlogit(x).reshape(
-            *x.shape[:-1], self.config.stoch, self.config.classes
+        return (
+            self.priorlogit(x)
+            .reshape(*x.shape[:-1], self.config.stoch, self.config.classes)
+            .astype(jnp.float32)
         )
 
 
@@ -328,11 +338,21 @@ class MLPHead(nn.Module):
     units: int
     features: int
     outscale: float
+    dtype: Any = None
 
     @nn.compact
     def __call__(self, x: jax.Array) -> jax.Array:
-        x = NormedMLP.dreamerv3(self.layers, self.units, name="mlp")(x)
-        return linear(self.features, KERNEL_INIT, outscale=self.outscale, name="out")(x)
+        x = NormedMLP.dreamerv3(self.layers, self.units, name="mlp", dtype=self.dtype)(
+            x
+        )
+        out = linear(
+            self.features,
+            KERNEL_INIT,
+            outscale=self.outscale,
+            name="out",
+            dtype=self.dtype,
+        )(x)
+        return out.astype(jnp.float32)
 
 
 class WorldModel(nn.Module):
@@ -350,13 +370,15 @@ class WorldModel(nn.Module):
 
     def setup(self) -> None:
         c = self.config
-        self.enc = NormedMLP.dreamerv3(c.enc_layers, c.units)
+        self.enc = NormedMLP.dreamerv3(c.enc_layers, c.units, dtype=c.dtype)
         self.rssm = RSSM(c)
-        self.dec = MLPHead(c.dec_layers, c.units, self.obs_dim, DECODER_OUTSCALE)
+        self.dec = MLPHead(
+            c.dec_layers, c.units, self.obs_dim, DECODER_OUTSCALE, dtype=c.dtype
+        )
         # 255 logits, not 2411f7d's 256 with the last dropped (deviations.md
         # section 1, "Two-hot output width").
-        self.rew = MLPHead(c.rew_layers, c.units, c.bins, 0.0)
-        self.con = MLPHead(c.con_layers, c.units, 1, 1.0)
+        self.rew = MLPHead(c.rew_layers, c.units, c.bins, 0.0, dtype=c.dtype)
+        self.con = MLPHead(c.con_layers, c.units, 1, 1.0, dtype=c.dtype)
 
     def __call__(self, obs: jax.Array, action: jax.Array) -> tuple[jax.Array, ...]:
         c = self.config
@@ -421,13 +443,19 @@ class Actor(nn.Module):
     @nn.compact
     def __call__(self, feat: jax.Array) -> Policy:
         c = self.config
-        x = NormedMLP.dreamerv3(c.actor_layers, c.units, name="mlp")(feat)
+        x = NormedMLP.dreamerv3(c.actor_layers, c.units, name="mlp", dtype=c.dtype)(
+            feat
+        )
 
         def out(name: str) -> jax.Array:
             layer = linear(
-                self.action_dim, KERNEL_INIT, outscale=ACTOR_OUTSCALE, name=name
+                self.action_dim,
+                KERNEL_INIT,
+                outscale=ACTOR_OUTSCALE,
+                name=name,
+                dtype=c.dtype,
             )
-            return layer(x)
+            return layer(x).astype(jnp.float32)
 
         if self.discrete:
             return OneHotPolicy.from_logits(out("logits"), c.actor_unimix)
@@ -444,7 +472,13 @@ def make_critic(config: DreamerV3Config) -> MLPHead:
     for the reward head, 2411f7d's ``bins + 1`` logits with the last dropped
     become ``bins`` (deviations.md section 1, "Two-hot output width").
     """
-    return MLPHead(config.critic_layers, config.units, config.bins, CRITIC_OUTSCALE)
+    return MLPHead(
+        config.critic_layers,
+        config.units,
+        config.bins,
+        CRITIC_OUTSCALE,
+        dtype=config.dtype,
+    )
 
 
 def init_actor(

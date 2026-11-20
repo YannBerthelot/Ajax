@@ -118,6 +118,9 @@ class TDMPC2Config(Replaceable):
     temperature: float = _static(0.5)
     batch_size: int = _static(256)
     buffer_size: int = _static(1_000_000)
+    # PROTOTYPE (bf16 study): the layers' compute dtype ("float32" or
+    # "bfloat16"); parameters, targets and losses stay float32.
+    compute_dtype: str = _static("float32")
 
     def __post_init__(self) -> None:
         if self.num_q < 2:

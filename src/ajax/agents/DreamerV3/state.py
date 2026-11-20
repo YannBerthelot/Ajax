@@ -29,6 +29,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Optional, Union
 
 import jax
+import jax.numpy as jnp
 
 from ajax.distributional import TwoHot
 
@@ -165,6 +166,9 @@ class DreamerV3Config:
     eps: float = 1e-20
     warmup: int = 1000
     weight_decay: float = 0.0
+    # PROTOTYPE (bf16 study): the layers' compute dtype, "float32" or
+    # "bfloat16" (the reference's compute_dtype); parameters stay float32.
+    compute_dtype: str = "float32"
 
     def __post_init__(self) -> None:
         sizes = ("units", "hidden", "deter", "stoch", "classes", "blocks", "bins")
@@ -237,6 +241,11 @@ class DreamerV3Config:
     def resolved(self) -> dict[str, int]:
         """The widths the preset resolves, for the loggers' run config."""
         return {f"resolved_{k}": getattr(self, k) for k in WIDTHS}
+
+    @property
+    def dtype(self) -> Any:
+        """The layers' compute dtype (:attr:`compute_dtype`)."""
+        return jnp.dtype(self.compute_dtype)
 
     @property
     def feat_dim(self) -> int:

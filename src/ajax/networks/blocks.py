@@ -57,6 +57,7 @@ def linear(
     bias_init: Union[str, InitializationFunction] = "zeros",
     outscale: float = 1.0,
     name: Optional[str] = None,
+    dtype: Optional[Any] = None,
 ) -> nn.Dense:
     """``nn.Dense`` with initializers given by name and an output scale.
 
@@ -84,6 +85,7 @@ def linear(
         kernel_init=_scaled(parse_initialization(kernel_init), outscale),
         bias_init=parse_initialization(bias_init),
         name=name,
+        dtype=dtype,
     )
 
 
@@ -113,6 +115,9 @@ class NormedMLP(nn.Module):
     norm_eps: float
     kernel_init: Union[str, InitializationFunction]
     dropout: float = 0.0
+    # Compute dtype of the layers (None: float32 from float32 inputs); the
+    # parameters stay float32 and the norm statistics are float32 either way.
+    dtype: Optional[Any] = None
 
     @classmethod
     def dreamerv3(cls, layers: int, units: int, **module_kwargs: Any) -> NormedMLP:
@@ -169,13 +174,17 @@ class NormedMLP(nn.Module):
         """
         act = parse_activation(self.act)
         for i in range(self.layers):
-            x = linear(self.units, self.kernel_init)(x)
+            x = linear(self.units, self.kernel_init, dtype=self.dtype)(x)
             if i == 0 and self.dropout > 0.0:
                 x = nn.Dropout(self.dropout)(x, deterministic=deterministic)
             if self.norm == "rms":
-                x = nn.RMSNorm(epsilon=self.norm_eps, use_scale=True)(x)
+                x = nn.RMSNorm(epsilon=self.norm_eps, use_scale=True, dtype=self.dtype)(
+                    x
+                )
             elif self.norm == "layer":
-                x = nn.LayerNorm(epsilon=self.norm_eps, use_fast_variance=False)(x)
+                x = nn.LayerNorm(
+                    epsilon=self.norm_eps, use_fast_variance=False, dtype=self.dtype
+                )(x)
             else:
                 raise ValueError(
                     f"NormedMLP norm must be 'rms' or 'layer', got {self.norm!r}"

@@ -13,6 +13,7 @@ from typing import Optional, Tuple, Union
 
 import flax.linen as nn
 import jax
+import jax.numpy as jnp
 from flax.linen.initializers import lecun_normal
 
 from ajax.networks.networks import CNNEncoder, CNNSpec
@@ -50,6 +51,9 @@ class PQNNetwork(nn.Module):
     # keeps the reference code's below.
     kernel_init: Optional[Union[str, InitializationFunction]] = None
     head_kernel_init: Optional[Union[str, InitializationFunction]] = None
+    # The MLP stack's compute dtype (NetworkConfig.compute_dtype); its
+    # features return in float32. The CNN front-end stays float32.
+    compute_dtype: Optional[str] = None
 
     @nn.compact
     def __call__(self, obs: jax.Array) -> GreedyQPolicy:
@@ -65,11 +69,16 @@ class PQNNetwork(nn.Module):
             for layer in self.input_architecture:
                 if str(layer).isnumeric():
                     features = dense(
-                        int(layer), self.kernel_init, None, lecun_normal()
+                        int(layer),
+                        self.kernel_init,
+                        None,
+                        lecun_normal(),
+                        dtype=self.compute_dtype,
                     )(features)
-                    features = nn.LayerNorm()(features)
+                    features = nn.LayerNorm(dtype=self.compute_dtype)(features)
                 else:
                     features = parse_activation(layer)(features)
+            features = features.astype(jnp.float32)
         # Penultimate (post-activation) features, exposed for
         # plasticity/conditioning probes. sow is a no-op unless the
         # caller marks "intermediates" mutable -- zero training cost.

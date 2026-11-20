@@ -118,8 +118,16 @@ class TDMPC2Config(Replaceable):
     temperature: float = _static(0.5)
     batch_size: int = _static(256)
     buffer_size: int = _static(1_000_000)
+    # The layers' compute dtype, "float32" (the reference's) or "bfloat16",
+    # set by train(precision=...); parameters, outputs, targets and losses
+    # stay float32 (ajax.precision).
+    compute_dtype: str = _static("float32")
 
     def __post_init__(self) -> None:
+        if self.compute_dtype not in ("float32", "bfloat16"):
+            raise ValueError(
+                f"compute_dtype must be float32 or bfloat16, got {self.compute_dtype!r}"
+            )
         if self.num_q < 2:
             raise ValueError(f"num_q must be >= 2 (random pairs), got {self.num_q}")
         if self.iterations < 1:

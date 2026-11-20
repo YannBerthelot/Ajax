@@ -95,6 +95,48 @@ seeds the devices divide compiles once per device at most. One run is
 never spread over devices: its environments and its updates stay on one.
 A Gymnasium environment and an `evaluation_device` take no `devices`.
 
+## bfloat16
+
+`train(precision=...)` runs the networks' layers in bfloat16 (mixed
+precision): the parameters, gradients and optimiser stay float32, each
+layer computes in bfloat16 with its products summed in float32, and every
+network returns float32, so the heads of the shared networks,
+distributions, log-probabilities, losses, targets and normalisers stay
+float32.
+
+```python
+from ajax import PPO
+
+agent = PPO("Pendulum-v1", n_envs=2, n_steps=8)
+state, out = agent.train(seed=0, n_timesteps=64, precision="auto")
+print(agent.config["precision"])  # float32 on a CPU
+```
+
+- `"float32"`: as before. `None`, the default, is the agent's original
+  code's precision: float32 for every agent. DreamerV3's original computes
+  in bfloat16 (deviation D4 in the world-model deviations).
+- `"bfloat16"`: bfloat16 even where the hardware has no bfloat16 units,
+  with a warning: there XLA emulates it, no faster than float32 (about
+  equal on an RTX 2080 Ti, slower on a CPU).
+- `"auto"`: bfloat16 where every device of the run has bfloat16 units (an
+  NVIDIA GPU of compute capability 8.0 or more, Ampere on, or a TPU), else
+  float32: older GPUs and CPUs, so tests and CPU runs never change.
+
+The run config records what the run computed in (`precision`). The
+parameters are float32 either way, so a run may resume in another
+precision. bfloat16 changes the numbers: it keeps about three significant
+digits.
+
+What reaches bfloat16: the shared networks' observation encoders (the
+hidden layers before any memory; image encoders and memory cells stay
+float32), PQN's and APG's hidden layers, TD-MPC2's world model and policy
+prior, and DreamerV3's model, recurrent state and stored latents (half the
+replay, without loss). On bob's L40S (2026-11-20, float32 and bfloat16
+alternating in one process, HalfCheetah on MuJoCo Warp), environment steps
+per second were 1.51x for DreamerV3 (4 seeds), 1.18x for TD-MPC2 and 1.03x
+for SAC, and 0.93x for PPO, whose 64-wide layers are too small to gain:
+the gain follows the size of the networks and batches.
+
 ## Parallel environments
 
 `n_envs` copies of the environment step together inside each seed, as one

@@ -679,13 +679,16 @@ def test_the_config_is_built_from_the_constructor_arguments():
     """``from_arguments`` takes ``model_size`` and the fields the arguments
     name, ignoring the others; the constructor names every field, with the
     field's default (the widths: None, the preset's), so none silently
-    keeps its default."""
+    keeps its default. ``compute_dtype`` is ``train(precision=...)``'s, not
+    the constructor's: precision is how a run computes (ajax.precision)."""
     from ajax.agents.DreamerV3.state import DreamerV3Config
 
     got = DreamerV3Config.from_arguments({"model_size": "1m", "lam": 0.9, "n_envs": 4})
     assert got == DreamerV3Config.from_model_size("1m", lam=0.9)
     parameters = inspect.signature(DreamerV3).parameters
     for field in dataclasses.fields(DreamerV3Config):
+        if field.name == "compute_dtype":
+            continue
         default = parameters[field.name].default
         assert default is None if field.name in WIDTHS else default == field.default
 

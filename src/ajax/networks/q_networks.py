@@ -95,6 +95,7 @@ def _build_q_encoder(module: nn.Module) -> nn.Module:
         penultimate_normalization=module.penultimate_normalization,
         kernel_init=module.kernel_init,
         layer_norm=module.encoder_layer_norm,
+        dtype=module.compute_dtype,
     )
 
 
@@ -115,6 +116,8 @@ class QNetwork(nn.Module):
     # default and orthogonal(1.0).
     kernel_init: Optional[Union[str, InitializationFunction]] = None
     head_kernel_init: Optional[Union[str, InitializationFunction]] = None
+    # The MLP encoder's compute dtype (NetworkConfig.compute_dtype).
+    compute_dtype: Optional[str] = None
 
     def setup(self):
         self.encoder = _build_q_encoder(self)
@@ -207,6 +210,7 @@ def get_initialized_q_network(
         cnn_spec=network_config.cnn_spec,
         kernel_init=network_config.encoder_kernel_init,
         head_kernel_init=network_config.value_kernel_init,
+        compute_dtype=network_config.compute_dtype,
     )
     tx = get_adam_tx(**to_state_dict(optimizer_config))
     shape, _ = get_state_action_shapes(env_config.env)

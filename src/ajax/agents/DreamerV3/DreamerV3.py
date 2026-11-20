@@ -58,6 +58,7 @@ from ajax.agents.DreamerV3.replay import (
     count_replay_bytes,
     grow_rings,
     place_latents,
+    with_deter_dtype,
 )
 from ajax.agents.DreamerV3.state import DreamerV3Config, LearningRate
 from ajax.agents.DreamerV3.world_model import make_initial_carry, observe_and_act
@@ -243,6 +244,10 @@ class DreamerV3(OwnReplayAgent):
         elif self.replay_rows_per_env is not None:
             rows = self.replay_rows_per_env
         if agent_state is not None:
+            # A run resumed in another precision keeps its latents, stored
+            # and acting, in this call's: reading them into the model would
+            # round them so anyway.
+            agent_state = self._in_compute_dtype(agent_state)
             placed = place_latents(agent_state.replay_state, self.replay_on_host)
             if placed is not agent_state.replay_state:
                 agent_state = agent_state.replace(replay_state=placed)
@@ -252,8 +257,37 @@ class DreamerV3(OwnReplayAgent):
             batch_size=self.batch_size,
             batch_length=self.batch_length,
             latents_on_host=self.replay_on_host,
+            deter_dtype=self.model_config.compute_dtype,
         )
         return replay, agent_state
+
+    def _in_compute_dtype(self, agent_state: DreamerV3State) -> DreamerV3State:
+        """agent_state with its stored latents and its acting carry's latent
+        in the model's compute dtype."""
+        dtype = self.model_config.dtype
+        replay = with_deter_dtype(
+            agent_state.replay_state, self.model_config.compute_dtype
+        )
+        collector = agent_state.collector_state
+        # A state without an acting carry (one built for the replay alone)
+        # has only latents to convert.
+        carry = getattr(collector, "policy_carry", None)
+        if carry is not None and carry.deter.dtype != dtype:
+            carry = carry._replace(
+                deter=carry.deter.astype(dtype), stoch=carry.stoch.astype(dtype)
+            )
+            collector = collector.replace(policy_carry=carry)
+        if (
+            replay is agent_state.replay_state
+            and collector is agent_state.collector_state
+        ):
+            return agent_state
+        return agent_state.replace(replay_state=replay, collector_state=collector)
+
+    def set_compute_dtype(self, dtype: str) -> None:
+        """The model's layers, recurrent state and stored latents compute in
+        ``dtype`` (:attr:`DreamerV3Config.compute_dtype`)."""
+        self.model_config = dataclasses.replace(self.model_config, compute_dtype=dtype)
 
     def _record_replay_rows(self, rows: int) -> None:
         self.replay_rows_per_env = rows

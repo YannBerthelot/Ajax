@@ -369,6 +369,7 @@
     "bins": 255,
     "blocks": 8,
     "classes": 16,
+    "compute_dtype": "float32",
     "con_layers": 1,
     "con_scale": 1.0,
     "critic_layers": 3,
@@ -848,6 +849,7 @@
    "TDMPC2Config": {
     "batch_size": 256,
     "buffer_size": 1000000,
+    "compute_dtype": "float32",
     "consistency_coef": 20.0,
     "dropout": 0.01,
     "enc_dim": 256,
@@ -946,6 +948,7 @@
    "TDMPC2Config": {
     "batch_size": 1024,
     "buffer_size": 1000000,
+    "compute_dtype": "float32",
     "consistency_coef": 20.0,
     "dropout": 0.01,
     "enc_dim": 256,

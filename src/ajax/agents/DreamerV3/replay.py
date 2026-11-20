@@ -194,6 +194,10 @@ class StreamReplay:
             with ``replay_context: 1``).
         latents_on_host: :meth:`init` puts the ``deter`` ring in pinned
             host memory.
+        deter_dtype: the ``deter`` ring's dtype, the model's compute dtype:
+            latents computed in bfloat16 are stored without loss, in half
+            the bytes (the reference stores float32 copies of them,
+            ``2411f7d:dreamerv3/agent.py:122-123``).
     """
 
     n_envs: int
@@ -201,6 +205,7 @@ class StreamReplay:
     batch_size: int
     batch_length: int
     latents_on_host: bool = False
+    deter_dtype: str = "float32"
 
     def __post_init__(self) -> None:
         for name in ("n_envs", "capacity", "batch_size", "batch_length"):
@@ -245,9 +250,9 @@ class StreamReplay:
             is_last=jnp.zeros((n, c), bool),
             is_terminal=jnp.zeros((n, c), bool),
             deter=(
-                _host_zeros((n, c, deter), jnp.dtype(jnp.float32))
+                _host_zeros((n, c, deter), jnp.dtype(self.deter_dtype))
                 if self.latents_on_host
-                else jnp.zeros((n, c, deter), jnp.float32)
+                else jnp.zeros((n, c, deter), jnp.dtype(self.deter_dtype))
             ),
             stoch=jnp.zeros((n, c, stoch), stoch_dtype(classes)),
             popped=jnp.zeros((), jnp.int32),
@@ -486,14 +491,35 @@ def place_latents(state: ReplayState, on_host: bool) -> ReplayState:
     return state.replace(deter=jax.device_put(state.deter, space))
 
 
+def with_deter_dtype(state: ReplayState, dtype: str) -> ReplayState:
+    """state with its deter ring in ``dtype``, for a run resumed in another
+    precision; state itself when it already is. The cast runs on the CPU
+    when JAX has one, so a host ring never visits the accelerator
+    (:func:`place_latents` then puts it where the replay keeps it)."""
+    if state.deter.dtype == jnp.dtype(dtype):
+        return state
+    try:
+        deter = jax.device_put(state.deter, jax.devices("cpu")[0])
+    except RuntimeError:  # no CPU backend (JAX_PLATFORMS without cpu)
+        deter = state.deter
+    return state.replace(deter=deter.astype(dtype))
+
+
 def count_row_bytes(
-    obs_dim: int, action_dim: int, discrete: bool, deter: int, stoch: int, classes: int
+    obs_dim: int,
+    action_dim: int,
+    discrete: bool,
+    deter: int,
+    stoch: int,
+    classes: int,
+    deter_itemsize: int = 4,
 ) -> int:
-    """Bytes one stored row takes (all envs' rings: times ``n_envs * C``)."""
+    """Bytes one stored row takes (all envs' rings: times ``n_envs * C``);
+    ``deter_itemsize``: 2 for latents stored in bfloat16."""
     action = 4 if discrete else 4 * action_dim
     flags = 3  # is_first, is_last, is_terminal (bool)
     stoch_bytes = stoch * stoch_dtype(classes).itemsize
-    return 4 * obs_dim + action + 4 + flags + 4 * deter + stoch_bytes
+    return 4 * obs_dim + action + 4 + flags + deter_itemsize * deter + stoch_bytes
 
 
 def count_replay_bytes(
@@ -506,7 +532,13 @@ def count_replay_bytes(
 ) -> int:
     """Bytes of one seed's replay: n_envs rings of rows_per_env rows."""
     row = count_row_bytes(
-        obs_dim, action_dim, discrete, config.deter, config.stoch, config.classes
+        obs_dim,
+        action_dim,
+        discrete,
+        config.deter,
+        config.stoch,
+        config.classes,
+        config.dtype.itemsize,
     )
     return row * rows_per_env * n_envs
 
@@ -523,4 +555,5 @@ __all__ = [
     "is_on_host",
     "place_latents",
     "stoch_dtype",
+    "with_deter_dtype",
 ]

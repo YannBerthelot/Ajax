@@ -8459,7 +8459,9 @@ string that does not start with a name, such as <code>"0.5"</code> or
 
 
 <a href="#ajax.networks.utils.parse_layer" class="headerlink" title="Permanent link">&para;</a></h3>
-<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">parse_layer</span><span class="p">(</span><span class="n">layer</span><span class="p">,</span> <span class="n">kernel_init</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">bias_init</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">parse_layer</span><span class="p">(</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">layer</span><span class="p">,</span> <span class="n">kernel_init</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">bias_init</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="kc">None</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="p">)</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -8492,7 +8494,8 @@ only an agent training them in its losses may have (CrossQ).</p>
 <a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    <span class="n">bias_init</span><span class="p">,</span>
 <a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="n">default_kernel_init</span><span class="p">,</span>
 <a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="n">name</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="p">)</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    <span class="n">dtype</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="p">)</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -8502,7 +8505,8 @@ and <code>bias_init</code> (zeros for None), as :func:<code>parse_initialization
 reads them; <code>kernel_init="torch_linear"</code> builds a
 :class:<code>TorchLinear</code>, which draws its bias too, and
 <code>kernel_init="rlkit_fanin"</code> rlkit's hidden layer (:data:<code>RLKIT_FANIN</code>),
-which sets its bias too.</p>
+which sets its bias too. <code>dtype</code>: the compute dtype (None: float32);
+the parameters stay float32 (<code>ajax.precision</code>).</p>
 
 
     </div>
@@ -8518,13 +8522,17 @@ which sets its bias too.</p>
 
 <a href="#ajax.networks.utils.parse_architecture" class="headerlink" title="Permanent link">&para;</a></h3>
 <div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">parse_architecture</span><span class="p">(</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">architecture</span><span class="p">,</span> <span class="n">kernel_init</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">bias_init</span><span class="o">=</span><span class="kc">None</span>
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="p">)</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">architecture</span><span class="p">,</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="n">kernel_init</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    <span class="n">bias_init</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="n">dtype</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="p">)</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
-        <p>Parse a list of string/module architecture into a list of jax modules</p>
+        <p>Parse a list of string/module architecture into a list of jax modules,
+computing in <code>dtype</code> (None: float32; :func:<code>parse_layer</code>).</p>
 
 
     </div>
@@ -9570,10 +9578,10 @@ configuration:</p>
 variance <code>E[x^2] - E[x]^2</code>, off by ~0.2 on mean-1000 unit-variance
 inputs where torch's two-pass variance is within 1e-4), so
 :class:<code>NormedMLP</code> sets them explicitly. Statistics are computed in
-float32: DreamerV3 at 2411f7d computed the RMS in its bf16 compute dtype,
-and Ajax runs these agents in float32 throughout (deviation D4 in
-<code>docs/world_models/deviations.md</code>). Output layers and heads are composed
-by the agents with :func:<code>linear</code>.</p>
+float32 whatever the layers' compute dtype (<code>dtype</code>, bfloat16 under
+<code>train(precision=...)</code>): DreamerV3 at 2411f7d computed the RMS in its
+bf16 compute dtype (deviation D4 in <code>docs/world_models/deviations.md</code>).
+Output layers and heads are composed by the agents with :func:<code>linear</code>.</p>
 
 
 
@@ -9816,7 +9824,8 @@ every Q pass, <code>docs/world_models/deviations.md</code> §2).</p>
 <a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    <span class="n">bias_init</span><span class="o">=</span><span class="s2">&quot;zeros&quot;</span><span class="p">,</span>
 <a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="n">outscale</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span>
 <a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="n">name</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="p">)</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    <span class="n">dtype</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="p">)</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">

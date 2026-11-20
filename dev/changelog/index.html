@@ -3125,6 +3125,18 @@ PyPI as <code>ajax-rl</code>.</p>
 <p>The next release is 0.6.0: the first item changes results.</p>
 <ul>
 <li>
+<p><strong>New: <code>train(precision=...)</code> runs the networks in bfloat16.</strong> Mixed
+  precision: parameters, gradients and optimiser stay float32, the layers
+  compute in bfloat16, every network returns float32. <code>"auto"</code> uses
+  bfloat16 only where every device has bfloat16 units (NVIDIA compute
+  capability 8.0 or more, TPU) and float32 elsewhere; <code>"bfloat16"</code> forces
+  it; <code>None</code> (the default) is each agent's original precision, float32 for
+  all for now, so nothing changes unless asked. The run config records the
+  result. DreamerV3, whose original computes in bfloat16, stores its replay
+  latents in the compute dtype: half the replay, without loss
+  (<code>docs/guide/performance.md</code>, "bfloat16").</p>
+</li>
+<li>
 <p><strong>Fixed: a forced reset kept the reward normaliser's running return.</strong>
   With <code>normalize_rewards</code> and forced resets (<code>num_resets_per_eval</code>), the
   abandoned episodes' discounted return carried into the new episodes'

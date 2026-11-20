@@ -3005,7 +3005,7 @@ Each entry is also cited in the docstring of the code it concerns.</p>
 <td>RMSNorm statistics</td>
 <td>input dtype (bf16)</td>
 <td>f32</td>
-<td>n/a (Ajax computes in f32, see D4)</td>
+<td>n/a (f32 by default; in bf16 the statistics stay f32, see D4)</td>
 </tr>
 <tr>
 <td>Policy tanh / sigmoid</td>
@@ -3202,9 +3202,9 @@ Each entry is also cited in the docstring of the code it concerns.</p>
 <tr>
 <td>D4</td>
 <td>DreamerV3</td>
-<td>bf16 compute (2411f7d: bf16 RMS statistics, f32 slow critic)</td>
-<td>f32</td>
-<td>Numerics only; bf16 revisited at the GPU milestone</td>
+<td>bf16 compute, f32 parameters (<code>configs.yaml:24-25</code>). 2411f7d: bf16 RMS statistics; the slow critic's <code>dtype='float32'</code> sets its parameters' dtype only, its inputs and layers stay bf16 (<code>agent.py:77-78</code>, <code>nets.py:388, :603-610, :614</code>)</td>
+<td>f32 by default; <code>train(precision="bfloat16" or "auto")</code> computes in bf16 with f32 parameters, logits, distributions and losses, RMS statistics in f32</td>
+<td>Numerics only. The default moves to <code>"auto"</code> after a learning check (owner, 2026-11-20)</td>
 </tr>
 <tr>
 <td>D5</td>

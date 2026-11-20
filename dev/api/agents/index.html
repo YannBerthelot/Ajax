@@ -2556,6 +2556,28 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#ajax.agents.base.ActorCritic.use_precision" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        use_precision
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.agents.base.ActorCritic.set_compute_dtype" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        set_compute_dtype
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#ajax.agents.base.ActorCritic.get_make_train" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -5025,6 +5047,28 @@
     <span class="md-ellipsis">
       
         member
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.agents.base.ActorCritic.use_precision" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        use_precision
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.agents.base.ActorCritic.set_compute_dtype" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        set_compute_dtype
       
     </span>
   </a>
@@ -7588,6 +7632,51 @@ member's values in its own run config.</p>
 <div class="doc doc-object doc-function">
 
 
+<h3 id="ajax.agents.base.ActorCritic.use_precision" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">use_precision</span>
+
+
+<a href="#ajax.agents.base.ActorCritic.use_precision" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">use_precision</span><span class="p">(</span><span class="n">precision</span><span class="p">,</span> <span class="n">devices</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Set this call's compute dtype from train's <code>precision</code> (None:
+:attr:<code>default_precision</code>) on <code>devices</code>, record it in the run
+config, and return it: <code>"float32"</code> or <code>"bfloat16"</code>
+(:func:<code>ajax.precision.resolve_precision</code>).</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="ajax.agents.base.ActorCritic.set_compute_dtype" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">set_compute_dtype</span>
+
+
+<a href="#ajax.agents.base.ActorCritic.set_compute_dtype" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">set_compute_dtype</span><span class="p">(</span><span class="n">dtype</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Build the networks of the next call to compute in <code>dtype</code>: the
+shared networks read it from :attr:<code>network_args</code>; an agent with
+networks of its own overrides this.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
 <h3 id="ajax.agents.base.ActorCritic.get_make_train" class="doc doc-heading">
             <span class="doc doc-object-name doc-function-name">get_make_train</span>
 
@@ -7625,8 +7714,9 @@ rest.</p>
 <a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>    <span class="n">total_timesteps</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>    <span class="n">sweep</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>    <span class="n">devices</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>    <span class="o">**</span><span class="n">kwargs</span><span class="p">,</span>
-<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="p">)</span>
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>    <span class="n">precision</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>    <span class="o">**</span><span class="n">kwargs</span><span class="p">,</span>
+<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a><span class="p">)</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -7817,6 +7907,29 @@ device trains them all.</p>
                   <code>None</code>
             </td>
           </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>precision</code>
+            </td>
+            <td>
+                  <code><span title="typing.Optional">Optional</span>[<span title="str">str</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>what the networks compute in (<code>ajax.precision</code>):
+<code>"float32"</code>; <code>"bfloat16"</code>, mixed precision (parameters,
+optimiser, heads, losses and targets stay float32); or
+<code>"auto"</code>, bfloat16 where every device has bfloat16 units
+(NVIDIA compute capability 8.0 or more, TPU), else float32.
+<code>None</code>: the agent's original code's precision
+(:attr:<code>default_precision</code>). The run config records the
+result; a run may resume in another precision.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
       </tbody>
     </table>
         <p>Returns <code>(state, out)</code>, each leaf with a leading axis over the
@@ -7895,7 +8008,8 @@ policy), passed again, and any to replace
 <a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="n">num_episode_test</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span>
 <a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="n">logging_config</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    <span class="n">on_ids_ready</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="p">)</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>    <span class="n">precision</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="p">)</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -7907,7 +8021,8 @@ evaluating every <code>logging_config.log_frequency</code> updates. Returns
 <code>(state, out)</code> as :meth:<code>train</code> does, with the state's timestep
 and evaluation count back at 0, so that <code>train(initial_state=state,
 ...)</code> fine-tunes online from it, its replay keeping the dataset's
-rows (with <code>learning_starts=0</code>, from the first step).</p>
+rows (with <code>learning_starts=0</code>, from the first step). <code>precision</code>
+is :meth:<code>train</code>'s.</p>
 <p>Raises <code>ValueError</code> on an agent without a transition replay.</p>
 
 
@@ -11604,14 +11719,17 @@ continues instead of restarting.</p>
 <a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>    <span class="n">total_timesteps</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>    <span class="n">sweep</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>    <span class="n">devices</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>    <span class="o">**</span><span class="n">kwargs</span><span class="p">,</span>
-<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="p">)</span>
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>    <span class="n">precision</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>    <span class="o">**</span><span class="n">kwargs</span><span class="p">,</span>
+<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a><span class="p">)</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
         <p>ActorCritic.train on the call's replay (prepare_replay), which
-continues the replay of the uninterrupted run when it resumes.</p>
+continues the replay of the uninterrupted run when it resumes. The
+precision is set first: the replay may store what the networks
+compute in.</p>
 
 
     </div>

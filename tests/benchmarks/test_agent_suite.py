@@ -122,9 +122,10 @@ def test_every_agent_is_benchmarked_or_excluded_with_a_reason():
 def test_every_benchmark_builds_and_chunks_on_whole_iterations(label):
     benchmark = agent_suite.BENCHMARKS[label]
     agent = agent_suite.build(label)  # refuses an env the agent cannot run
-    # Default settings apart from n_envs, and options that change no number:
-    # DreamerV3's replay latents in host memory (bit-identical, PR #426).
-    assert set(benchmark.options).issubset({"n_envs", "replay_on_host"})
+    # Default settings apart from n_envs, options that change no number
+    # (DreamerV3's replay latents in host memory, bit-identical, PR #426), and
+    # TD-MPC2's episodic mode, without which it refuses terminating tasks.
+    assert set(benchmark.options).issubset({"n_envs", "replay_on_host", "episodic"})
     assert benchmark.reason.strip()
     assert benchmark.budget % benchmark.eval_every == 0
     assert benchmark.eval_every % agent_suite.iteration_steps(agent) == 0
@@ -152,12 +153,13 @@ def test_a_gymnasium_mujoco_task_is_labelled_without_its_prefix():
     assert further["SAC-Hopper-v5"].env_id == "mujoco:Hopper-v5"
 
 
-def test_tdmpc2_runs_only_the_gymnasium_mujoco_tasks_without_terminations():
-    # Paper-era TD-MPC2 refuses episodes that end before the time limit, and
-    # Hopper's end when it falls; HalfCheetah's always run to the limit.
-    assert "TDMPC2-HalfCheetah-v5" in agent_suite.BENCHMARKS
-    assert "TDMPC2-Hopper-v5" not in agent_suite.BENCHMARKS
-    assert "SAC-Hopper-v5" in agent_suite.BENCHMARKS
+def test_tdmpc2_runs_the_terminating_gymnasium_mujoco_tasks_in_episodic_mode():
+    # Paper-era TD-MPC2 refuses episodes that end before the time limit, as
+    # Hopper's do when it falls: the owner chose (2026-11-20) to run those
+    # tasks in the latest code's episodic mode. HalfCheetah's episodes always
+    # run to the limit, so the paper-era agent runs them.
+    assert agent_suite.build("TDMPC2-Hopper-v5").episodic
+    assert not agent_suite.build("TDMPC2-HalfCheetah-v5").episodic
 
 
 # --- run, on the fake trainer ------------------------------------------------

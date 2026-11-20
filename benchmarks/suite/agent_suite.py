@@ -169,7 +169,8 @@ GYMNASIUM_MUJOCO_FIXED_LENGTH = (
     "mujoco:Pusher-v5",
 )
 #: The ones whose episodes end when the body falls. Paper-era TD-MPC2 refuses
-#: them (it supports no terminations), so it runs on the tasks above only.
+#: them (it supports no terminations): it runs them in the latest code's
+#: episodic mode (owner, 2026-11-20).
 GYMNASIUM_MUJOCO_TERMINATING = (
     "mujoco:Hopper-v5",
     "mujoco:Walker2d-v5",
@@ -195,6 +196,21 @@ BENCHMARKS.update(
     )
 )
 BENCHMARKS.update(on_more_tasks(("TDMPC2",), GYMNASIUM_MUJOCO_FIXED_LENGTH))
+BENCHMARKS.update(
+    {
+        label: dataclasses.replace(
+            benchmark,
+            reason=benchmark.reason
+            + "; the latest code's episodic mode (deviation T29), the paper-era"
+            " agent refusing terminations; its budget counts rows, env steps plus"
+            " one per finished episode",
+            options={**benchmark.options, "episodic": True},
+        )
+        for label, benchmark in on_more_tasks(
+            ("TDMPC2",), GYMNASIUM_MUJOCO_TERMINATING
+        ).items()
+    }
+)
 #: The other MinAtar games gymnax runs.
 BENCHMARKS.update(
     on_more_tasks(

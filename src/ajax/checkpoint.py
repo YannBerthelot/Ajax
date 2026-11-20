@@ -23,8 +23,10 @@ from __future__ import annotations
 
 import dataclasses
 import inspect
+import mmap
 import os
 import pickle
+import struct
 from collections.abc import Iterator
 from typing import Any
 
@@ -59,6 +61,68 @@ FORMAT = 3
 #: constructor arguments stored as written ("arguments") and the names of
 #: those that are objects, which load is given again ("to_pass_again").
 AGENT_KEY = "ajax_agent"
+
+#: Arrays of at least this many bytes are stored after the pickle stream
+#: (pickle's out-of-band buffers), each at a page boundary, so that a restore
+#: maps them from the file and copies each one once, to where the state keeps
+#: it: a replay held in host memory is not also held whole as a NumPy array.
+#: A checkpoint without such an array stays one pickle stream, as all were.
+_MAPPED_BYTES = 16 * 2**20
+#: The last bytes of a checkpoint that stores arrays after its pickle stream.
+_MAPPED_MAGIC = b"AJAXMAP1"
+_PAGE = 4096
+
+
+def _write(state_dict: Any, path: str) -> None:
+    """Write state_dict at path, atomically: its pickle stream, then the
+    bytes of its arrays of _MAPPED_BYTES or more, then their offsets and
+    sizes, their count and _MAPPED_MAGIC."""
+    large: list[memoryview] = []
+
+    def in_band(buffer: pickle.PickleBuffer) -> bool:
+        data = buffer.raw()
+        if data.nbytes < _MAPPED_BYTES:
+            return True
+        large.append(data)
+        return False
+
+    tmp = path + ".tmp"
+    with open(tmp, "wb") as f:
+        pickle.dump(state_dict, f, protocol=5, buffer_callback=in_band)
+        table: list[int] = []
+        for data in large:
+            f.write(bytes(-f.tell() % _PAGE))
+            table += [f.tell(), data.nbytes]
+            f.write(data)
+        if large:
+            f.write(struct.pack(f"<{len(table) + 1}Q", *table, len(large)))
+            f.write(_MAPPED_MAGIC)
+    os.replace(tmp, path)
+
+
+def _read(path: str) -> Any:
+    """What save_checkpoint wrote at path. The arrays stored after the pickle
+    stream view the file, mapped read-only: their pages are read as they are
+    used, and an array restored onto a CPU device may keep viewing them. So
+    a file is replaced while its arrays are in use, never written into
+    (save_checkpoint writes a new file and renames it)."""
+    with open(path, "rb") as f:
+        end = f.seek(0, os.SEEK_END)
+        f.seek(max(end - 16, 0))
+        tail = f.read(16)
+        f.seek(0)
+        if len(tail) < 16 or tail[8:] != _MAPPED_MAGIC:
+            return pickle.load(f)  # one pickle stream: a pickle ends with "."
+        (count,) = struct.unpack("<Q", tail[:8])
+        f.seek(end - 16 - 16 * count)
+        table = struct.unpack(f"<{2 * count}Q", f.read(16 * count))
+        f.seek(0)
+        mapped = memoryview(mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ))
+        buffers = [
+            mapped[offset : offset + size]
+            for offset, size in zip(table[::2], table[1::2])
+        ]
+        return pickle.load(f, buffers=buffers)
 
 
 def _plain(value: Any) -> bool:
@@ -105,10 +169,7 @@ def save_checkpoint(state: Any, path: str, agent: Any = None) -> None:
         state_dict = {**state_dict, FORMAT_KEY: FORMAT}
     if agent is not None:
         state_dict = {**state_dict, AGENT_KEY: agent_record(agent)}
-    tmp = path + ".tmp"
-    with open(tmp, "wb") as f:
-        pickle.dump(state_dict, f, protocol=pickle.HIGHEST_PROTOCOL)
-    os.replace(tmp, path)
+    _write(state_dict, path)
 
 
 def restore_into(skeleton: Any, path: str) -> Any:
@@ -122,8 +183,7 @@ def restore_into(skeleton: Any, path: str) -> Any:
     path = os.path.abspath(path)
     if not os.path.isfile(path):
         raise FileNotFoundError(f"No checkpoint file at {path}")
-    with open(path, "rb") as f:
-        state_dict = pickle.load(f)
+    state_dict = _read(path)
     saved_format = 0
     if isinstance(state_dict, dict):
         state_dict = dict(state_dict)
@@ -149,7 +209,8 @@ def restore_into(skeleton: Any, path: str) -> Any:
     if saved_format < 2:
         restored = _with_collection_stream(restored)
     # Each array goes where the skeleton keeps it (a ring the agent holds in
-    # host memory is restored there, never staged on the device); a field
+    # host memory is restored there, never staged on the device, and one
+    # stored after the pickle stream is copied there from the file); a field
     # the skeleton lacks goes to the default device.
     placements = {
         path: leaf.sharding
@@ -173,16 +234,29 @@ def load_checkpoint(agent: Any, path: str, **train_options: Any) -> Any:
     call: a run whose options shape its update rule (APG's learning-rate
     schedule over total_timesteps, its optimiser kept on resume) passes
     them, so the loaded state resumes as the run would have gone on."""
-    with open(os.path.abspath(path), "rb") as f:
-        saved = pickle.load(f)
+    seeds = list(range(_saved_seeds(path)))
+    skeleton, _ = agent.train(seed=seeds, n_timesteps=0, **train_options)
+    return restore_into(skeleton, path)
+
+
+def _saved_seeds(path: str) -> int:
+    """How many seeds the state saved at path holds. A function of its own
+    so that what it reads is freed before the restore reads the file again:
+    a file of one pickle stream is read whole."""
+    saved = _read(os.path.abspath(path))
     if not isinstance(saved, dict) or "rng" not in saved:
         raise ValueError(
             f"{path} holds no agent state at its top (save_checkpoint(state,"
             " path) writes one): restore it with restore_into(skeleton, path)."
         )
-    seeds = list(range(np.shape(saved["rng"])[0]))
-    skeleton, _ = agent.train(seed=seeds, n_timesteps=0, **train_options)
-    return restore_into(skeleton, path)
+    return int(np.shape(saved["rng"])[0])
+
+
+def _saved_agent(path: str) -> Any:
+    """The agent record saved at path (agent_record), or None; read in a
+    function of its own for the reason _saved_seeds gives."""
+    saved = _read(os.path.abspath(path))
+    return saved.get(AGENT_KEY) if isinstance(saved, dict) else None
 
 
 def load(
@@ -206,9 +280,7 @@ def load(
     agent, on another class's file, and on an argument to pass again that
     is missing.
     """
-    with open(os.path.abspath(path), "rb") as f:
-        saved = pickle.load(f)
-    record = saved.get(AGENT_KEY) if isinstance(saved, dict) else None
+    record = _saved_agent(path)
     if record is None:
         raise ValueError(
             f"{path} records no agent (agent.save(state, path) writes one):"

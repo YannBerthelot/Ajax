@@ -107,7 +107,9 @@ print(state.collector_state.timestep)  # [2000 2000]
 ```
 
 The file is a pickle. Load only checkpoints you trust, since unpickling can
-run code.
+run code. Arrays of 16 MiB or more (a large replay) are stored after the
+pickle stream, and a restore copies each one once, from the file to where
+the state keeps it: a resume holds no second copy of the replay.
 
 ## What a resume keeps
 

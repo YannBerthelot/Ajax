@@ -269,8 +269,10 @@ class DreamerV3(OwnReplayAgent):
             agent_state.replay_state, self.model_config.compute_dtype
         )
         collector = agent_state.collector_state
-        carry = collector.policy_carry
-        if carry.deter.dtype != dtype:
+        # A state without an acting carry (one built for the replay alone)
+        # has only latents to convert.
+        carry = getattr(collector, "policy_carry", None)
+        if carry is not None and carry.deter.dtype != dtype:
             carry = carry._replace(
                 deter=carry.deter.astype(dtype), stoch=carry.stoch.astype(dtype)
             )

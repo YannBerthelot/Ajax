@@ -230,7 +230,14 @@ def test_train_records_the_precision_it_computes_in():
     assert agent.config["precision"] == "float32"
 
 
-TINY_DREAMER = {"units": 16, "hidden": 12, "deter": 64, "stoch": 4, "classes": 3, "blocks": 8}
+TINY_DREAMER = {
+    "units": 16,
+    "hidden": 12,
+    "deter": 64,
+    "stoch": 4,
+    "classes": 3,
+    "blocks": 8,
+}
 
 
 @pytest.fixture(scope="module")

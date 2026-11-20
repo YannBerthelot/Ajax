@@ -11424,9 +11424,11 @@ it logs after each log (make_after_log) and check a call (check_run).</p>
 
     <div class="doc doc-contents ">
 
-        <p>The replay of a call training from tick start_tick to end_tick,
-and the state it resumes from (None for a fresh run), its replay
-moved into that replay's shapes. The agent records the sizes.</p>
+        <p>The replay of a call training from tick start_tick, holding the
+rows the run writes up to tick end_tick (its horizon's, or start_tick
+for a 0-tick call), and the state it resumes from (None for a fresh
+run), its replay moved into that replay's shapes. The agent records
+the sizes.</p>
 
 
     </div>

@@ -480,6 +480,22 @@ def test_each_call_resolves_its_ring():
         resolve(agent, N_ENVS * 10, _resumable(50, 40))
 
 
+def test_a_run_naming_its_horizon_holds_the_whole_runs_ring_from_its_first_chunk():
+    """Catches a run in chunks that grows its ring at every chunk: XLA's
+    pinned host pool keeps the shorter ring beside the longer one, each
+    rounded up to a power of two, and a 10-seed run of 1M steps would have
+    ended near 260 GB of host memory. A call naming the run's horizon
+    (total_timesteps) sizes the ring for it: the capacity's 100 rows per
+    env from the first chunk, which has seen 60, and no growth after."""
+    agent = cartpole_agent()
+    first, _ = agent.train(seed=SEEDS, n_timesteps=ROWS // 2, total_timesteps=ROWS)
+    assert first.replay_state.obs.shape == (2, N_ENVS, 100, 4)
+    state, _ = agent.train(
+        seed=SEEDS, n_timesteps=ROWS // 2, total_timesteps=ROWS, initial_state=first
+    )
+    assert state.replay_state.obs.shape == (2, N_ENVS, 100, 4)
+
+
 def test_a_resume_frees_the_rings_it_grows():
     """Catches a resumed run that keeps the shorter rings of the state it is
     given alive beside the grown ones for the whole call: the last chunk of a

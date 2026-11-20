@@ -3103,7 +3103,9 @@ chunk of training, and picks up from the last one when restarted:</p>
 <a id="__codelineno-2-24" name="__codelineno-2-24" href="#__codelineno-2-24"></a><span class="nb">print</span><span class="p">(</span><span class="n">state</span><span class="o">.</span><span class="n">collector_state</span><span class="o">.</span><span class="n">timestep</span><span class="p">)</span>  <span class="c1"># [2000 2000]</span>
 </code></pre></div>
 <p>The file is a pickle. Load only checkpoints you trust, since unpickling can
-run code.</p>
+run code. Arrays of 16 MiB or more (a large replay) are stored after the
+pickle stream, and a restore copies each one once, from the file to where
+the state keeps it: a resume holds no second copy of the replay.</p>
 <h2 id="what-a-resume-keeps">What a resume keeps<a class="headerlink" href="#what-a-resume-keeps" title="Permanent link">&para;</a></h2>
 <p>Everything in the state: the network parameters, the optimisers' moments and
 step counts, the replay buffer, each environment copy where it stood (in the

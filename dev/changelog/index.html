@@ -3137,6 +3137,18 @@ PyPI as <code>ajax-rl</code>.</p>
   (<code>docs/guide/performance.md</code>, "bfloat16").</p>
 </li>
 <li>
+<p><strong>Changed: a resume holds no second copy of a large replay.</strong> A
+  checkpoint now stores its arrays of 16 MiB or more after the pickle
+  stream, and a restore copies each from the file straight to where the
+  state keeps it (a 10-seed DreamerV3 replay in host memory: 80 GiB, held
+  once instead of up to three times). <code>load_checkpoint</code> and <code>load</code> no
+  longer keep the file's state while restoring it. Checkpoints written
+  before still load. Upgrade note: a checkpoint holding such an array is
+  no longer one pickle stream: read it with <code>restore_into</code>,
+  <code>load_checkpoint</code> or <code>load</code>, not <code>pickle.load</code>, and an older Ajax cannot
+  read it.</p>
+</li>
+<li>
 <p><strong>Fixed: a forced reset kept the reward normaliser's running return.</strong>
   With <code>normalize_rewards</code> and forced resets (<code>num_resets_per_eval</code>), the
   abandoned episodes' discounted return carried into the new episodes'

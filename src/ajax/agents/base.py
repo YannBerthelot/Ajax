@@ -141,6 +141,26 @@ def with_shared_counters(state: Any, counters: dict[str, jax.Array]) -> Any:
     return state
 
 
+def release_replaced(given: Any, resumed: Any) -> None:
+    """Frees the arrays of the state a run resumes from that the resumed
+    state no longer holds: a replay the resume grew or moved. A resume
+    donates the state it is given, and these would otherwise stay alive
+    beside their replacements for the whole call: late in a run resumed
+    chunk by chunk, the replay would take twice its memory."""
+
+    def buffers(leaf: jax.Array) -> set[int]:
+        return {shard.data.unsafe_buffer_pointer() for shard in leaf.addressable_shards}
+
+    def arrays(tree: Any) -> list[jax.Array]:
+        leaves = jax.tree.leaves(tree)
+        return [x for x in leaves if isinstance(x, jax.Array) and not x.is_deleted()]
+
+    kept = set().union(*(buffers(leaf) for leaf in arrays(resumed)))
+    for leaf in arrays(given):
+        if not buffers(leaf) & kept:
+            leaf.delete()
+
+
 #: The discount of the return whose spread normalises the rewards of an
 #: agent without a discount of its own (the average-reward agents): SB3
 #: VecNormalize's default gamma.
@@ -748,7 +768,9 @@ class ActorCritic:
         end = start + n_timesteps
         horizon = run_horizon(start, n_timesteps, total_timesteps)
         if initial_state is not None:
-            initial_state = self.resumed_state(initial_state, n_timesteps, kwargs)
+            resumed = self.resumed_state(initial_state, n_timesteps, kwargs)
+            release_replaced(initial_state, resumed)
+            initial_state = resumed
 
         if logging_config is not None:
             logging_config = logging_config.with_agent_config(self.config)

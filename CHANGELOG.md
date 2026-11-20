@@ -629,6 +629,14 @@ before this version do not restore at the new defaults. The rest:
   `load` again. `save_checkpoint` and `load_checkpoint` are unchanged, and
   read these files too.
 
+- **Fixed: training held extra copies of its state.** Each evaluation
+  between chunks of training returned a copy of the whole state, replay
+  included. A resumed run also kept the shorter replay it had grown out of
+  until the call ended. Evaluations now update the state in place, and a
+  resume frees the replay it replaces. No result changes. A state passed
+  as `initial_state` was already used up by the call; now its old replay
+  is freed too.
+
 ## 0.5.0
 
 What a user of 0.4.0 meets:

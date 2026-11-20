@@ -42,7 +42,12 @@ import jax.numpy as jnp
 from gymnax import EnvParams
 
 from ajax.agents import update_steps
-from ajax.agents.base import ActorCritic, run_horizon, shared_counters
+from ajax.agents.base import (
+    ActorCritic,
+    release_replaced,
+    run_horizon,
+    shared_counters,
+)
 from ajax.agents.loop import LOOP_PHASES, Evaluation, TrainLoop
 from ajax.agents.presets import presets_of
 from ajax.agents.recurrent import (
@@ -1556,26 +1561,6 @@ class OwnIterationAgent(DeclaredAgent):
             log=log,
             due=evaluation.ticks,
         )
-
-
-def release_replaced(given: Any, resumed: Any) -> None:
-    """Frees the arrays of the state a run resumes from that the resumed
-    state no longer holds: the rings prepare_replay grew or moved. A resume
-    donates the state it is given, and these would otherwise stay alive
-    beside their replacements for the whole call: the last chunk of a
-    10-seed DreamerV3 run would hold its 75 GB ring beside the 80 GB one."""
-
-    def buffers(leaf: jax.Array) -> set[int]:
-        return {shard.data.unsafe_buffer_pointer() for shard in leaf.addressable_shards}
-
-    def arrays(tree: Any) -> list[jax.Array]:
-        leaves = jax.tree.leaves(tree)
-        return [x for x in leaves if isinstance(x, jax.Array) and not x.is_deleted()]
-
-    kept = set().union(*(buffers(leaf) for leaf in arrays(resumed)))
-    for leaf in arrays(given):
-        if not buffers(leaf) & kept:
-            leaf.delete()
 
 
 @dataclass(kw_only=True, eq=False, repr=False)

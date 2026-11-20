@@ -1590,9 +1590,11 @@ class OwnReplayAgent(DeclaredAgent):
     def prepare_replay(
         self, start_tick: int, end_tick: int, agent_state: Any
     ) -> tuple[Any, Any]:
-        """The replay of a call training from tick start_tick to end_tick,
-        and the state it resumes from (None for a fresh run), its replay
-        moved into that replay's shapes. The agent records the sizes."""
+        """The replay of a call training from tick start_tick, holding the
+        rows the run writes up to tick end_tick (its horizon's, or start_tick
+        for a 0-tick call), and the state it resumes from (None for a fresh
+        run), its replay moved into that replay's shapes. The agent records
+        the sizes."""
         raise NotImplementedError
 
     def init(self, key: jax.Array, context: TrainContext) -> Any:
@@ -1699,10 +1701,20 @@ class OwnReplayAgent(DeclaredAgent):
         if state is not None:
             counters = shared_counters(state, self.per_seed_update_counts)
             start = int(counters.get("timestep", 0))
-        run_horizon(start, n_timesteps, total_timesteps)
+        horizon = run_horizon(start, n_timesteps, total_timesteps)
         start_tick = 0 if state is None else self.resume_iteration_offset(state)
         end_tick = start_tick + self.count_ticks(n_timesteps, start_tick)
-        replay, resumed = self.prepare_replay(start_tick, end_tick, state)
+        # A call that trains sizes its replay for the run's horizon, so that a
+        # run in chunks allocates it in its first chunk and never grows it.
+        # A grown replay's shorter one stays in XLA's pinned host pool,
+        # which keeps what it frees and rounds each block up to a power of
+        # two: a 10-seed DreamerV3 run of 1M steps, in chunks, would have
+        # ended near 260 GB of host memory. A 0-tick call (a checkpoint
+        # skeleton) is sized as before (prepare_replay).
+        sized_to = end_tick
+        if end_tick > start_tick:
+            sized_to = start_tick + self.count_ticks(horizon - start, start_tick)
+        replay, resumed = self.prepare_replay(start_tick, sized_to, state)
         if state is not None:
             release_replaced(state, resumed)
         agent_state, out = super().train(

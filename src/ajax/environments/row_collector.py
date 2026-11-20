@@ -546,7 +546,8 @@ def _dynamic_transition(
     restored = jax.tree.map(
         partial(_restore_held, held, env_args.n_envs), env_state, snapshot
     )
-    env_state = _keep_batch_shared_seed(env_args.env, restored, env_state)
+    restored = _keep_batch_shared_seed(env_args.env, restored, env_state)
+    env_state = _keep_warp_contact_counters(restored, env_state)
     next_obs = jnp.where(
         per_env(held, obs),
         cs.reset_obs,
@@ -571,9 +572,10 @@ def _restore_held(
 ) -> jax.Array:
     """Per-env leaf select: the snapshot where held, the stepped value elsewhere.
 
-    Leaves without a leading env axis (none in the supported stacks) take
-    the stepped value. Batch-shared leaves stored per row are put back by
-    :func:`_keep_batch_shared_seed`.
+    Leaves without a leading env axis take the stepped value. Batch-shared
+    leaves whose leading axis is, or can be, as long as the env axis are put
+    back by :func:`_keep_batch_shared_seed` and
+    :func:`_keep_warp_contact_counters`.
     """
     if jnp.ndim(stepped_leaf) == 0 or jnp.shape(stepped_leaf)[0] != n_envs:
         return stepped_leaf
@@ -598,6 +600,34 @@ def _keep_batch_shared_seed(env: Any, restored: Any, stepped: Any) -> Any:
     info = dict(restored.info)
     info["rng"] = stepped.info["rng"]
     return restored.replace(info=info)
+
+
+#: MuJoCo Warp's contact counters (``data._impl``): one for all the worlds of
+#: a batch, shaped (1,) whatever the batch.
+_WARP_CONTACT_COUNTERS = ("nacon", "ncollision")
+
+
+def _keep_warp_contact_counters(restored: Any, stepped: Any) -> Any:
+    """Undo the per-env restore of MuJoCo Warp's contact counters.
+
+    MuJoCo Warp keeps one contact buffer for all the worlds of a batch. Its
+    counters describe the batch's last step, not a held env, so they keep
+    their stepped value, as the brax reset seed does. With one env their
+    shape matched the env axis: restored per env, they became batched over
+    the seeds, and MuJoCo Warp's vmap rule then returned a leaked tracer in
+    their place (TD-MPC2's episodic mode on Hopper, 2026-11-20).
+    """
+
+    def pick(path: Any, restored_leaf: Any, stepped_leaf: Any) -> Any:
+        names = [getattr(key, "name", None) for key in path]
+        counter = (
+            len(names) >= 2
+            and names[-2] == "_impl"
+            and names[-1] in _WARP_CONTACT_COUNTERS
+        )
+        return stepped_leaf if counter else restored_leaf
+
+    return jax.tree_util.tree_map_with_path(pick, restored, stepped)
 
 
 def resume_tick(collector_state: Any, n_envs: int) -> int:

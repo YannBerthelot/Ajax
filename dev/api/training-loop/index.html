@@ -6609,17 +6609,15 @@ one program, and it reads <code>iteration_offset</code> as a number.</p>
 
     <div class="doc doc-contents ">
 
-        <p>Run <code>lax.scan</code> and expose only the final-step aux from the body.</p>
-<p>Replaces the common idiom</p>
-<div class="highlight"><pre><span></span><code>carry, ys = jax.lax.scan(body, init, xs, length=length)
-last_aux = jax.tree.map(lambda x: x[-1], ys)
-</code></pre></div>
-<p>with a carry-only variant that never materializes the leading scan
-axis on device for the aux. Critical under vmap-over-seeds because
-the discarded ys dimension would otherwise grow as
-<code>[seeds, length, *aux_shape]</code> purely to be thrown away.</p>
-<p>The body maps <code>(carry, x) -&gt; (new_carry, aux)</code>, <code>aux</code> a pytree of
-arrays (any structure).</p>
+        <p><code>length</code> steps of <code>body(carry, x) -&gt; (new_carry, aux)</code>, returning
+the final carry and the last step's aux alone (<code>aux</code> a pytree of
+arrays, any structure).</p>
+<p>It replaces <code>lax.scan</code> and keeping <code>ys[-1]</code>, which would stack every
+step's aux, <code>[seeds, length, *aux_shape]</code> under the seed vmap, to throw
+all but one away. The steps before the last run in a scan that keeps no
+aux, so XLA computes none of it there (a training chunk's per-update
+logs, which only its last tick's evaluation reads); the last step runs
+once more in the program, keeping its own. The body is traced twice.</p>
 
 
 <p><span class="doc-section-title">Parameters:</span></p>
@@ -6668,7 +6666,7 @@ receives <code>None</code> as <code>x</code> each step (matches scan semantics).
             </td>
             <td>
               <div class="doc-md-description">
-                <p><code>(final_carry, last_aux)</code> where <code>last_aux</code> is the body's</p>
+                <p><code>(final_carry, last_aux)</code>; with <code>length</code> 0, <code>init_carry</code> and</p>
               </div>
             </td>
           </tr>
@@ -6677,7 +6675,7 @@ receives <code>None</code> as <code>x</code> each step (matches scan semantics).
             </td>
             <td>
               <div class="doc-md-description">
-                <p>return value on the final iteration only.</p>
+                <p>an aux of zeros.</p>
               </div>
             </td>
           </tr>

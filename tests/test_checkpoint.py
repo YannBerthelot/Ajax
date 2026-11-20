@@ -92,7 +92,9 @@ LARGE = (4, 1024, 2048)
 
 
 def _pinned_host():
-    return jax.sharding.SingleDeviceSharding(jax.devices()[0], memory_kind="pinned_host")
+    return jax.sharding.SingleDeviceSharding(
+        jax.devices()[0], memory_kind="pinned_host"
+    )
 
 
 def _python_peak(call):

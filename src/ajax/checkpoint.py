@@ -120,7 +120,7 @@ def _read(path: str) -> Any:
         mapped = memoryview(mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ))
         buffers = [
             mapped[offset : offset + size]
-            for offset, size in zip(table[::2], table[1::2])
+            for offset, size in zip(table[::2], table[1::2], strict=True)
         ]
         return pickle.load(f, buffers=buffers)
 

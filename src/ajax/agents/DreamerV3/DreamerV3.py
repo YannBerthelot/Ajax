@@ -265,7 +265,9 @@ class DreamerV3(OwnReplayAgent):
         """agent_state with its stored latents and its acting carry's latent
         in the model's compute dtype."""
         dtype = self.model_config.dtype
-        replay = with_deter_dtype(agent_state.replay_state, self.model_config.compute_dtype)
+        replay = with_deter_dtype(
+            agent_state.replay_state, self.model_config.compute_dtype
+        )
         collector = agent_state.collector_state
         carry = collector.policy_carry
         if carry.deter.dtype != dtype:
@@ -273,7 +275,10 @@ class DreamerV3(OwnReplayAgent):
                 deter=carry.deter.astype(dtype), stoch=carry.stoch.astype(dtype)
             )
             collector = collector.replace(policy_carry=carry)
-        if replay is agent_state.replay_state and collector is agent_state.collector_state:
+        if (
+            replay is agent_state.replay_state
+            and collector is agent_state.collector_state
+        ):
             return agent_state
         return agent_state.replace(replay_state=replay, collector_state=collector)
 

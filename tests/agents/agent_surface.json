@@ -153,6 +153,7 @@
 "ajax.agents.DreamerV3.replay:is_on_host",
 "ajax.agents.DreamerV3.replay:place_latents",
 "ajax.agents.DreamerV3.replay:stoch_dtype",
+"ajax.agents.DreamerV3.replay:with_deter_dtype",
 "ajax.agents.DreamerV3.state:DreamerV3Config",
 "ajax.agents.DreamerV3.state:LearningRate",
 "ajax.agents.DreamerV3.state:MODEL_SIZES",

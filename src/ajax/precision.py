@@ -18,7 +18,8 @@ original computes in float32, so bfloat16 changes their numbers.
 bfloat16 matrix products run on tensor cores from NVIDIA compute capability
 8.0 (Ampere) on, and on TPUs. Older GPUs (Turing 7.5, Pascal 6.1) and CPUs
 have no bfloat16 arithmetic: XLA computes it in float32 and converts around
-it, which is slower than float32. ``"auto"`` therefore gives bfloat16 only
+it, no faster than float32 (on an RTX 2080 Ti about equal, on a CPU slower)
+while the numbers still change. ``"auto"`` therefore gives bfloat16 only
 where every device of the run has bfloat16 units, and float32 elsewhere.
 """
 
@@ -71,7 +72,7 @@ def resolve_precision(precision: str, devices: Optional[Sequence[Any]] = None) -
     if precision == "bfloat16" and not fast:
         logger.warning(
             "precision='bfloat16' on %s, which has no bfloat16 units: XLA"
-            " emulates it, usually slower than float32.",
+            " emulates it, no faster than float32.",
             ", ".join(sorted({str(device.device_kind) for device in devices})),
         )
     return precision

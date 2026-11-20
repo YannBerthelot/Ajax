@@ -116,7 +116,8 @@ print(agent.config["precision"])  # float32 on a CPU
   code's precision: float32 for every agent. DreamerV3's original computes
   in bfloat16 (deviation D4 in the world-model deviations).
 - `"bfloat16"`: bfloat16 even where the hardware has no bfloat16 units,
-  with a warning: there XLA emulates it, slower than float32.
+  with a warning: there XLA emulates it, no faster than float32 (about
+  equal on an RTX 2080 Ti, slower on a CPU).
 - `"auto"`: bfloat16 where every device of the run has bfloat16 units (an
   NVIDIA GPU of compute capability 8.0 or more, Ampere on, or a TPU), else
   float32: older GPUs and CPUs, so tests and CPU runs never change.

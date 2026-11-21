@@ -1376,7 +1376,7 @@ class OnPolicyAgent(DeclaredAgent):
     extension_context = frozenset({"env_args"})
     keeps_last_rollout = True
 
-    def iteration_steps(self) -> int:
+    def smallest_evaluation_spacing(self) -> int:
         """A rollout: n_steps in each env."""
         return self.env_args.n_envs * self.n_steps
 

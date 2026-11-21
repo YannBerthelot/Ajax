@@ -70,6 +70,45 @@ Weights & Biases, pass a `LoggingConfig` ([Logging](../guide/logging.md));
 `logging_config=None` trains with no evaluation and prints nothing, which is
 the fastest. [Training an agent](../guide/training.md) has the details.
 
+## JAX environments first, Gymnasium supported
+
+`"CartPole-v1"` above is [gymnax](https://github.com/RobertTLange/gymnax)'s
+CartPole, written in JAX, not Gymnasium's. **Ajax is meant to be used with
+JAX environments**: gymnax, Brax, MuJoCo Playground, Gymnasium's MuJoCo
+tasks in JAX (`"mujoco:<id>"`), or your own with gymnax's interface. The
+environment then compiles into the same program as the agent, and the whole
+run, every environment copy and every seed, stays on one device from start
+to end, a CPU or a GPU. That is where the speed comes from, and what the
+rest of this documentation assumes.
+
+**Gymnasium environments are supported too.** Ask for one with the
+`gymnasium:` prefix:
+
+```python
+from ajax import PPO
+
+agent = PPO("gymnasium:CartPole-v1", n_envs=8, n_steps=128)
+state, evaluations = agent.train(seed=[1, 2], n_timesteps=2_048)
+print(agent.evaluate(state, episodes=5).mean(axis=1))
+```
+
+The calls are the same, but the environment steps in Python:
+
+- every step leaves the compiled program and comes back, so training is
+  slower and a GPU does not help;
+- the seeds train one after another, not side by side;
+- some features refuse it (resuming from a saved state, action repeat,
+  gradients through the environment).
+
+Use it when your task has no JAX version, and a JAX environment whenever one
+exists. An id without the prefix never reaches Gymnasium, and building one
+warns that it steps in Python, naming the closest JAX tasks. Gymnasium's
+MuJoCo tasks need the `gymnasium` extra
+([Installation](installation.md#extras)).
+[Environments](../guide/environments.md) lists the ids of each source, and
+[Gymnasium environments](../guide/environments.md#gymnasium-environments)
+the closest JAX task of each Gymnasium one.
+
 ## Continuous actions
 
 The same pattern works for every agent. SAC on Pendulum:

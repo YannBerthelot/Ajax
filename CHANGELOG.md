@@ -675,7 +675,8 @@ before this version do not restore at the new defaults. The rest:
   and `rho=0.7`. TD-MPC2's defaults are unchanged.
 
 - **Changed default: a `train` call given no `logging_config` evaluates and
-  prints.** It evaluates about ten times over the call, prints a line for
+  prints.** It evaluates about ten times over the call (every tenth of its
+  steps, rounded up to whole iterations of the agent), prints a line for
   each (the mean return over the seeds, with the lowest and highest), and
   returns the evaluations where it returned `None`. **Upgrade:** pass
   `logging_config=None` for the earlier behaviour: no evaluation, nothing
@@ -688,7 +689,8 @@ before this version do not restore at the new defaults. The rest:
 
 - **New: `agent.evaluate(state, episodes=10, seed=0)`**, the returns of
   fresh episodes of each seed's trained policy, one row per seed, acting as
-  `agent.policy` does. Not for Gymnasium environments yet. The hook of that
+  `agent.policy` does; on a Gymnasium environment the episodes step in
+  Python, one seed after another. The hook of that
   name on agents with their own loop (UDRL, APG, DreamerV3, TD-MPC2) is now
   `evaluation_metrics`; `TDMPC2MultiTask.evaluate` is unchanged.
 

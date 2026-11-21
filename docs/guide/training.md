@@ -219,8 +219,9 @@ latent policy or planner. Their pages say what they log.
 
 `train` returns `(state, out)`.
 
-- **With no `logging_config` given**, the run evaluates about ten times,
-  prints a line for each (the mean return over the seeds, with the lowest
+- **With no `logging_config` given**, the run evaluates about ten times
+  (every tenth of `n_timesteps`, rounded up to a whole number of the agent's
+  iterations, such as PPO's rollouts), prints a line for each (the mean return over the seeds, with the lowest
   and highest) and `out` holds the evaluations.
 - **With `logging_config=None`**, `out` is `None` and nothing is printed.
   The evaluation is not even compiled into the program: the fastest run.

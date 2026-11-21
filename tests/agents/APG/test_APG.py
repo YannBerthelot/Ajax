@@ -519,7 +519,9 @@ def test_curriculum_rejects_incompatible_stages(env_and_class):
 def test_evaluate_reports_m_rmse_on_fresh_systems(default_run):
     agent, sc, state, _ = default_run
     single = jax.tree.map(lambda x: x[0], state)
-    metrics = agent.evaluate(single, jax.random.PRNGKey(0), agent.make_context(1)[1], 5)
+    metrics = agent.evaluation_metrics(
+        single, jax.random.PRNGKey(0), agent.make_context(1)[1], 5
+    )
     assert set(metrics) == {
         "Eval/episodic mean reward",
         "Eval/m_rmse",
@@ -669,7 +671,7 @@ def test_the_evaluation_rolls_out_the_training_horizon(monkeypatch):
     state = SimpleNamespace(actor_state=SimpleNamespace(params=None))
     agent = APG("Pendulum-v1", horizon=16)
     context = SimpleNamespace(env_args=None)
-    out = agent.evaluate(state, jax.random.PRNGKey(0), context, 2)
+    out = agent.evaluation_metrics(state, jax.random.PRNGKey(0), context, 2)
     assert seen == [16]
     np.testing.assert_allclose(out["Eval/m_rmse"], 2.0)
 
@@ -694,7 +696,7 @@ def test_the_evaluation_logs_its_experts_return(option):
     agent = APG(env, env_params=params, n_envs=2, horizon=8, **{option: one})
     _, context = agent.make_context(16)
     state = agent.init(jax.random.PRNGKey(0), context)
-    out = agent.evaluate(state, jax.random.PRNGKey(1), context, 3)
+    out = agent.evaluation_metrics(state, jax.random.PRNGKey(1), context, 3)
     np.testing.assert_allclose(out["Eval/episodic mean expert reward"], 8.0)
     np.testing.assert_allclose(
         out["Eval/expert bias"], out["Eval/episodic mean reward"] - 8.0, rtol=1e-6

@@ -101,6 +101,7 @@ from ajax.networks.networks import (
     state_value,
 )
 from ajax.policy import Policy, PolicyParts, evaluation_policy
+from ajax.random_keys import split_by_index
 from ajax.schedule import Schedule, at
 from ajax.state import (
     AlphaConfig,
@@ -680,7 +681,7 @@ class DeclaredAgent(ActorCritic):
             agent_state = agent_state[0]
         build = self.policy_parts()
         members = int(jax.tree.leaves(agent_state)[0].shape[0])
-        keys = jax.random.split(jax.random.PRNGKey(seed), members)
+        keys = split_by_index(jax.random.PRNGKey(seed), members)
 
         def one_member(state: Any, key: jax.Array) -> jax.Array:
             return policy_returns(self.env_args, build(state), episodes, key)[0]

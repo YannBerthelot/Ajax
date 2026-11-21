@@ -495,13 +495,13 @@ def test_an_own_iteration_agent_runs_its_iterations_on_the_loop() -> None:
     _, out = stacked.train(0, 12, logging_config=logging)
     assert np.asarray(out["aux"]["timestep"]).tolist() == [[4, 8, 12]]
     assert np.asarray(out["evaluations"]["timestep"]).tolist() == [[-1, 8, -1]]
-    _, out = stacked.train(0, 12)
+    _, out = stacked.train(0, 12, logging_config=None)
     assert out["evaluations"] is None and out["aux"]["timestep"].shape == (1, 3)
 
     def counts(state: Any) -> list[int]:  # one seed's resumes and updates
         return [int(state.resumes[0]), int(state.n_updates[0])]
 
-    assert counts(agent.train(0, 4, restart=True)[0]) == [0, 1]
+    assert counts(agent.train(0, 4, restart=True, logging_config=None)[0]) == [0, 1]
     # A resume donates the state it is given: read each before the next call.
     state, _ = agent.train(0, 4, initial_state=state, restart=True, logging_config=None)
     assert counts(state) == [1, 4]
@@ -510,7 +510,7 @@ def test_an_own_iteration_agent_runs_its_iterations_on_the_loop() -> None:
         5,
     ]
     with pytest.raises(TypeError, match="OwnToy.train takes no n_iterations"):
-        agent.train(0, 4, n_iterations=1)
+        agent.train(0, 4, n_iterations=1, logging_config=None)
     with pytest.raises(ValueError, match="cannot train offline"):
         agent.train_offline(dataset=None, n_updates=1)
 
@@ -604,7 +604,7 @@ def test_an_own_replay_agent_runs_its_ticks_on_a_replay_sized_per_call() -> None
         agent.train(0, 4, initial_state=state, total_timesteps=22, logging_config=None)
     assert agent.prepared == (6, 10)
     with pytest.warns(UserWarning, match="n_envs"):
-        agent.train(0, 5)
+        agent.train(0, 5, logging_config=None)
     with pytest.raises(ValueError, match="cannot train offline"):
         agent.train_offline(dataset=None, n_updates=1)
 

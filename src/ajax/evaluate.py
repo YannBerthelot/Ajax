@@ -47,6 +47,7 @@ from ajax.policy import frozen_progress, make_act, normalised_reward
 from ajax.policy import (
     get_deterministic_action_and_entropy_fn as get_deterministic_action_and_entropy_fn,
 )
+from ajax.random_keys import derive_key, fold_index
 from ajax.state import EnvironmentConfig
 from ajax.wrappers import NormalizationInfo
 
@@ -1212,12 +1213,13 @@ def policy_returns(
     horizon = agent_episode_length(env, env_params, env_args.action_repeat)
     key, obs, env_state = _reset_envs(env, mode, env_params, num_episodes, key)
 
-    def body(carry: tuple, _: None) -> tuple[tuple, None]:
-        obs, env_state, policy_carry, starts, reward, done, ret, length, key = carry
-        key, policy_key, step_key = jax.random.split(key, 3)
+    def body(carry: tuple, index: jax.Array) -> tuple[tuple, None]:
+        obs, env_state, policy_carry, starts, reward, done, ret, length = carry
+        step_key = fold_index(key, index)
+        policy_key = derive_key(step_key, "rollout_action")
         action, policy_carry = parts.step(obs, policy_carry, starts, reward, policy_key)
         obs, env_state, reward, terminated, truncated, _ = step(
-            env_keys(step_key, mode, num_episodes),
+            env_keys(derive_key(step_key, "rollout_env_step"), mode, num_episodes),
             env_state,
             action,
             env,
@@ -1241,7 +1243,6 @@ def policy_returns(
             done | ended,
             ret,
             length,
-            key,
         ), None
 
     zeros = jnp.zeros(num_episodes, jnp.float32)
@@ -1254,7 +1255,6 @@ def policy_returns(
         jnp.zeros(num_episodes, bool),
         zeros,
         zeros,
-        key,
     )
-    final, _ = jax.lax.scan(body, init, None, length=horizon)
+    final, _ = jax.lax.scan(body, init, jnp.arange(horizon))
     return final[6], final[7]

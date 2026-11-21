@@ -147,7 +147,7 @@ def test_dqn_stores_the_one_hot_previous_action_and_zero_after_an_episode_end():
         buffer_size=256,
         extensions=(PreviousAction(),),
     )
-    state, _ = agent.train(seed=0, n_timesteps=96)
+    state, _ = agent.train(seed=0, n_timesteps=96, logging_config=None)
     rows = _replay(state, 48)
     terminated, truncated = (rows[k][..., 0] > 0 for k in ("terminated", "truncated"))
     assert terminated.any()
@@ -171,7 +171,7 @@ def test_sac_stores_the_previous_action_across_time_limits():
         buffer_size=128,
         extensions=(PreviousAction(),),
     )
-    state, _ = agent.train(seed=0, n_timesteps=64)
+    state, _ = agent.train(seed=0, n_timesteps=64, logging_config=None)
     rows = _replay(state, 32)
     terminated, truncated = (rows[k][..., 0] > 0 for k in ("terminated", "truncated"))
     assert truncated.sum() >= 2 * 5
@@ -206,7 +206,7 @@ def test_an_episode_start_zeroes_what_the_policy_carries_on():
         critic_architecture=SMALL,
         extensions=(PreviousAction(),),
     )
-    state, _ = agent.train(seed=0, n_timesteps=0)
+    state, _ = agent.train(seed=0, n_timesteps=0, logging_config=None)
     policy = agent.policy(state)
     observations = jax.random.normal(jax.random.PRNGKey(0), (4, 2, 3))
     keys = jax.random.split(jax.random.PRNGKey(1), 4)
@@ -272,7 +272,7 @@ def test_a_recurrent_q_critic_reads_the_previous_action_once(with_feature):
     the actor embed it once, from the observation, which the replay does
     not append to."""
     agent = _recurrent_sac((PreviousAction(),) if with_feature else ())
-    state, _ = agent.train(seed=0, n_timesteps=0)
+    state, _ = agent.train(seed=0, n_timesteps=0, logging_config=None)
     assert state.critic_state.previous_action_in_observation
     for params in (state.critic_state.params, state.actor_state.params):
         widths = _embedded_widths(params)
@@ -294,8 +294,8 @@ def test_asac_trains_with_memory_reading_the_observations_previous_action():
         batch_size=4,
         extensions=(PreviousAction(),),
     )
-    start, _ = agent.train(seed=0, n_timesteps=0)
-    state, _ = agent.train(seed=0, n_timesteps=128)
+    start, _ = agent.train(seed=0, n_timesteps=0, logging_config=None)
+    state, _ = agent.train(seed=0, n_timesteps=128, logging_config=None)
     before = jax.tree.leaves(start.critic_state.params)
     after = jax.tree.leaves(state.critic_state.params)
     assert all(np.isfinite(np.asarray(leaf)).all() for leaf in after)

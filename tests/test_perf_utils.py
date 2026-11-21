@@ -97,9 +97,11 @@ class ToyAgent(ActorCritic):
 
 def test_actor_critic_train_passes_the_resume_offset():
     agent = ToyAgent()
-    state, seen = agent.train(seed=[0, 1], n_timesteps=3)
+    state, seen = agent.train(seed=[0, 1], n_timesteps=3, logging_config=None)
     np.testing.assert_array_equal(seen, [[0, 1, 2]] * 2)
-    state, seen = agent.train(seed=[0, 1], n_timesteps=2, initial_state=state)
+    state, seen = agent.train(
+        seed=[0, 1], n_timesteps=2, initial_state=state, logging_config=None
+    )
     np.testing.assert_array_equal(seen, [[3, 4]] * 2)
     np.testing.assert_array_equal(state["ticks"], [5, 5])
 
@@ -111,8 +113,8 @@ def test_actor_critic_keeps_the_resume_offset_unbatched_under_the_seed_vmap():
     branch on every iteration of every seed."""
     record = []
     agent = ToyAgent(on_index=(3, record))
-    state, _ = agent.train(seed=[0, 1], n_timesteps=2)
-    agent.train(seed=[0, 1], n_timesteps=3, initial_state=state)
+    state, _ = agent.train(seed=[0, 1], n_timesteps=2, logging_config=None)
+    agent.train(seed=[0, 1], n_timesteps=3, initial_state=state, logging_config=None)
     jax.effects_barrier()
     assert record == [3]
 
@@ -182,8 +184,8 @@ def test_a_resumed_update_schedule_stays_a_cond_under_the_seed_vmap():
     every iteration."""
     record: list = []
     agent = CountingAgent(at=3, record=record)
-    state, _ = agent.train(seed=[0, 1], n_timesteps=2)
-    agent.train(seed=[0, 1], n_timesteps=3, initial_state=state)
+    state, _ = agent.train(seed=[0, 1], n_timesteps=2, logging_config=None)
+    agent.train(seed=[0, 1], n_timesteps=3, initial_state=state, logging_config=None)
     jax.effects_barrier()
     assert len(record) == 1
 
@@ -206,20 +208,22 @@ def test_a_resume_keeps_unequal_update_counts_only_where_declared():
         return Counted(jnp.array([2, 1], jnp.int32))
 
     state, _ = PerSeedCountingAgent(at=-1, record=[]).train(
-        seed=[0, 1], n_timesteps=3, initial_state=unequal()
+        seed=[0, 1], n_timesteps=3, initial_state=unequal(), logging_config=None
     )
     np.testing.assert_array_equal(state.n_updates, [5, 4])
     with pytest.raises(ValueError, match="n_updates differ"):
         CountingAgent(at=-1, record=[]).train(
-            seed=[0, 1], n_timesteps=3, initial_state=unequal()
+            seed=[0, 1], n_timesteps=3, initial_state=unequal(), logging_config=None
         )
 
 
 def test_default_resume_offset_keeps_existing_agents_unchanged():
     agent = ToyAgent(absolute=False)
     assert agent.resume_iteration_offset({"ticks": jnp.array([7])}) == 0
-    state, _ = agent.train(seed=0, n_timesteps=3)
-    _, seen = agent.train(seed=0, n_timesteps=2, initial_state=state)
+    state, _ = agent.train(seed=0, n_timesteps=3, logging_config=None)
+    _, seen = agent.train(
+        seed=0, n_timesteps=2, initial_state=state, logging_config=None
+    )
     np.testing.assert_array_equal(seen, [[0, 1]])
 
 

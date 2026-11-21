@@ -273,7 +273,9 @@ def _time_agent(
     rows: list[dict] = []
     t0 = time.perf_counter()
     agent = _build(name, env_id, kw, n_envs)
-    out = agent.train(seed=list(range(n_seeds)), n_timesteps=warmup)
+    out = agent.train(
+        seed=list(range(n_seeds)), n_timesteps=warmup, logging_config=None
+    )
     jax.block_until_ready(out)
     compile_s = time.perf_counter() - t0
     del agent, out
@@ -285,7 +287,7 @@ def _time_agent(
         spans.clear()
         t0 = time.perf_counter()
         seeds = [1 + trial * n_seeds + i for i in range(n_seeds)]
-        out = agent.train(seed=seeds, n_timesteps=timesteps)
+        out = agent.train(seed=seeds, n_timesteps=timesteps, logging_config=None)
         jax.block_until_ready(out)
         measured_s = time.perf_counter() - t0
         exec_s = measured_s - covered_seconds(spans)

@@ -57,6 +57,11 @@ class LoggingConfig:
         Not the training GPU: one process's programs on a GPU run one after
         the other. On the CPU, a MuJoCo Warp run is evaluated on pure-JAX
         physics.
+    on_evaluation: a function called in the training process with each
+        member's evaluation, on_evaluation(metrics, index): the metrics as
+        arrays and the member's position among train's members. A backend
+        logs in a process of its own; this is for what must happen here,
+        such as printing (ajax.logging.progress.ProgressPrinter).
     """
 
     config: dict = struct.field(default_factory=dict)
@@ -74,6 +79,7 @@ class LoggingConfig:
     # None: not given, so the flags decide; () names no backend at all.
     backends: Optional[tuple] = struct.field(pytree_node=False, default=None)
     evaluation_device: Any = struct.field(pytree_node=False, default=None)
+    on_evaluation: Any = struct.field(pytree_node=False, default=None)
 
     def __post_init__(self) -> None:
         if self.sweep:

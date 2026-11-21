@@ -47,7 +47,7 @@ DREAMER.update({"train_ratio": 32, "replay_capacity": 80})
 
 def streams(cls: Any, kwargs: dict[str, Any], steps: int) -> tuple[Any, Any]:
     """The updates' key and the collection's at the end of a tiny run."""
-    state, _ = cls(**kwargs).train(seed=0, n_timesteps=steps)
+    state, _ = cls(**kwargs).train(seed=0, n_timesteps=steps, logging_config=None)
     return np.asarray(state.rng), np.asarray(state.collector_state.rng)
 
 

@@ -72,7 +72,10 @@ def test_the_actors_copy_is_the_critics_encoder_after_training(name: str) -> Non
         env_id="Pendulum-v1", share_encoder=True, **NETWORKS, **SETTINGS[name]
     )
 
-    state = jax.tree.map(lambda leaf: leaf[0], agent.train(seed=0, n_timesteps=48)[0])
+    state = jax.tree.map(
+        lambda leaf: leaf[0],
+        agent.train(seed=0, n_timesteps=48, logging_config=None)[0],
+    )
 
     assert int(state.critic_state.step) > 0  # its optimiser stepped the encoder
     copy = dict(state.actor_state.shared_params)

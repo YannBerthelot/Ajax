@@ -61,7 +61,7 @@ def _train(name: str, kind: str, **kwargs: Any) -> Any:
         memory=MemoryConfig(kind=kind, hidden_size=8, window=8),
         **kwargs,
     )
-    state, _ = agent.train(seed=0, n_timesteps=260)
+    state, _ = agent.train(seed=0, n_timesteps=260, logging_config=None)
     return state
 
 
@@ -156,7 +156,7 @@ def test_a_recurrent_agent_rejects_what_it_does_not_support(
         **option,
     )
     with pytest.raises(NotImplementedError, match=f"Recurrent {name}"):
-        agent.train(seed=0, n_timesteps=10)
+        agent.train(seed=0, n_timesteps=10, logging_config=None)
 
 
 def test_an_agent_without_memory_support_refuses_a_memory_config() -> None:

@@ -114,7 +114,7 @@ def test_a_rollout_landing_past_a_multiple_still_probes(tmp_path):
     multiple of 24."""
     agent = PPO(ENV, extensions=(probe(tmp_path, 24),), **ON_POLICY)
 
-    agent.train(seed=[0], n_timesteps=64)
+    agent.train(seed=[0], n_timesteps=64, logging_config=None)
 
     assert [int(found["step"]) for found in probes_of(tmp_path)] == [0, 32, 48]
 
@@ -246,9 +246,9 @@ def test_probing_leaves_training_as_it_was(tmp_path, cls, kwargs):
     """Catches a probe drawing on the agent's keys or touching its state. The
     compiled programs differ, so the bits may: rounding, 1e-5 relative over
     these few updates of float32 (CLAUDE.md: bitwise is not the goal)."""
-    plain, _ = cls(ENV, **kwargs).train(seed=[0], n_timesteps=64)
+    plain, _ = cls(ENV, **kwargs).train(seed=[0], n_timesteps=64, logging_config=None)
     probed, _ = cls(ENV, extensions=(probe(tmp_path),), **kwargs).train(
-        seed=[0], n_timesteps=64
+        seed=[0], n_timesteps=64, logging_config=None
     )
 
     for network in ("actor_state", "critic_state"):
@@ -271,7 +271,7 @@ def test_a_normalising_agents_probe_reads_what_its_networks_read(tmp_path, cls, 
     kwargs = {**kwargs, "normalize_observations": True}
     agent = cls(ENV, extensions=(probe(tmp_path),), **kwargs)
 
-    state, _ = agent.train(seed=[0], n_timesteps=64)
+    state, _ = agent.train(seed=[0], n_timesteps=64, logging_config=None)
 
     state = seed_of(state)
     critic = state.critic_state
@@ -296,9 +296,9 @@ def test_a_resumed_run_goes_on_from_its_last_probe(tmp_path):
     its gate writing at every update: its counters are per seed, so the cond
     is a select, and the updates after step 48 would leave a next file."""
     agent = SAC(ENV, extensions=(probe(tmp_path),), **OFF_POLICY)
-    state, _ = agent.train(seed=[0, 1], n_timesteps=32)
+    state, _ = agent.train(seed=[0, 1], n_timesteps=32, logging_config=None)
 
-    agent.train(seed=[0, 1], n_timesteps=24, initial_state=state)
+    agent.train(seed=[0, 1], n_timesteps=24, initial_state=state, logging_config=None)
 
     for seed in (0, 1):
         steps = [int(found["step"]) for found in probes_of(tmp_path, seed)]
@@ -310,7 +310,7 @@ def test_layers_keep_the_named_ones(tmp_path):
     extension = probe(tmp_path, layers=(f"{ACTOR}3",))
     agent = SAC(ENV, extensions=(extension,), **OFF_POLICY)
 
-    agent.train(seed=[0], n_timesteps=16)
+    agent.train(seed=[0], n_timesteps=16, logging_config=None)
 
     stored = {k for k in probes_of(tmp_path)[0].files if k.startswith("layers/")}
     assert stored == {f"layers/{ACTOR}3"}
@@ -322,7 +322,7 @@ def test_a_layer_matching_nothing_is_refused(tmp_path):
     agent = SAC(ENV, extensions=(extension,), **OFF_POLICY)
 
     with pytest.raises(ValueError, match="no layer"):
-        agent.train(seed=[0], n_timesteps=16)
+        agent.train(seed=[0], n_timesteps=16, logging_config=None)
 
 
 def test_float16_halves_activations_alone(tmp_path):
@@ -330,7 +330,7 @@ def test_float16_halves_activations_alone(tmp_path):
     trajectory is made of."""
     agent = SAC(ENV, extensions=(probe(tmp_path, float16=True),), **OFF_POLICY)
 
-    agent.train(seed=[0], n_timesteps=16)
+    agent.train(seed=[0], n_timesteps=16, logging_config=None)
 
     found = probes_of(tmp_path)[0]
     assert found[f"layers/{ACTOR}1"].dtype == np.float16
@@ -347,7 +347,7 @@ def test_a_given_probe_set_is_used_as_it_is(tmp_path):
     given = make_probe_set(env_args, 16, seed=9)
     agent = SAC(ENV, extensions=(probe(tmp_path, probe_set=given),), **OFF_POLICY)
 
-    agent.train(seed=[0], n_timesteps=16)
+    agent.train(seed=[0], n_timesteps=16, logging_config=None)
 
     assert probes_of(tmp_path)[0][f"layers/{ACTOR}1"].shape == (16, 8)
 
@@ -358,7 +358,7 @@ def test_a_probe_keeps_observations_the_agent_trains_on(tmp_path):
     extension = probe(tmp_path, replay_states=4)
     agent = SAC(ENV, extensions=(extension,), **OFF_POLICY)
 
-    state, _ = agent.train(seed=[0], n_timesteps=64)
+    state, _ = agent.train(seed=[0], n_timesteps=64, logging_config=None)
 
     found = probes_of(tmp_path)
     assert "replay/observations" not in found[0].files
@@ -375,7 +375,7 @@ def test_replay_states_on_an_agent_without_a_replay_is_refused(tmp_path):
     agent = PPO(ENV, extensions=(probe(tmp_path, replay_states=4),), **ON_POLICY)
 
     with pytest.raises(ValueError, match="replay"):
-        agent.train(seed=[0], n_timesteps=16)
+        agent.train(seed=[0], n_timesteps=16, logging_config=None)
 
 
 TRACES: list[int] = []
@@ -395,7 +395,9 @@ def test_the_number_of_probes_does_not_change_the_compilation(tmp_path):
     def traces(interval: int) -> int:
         TRACES.clear()
         extension = TraceCounting(tmp_path / str(interval), interval, n_states=8)
-        SAC(ENV, extensions=(extension,), **OFF_POLICY).train(seed=[0], n_timesteps=64)
+        SAC(ENV, extensions=(extension,), **OFF_POLICY).train(
+            seed=[0], n_timesteps=64, logging_config=None
+        )
         return len(TRACES)
 
     assert traces(64) == traces(10)
@@ -422,7 +424,7 @@ def test_observation_features_are_refused(tmp_path):
     )
 
     with pytest.raises(ValueError, match="come from the env alone"):
-        agent.train(seed=[0], n_timesteps=16)
+        agent.train(seed=[0], n_timesteps=16, logging_config=None)
 
 
 def test_a_non_positive_interval_is_refused(tmp_path):
@@ -448,7 +450,7 @@ def test_every_agent_reading_observations_can_be_probed(tmp_path, name):
         assert name == "UDRL"
         return
 
-    agent.train(seed=[0], n_timesteps=case.n_timesteps)
+    agent.train(seed=[0], n_timesteps=case.n_timesteps, logging_config=None)
 
     found = probes_of(tmp_path)
     assert len(found) >= 1

@@ -510,8 +510,10 @@ def test_a_run_resumes_from_what_train_returned():
     """train returns (state, history); handing that pair back continues the
     run from its state, as the state alone does: 2 updates then 3 make 5."""
     agent = TDMPC2MultiTask(make_dataset(), **TINY)
-    first = agent.train(seed=SEEDS, n_timesteps=2)
-    resumed, _ = agent.train(seed=SEEDS, n_timesteps=3, initial_state=first)
+    first = agent.train(seed=SEEDS, n_timesteps=2, logging_config=None)
+    resumed, _ = agent.train(
+        seed=SEEDS, n_timesteps=3, initial_state=first, logging_config=None
+    )
     np.testing.assert_array_equal(resumed.n_updates, [5, 5])
 
 
@@ -534,7 +536,7 @@ def test_evaluation_plans_per_task_without_changing_the_state(runs):
 
 def test_the_checkpoint_skeleton_has_no_updates():
     agent = TDMPC2MultiTask(make_dataset(), **TINY)
-    skeleton, history = agent.train(seed=SEEDS, n_timesteps=0)
+    skeleton, history = agent.train(seed=SEEDS, n_timesteps=0, logging_config=None)
     np.testing.assert_array_equal(skeleton.n_updates, 0)
     assert history is None
     with pytest.raises(ValueError, match="update counts differ"):
@@ -580,7 +582,7 @@ def test_the_extensions_run_to_the_horizon_a_call_is_told(monkeypatch):
     assert history is not None
     np.testing.assert_array_equal(history["horizon/total_steps"], [[7]])
     with pytest.raises(ValueError, match="total_timesteps=1 ends before"):
-        agent.train(seed=0, n_timesteps=2, total_timesteps=1)
+        agent.train(seed=0, n_timesteps=2, total_timesteps=1, logging_config=None)
 
 
 def test_without_eval_envs_the_training_metrics_are_logged(runs):

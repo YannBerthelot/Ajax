@@ -89,7 +89,7 @@ def test_a_trained_agents_expert_reads_what_the_agent_reads(extensions) -> None:
         extensions=extensions,
         **SHORT,
     )
-    state, _ = agent.train(seed=0, n_timesteps=8)
+    state, _ = agent.train(seed=0, n_timesteps=8, logging_config=None)
     replay = state.collector_state.buffer_state
     assert replay is not None
     written = int(np.asarray(replay.current_index)[0])

@@ -48,7 +48,7 @@ def drawing_one_key_more(cls: Any, method: str) -> Any:
 
 
 def final_state(cls: Any, kwargs: dict[str, Any], steps: int) -> Any:
-    state, _ = cls(**kwargs).train(seed=0, n_timesteps=steps)
+    state, _ = cls(**kwargs).train(seed=0, n_timesteps=steps, logging_config=None)
     return state
 
 

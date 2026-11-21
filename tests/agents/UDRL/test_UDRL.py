@@ -20,7 +20,7 @@ def test_UDRL_train_updates_actor_params():
     agent = UDRL(
         env_id="Pendulum-v1", n_envs=1, n_steps=8, batch_size=8, n_updates_per_iter=4
     )
-    state, _ = agent.train(seed=42, n_timesteps=32)
+    state, _ = agent.train(seed=42, n_timesteps=32, logging_config=None)
     # The run initialises on the first half of its seed's key (TrainLoop's
     # fresh_state); train(n_timesteps=0) would still run one iteration.
     key = jax.random.split(jax.random.PRNGKey(42))[0]
@@ -71,7 +71,7 @@ def test_the_actor_sees_the_command_scaled_once_when_acting_and_training(
         command_scale_h=0.01,
         command_target_tau=0.0,
     )
-    agent.train(seed=0, n_timesteps=1)
+    agent.train(seed=0, n_timesteps=1, logging_config=None)
     jax.effects_barrier()
     acting = [x.reshape(-1, 5)[0] for x in seen if x.shape[-2] == 1]
     training = np.concatenate([x.reshape(-1, 5) for x in seen if x.shape[-2] == 2])
@@ -98,7 +98,7 @@ def test_each_env_draws_its_own_exploratory_return_once_the_returns_spread(monke
     agent = UDRL(
         env_id="CartPole-v1", n_envs=8, n_steps=16, batch_size=8, n_updates_per_iter=1
     )
-    state, _ = agent.train(seed=0, n_timesteps=8 * 16 * 6)
+    state, _ = agent.train(seed=0, n_timesteps=8 * 16 * 6, logging_config=None)
     jax.effects_barrier()
     assert np.all(np.asarray(state.command_target_return_std) > 0)  # the premise
     assert np.ptp(drawn[-1]) > 0
@@ -128,7 +128,7 @@ def test_UDRL_logs_its_training_metrics_and_evaluation_without_a_backend():
     assert set(finite + other) <= set(rows)
     for key in finite:
         assert jnp.isfinite(rows[key]).all(), key
-    assert agent.train(seed=0, n_timesteps=64)[1] is None
+    assert agent.train(seed=0, n_timesteps=64, logging_config=None)[1] is None
 
 
 def test_UDRL_logs_the_returns_of_whole_episodes():
@@ -211,7 +211,7 @@ def test_UDRL_reads_an_image_and_its_features_beside_the_command():
         n_updates_per_iter=1,
         buffer_capacity=2,
     )
-    state, _ = agent.train(seed=0, n_timesteps=8)
+    state, _ = agent.train(seed=0, n_timesteps=8, logging_config=None)
     shapes = [leaf.shape[1:] for leaf in jax.tree.leaves(state.actor_state.params)]
     assert (1, 1, 3, 4) in shapes  # the convolution reads the image's channels
     assert state.collector_state.last_obs.shape[-1] == 4 + 2

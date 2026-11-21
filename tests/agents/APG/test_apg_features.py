@@ -142,5 +142,5 @@ def test_the_actor_batch_holds_what_the_controller_read():
         actor_architecture=("8", "tanh"),
         extensions=(TrainingProgressInput(), SeesObservations()),
     )
-    agent.train(seed=0, n_timesteps=8)
+    agent.train(seed=0, n_timesteps=8, logging_config=None)
     assert set(SEEN) == {(4, 3)}

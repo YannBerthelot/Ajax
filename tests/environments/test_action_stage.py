@@ -290,7 +290,7 @@ def _collection_program(name: str, monkeypatch: pytest.MonkeyPatch) -> str:
 
     monkeypatch.setattr(TrainLoop, "off_policy", spy)
     with pytest.raises(_Built):
-        agent.train(seed=0, n_timesteps=8)
+        agent.train(seed=0, n_timesteps=8, logging_config=None)
     init, collect = built[0]
     state = init(jax.random.PRNGKey(0))
 

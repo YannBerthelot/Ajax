@@ -34,7 +34,7 @@ def tiny_ppo(**arguments) -> PPO:
 def saved(tmp_path_factory):
     """A PPO trained for two seeds and saved: (agent, state, path)."""
     agent = tiny_ppo(gamma=0.9)
-    state, _ = agent.train(seed=[0, 1], n_timesteps=32)
+    state, _ = agent.train(seed=[0, 1], n_timesteps=32, logging_config=None)
     path = str(tmp_path_factory.mktemp("save") / "ppo.pkl")
     agent.save(state, path)
     return agent, jax.device_get(state), path
@@ -73,7 +73,7 @@ def test_an_object_argument_is_passed_again(tmp_path):
     """Extensions are objects: the file names them, load refuses without
     them and builds the agent with those passed."""
     agent = tiny_ppo(extensions=(ConditioningMetrics(),))
-    state, _ = agent.train(seed=0, n_timesteps=16)
+    state, _ = agent.train(seed=0, n_timesteps=16, logging_config=None)
     path = str(tmp_path / "ppo.pkl")
     agent.save(state, path)
     with pytest.raises(ValueError, match="extensions"):

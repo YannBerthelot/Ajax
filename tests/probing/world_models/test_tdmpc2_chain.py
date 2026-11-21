@@ -35,7 +35,9 @@ ROWS = 1400  # 700 ticks of 2 envs
 @pytest.fixture(scope="module")
 def episodic_chain():
     agent = TDMPC2(ChainEnv(), episodic=True, buffer_size=4000, **CHAIN)
-    state, _ = agent.train(seed=CHAIN_SEEDS, n_timesteps=ROWS, num_episode_test=1)
+    state, _ = agent.train(
+        seed=CHAIN_SEEDS, n_timesteps=ROWS, num_episode_test=1, logging_config=None
+    )
     return agent, state
 
 
@@ -81,6 +83,7 @@ def test_the_paper_era_agent_learns_a_continuing_chain_instead():
         num_episode_test=1,
         replay=replay,
         start_tick=0,
+        logging_config=None,
     )
     assert np.all(np.asarray(state.collector_state.n_offschedule_dones) > 0)
     for q, _ in _chain_values(agent, state):

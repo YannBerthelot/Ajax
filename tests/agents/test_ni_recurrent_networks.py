@@ -51,7 +51,7 @@ EMBEDDED = 16 + 16 + 32
 
 def _states(cls: Any = SAC, **kwargs: Any) -> Any:
     agent = cls("Pendulum-v1", n_envs=2, memory=MemoryConfig("gru"), **kwargs)
-    state, _ = agent.train(seed=0, n_timesteps=0)
+    state, _ = agent.train(seed=0, n_timesteps=0, logging_config=None)
     return agent, jax.tree.map(lambda leaf: leaf[0], state)  # the one seed
 
 
@@ -184,7 +184,7 @@ def test_an_embedding_without_memory_is_refused():
         agent.network_args, input_embedding=(("observation", 8),)
     )
     with pytest.raises(ValueError, match="needs memory"):
-        agent.train(seed=0, n_timesteps=0)
+        agent.train(seed=0, n_timesteps=0, logging_config=None)
 
 
 def test_rlkits_fanin_reads_the_fan_out_and_sets_biases_to_one_tenth():
@@ -205,7 +205,7 @@ def test_the_critics_read_the_agents_actions_with_memory(cls):
     torque in [-2, 2])."""
     _, recurrent = _states(cls)
     agent = cls("Pendulum-v1", n_envs=2)
-    state, _ = agent.train(seed=0, n_timesteps=0)
+    state, _ = agent.train(seed=0, n_timesteps=0, logging_config=None)
     assert recurrent.critic_state.action_units is None
     assert state.critic_state.action_units is not None
 

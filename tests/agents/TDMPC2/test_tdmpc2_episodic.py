@@ -522,7 +522,9 @@ def short_chain():
     agent = TDMPC2(
         ChainEnv(), episodic=True, buffer_size=4000, **{**CHAIN, "seed_steps": 20}
     )
-    state, _ = agent.train(seed=[0, 1], n_timesteps=SHORT_ROWS, num_episode_test=1)
+    state, _ = agent.train(
+        seed=[0, 1], n_timesteps=SHORT_ROWS, num_episode_test=1, logging_config=None
+    )
     return agent, state
 
 
@@ -573,7 +575,9 @@ def test_an_episodic_run_takes_its_updates_per_step():
         updates_per_step=2.0,
         **{**CHAIN, "seed_steps": 20},
     )
-    state, _ = agent.train(seed=0, n_timesteps=80, num_episode_test=1)
+    state, _ = agent.train(
+        seed=0, n_timesteps=80, num_episode_test=1, logging_config=None
+    )
     ticks = np.arange(40)
     stepping = (ticks > 10) & (ticks % 4 != 3)
     expected = 20 + 4 * int(stepping.sum())
@@ -594,20 +598,27 @@ def test_an_episodic_run_resumes_as_the_uninterrupted_run(tmp_path):
     0 .. 9."""
     small = {**CHAIN, "seed_steps": 20}
     agent = TDMPC2(ChainEnv(), episodic=True, buffer_size=100, **small)
-    first, _ = agent.train(seed=0, n_timesteps=60, num_episode_test=1)
+    first, _ = agent.train(
+        seed=0, n_timesteps=60, num_episode_test=1, logging_config=None
+    )
     assert first.buffer_state.obs.shape[-2] == 30
     path = str(tmp_path / "first.pkl")
     save_checkpoint(first, path)
     resumer = TDMPC2(ChainEnv(), episodic=True, buffer_size=100, **small)
-    skeleton, _ = resumer.train(seed=0, n_timesteps=0, num_episode_test=1)
+    skeleton, _ = resumer.train(
+        seed=0, n_timesteps=0, num_episode_test=1, logging_config=None
+    )
     assert skeleton.buffer_state.obs.shape[-2] == 1
     resumed, _ = resumer.train(
         seed=0,
         n_timesteps=60,
         num_episode_test=1,
         initial_state=restore_into(skeleton, path),
+        logging_config=None,
     )
-    full, _ = agent.train(seed=0, n_timesteps=120, num_episode_test=1)
+    full, _ = agent.train(
+        seed=0, n_timesteps=120, num_episode_test=1, logging_config=None
+    )
     np.testing.assert_array_equal(resumed.n_updates, full.n_updates)
     assert int(full.n_updates[0]) > 20
     for name in ("obs", "reward", "terminal", "last", "step"):
@@ -622,7 +633,11 @@ def test_an_episodic_run_resumes_as_the_uninterrupted_run(tmp_path):
             np.testing.assert_allclose(x, y, atol=1e-4)
     with pytest.raises(ValueError, match="smaller buffer_size"):
         TDMPC2(ChainEnv(), episodic=True, buffer_size=200, **small).train(
-            seed=0, n_timesteps=60, num_episode_test=1, initial_state=full
+            seed=0,
+            n_timesteps=60,
+            num_episode_test=1,
+            initial_state=full,
+            logging_config=None,
         )
 
 
@@ -636,9 +651,11 @@ def test_an_episodic_run_that_never_updates_raises():
         buffer_size=200,
         **{**CHAIN, "seed_steps": 20},
     )
-    agent.train(seed=0, n_timesteps=40, num_episode_test=1)  # tick 20: not yet
+    agent.train(
+        seed=0, n_timesteps=40, num_episode_test=1, logging_config=None
+    )  # tick 20: not yet
     with pytest.raises(ValueError, match="never updated"):
-        agent.train(seed=0, n_timesteps=60, num_episode_test=1)
+        agent.train(seed=0, n_timesteps=60, num_episode_test=1, logging_config=None)
 
 
 def test_only_the_episodic_mode_lets_its_seeds_update_unequally():
@@ -657,10 +674,16 @@ def test_an_episodic_resume_keeps_its_seeds_unequal_update_counts():
     agent = TDMPC2(
         ChainEnv(), episodic=True, buffer_size=100, **{**CHAIN, "seed_steps": 20}
     )
-    first, _ = agent.train(seed=[0, 1], n_timesteps=40, num_episode_test=1)
+    first, _ = agent.train(
+        seed=[0, 1], n_timesteps=40, num_episode_test=1, logging_config=None
+    )
     unequal = first.replace(n_updates=first.n_updates + jnp.array([0, 1]))
     start = np.asarray(unequal.n_updates)
     resumed, _ = agent.train(
-        seed=[0, 1], n_timesteps=20, num_episode_test=1, initial_state=unequal
+        seed=[0, 1],
+        n_timesteps=20,
+        num_episode_test=1,
+        initial_state=unequal,
+        logging_config=None,
     )
     assert (np.asarray(resumed.n_updates) > start).all()

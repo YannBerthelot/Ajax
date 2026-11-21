@@ -111,7 +111,7 @@ def test_with_it_the_target_goes_on_through_terminations(stack):
         buffer_size=256,
         extensions=stack,
     )
-    agent.train(seed=0, n_timesteps=40)  # 8 updates
+    agent.train(seed=0, n_timesteps=40, logging_config=None)  # 8 updates
     jax.effects_barrier()
     terminated = np.concatenate([s["terminated"] for s in SEEN])
     dones = np.concatenate([s["dones"] for s in SEEN])
@@ -171,7 +171,7 @@ def test_a_discrete_agent_learns_its_reset_cost_on_one_hot_actions():
         batch_size=16,
         extensions=(ResetCost(architecture=("8", "relu")),),
     )
-    state, _ = agent.train(seed=0, n_timesteps=96)  # 64 updates
+    state, _ = agent.train(seed=0, n_timesteps=96, logging_config=None)  # 64 updates
     reset = state.ext_state[0]
     # CartPole's 4 observation columns and its 2 actions one-hot.
     assert reset.critic.params["params"]["Dense_0"]["kernel"].shape[-2:] == (6, 8)

@@ -128,7 +128,7 @@ def _pendulum_agent(**kwargs):
 def pendulum(tmp_path_factory):
     agent = _pendulum_agent()
     first, first_metrics = agent.train(
-        seed=SEEDS, n_timesteps=FIRST, num_episode_test=2
+        seed=SEEDS, n_timesteps=FIRST, num_episode_test=2, logging_config=None
     )
     first = jax.device_get(first)
     first_capacity = agent.replay_capacity
@@ -137,28 +137,32 @@ def pendulum(tmp_path_factory):
     path = str(tmp_path_factory.mktemp("tdmpc2") / "first.pkl")
     save_checkpoint(first, path)
     resumer = _pendulum_agent()
-    skeleton, _ = resumer.train(seed=SEEDS, n_timesteps=0)
+    skeleton, _ = resumer.train(seed=SEEDS, n_timesteps=0, logging_config=None)
     skeleton_slots = skeleton.buffer_state.obs.shape[1]
     resumed, resumed_metrics = resumer.train(
         seed=SEEDS,
         n_timesteps=RESUMED,
         num_episode_test=2,
         initial_state=restore_into(skeleton, path),
+        logging_config=None,
     )
     full_agent = _pendulum_agent()
     full, _ = full_agent.train(
-        seed=SEEDS, n_timesteps=FIRST + RESUMED, num_episode_test=2
+        seed=SEEDS, n_timesteps=FIRST + RESUMED, num_episode_test=2, logging_config=None
     )
     short_resumer = _pendulum_agent()
-    short_skeleton, _ = short_resumer.train(seed=SEEDS, n_timesteps=0)
+    short_skeleton, _ = short_resumer.train(
+        seed=SEEDS, n_timesteps=0, logging_config=None
+    )
     resumed_short, _ = short_resumer.train(
         seed=SEEDS,
         n_timesteps=SHORT,
         num_episode_test=2,
         initial_state=restore_into(short_skeleton, path),
+        logging_config=None,
     )
     full_short, _ = _pendulum_agent().train(
-        seed=SEEDS, n_timesteps=FIRST + SHORT, num_episode_test=2
+        seed=SEEDS, n_timesteps=FIRST + SHORT, num_episode_test=2, logging_config=None
     )
     schedule = FixedLengthSchedule(
         n_envs=N_ENVS, episode_length=PENDULUM_T, seed_steps=PENDULUM_S
@@ -480,7 +484,9 @@ def test_updates_per_step_sets_the_updates_of_a_run():
     agent = TDMPC2(
         ConstantRewardEnv(length=10), seed_steps=5, updates_per_step=2.0, **TINY
     )
-    state, _ = agent.train(seed=0, n_timesteps=20, num_episode_test=1)
+    state, _ = agent.train(
+        seed=0, n_timesteps=20, num_episode_test=1, logging_config=None
+    )
     n_ticks = agent.schedule.num_ticks(20)
     assert _scheduled_updates(agent.schedule, n_ticks) == 5 + 2 * 9
     for count in (state.n_updates, state.world_model_state.step):
@@ -616,7 +622,7 @@ def test_fixed_length_episodes_are_collected_in_the_static_reset_mode(monkeypatc
 
     monkeypatch.setattr(AGENT_MODULE, "collect_row", spy)
     with pytest.raises(Traced):
-        _pendulum_agent().train(seed=SEEDS, n_timesteps=FIRST)
+        _pendulum_agent().train(seed=SEEDS, n_timesteps=FIRST, logging_config=None)
     assert seen == ["static"]
 
 
@@ -762,7 +768,7 @@ def test_terminations_are_refused_after_the_run():
     the final row, which only the loop counts) is refused after the run."""
     agent = TDMPC2(TerminatingEnv(length=10, terminate_at=10), seed_steps=5, **TINY)
     with pytest.raises(ValueError, match="terminations are not supported"):
-        agent.train(seed=0, n_timesteps=30, num_episode_test=1)
+        agent.train(seed=0, n_timesteps=30, num_episode_test=1, logging_config=None)
 
 
 @pytest.mark.parametrize(

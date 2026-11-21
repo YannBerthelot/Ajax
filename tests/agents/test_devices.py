@@ -94,15 +94,27 @@ def tiny_ppo() -> PPO:
 def test_seeds_split_over_devices_train_as_on_one_and_resume():
     """Three seeds, alone then split 2 + 1; then both resumed for a second
     leg, the split one split again."""
-    whole, _ = tiny_ppo().train(seed=[0, 1, 2], n_timesteps=32, total_timesteps=64)
+    whole, _ = tiny_ppo().train(
+        seed=[0, 1, 2], n_timesteps=32, total_timesteps=64, logging_config=None
+    )
     split, _ = tiny_ppo().train(
-        seed=[0, 1, 2], n_timesteps=32, total_timesteps=64, devices=[CPU, CPU]
+        seed=[0, 1, 2],
+        n_timesteps=32,
+        total_timesteps=64,
+        devices=[CPU, CPU],
+        logging_config=None,
     )
     assert not readouts.differing_leaves(whole, split, **ROUNDING)
 
-    whole, _ = tiny_ppo().train(seed=[0, 1, 2], n_timesteps=32, initial_state=whole)
+    whole, _ = tiny_ppo().train(
+        seed=[0, 1, 2], n_timesteps=32, initial_state=whole, logging_config=None
+    )
     split, _ = tiny_ppo().train(
-        seed=[0, 1, 2], n_timesteps=32, initial_state=split, devices=[CPU, CPU]
+        seed=[0, 1, 2],
+        n_timesteps=32,
+        initial_state=split,
+        devices=[CPU, CPU],
+        logging_config=None,
     )
     np.testing.assert_array_equal(split.collector_state.timestep, 64)
     assert not readouts.differing_leaves(whole, split, **ROUNDING)
@@ -124,10 +136,16 @@ def test_a_sweep_split_over_devices_trains_each_member_as_on_one():
         )
 
     sweep = {"actor_learning_rate": [1e-3, 1e-2]}
-    whole, _ = agent().train(seed=[0, 1], n_timesteps=48, sweep=sweep)
+    whole, _ = agent().train(
+        seed=[0, 1], n_timesteps=48, sweep=sweep, logging_config=None
+    )
     split_agent = agent()
     split, _ = split_agent.train(
-        seed=[0, 1], n_timesteps=48, sweep=sweep, devices=[CPU, CPU]
+        seed=[0, 1],
+        n_timesteps=48,
+        sweep=sweep,
+        devices=[CPU, CPU],
+        logging_config=None,
     )
     assert len(split_agent.members) == 4
     assert not readouts.differing_leaves(whole, split, **ROUNDING)
@@ -154,7 +172,7 @@ def test_an_agent_with_its_own_replay_splits_its_seeds():
 
 def test_devices_refuses_what_it_cannot_split():
     with pytest.raises(ValueError, match="devices is empty"):
-        tiny_ppo().train(seed=0, n_timesteps=16, devices=[])
+        tiny_ppo().train(seed=0, n_timesteps=16, devices=[], logging_config=None)
     scored_elsewhere = LoggingConfig(
         run_name="run", log_frequency=16, backends=(), evaluation_device=CPU
     )
@@ -164,4 +182,4 @@ def test_devices_refuses_what_it_cannot_split():
         )
     in_python = PPO("gymnasium:CartPole-v1", n_envs=1, n_steps=8, n_epochs=1)
     with pytest.raises(ValueError, match="takes no devices"):
-        in_python.train(seed=0, n_timesteps=16, devices=[CPU])
+        in_python.train(seed=0, n_timesteps=16, devices=[CPU], logging_config=None)

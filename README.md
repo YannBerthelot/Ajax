@@ -51,17 +51,16 @@ covers the other extras and `uv sync` from a clone.
 
 ```python
 from ajax import PPO
-from ajax.logging import LoggingConfig
 
-agent = PPO("CartPole-v1")  # one environment, 2048-step rollouts: one update per 2,048 steps
-# Evaluate every 4 updates; backends=() keeps the results in memory only.
-logging = LoggingConfig(log_frequency=8_192, backends=())
-state, evaluations = agent.train(seed=[1, 2, 3], n_timesteps=40_960, logging_config=logging)
+agent = PPO("CartPole-v1")
+state, evaluations = agent.train(seed=[1, 2, 3], n_timesteps=40_960)
 
-print(evaluations["timestep"][0])                # when each evaluation ran
-print(evaluations["Eval/episodic mean reward"])  # one row per seed, one column per evaluation
+print(evaluations.timesteps)  # when each evaluation ran
+print(evaluations.returns)    # one row per seed, one column per evaluation
+print(agent.episode_returns(state, episodes=20).mean(axis=1))  # each seed's score now
 ```
 
+`train` prints a line per evaluation, with the mean return over the seeds.
 The three seeds train together, in about fifteen seconds on a laptop CPU,
 compilation included. Parts combine in the constructor:
 

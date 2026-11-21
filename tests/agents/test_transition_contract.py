@@ -98,7 +98,7 @@ def test_on_target_rows_are_their_episodes_transitions(name, monkeypatch):
         **({"normalize_rewards": True} if normalising else {}),
         **case.kwargs,
     )
-    agent.train(seed=0, n_timesteps=case.n_timesteps)
+    agent.train(seed=0, n_timesteps=case.n_timesteps, logging_config=None)
     jax.effects_barrier()
     obs = np.concatenate([b["observations"].reshape(-1, 2) for b in BATCHES])
     nxt = np.concatenate([b["next_observations"].reshape(-1, 2) for b in BATCHES])

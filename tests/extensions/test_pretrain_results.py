@@ -165,7 +165,7 @@ def test_a_checkpoint_saved_before_the_results_were_kept_resumes(
     old = run.state.replace(ext_state=((), (), ()))
     path = str(tmp_path / "old.pkl")
     save_checkpoint(old, path)
-    skeleton, _ = run.agent.train(seed=0, n_timesteps=0)
+    skeleton, _ = run.agent.train(seed=0, n_timesteps=0, logging_config=None)
     restored = restore_into(skeleton, path)
     assert all(np.isnan(leaf).all() for leaf in jax.tree.leaves(restored.ext_state))
     assert not readouts.differing_leaves(

@@ -16,7 +16,7 @@ def test_temperature_stays_at_alpha_init_by_default():
     BobMak/asac @4b68862 hparams/*/asac.yaml): no step moves it, even with a
     target entropy that would."""
     agent = ASAC(env_id="fast", learning_starts=10, target_entropy_per_dim=10.0)
-    state, _ = agent.train(seed=0, n_timesteps=60)
+    state, _ = agent.train(seed=0, n_timesteps=60, logging_config=None)
     np.testing.assert_array_equal(state.alpha.params["log_alpha"], jnp.log(0.2))
 
 
@@ -34,9 +34,11 @@ def test_tau_theta_alone_moves_theta_and_the_penalty():
     net = ("8", "relu")
     kw = {"actor_architecture": net, "critic_architecture": net, "batch_size": 4}
     agent = ASAC("Pendulum-v1", learning_starts=4, tau_theta=0.0, **kw)
-    state, _ = agent.train(seed=0, n_timesteps=16)
+    state, _ = agent.train(seed=0, n_timesteps=16, logging_config=None)
     assert not np.any(state.theta) and not np.any(state.episode_termination_penalty)
-    moved = ASAC("Pendulum-v1", learning_starts=4, **kw).train(seed=0, n_timesteps=16)
+    moved = ASAC("Pendulum-v1", learning_starts=4, **kw).train(
+        seed=0, n_timesteps=16, logging_config=None
+    )
     assert np.all(moved[0].theta != 0.0)
 
 
@@ -55,7 +57,7 @@ def test_the_penalty_reads_the_agents_p_0_and_tau_theta(monkeypatch):
     net = ("8", "relu")
     kw = {"actor_architecture": net, "critic_architecture": net, "batch_size": 4}
     agent = ASAC("Pendulum-v1", learning_starts=4, p_0=3.0, tau_theta=0.5, **kw)
-    agent.train(seed=0, n_timesteps=8)
+    agent.train(seed=0, n_timesteps=8, logging_config=None)
     assert seen and set(seen) == {(3.0, 0.5)}
 
 
@@ -194,7 +196,7 @@ def test_a_terminated_rows_reward_is_charged_the_penalty_for_the_critics_alone(
     env = IdentityEnv()
     kw = {"learning_starts": 16, "batch_size": 16, "p_0": 1.0, "tau_theta": 1.0}
     agent = ASAC(env, env_params=env.default_params, n_envs=4, **kw)
-    agent.train(seed=0, n_timesteps=96)
+    agent.train(seed=0, n_timesteps=96, logging_config=None)
     jax.effects_barrier()
     assert any(t.any() and p != 0 for _, _, t, p in seen), "nothing was charged"
     assert len(theta_rewards) == len(seen)

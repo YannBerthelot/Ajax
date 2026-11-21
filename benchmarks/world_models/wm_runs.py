@@ -605,10 +605,12 @@ def run_single_task(
         )
 
     def train(state: Any, n: int) -> Any:
-        return agent.train(seed=seeds, n_timesteps=n, initial_state=state)[0]
+        return agent.train(
+            seed=seeds, n_timesteps=n, initial_state=state, logging_config=None
+        )[0]
 
     def skeleton() -> Any:
-        return agent.train(seed=seeds, n_timesteps=0)[0]
+        return agent.train(seed=seeds, n_timesteps=0, logging_config=None)[0]
 
     run_spec = {
         "run": dataclasses.asdict(spec),

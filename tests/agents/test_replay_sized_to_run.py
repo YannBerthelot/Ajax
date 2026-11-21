@@ -209,7 +209,7 @@ def test_a_skeleton_restores_and_resumes_a_longer_ring(sac: dict, tmp_path) -> N
     agent, half = sac["agent"], sac["half"]
     path = str(tmp_path / "half.pkl")
     save_checkpoint(half, path)
-    skeleton, _ = agent.train(seed=[0], n_timesteps=0)
+    skeleton, _ = agent.train(seed=[0], n_timesteps=0, logging_config=None)
     assert ring(skeleton) == 8 // N_ENVS + 1 < ring(half)  # the rows to sample
     assert_equal(leaves(restore_into(skeleton, path)), leaves(half))
     loaded = load_checkpoint(agent, path)

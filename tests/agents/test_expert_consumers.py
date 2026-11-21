@@ -140,7 +140,7 @@ def test_a_discrete_agent_observes_its_experts_state(name):
         extensions=(ExpertStateInput.for_expert(expert),),
         **kwargs,
     )
-    state, _ = agent.train(seed=0, n_timesteps=case.n_timesteps)
+    state, _ = agent.train(seed=0, n_timesteps=case.n_timesteps, logging_config=None)
     if name == "DQN":
         written = int(state.collector_state.buffer_state.current_index[0])
         obs = state.collector_state.buffer_state.experience["obs"][0, :, :written]

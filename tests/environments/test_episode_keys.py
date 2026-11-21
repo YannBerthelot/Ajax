@@ -241,7 +241,7 @@ def test_episode_k_starts_alike_with_or_without_an_extension_and_whatever_the_up
     starts, rows = [], []
     for options in variants:
         state, _ = ajax.SAC(_Pushed(), **{**base, **options}).train(
-            seed=0, n_timesteps=64
+            seed=0, n_timesteps=64, logging_config=None
         )
         obs = np.asarray(state.collector_state.buffer_state.experience["obs"])
         obs = obs.reshape(N, -1, 2)[:, :32]  # 32 steps of each env

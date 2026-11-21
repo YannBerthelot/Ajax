@@ -52,7 +52,7 @@ def first_segment(env_id: str, total: int = STEPS, **kwargs) -> tuple:
         actor_architecture=("8", "tanh"),
         **kwargs,
     )
-    state, _ = agent.train(seed=0, n_timesteps=total * N_ENVS)
+    state, _ = agent.train(seed=0, n_timesteps=total * N_ENVS, logging_config=None)
     assert isinstance(state, UDRLState)
     buffer = jax.tree.map(lambda x: np.asarray(x[0]), state.buffer)
     return buffer.obs[0], buffer.actions[0], buffer.dones[0, ..., 0]

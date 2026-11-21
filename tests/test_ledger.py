@@ -231,7 +231,7 @@ def test_the_ledger_is_the_plants_own_count():
             ),
         ),
     )
-    state, _ = agent.train(seed=0, n_timesteps=16)
+    state, _ = agent.train(seed=0, n_timesteps=16, logging_config=None)
     jax.effects_barrier()
 
     # 2 envs: prefill 2 x 4, cloning 2 x 6, Monte Carlo 260, 16 online.
@@ -404,7 +404,7 @@ def test_the_gate_is_the_plants_own_count():
         expert_policy=expert,
         extensions=(JSRLCurriculum(eval_every=8, eval_episodes=2),),
     )
-    state, _ = agent.train(seed=0, n_timesteps=24)
+    state, _ = agent.train(seed=0, n_timesteps=24, logging_config=None)
     jax.effects_barrier()
 
     assert len(calls) == 24 + 3 * 2 * 6
@@ -453,7 +453,7 @@ def test_an_expert_only_the_prefill_holds_is_called_on_no_online_step():
             critic_architecture=("8", "relu"),
             **options,
         )
-        agent.train(seed=0, n_timesteps=n_timesteps)
+        agent.train(seed=0, n_timesteps=n_timesteps, logging_config=None)
         jax.effects_barrier()
         return len(calls)
 

@@ -86,8 +86,8 @@ from ajax.controller import (
 )
 from ajax.environments.interaction import init_collector_state
 from ajax.environments.row_collector import resume_tick
-from ajax.environments.utils import get_state_action_shapes
-from ajax.evaluate import ValueEstimate
+from ajax.environments.utils import get_state_action_shapes, steps_in_python
+from ajax.evaluate import ValueEstimate, policy_returns
 from ajax.extensions.base import Extension, ExtensionStack, holds_expert
 from ajax.networks.memory import (
     MemoryConfig,
@@ -661,6 +661,36 @@ class DeclaredAgent(ActorCritic):
             agent_state = agent_state[0]
         one_seed = jax.tree.map(lambda leaf: leaf[seed_index], agent_state)
         return Policy(self.policy_parts(), one_seed)
+
+    def episode_returns(
+        self, agent_state: Any, episodes: int = 10, seed: int = 0
+    ) -> jax.Array:
+        """The return of ``episodes`` fresh episodes of each member's trained
+        policy: a row per member of agent_state (train's state, or its
+        (state, out)), a column per episode. The policy acts as
+        agent.policy does, exactly as the agent's evaluation acts; ``seed``
+        draws the episodes' starts. Its mean over a row is that member's
+        score::
+
+            state, _ = agent.train(seed=[0, 1], n_timesteps=50_000)
+            agent.episode_returns(state).mean(axis=1)
+        """
+        if isinstance(agent_state, tuple) and len(agent_state) == 2:
+            agent_state = agent_state[0]
+        if steps_in_python(self.env_args.env):
+            raise ValueError(
+                "episode_returns runs its episodes in one compiled program,"
+                " which an environment stepped in Python (Gymnasium) cannot"
+                " join: step it with agent.policy(state) in a loop."
+            )
+        build = self.policy_parts()
+        members = int(jax.tree.leaves(agent_state)[0].shape[0])
+        keys = jax.random.split(jax.random.PRNGKey(seed), members)
+
+        def one_member(state: Any, key: jax.Array) -> jax.Array:
+            return policy_returns(self.env_args, build(state), episodes, key)[0]
+
+        return jax.jit(jax.vmap(one_member))(agent_state, keys)
 
     def policy_parts(self) -> Callable[[Any], PolicyParts]:
         """How the agent acts on one seed's state: as the shared evaluation
@@ -1675,7 +1705,7 @@ class OwnReplayAgent(DeclaredAgent):
         seed: Union[int, Sequence[int]] = 42,
         n_timesteps: int = int(1e6),
         num_episode_test: int = 10,
-        logging_config: Any = None,
+        logging_config: Any = "default",
         on_ids_ready: Optional[Callable] = None,
         initial_state: Any = None,
         total_timesteps: Optional[int] = None,

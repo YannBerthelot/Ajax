@@ -30,6 +30,7 @@ from ajax.extensions.base import (
     check_extensions,
 )
 from ajax.extensions.capabilities import NotWired, run_capabilities
+from ajax.logging.progress import finished, run_logging
 from ajax.logging.wandb_logging import (
     LoggingConfig,
     init_logging,
@@ -686,7 +687,7 @@ class ActorCritic:
         seed: int | Sequence[int] = 42,
         n_timesteps: int = int(1e6),
         num_episode_test: int = 10,
-        logging_config: Optional[LoggingConfig] = None,
+        logging_config: Union[LoggingConfig, None, str] = "default",
         on_ids_ready: Optional[Callable] = None,
         initial_state: Optional[BaseAgentState] = None,
         total_timesteps: Optional[int] = None,
@@ -706,12 +707,14 @@ class ActorCritic:
                 n_steps steps) trains the whole iterations it holds, at
                 least one, and warns when it is not a whole number of them.
             num_episode_test (int): Number of episodes for evaluation during training.
-            logging_config: Turns evaluation and logging on
+            logging_config: the evaluation and logging
                 (``ajax.logging.LoggingConfig``): the policy is evaluated
                 every ``log_frequency`` steps on ``num_episode_test``
                 episodes, each run logs to the config's backends, and
-                ``out`` holds the evaluations. ``None``: no evaluation and
-                no log.
+                ``out`` holds the evaluations. Not given (``"default"``):
+                about ten evaluations over the call, a printed line for
+                each, no backend. ``None``: no evaluation, no log and
+                nothing printed.
             on_ids_ready: Called once before training with the runs'
                 identifiers, one per member, in order (an empty list
                 without a ``logging_config``): the ids its backends file
@@ -748,8 +751,10 @@ class ActorCritic:
         Returns ``(state, out)``, each leaf with a leading axis over the
         members: the seeds, or the sweep's configurations, each over the
         seeds, as :attr:`members` lists them. On the
-        shared loop (``ajax.agents.loop``) ``out`` is ``None`` without a
-        logging config, else the evaluations.
+        shared loop (``ajax.agents.loop``) ``out`` is ``None`` with
+        ``logging_config=None``, else the evaluations
+        (``ajax.logging.progress.Evaluations``: the dict of every logged
+        name, with ``returns`` and ``timesteps``).
         """
         if isinstance(seed, int):
             seed = [seed]
@@ -774,10 +779,7 @@ class ActorCritic:
                     "A Gymnasium environment trains its seeds one after"
                     " another: a sweep trains its members in one program."
                 )
-            if (
-                logging_config is not None
-                and logging_config.evaluation_device is not None
-            ):
+            if getattr(logging_config, "evaluation_device", None) is not None:
                 raise ValueError(
                     "A sweep's members evaluate between chunks of training: a"
                     " sweep takes no evaluation_device."
@@ -813,7 +815,15 @@ class ActorCritic:
             release_replaced(initial_state, resumed)
             initial_state = resumed
 
-        if logging_config is not None:
+        logging_config, printer = run_logging(
+            logging_config,
+            type(self).__name__,
+            [run_seed for _, run_seed in pairs],
+            n_timesteps,
+            end,
+            together=not in_python,
+        )
+        if isinstance(logging_config, LoggingConfig):
             logging_config = logging_config.with_agent_config(self.config)
             self.run_ids = [new_run_id() for _ in pairs]
             for run_id, (configuration, run_seed) in zip(
@@ -908,7 +918,7 @@ class ActorCritic:
         # worker before any log events were queued.
         jax.block_until_ready(result)
         stop_async_logging()
-        return result
+        return finished(result, printer)
 
     def save(self, state: BaseAgentState, path: str) -> None:
         """Write ``state`` and this agent's class and plain constructor

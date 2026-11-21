@@ -43,7 +43,7 @@ def _train_and_eval(memory, n_timesteps=200_000, seed=0):
         n_epochs=4,
         memory=memory,
     )
-    state, _ = agent.train(seed=seed, n_timesteps=n_timesteps)
+    state, _ = agent.train(seed=seed, n_timesteps=n_timesteps, logging_config=None)
     return _policy_return(agent, state, env)
 
 

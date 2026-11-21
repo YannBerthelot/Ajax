@@ -112,7 +112,7 @@ def test_ppo_gae_reads_each_steps_own_flags_and_next_state(unroll) -> None:
     agent = PPO(
         env, env_params=env.default_params, n_envs=2, extensions=[_PPOTargets()], **kw
     )
-    agent.train(seed=0, n_timesteps=64)
+    agent.train(seed=0, n_timesteps=64, logging_config=None)
     jax.effects_barrier()
     assert SEEN
     _check_flags(SEEN)
@@ -135,7 +135,7 @@ def test_pqn_targets_read_each_steps_own_reward_flags_and_next_state() -> None:
     agent = PQN(
         env, env_params=env.default_params, n_envs=2, extensions=[_PQNTargets()], **kw
     )
-    agent.train(seed=0, n_timesteps=64)
+    agent.train(seed=0, n_timesteps=64, logging_config=None)
     jax.effects_barrier()
     assert SEEN
     _check_flags(SEEN)

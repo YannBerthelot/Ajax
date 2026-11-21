@@ -1175,3 +1175,86 @@ def evaluate_policy(
     )
     final, _ = jax.lax.scan(body, init, None, length=horizon)
     return final[5].mean(), final[6].mean()
+
+
+def policy_returns(
+    env_args: EnvironmentConfig, parts: Any, num_episodes: int, key: jax.Array
+) -> tuple[jax.Array, jax.Array]:
+    """The return and the length of one episode in each of ``num_episodes``
+    envs, under a trained policy's ``parts`` (``ajax.policy.PolicyParts``,
+    from ``agent.policy_parts()`` on one seed's state): what
+    ``agent.episode_returns`` runs.
+
+    The env is rebuilt raw (no normalisation: the parts normalise as the
+    agent does) with the training action repeat and episode length, and
+    reset from ``key``. The parts act in the env's units from the env's own
+    observations, starting an episode on the first step; every env runs one
+    episode, its rewards and steps counted until its first end.
+    """
+    env, env_params = env_args.env, env_args.env_params
+    if env_params_is_batched(env_params):
+        raise ValueError(
+            "episode_returns evaluates one system: pass unbatched env_params,"
+            " not per-env params."
+        )
+    train_episode_length = (
+        getattr(env, "episode_length", None) if get_env_type(env) == "brax" else None
+    )
+    env, mode, _ = setup_environment(
+        env,
+        env_params,
+        num_episodes,
+        norm_info=None,
+        gamma=0.99,  # unused without norm_info
+        action_repeat=env_args.action_repeat,
+        episode_length=train_episode_length,
+    )
+    horizon = agent_episode_length(env, env_params, env_args.action_repeat)
+    key, obs, env_state = _reset_envs(env, mode, env_params, num_episodes, key)
+
+    def body(carry: tuple, _: None) -> tuple[tuple, None]:
+        obs, env_state, policy_carry, starts, reward, done, ret, length, key = carry
+        key, policy_key, step_key = jax.random.split(key, 3)
+        action, policy_carry = parts.step(obs, policy_carry, starts, reward, policy_key)
+        obs, env_state, reward, terminated, truncated, _ = step(
+            env_keys(step_key, mode, num_episodes),
+            env_state,
+            action,
+            env,
+            mode,
+            env_params,
+        )
+        reward = reward.reshape(num_episodes).astype(jnp.float32)
+        running = jnp.logical_not(done)
+        ret = ret + jnp.where(running, reward, 0.0)
+        length = length + running.astype(jnp.float32)
+        ended = (terminated.reshape(num_episodes) > 0) | (
+            truncated.reshape(num_episodes) > 0
+        )
+        # One episode per env, counted until its first end: no restart.
+        return (
+            obs,
+            env_state,
+            policy_carry,
+            jnp.zeros_like(starts),
+            reward,
+            done | ended,
+            ret,
+            length,
+            key,
+        ), None
+
+    zeros = jnp.zeros(num_episodes, jnp.float32)
+    init = (
+        obs,
+        env_state,
+        parts.initial(num_episodes),
+        jnp.ones(num_episodes, bool),
+        zeros,
+        jnp.zeros(num_episodes, bool),
+        zeros,
+        zeros,
+        key,
+    )
+    final, _ = jax.lax.scan(body, init, None, length=horizon)
+    return final[6], final[7]

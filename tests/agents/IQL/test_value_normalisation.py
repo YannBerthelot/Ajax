@@ -44,7 +44,7 @@ class RescaledSensor(IdentityEnv):
 
 
 def online(agent: IQL) -> Any:
-    return agent.train(seed=0, n_timesteps=24)[0]
+    return agent.train(seed=0, n_timesteps=24, logging_config=None)[0]
 
 
 def offline(agent: IQL) -> Any:

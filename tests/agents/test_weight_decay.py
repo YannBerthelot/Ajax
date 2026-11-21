@@ -35,7 +35,7 @@ DECAYS = pytest.mark.parametrize(
 
 def initial_state(agent: Any) -> Any:
     """The fresh state of seed 0, without its seed axis."""
-    state, _ = agent.train(seed=0, n_timesteps=0)
+    state, _ = agent.train(seed=0, n_timesteps=0, logging_config=None)
     return jax.tree.map(lambda x: x[0], state)
 
 

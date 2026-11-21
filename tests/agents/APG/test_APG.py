@@ -90,7 +90,7 @@ def default_run():
     env, params = tracking_env()
     sc = tracking_class(params)
     agent = make_agent(env, sc)
-    state, aux = agent.train(seed=0, n_timesteps=N_ENVS * HORIZON)
+    state, aux = agent.train(seed=0, n_timesteps=N_ENVS * HORIZON, logging_config=None)
     return agent, sc, state, aux
 
 
@@ -186,7 +186,9 @@ def test_training_reduces_matching_loss():
         system_class=FixedSystem(params),
         env_params=params,
     )
-    _, aux = agent.train(seed=1, n_timesteps=n_updates * n_envs * horizon)
+    _, aux = agent.train(
+        seed=1, n_timesteps=n_updates * n_envs * horizon, logging_config=None
+    )
     losses = aux.matching_loss[0]
     assert losses.shape == (n_updates,)
     assert jnp.all(jnp.isfinite(losses))
@@ -196,7 +198,9 @@ def test_training_reduces_matching_loss():
 def test_multiple_seeds_are_vmapped(env_and_class):
     env, sc = env_and_class
     agent = make_agent(env, sc)
-    state, aux = agent.train(seed=[0, 1, 2], n_timesteps=2 * N_ENVS * HORIZON)
+    state, aux = agent.train(
+        seed=[0, 1, 2], n_timesteps=2 * N_ENVS * HORIZON, logging_config=None
+    )
     assert aux.loss.shape == (3, 2)
     assert state.actor_state.params["params"]["out"]["kernel"].shape[0] == 3
 
@@ -232,7 +236,7 @@ def test_contextual_controller_configuration(env_and_class):
     assert agent.actor_optimizer_args.max_grad_norm is None
     assert agent.actor_optimizer_args.eps == 1e-8
     assert agent.actor_optimizer_args.weight_decay == 0.01
-    state, aux = agent.train(seed=0, n_timesteps=4 * 2 * 8)
+    state, aux = agent.train(seed=0, n_timesteps=4 * 2 * 8, logging_config=None)
     assert state.actor_state.recurrent
     params = state.actor_state.params["params"]
     assert "memory_cell" in params and "pid_head" in params
@@ -305,14 +309,16 @@ def test_a_transformer_controller_starts_as_the_reference_gpt(env_and_class):
 def test_memory_only_controller_trains(env_and_class):
     env, sc = env_and_class
     agent = make_agent(env, sc, memory=MemoryConfig(kind="gru", hidden_size=8))
-    state, aux = agent.train(seed=0, n_timesteps=3 * N_ENVS * HORIZON)
+    state, aux = agent.train(
+        seed=0, n_timesteps=3 * N_ENVS * HORIZON, logging_config=None
+    )
     assert state.actor_state.recurrent and jnp.isfinite(aux.loss).all()
 
 
 def test_warmup_cosine_schedule_is_wired_and_validated(env_and_class):
     env, sc = env_and_class
     agent = make_agent(env, sc, lr_schedule="warmup_cosine", warmup_steps=2)
-    _, aux = agent.train(seed=0, n_timesteps=4 * N_ENVS * HORIZON)
+    _, aux = agent.train(seed=0, n_timesteps=4 * N_ENVS * HORIZON, logging_config=None)
     assert jnp.isfinite(aux.loss).all()
     # Refused at construction, before a train call starts its logging worker.
     with pytest.raises(ValueError, match="lr_schedule"):
@@ -364,12 +370,17 @@ def test_the_schedule_steps_the_matrices_and_the_vectors_keep_the_peak(env_and_c
 def test_resume_keeps_params_and_resets_optimizer(env_and_class):
     env, sc = env_and_class
     agent = make_agent(env, sc)
-    state1, _ = agent.train(seed=0, n_timesteps=3 * N_ENVS * HORIZON)
+    state1, _ = agent.train(
+        seed=0, n_timesteps=3 * N_ENVS * HORIZON, logging_config=None
+    )
     assert int(state1.actor_state.step[0]) == 3
     # resume donates the incoming state's buffers: copy before reusing it
     state1_copy = jax.tree.map(jnp.copy, state1)
     state2, _ = agent.train(
-        seed=0, n_timesteps=2 * N_ENVS * HORIZON, initial_state=state1_copy
+        seed=0,
+        n_timesteps=2 * N_ENVS * HORIZON,
+        initial_state=state1_copy,
+        logging_config=None,
     )
     assert int(state2.actor_state.step[0]) == 2  # optimizer restarted
     assert int(state2.collector_state.timestep[0]) == 5 * N_ENVS * HORIZON
@@ -378,6 +389,7 @@ def test_resume_keeps_params_and_resets_optimizer(env_and_class):
         n_timesteps=2 * N_ENVS * HORIZON,
         initial_state=state1,
         reset_optimizer_on_resume=False,
+        logging_config=None,
     )
     assert int(state3.actor_state.step[0]) == 5
 
@@ -521,7 +533,9 @@ def test_evaluate_reports_m_rmse_on_fresh_systems(default_run):
 def test_extensions_fold_post_update(env_and_class):
     env, sc = env_and_class
     agent = make_agent(env, sc, extensions=[CounterExt()])
-    state, _ = agent.train(seed=0, n_timesteps=4 * N_ENVS * HORIZON)
+    state, _ = agent.train(
+        seed=0, n_timesteps=4 * N_ENVS * HORIZON, logging_config=None
+    )
     assert int(state.ext_state[0][0]) == 4
 
 
@@ -554,7 +568,7 @@ def test_the_downstream_training_and_evaluation_contract(env_and_class):
         max_grad_norm=1.0,
         extensions=[CounterExt()],
     )
-    state, aux = agent.train(seed=0, n_timesteps=3 * 2 * HORIZON)
+    state, aux = agent.train(seed=0, n_timesteps=3 * 2 * HORIZON, logging_config=None)
     curve = jax.device_get(-aux.matching_loss[0] / HORIZON).tolist()
     assert len(curve) == 3 and jnp.isfinite(aux.loss).all()
     single = jax.tree.map(lambda x: x[0], state)
@@ -591,7 +605,7 @@ def test_the_controller_output_is_mapped_onto_the_torque_bounds(env_id):
     [-1, 1] they are the output's own (to float rounding: the two programs
     compile apart)."""
     agent = APG(env_id, n_envs=4, horizon=2, pid=None, actor_architecture=("8", "tanh"))
-    state, _ = agent.train(seed=0, n_timesteps=0)
+    state, _ = agent.train(seed=0, n_timesteps=0, logging_config=None)
     state = jax.tree.map(lambda x: x[0], state)
     key = jax.random.PRNGKey(1)
 
@@ -634,7 +648,7 @@ def test_apg_returns_its_evaluations_without_a_logging_backend():
     assert reward.shape == aux.loss.shape == (1, 8)
     evaluated = np.isfinite(reward[0])
     np.testing.assert_array_equal(evaluated, [False, True] * 4)
-    _, plain = agent.train(seed=0, n_timesteps=64)
+    _, plain = agent.train(seed=0, n_timesteps=64, logging_config=None)
     assert plain.evaluations is None
 
 

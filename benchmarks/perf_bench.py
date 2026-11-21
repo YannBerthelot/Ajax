@@ -184,7 +184,9 @@ def _run_one_trial(
         scenario, n_envs=n_envs, learning_starts=min(50, warmup_timesteps // 2)
     )
     t0 = time.perf_counter()
-    out = agent.train(seed=_seed_arg(seed, n_seeds), n_timesteps=warmup_timesteps)
+    out = agent.train(
+        seed=_seed_arg(seed, n_seeds), n_timesteps=warmup_timesteps, logging_config=None
+    )
     jax.block_until_ready(out)
     compile_plus_warmup_s = time.perf_counter() - t0
 
@@ -205,7 +207,9 @@ def _run_one_trial(
         scenario, n_envs=n_envs, learning_starts=min(50, timesteps // 4)
     )
     t0 = time.perf_counter()
-    out = agent.train(seed=_seed_arg(seed + 1, n_seeds), n_timesteps=timesteps)
+    out = agent.train(
+        seed=_seed_arg(seed + 1, n_seeds), n_timesteps=timesteps, logging_config=None
+    )
     jax.block_until_ready(out)
     measured_s = time.perf_counter() - t0
 

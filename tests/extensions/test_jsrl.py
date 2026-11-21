@@ -53,7 +53,7 @@ def _run(jsrl: JSRLCurriculum, env: Any = None, **kwargs: Any) -> tuple:
         extensions=(jsrl,),
         **{**SMALL, **kwargs},
     )
-    state, _ = agent.train(seed=0, n_timesteps=TICKS)
+    state, _ = agent.train(seed=0, n_timesteps=TICKS, logging_config=None)
     return agent, jax.tree.map(lambda x: x[0], state)
 
 
@@ -163,7 +163,7 @@ def test_the_evaluation_rolls_the_guide_in_then_the_learner() -> None:
         extensions=(JSRLCurriculum(schedule="random"),),
         **SMALL,
     )
-    out = agent.train(seed=0, n_timesteps=8)
+    out = agent.train(seed=0, n_timesteps=8, logging_config=None)
     state = jax.tree.map(lambda x: x[0], out[0])
     a = float(agent.predict(out, paid_action.OBS[None])[0, 0])
     jsrl = _bound(agent)
@@ -202,7 +202,9 @@ def test_the_evaluation_tracks_a_stateful_guide_along_the_episode() -> None:
         extensions=(JSRLCurriculum(schedule="random"),),
         **SMALL,
     )
-    state = jax.tree.map(lambda x: x[0], agent.train(seed=0, n_timesteps=8)[0])
+    state = jax.tree.map(
+        lambda x: x[0], agent.train(seed=0, n_timesteps=8, logging_config=None)[0]
+    )
     jsrl = _bound(agent)
     value = combined_policy_return(
         agent.env_args,
@@ -254,7 +256,9 @@ def test_jsrl_random_hands_over_once_each_episode() -> None:
         extensions=(JSRLCurriculum(schedule="random"),),
         **{**SMALL, "learning_starts": 0, "buffer_size": 512},
     )
-    state = jax.tree.map(lambda x: x[0], agent.train(seed=0, n_timesteps=240)[0])
+    state = jax.tree.map(
+        lambda x: x[0], agent.train(seed=0, n_timesteps=240, logging_config=None)[0]
+    )
     rows = state.collector_state.buffer_state.experience
     guided = _guided_steps(rows, 0, 120) + _guided_steps(rows, 1, 120)
     assert len(guided) >= 40

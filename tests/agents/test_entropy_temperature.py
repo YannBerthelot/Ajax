@@ -73,6 +73,6 @@ def test_the_temperature_moves_towards_its_target_entropy(
         target_entropy_per_dim=target_entropy_per_dim,
         alpha_update_start=0,
     )
-    state = agent.train(seed=0, n_timesteps=16)[0]
+    state = agent.train(seed=0, n_timesteps=16, logging_config=None)[0]
     log_alpha = float(np.ravel(state.alpha.params["log_alpha"])[0])
     assert np.sign(log_alpha - np.log(agent.alpha_init)) == direction

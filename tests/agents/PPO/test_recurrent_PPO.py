@@ -21,7 +21,9 @@ def _train_smoke(memory, env_id="CartPole-v1", n_envs=2, n_steps=16):
         n_epochs=2,
         memory=memory,
     )
-    state, _ = agent.train(seed=0, n_timesteps=n_envs * n_steps * 3)
+    state, _ = agent.train(
+        seed=0, n_timesteps=n_envs * n_steps * 3, logging_config=None
+    )
     return state
 
 
@@ -82,7 +84,7 @@ def test_recurrent_ppo_env_split_minibatching():
         num_minibatches=2,
         memory=MemoryConfig(kind="gru", hidden_size=8),
     )
-    state, _ = agent.train(seed=0, n_timesteps=4 * 16 * 3)
+    state, _ = agent.train(seed=0, n_timesteps=4 * 16 * 3, logging_config=None)
     for leaf in jax.tree.leaves(state.actor_state.params):
         assert jnp.all(jnp.isfinite(leaf))
     assert any(
@@ -105,7 +107,7 @@ def test_recurrent_ppo_bptt_length(kind):
         bptt_length=8,
         memory=MemoryConfig(kind=kind, hidden_size=8, window=8),
     )
-    state, _ = agent.train(seed=0, n_timesteps=4 * 32 * 3)
+    state, _ = agent.train(seed=0, n_timesteps=4 * 32 * 3, logging_config=None)
     for leaf in jax.tree.leaves(state.actor_state.params):
         assert jnp.all(jnp.isfinite(leaf))
     assert any(

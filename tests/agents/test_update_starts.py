@@ -41,7 +41,7 @@ STEPS = 24
 def _train(cls: Any, steps: int = STEPS, **kwargs: Any) -> Any:
     tiny = {key: value for key, value in TINY.items() if key in cls.field_names()}
     agent = cls(**{**tiny, **NETS[cls], **kwargs})
-    return agent.train(seed=0, n_timesteps=steps)[0]
+    return agent.train(seed=0, n_timesteps=steps, logging_config=None)[0]
 
 
 def _same(first: object, second: object) -> bool:

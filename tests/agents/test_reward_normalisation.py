@@ -187,10 +187,16 @@ def test_a_resumed_run_goes_on_from_the_normalisers_statistics() -> None:
         info = normalisation_info(state.collector_state.env_state, "gymnax")
         return jax.tree.map(np.array, info.reward)
 
-    first, _ = build().train(seed=0, n_timesteps=8, total_timesteps=16)
+    first, _ = build().train(
+        seed=0, n_timesteps=8, total_timesteps=16, logging_config=None
+    )
     before = reward_statistics(first)
     resumed, _ = build().train(
-        seed=0, n_timesteps=8, total_timesteps=16, initial_state=first
+        seed=0,
+        n_timesteps=8,
+        total_timesteps=16,
+        initial_state=first,
+        logging_config=None,
     )
     after = reward_statistics(resumed)
     # float32: sums of 8 powers of two at most, exact but for the last bit.

@@ -265,7 +265,7 @@ def test_expert_rows_are_stored_in_agent_units_and_paid_in_env_units():
     # The expert acts on every warm-up step.
     expert_steps = (ExpertWarmup(fraction=1.0), ExpertPrefill(n_steps=4))
     agent = _sac(learning_starts=64, extensions=expert_steps)
-    state, _ = agent.train(seed=0, n_timesteps=8)
+    state, _ = agent.train(seed=0, n_timesteps=8, logging_config=None)
     rows = _written(state)
     assert len(rows["reward"]) == 4 + 8
     for key in ("action", "a_expert", "next_a_expert"):
@@ -313,7 +313,7 @@ def test_evaluate_reads_an_env_unit_expert_as_a_wrapped_one():
     """evaluate()'s expert stays in env units for a direct caller: a raw and
     a wrapped expert give the same evaluation, the expert paid 1.5."""
     env, params = paid_action.make()
-    state, _ = _sac().train(seed=0, n_timesteps=0)
+    state, _ = _sac().train(seed=0, n_timesteps=0, logging_config=None)
     actor = jax.tree.map(lambda x: x[0], state.actor_state)
     key = jax.random.PRNGKey(2)
     wrapped = ExpertInAgentUnits(_constant, env, params)

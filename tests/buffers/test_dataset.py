@@ -166,7 +166,9 @@ def test_export_reads_a_wrapped_replay_oldest_first() -> None:
     agent = TD3(
         IdentityEnv(), n_envs=2, buffer_size=20, batch_size=4, learning_starts=10**6
     )
-    state, _ = agent.train(seed=[0, 1], n_timesteps=60)  # 30 rows per env: wrapped
+    state, _ = agent.train(
+        seed=[0, 1], n_timesteps=60, logging_config=None
+    )  # 30 rows per env: wrapped
     data = ds.export(state, seed_index=1)
     check_episodes(data)
     assert len(data.reward) <= 20 and data.n_episodes >= 2

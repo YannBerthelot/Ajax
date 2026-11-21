@@ -413,8 +413,11 @@ Three modules share the work:
 
 What `train` returns follows from the logging config:
 
-- **No `LoggingConfig`:** no evaluation is traced at all (tracing alone would
+- **`logging_config=None`:** no evaluation is traced at all (tracing alone would
   rebuild the evaluation environment), and `train` returns `(state, None)`.
+  Not given, `train` makes a `LoggingConfig` of its own: about ten
+  evaluations, no backend, and a `ProgressPrinter` as `on_evaluation`
+  ([`logging/progress.py`](../../src/ajax/logging/progress.py)).
   APG returns its per-update metrics in place of `None`.
 - **A `LoggingConfig`:** the run evaluates whether or not a backend records
   it, and returns `(state, evaluations)`: every logged key's values per seed

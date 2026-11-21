@@ -60,7 +60,7 @@ def test_an_agent_on_the_training_fraction_steps_the_envs_own_state():
         batch_size=8,
         extensions=(TrainingProgressInput(),),
     )
-    state, _ = agent.train(seed=0, n_timesteps=32)
+    state, _ = agent.train(seed=0, n_timesteps=32, logging_config=None)
     collector = state.collector_state
     # The env's own class, with its episode counters (episode keys).
     assert type(collector.env_state).__base__ is environment.EnvState

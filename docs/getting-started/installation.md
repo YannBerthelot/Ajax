@@ -67,7 +67,7 @@ opt-in.
 
 | Group | Default | What it adds |
 | --- | --- | --- |
-| `dev` | yes | pytest, coverage, pre-commit, ruff, mypy, the probing environments the tests train on, and the `playground` extra |
+| `dev` | yes | pytest, coverage, pre-commit, ruff, mypy, the probing environments the tests train on, and the `playground`, `gymnasium` and `gymnasium-mjx` extras |
 | `wandb` | no | the `wandb` extra (below) |
 | `plane` | no | [TargetGym](https://github.com/YannBerthelot/TargetGym), for the Plane3DCircle scenario of the speed benchmark (`benchmarks/perf_bench.py`) |
 | `docs` | no | MkDocs and its plugins, to build this site |
@@ -89,6 +89,7 @@ imported.
 | `brax` | [Brax](https://github.com/google/brax), for Brax environments such as `"ant"` |
 | `playground` | [MuJoCo Playground](https://github.com/google-deepmind/mujoco_playground) and Brax, for Playground environments such as `"CartpoleBalance"` |
 | `gymnasium` | [Gymnasium](https://gymnasium.farama.org) with MuJoCo, for [Gymnasium environments](../guide/environments.md#gymnasium-environments) such as `"gymnasium:HalfCheetah-v5"`, which step in Python |
+| `gymnasium-mjx` | [gymnasium-mjx](https://github.com/YannBerthelot/gymnasium-mjx) and the `playground` extra, for [Gymnasium's MuJoCo tasks in JAX](../guide/environments.md#gymnasiums-mujoco-tasks-in-jax) such as `"mujoco:HalfCheetah-v5"` |
 | `compare` | the `adastop` package, whose confidence sequence [`ajax.compare.estimate`](../guide/comparing-agents.md#one-agent-how-sure-is-a-number) uses; AdaStop itself needs no extra |
 | `reproduction` | Hugging Face Hub, pandas and pyarrow, for `ajax.reproduction.load` ([Reproduction](../reproduction/index.md)) |
 | `manifolds` | umap-learn, M-PHATE and matplotlib, for embedding a recorded run ([Representations during training](../guide/representations.md#embedding-a-run)) |
@@ -102,8 +103,9 @@ Brax and MuJoCo Playground come only with their extras: a project that
 uses their environments asks for `ajax-rl[playground]`, or `ajax-rl[brax]`
 for Brax alone. Without them, building a Brax or Playground environment raises
 an error that names the extra. Gymnasium's MuJoCo tasks likewise need the
-`gymnasium` extra. The `dev` group installs all three, so `uv sync` in this
-repository has them.
+`gymnasium` extra, and their MJX versions (`"mujoco:<id>"`) the
+`gymnasium-mjx` extra. The `dev` group installs all four, so `uv sync` in
+this repository has them.
 
 The `compare` extra takes `adastop` from a commit of its main branch, named
 in `[tool.uv.sources]`, until a release includes the confidence sequence.

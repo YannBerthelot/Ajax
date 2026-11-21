@@ -51,6 +51,10 @@ class JaxCounterpart:
 
 _BRAX_PHYSICS = "Brax's own physics (Euler steps, fewer colliding bodies)"
 _SAME_ON_MJX = "the same task, model and rules, stepped by MJX in JAX"
+_SAME_ON_MJX_NEWTON = (
+    f"{_SAME_ON_MJX}, with the Newton solver where the model asks for PGS,"
+    " which MJX lacks"
+)
 _DM_CONTROL = (
     "a DeepMind Control task: another model, a reward between 0 and 1, no early"
     " termination"
@@ -76,13 +80,16 @@ COUNTERPARTS: dict[str, tuple[str, tuple[JaxCounterpart, ...]]] = {
         JaxCounterpart("MuJoCo Playground", ("WalkerWalk", "WalkerRun"), _DM_CONTROL),
     )),
     "Ant": ("Ant-v5", (
+        JaxCounterpart("Ajax", ("mujoco:Ant-v5",), _SAME_ON_MJX),
         JaxCounterpart("Brax", ("ant",), f"no contact cost; 27 observations instead of 105; {_BRAX_PHYSICS}"),
     )),
     "Humanoid": ("Humanoid-v5", (
+        JaxCounterpart("Ajax", ("mujoco:Humanoid-v5",), _SAME_ON_MJX_NEWTON),
         JaxCounterpart("Brax", ("humanoid",), f"no contact cost; other observations (244 instead of 348); {_BRAX_PHYSICS}"),
         JaxCounterpart("MuJoCo Playground", ("HumanoidWalk", "HumanoidRun"), _DM_CONTROL),
     )),
     "HumanoidStandup": ("HumanoidStandup-v5", (
+        JaxCounterpart("Ajax", ("mujoco:HumanoidStandup-v5",), _SAME_ON_MJX_NEWTON),
         JaxCounterpart("Brax", ("humanoidstandup",), "a height reward 5 times smaller, another control cost, no impact cost, other observations"),
         JaxCounterpart("MuJoCo Playground", ("HumanoidStand",), _DM_CONTROL),
     )),

@@ -247,6 +247,9 @@ REFERENCE = {
         "extensions": (ImitationLoss(None, target="replay", alpha=2.5),),
         "normalize_observations": True,
     },
+    # nicklashansen/tdmpc2@eece801 tdmpc2/envs/mujoco.py:57-58, in make_env,
+    # for every task the module builds: cfg.discount_max = 0.99, cfg.rho = 0.7.
+    ("TDMPC2", "MuJoCo"): {"discount_max": 0.99, "rho": 0.7},
     # bayesgroup/tqc_pytorch@65114eb README.md:42-48.
     ("TQC", "Hopper"): {"top_quantiles_to_drop_per_net": 5},
     ("TQC", "HalfCheetah"): {"top_quantiles_to_drop_per_net": 0},

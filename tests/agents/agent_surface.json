@@ -249,6 +249,7 @@
 "ajax.agents.TD3.TD3:update_targets",
 "ajax.agents.TDMPC2.TDMPC2:EpisodicSchedule",
 "ajax.agents.TDMPC2.TDMPC2:FixedLengthSchedule",
+"ajax.agents.TDMPC2.TDMPC2:PRESETS",
 "ajax.agents.TDMPC2.TDMPC2:TDMPC2",
 "ajax.agents.TDMPC2.TDMPC2:TDMPC2State",
 "ajax.agents.TDMPC2.TDMPC2:logger",

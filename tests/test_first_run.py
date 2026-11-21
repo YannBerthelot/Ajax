@@ -4,7 +4,7 @@ Contract (docs/getting-started/quickstart.md, ``ActorCritic.train``,
 ``ajax.logging.progress``):
   - a train call given no logging_config evaluates about ten times, prints
     a first line, one line per evaluation and a last line, and returns the
-    evaluations; logging_config=None evaluates nothing, prints nothing and
+    evaluations, each after a whole number of the agent's iterations; logging_config=None evaluates nothing, prints nothing and
     returns None; a LoggingConfig of the caller's prints nothing;
   - the evaluations are the dict of logged names, with ``returns`` (members
     x evaluations) and ``timesteps`` (one per evaluation);
@@ -12,7 +12,7 @@ Contract (docs/getting-started/quickstart.md, ``ActorCritic.train``,
     (their mean return and its range), once each member's has come;
   - ``agent.evaluate(state, episodes, seed)`` is the return of fresh
     episodes of each member's policy, members x episodes, the same for the
-    same seed.
+    same seed, on a Gymnasium environment too.
 """
 
 import jax
@@ -39,6 +39,22 @@ RETURN = "Eval/episodic mean reward"
 )
 def test_a_default_run_evaluates_every_tenth_of_its_steps(n_timesteps, frequency):
     assert default_log_frequency(n_timesteps) == frequency
+
+
+@pytest.mark.parametrize(
+    "n_timesteps, iteration_steps, frequency",
+    [
+        (40_960, 1_024, 4_096),  # a tenth is 4 rollouts already
+        (32_768, 1_024, 4_096),  # a tenth, 3,277, is 3.2 rollouts: 4
+        (4_096, 2_048, 2_048),  # less than a rollout: one
+        (100, 8, 16),  # a tenth, 10, is 1.25 iterations: 2
+        (3_000, 1, 300),
+    ],
+)
+def test_the_default_spacing_is_whole_iterations(
+    n_timesteps, iteration_steps, frequency
+):
+    assert default_log_frequency(n_timesteps, iteration_steps) == frequency
 
 
 def test_evaluations_name_the_returns_and_the_steps_and_stay_a_dict():
@@ -106,6 +122,12 @@ def test_a_run_given_no_logging_evaluates_ten_times_and_prints_each(capsys):
     assert printed[11].startswith("Done in ")
 
 
+def test_a_default_run_evaluates_after_whole_rollouts():
+    # 16 steps per rollout; a tenth of 96 is 9.6 steps: every rollout.
+    _, evaluations = tiny_ppo().train(seed=0, n_timesteps=96)
+    np.testing.assert_array_equal(evaluations.timesteps, np.arange(16, 97, 16))
+
+
 def test_logging_config_none_is_silent_and_evaluates_nothing(capsys):
     _, evaluations = tiny_ppo().train(seed=0, n_timesteps=32, logging_config=None)
     assert evaluations is None
@@ -146,3 +168,20 @@ def test_evaluate_returns_each_members_fresh_episodes():
     np.testing.assert_array_equal(episode_returns, lengths)
     np.testing.assert_array_equal(episode_returns, returns[0])
     assert jnp.all(lengths >= 1)
+
+
+@pytest.mark.slow
+@pytest.mark.filterwarnings(
+    "ignore::ajax.environments.gymnasium.PythonEnvironmentWarning"
+)
+def test_evaluate_runs_on_a_gymnasium_environment():
+    """As on gymnax's CartPole: a return is its episode's length, a whole
+    number from 1 to 500, and 16 steps of training do not reach 500."""
+    agent = PPO("gymnasium:CartPole-v1", n_envs=2, n_steps=8, n_epochs=1)
+    state, _ = agent.train(seed=[0, 1], n_timesteps=16, logging_config=None)
+    returns = np.asarray(agent.evaluate(state, episodes=3, seed=3))
+    assert returns.shape == (2, 3)
+    np.testing.assert_array_equal(returns, np.round(returns))
+    assert returns.min() >= 1 and returns.max() < 500
+    again = np.asarray(agent.evaluate(state, episodes=3, seed=3))
+    np.testing.assert_array_equal(again, returns)

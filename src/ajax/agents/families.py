@@ -669,20 +669,15 @@ class DeclaredAgent(ActorCritic):
         policy: a row per member of agent_state (train's state, or its
         (state, out)), a column per episode. The policy acts as
         agent.policy does, exactly as the agent's evaluation acts; ``seed``
-        draws the episodes' starts. Its mean over a row is that member's
-        score::
+        draws the episodes' starts. On a Gymnasium environment the episodes
+        step in Python, a member after another. Its mean over a row is that
+        member's score::
 
             state, _ = agent.train(seed=[0, 1], n_timesteps=50_000)
             agent.evaluate(state).mean(axis=1)
         """
         if isinstance(agent_state, tuple) and len(agent_state) == 2:
             agent_state = agent_state[0]
-        if steps_in_python(self.env_args.env):
-            raise ValueError(
-                "evaluate runs its episodes in one compiled program,"
-                " which an environment stepped in Python (Gymnasium) cannot"
-                " join: step it with agent.policy(state) in a loop."
-            )
         build = self.policy_parts()
         members = int(jax.tree.leaves(agent_state)[0].shape[0])
         keys = jax.random.split(jax.random.PRNGKey(seed), members)
@@ -690,7 +685,16 @@ class DeclaredAgent(ActorCritic):
         def one_member(state: Any, key: jax.Array) -> jax.Array:
             return policy_returns(self.env_args, build(state), episodes, key)[0]
 
-        return jax.jit(jax.vmap(one_member))(agent_state, keys)
+        if not steps_in_python(self.env_args.env):
+            return jax.jit(jax.vmap(one_member))(agent_state, keys)
+        # A Gymnasium environment steps in Python on one pool of copies:
+        # the members run one after another, as they train.
+        run = jax.jit(one_member)
+        rows = [
+            run(jax.tree.map(lambda leaf, m=member: leaf[m], agent_state), keys[member])
+            for member in range(members)
+        ]
+        return jnp.stack(rows)
 
     def policy_parts(self) -> Callable[[Any], PolicyParts]:
         """How the agent acts on one seed's state: as the shared evaluation
@@ -1370,6 +1374,10 @@ class OnPolicyAgent(DeclaredAgent):
 
     extension_context = frozenset({"env_args"})
     keeps_last_rollout = True
+
+    def iteration_steps(self) -> int:
+        """A rollout: n_steps in each env."""
+        return self.env_args.n_envs * self.n_steps
 
     def init(self, key: jax.Array, context: TrainContext) -> Any:
         """A fresh agent state, on the agent's own key layout."""

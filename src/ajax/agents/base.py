@@ -682,6 +682,11 @@ class ActorCritic:
             extensions=tuple(self.extension_stack.extensions),
         )
 
+    def iteration_steps(self) -> int:
+        """The environment steps of one iteration, between two of which a
+        run can evaluate: one step in each env."""
+        return self.env_args.n_envs
+
     def train(
         self,
         seed: int | Sequence[int] = 42,
@@ -822,6 +827,7 @@ class ActorCritic:
             n_timesteps,
             end,
             together=not in_python,
+            iteration_steps=self.iteration_steps(),
         )
         if isinstance(logging_config, LoggingConfig):
             logging_config = logging_config.with_agent_config(self.config)

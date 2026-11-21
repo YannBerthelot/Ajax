@@ -21,10 +21,14 @@ TIMESTEP = "timestep"
 DEFAULT_EVALUATIONS = 10
 
 
-def default_log_frequency(n_timesteps: int) -> int:
-    """Environment steps between evaluations for :data:`DEFAULT_EVALUATIONS`
-    over ``n_timesteps``, rounded up, at least 1."""
-    return max(1, -(-int(n_timesteps) // DEFAULT_EVALUATIONS))
+def default_log_frequency(n_timesteps: int, iteration_steps: int = 1) -> int:
+    """Environment steps between evaluations for about
+    :data:`DEFAULT_EVALUATIONS` over ``n_timesteps``: a tenth of them,
+    rounded up to a whole number of the agent's iterations of
+    ``iteration_steps`` steps, so every evaluation comes after as many
+    iterations as the last and the run compiles one length of them."""
+    tenth = max(1, -(-int(n_timesteps) // DEFAULT_EVALUATIONS))
+    return -(-tenth // iteration_steps) * iteration_steps
 
 
 class Evaluations(dict):
@@ -132,11 +136,13 @@ def run_logging(
     n_timesteps: int,
     end_timestep: int,
     together: bool,
+    iteration_steps: int = 1,
 ) -> tuple[Any, Any]:
     """train's ``logging_config`` as the call runs it, and the printer to
     close at its end (None unless the default prints): a LoggingConfig or
-    None as given; ``"default"`` becomes about ten evaluations with a
-    started :class:`ProgressPrinter` and no backend, or None for a call of
+    None as given; ``"default"`` becomes about ten evaluations
+    (:func:`default_log_frequency`) with a started :class:`ProgressPrinter`
+    and no backend, or None for a call of
     no step (one that only builds the state)."""
     if not isinstance(logging_config, str):
         return logging_config, None
@@ -155,7 +161,7 @@ def run_logging(
     )
     printer.start()
     config = LoggingConfig(
-        log_frequency=default_log_frequency(n_timesteps),
+        log_frequency=default_log_frequency(n_timesteps, iteration_steps),
         backends=(),
         on_evaluation=printer,
     )

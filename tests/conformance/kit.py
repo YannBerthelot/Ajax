@@ -439,6 +439,7 @@ def capture_step(agent: Any, n_timesteps: int, **train_options: Any) -> Step:
     # The test seam replaces a method for the duration of one build (mypy's codes differ with how
     # much of the project it sees).
     loop.TrainLoop.train = grab  # type: ignore[method-assign, assignment]
+    train_options.setdefault("logging_config", None)  # no evaluation unless asked
     try:
         agent.train(seed=[0], n_timesteps=n_timesteps, **train_options)
     except _Captured:

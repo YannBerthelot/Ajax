@@ -408,13 +408,17 @@ def test_a_checkpoint_loaded_with_the_runs_options_resumes_as_its_state(
     agent = make_agent(env, sc, **schedule)
     step, total = N_ENVS * HORIZON, 4 * N_ENVS * HORIZON
     options = {"total_timesteps": total, "reset_optimizer_on_resume": False}
-    half, _ = agent.train(seed=0, n_timesteps=2 * step, **options)
+    half, _ = agent.train(seed=0, n_timesteps=2 * step, logging_config=None, **options)
     path = str(tmp_path / "half.pkl")
     save_checkpoint(half, path)
 
     def resume(state):
         resumed, _ = agent.train(
-            seed=0, n_timesteps=2 * step, initial_state=state, **options
+            seed=0,
+            n_timesteps=2 * step,
+            initial_state=state,
+            logging_config=None,
+            **options,
         )
         return jax.tree.leaves(resumed.actor_state.params)
 

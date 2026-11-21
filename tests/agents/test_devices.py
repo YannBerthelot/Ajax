@@ -164,7 +164,12 @@ def test_an_agent_with_its_own_replay_splits_its_seeds():
             **TINY,
         )
 
-    options = {"seed": [0, 1, 2], "n_timesteps": 52, "num_episode_test": 2}
+    options = {
+        "seed": [0, 1, 2],
+        "n_timesteps": 52,
+        "num_episode_test": 2,
+        "logging_config": None,
+    }
     whole, _ = agent().train(**options)
     split, _ = agent().train(**options, devices=[CPU, CPU])
     assert not readouts.differing_leaves(whole, split, **ROUNDING)

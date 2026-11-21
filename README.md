@@ -57,7 +57,7 @@ state, evaluations = agent.train(seed=[1, 2, 3], n_timesteps=40_960)
 
 print(evaluations.timesteps)  # when each evaluation ran
 print(evaluations.returns)    # one row per seed, one column per evaluation
-print(agent.episode_returns(state, episodes=20).mean(axis=1))  # each seed's score now
+print(agent.evaluate(state, episodes=20).mean(axis=1))  # each seed's score now
 ```
 
 `train` prints a line per evaluation, with the mean return over the seeds.

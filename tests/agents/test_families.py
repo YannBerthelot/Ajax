@@ -457,7 +457,7 @@ class OwnToy(OwnIterationAgent):
     def report(self, agent_state, aux):
         return {"timestep": aux["timestep"], "Train/updates": agent_state.n_updates}
 
-    def evaluate(self, agent_state, key, context, num_episode_test):
+    def evaluation_metrics(self, agent_state, key, context, num_episode_test):
         return {"Eval/episodes": jnp.asarray(num_episode_test, jnp.float32)}
 
     def count_iteration_steps(self, context):
@@ -567,7 +567,7 @@ class ReplayToy(OwnReplayAgent):
     def report(self, agent_state, aux):
         return {"timestep": agent_state.collector_state.timestep}
 
-    def evaluate(self, agent_state, key, context, num_episode_test):
+    def evaluation_metrics(self, agent_state, key, context, num_episode_test):
         return {"Eval/replay": jnp.asarray(context.buffer, jnp.float32)}
 
     def make_after_log(self):

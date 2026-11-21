@@ -686,9 +686,11 @@ before this version do not restore at the new defaults. The rest:
   dict of logged names, and now also has `evaluations.returns` (seeds x
   evaluations) and `evaluations.timesteps`.
 
-- **New: `agent.episode_returns(state, episodes=10, seed=0)`**, the returns
-  of fresh episodes of each seed's trained policy, one row per seed, acting
-  as `agent.policy` does. Not for Gymnasium environments yet.
+- **New: `agent.evaluate(state, episodes=10, seed=0)`**, the returns of
+  fresh episodes of each seed's trained policy, one row per seed, acting as
+  `agent.policy` does. Not for Gymnasium environments yet. The hook of that
+  name on agents with their own loop (UDRL, APG, DreamerV3, TD-MPC2) is now
+  `evaluation_metrics`; `TDMPC2MultiTask.evaluate` is unchanged.
 
 - **New: `LoggingConfig(on_evaluation=...)`**, a function called in the
   training process with each seed's evaluation.

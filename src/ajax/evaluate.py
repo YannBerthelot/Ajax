@@ -1183,7 +1183,7 @@ def policy_returns(
     """The return and the length of one episode in each of ``num_episodes``
     envs, under a trained policy's ``parts`` (``ajax.policy.PolicyParts``,
     from ``agent.policy_parts()`` on one seed's state): what
-    ``agent.episode_returns`` runs.
+    ``agent.evaluate`` runs.
 
     The env is rebuilt raw (no normalisation: the parts normalise as the
     agent does) with the training action repeat and episode length, and
@@ -1194,7 +1194,7 @@ def policy_returns(
     env, env_params = env_args.env, env_args.env_params
     if env_params_is_batched(env_params):
         raise ValueError(
-            "episode_returns evaluates one system: pass unbatched env_params,"
+            "agent.evaluate runs one system: pass unbatched env_params,"
             " not per-env params."
         )
     train_episode_length = (

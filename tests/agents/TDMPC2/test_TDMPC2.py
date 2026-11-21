@@ -557,7 +557,7 @@ def test_evaluation_runs_the_planner_for_whole_episodes(pendulum):
     state = jax.tree.map(lambda x: x[0], pendulum.resumed)
     _, context = agent.make_context(FIRST)
     evaluate = jax.jit(
-        lambda s, k: agent.evaluate(s, k, context=context, num_episode_test=2)
+        lambda s, k: agent.evaluation_metrics(s, k, context=context, num_episode_test=2)
     )
     key = jax.random.PRNGKey(0)
     out = evaluate(state, key)
@@ -597,7 +597,7 @@ def test_evaluation_plans_with_the_agents_discount(pendulum, monkeypatch):
     state = jax.tree.map(lambda x: x[0], pendulum.first)
     _, context = agent.make_context(FIRST)
     evaluate = jax.jit(
-        lambda s, k: agent.evaluate(s, k, context=context, num_episode_test=1)
+        lambda s, k: agent.evaluation_metrics(s, k, context=context, num_episode_test=1)
     )
     evaluate(state, jax.random.PRNGKey(0))
     assert agent.resolved_gamma != agent.model_config.rho

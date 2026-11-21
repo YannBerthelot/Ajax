@@ -77,10 +77,10 @@ DAgger), one update on each step as it comes (`IncrementalAgent`: AVG),
 rollouts (`OnPolicyAgent`: PPO, APO, PQN) or an iteration of its own
 (`OwnIterationAgent`: UDRL's segment and replay of segments, APG's
 gradient step through a differentiable rollout; the agent writes
-`iterate`, `report` and `evaluate`, the loop resumes and logs) or rows in
+`iterate`, `report` and `evaluation_metrics`, the loop resumes and logs) or rows in
 a replay of its own, sized for each call (`OwnReplayAgent`: DreamerV3,
 TD-MPC2; the agent writes `prepare_replay`, `collect`, `count_updates`,
-`update`, `report` and `evaluate` on `loop.off_policy`'s hooks). Knobs
+`update`, `report` and `evaluation_metrics` on `loop.off_policy`'s hooks). Knobs
 several agents share are mixins of fields (`EntropyTemperature`,
 `PolicyUpdateStart`, `ExpertGuided`, ...), and an agent changes what its
 family does by overriding a few hooks (`network_settings`,

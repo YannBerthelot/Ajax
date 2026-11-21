@@ -586,7 +586,7 @@ class UDRL(
 
         return parts
 
-    def evaluate(
+    def evaluation_metrics(
         self,
         agent_state: UDRLState,
         key: jax.Array,

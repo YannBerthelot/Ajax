@@ -255,7 +255,7 @@ def test_the_evaluation_draws_from_the_key_it_is_handed(cartpole, monkeypatch):
     agent, key = cartpole.agent, jax.random.PRNGKey(3)
     _, context = agent.make_context(ROWS)
     state = jax.tree.map(lambda x: x[0], cartpole.state)
-    agent.evaluate(state, key, context=context, num_episode_test=1)
+    agent.evaluation_metrics(state, key, context=context, num_episode_test=1)
     np.testing.assert_array_equal(keys, [key])
     assert len(states) == 1 and states[0] is state
 

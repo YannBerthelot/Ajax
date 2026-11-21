@@ -10,7 +10,7 @@ Contract (docs/getting-started/quickstart.md, ``ActorCritic.train``,
     x evaluations) and ``timesteps`` (one per evaluation);
   - a printed evaluation is one line for all members trained side by side
     (their mean return and its range), once each member's has come;
-  - ``agent.episode_returns(state, episodes, seed)`` is the return of fresh
+  - ``agent.evaluate(state, episodes, seed)`` is the return of fresh
     episodes of each member's policy, members x episodes, the same for the
     same seed.
 """
@@ -124,19 +124,19 @@ def test_an_unknown_logging_word_is_refused():
         tiny_ppo().train(seed=0, n_timesteps=32, logging_config="verbose")
 
 
-def test_episode_returns_are_each_members_fresh_episodes():
+def test_evaluate_returns_each_members_fresh_episodes():
     """CartPole pays 1 per step and ends at 500 steps at the latest: a return
     is its episode's length, a whole number from 1 to 500. An agent trained
     for 16 steps does not balance the pole for 500."""
     agent = tiny_ppo()
     state, _ = agent.train(seed=[0, 1, 2], n_timesteps=16, logging_config=None)
-    returns = np.asarray(agent.episode_returns(state, episodes=4, seed=3))
+    returns = np.asarray(agent.evaluate(state, episodes=4, seed=3))
     assert returns.shape == (3, 4)
     np.testing.assert_array_equal(returns, np.round(returns))
     assert returns.min() >= 1 and returns.max() < 500
-    again = np.asarray(agent.episode_returns((state, None), episodes=4, seed=3))
+    again = np.asarray(agent.evaluate((state, None), episodes=4, seed=3))
     np.testing.assert_array_equal(again, returns)
-    other = np.asarray(agent.episode_returns(state, episodes=4, seed=4))
+    other = np.asarray(agent.evaluate(state, episodes=4, seed=4))
     assert not np.array_equal(other, returns)
 
     one_member = jax.tree.map(lambda leaf: leaf[0], state)

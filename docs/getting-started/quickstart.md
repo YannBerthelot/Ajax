@@ -89,7 +89,7 @@ help pick an agent and list each one's defaults.
 
 ## Use the trained policy
 
-`episode_returns` runs fresh episodes of each seed's trained policy and
+`evaluate` runs fresh episodes of each seed's trained policy and
 returns their returns, one row per seed:
 
 ```python
@@ -98,7 +98,7 @@ from ajax import PPO
 agent = PPO("CartPole-v1", n_envs=8, n_steps=128)
 state, _ = agent.train(seed=[0, 1], n_timesteps=16_384, logging_config=None)
 
-returns = agent.episode_returns(state, episodes=20)  # shape (2, 20)
+returns = agent.evaluate(state, episodes=20)  # shape (2, 20)
 print(returns.mean(axis=1))  # each seed's score
 ```
 
@@ -126,7 +126,7 @@ agent.save(state, path)
 
 # Later, in another process.
 agent, state = ajax.load(path)
-print(agent.episode_returns(state, episodes=5).mean(axis=1))
+print(agent.evaluate(state, episodes=5).mean(axis=1))
 state, _ = agent.train(seed=[0, 1], n_timesteps=8_192, initial_state=state)
 ```
 

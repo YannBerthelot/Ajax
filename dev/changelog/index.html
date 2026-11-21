@@ -3822,6 +3822,33 @@ before this version do not restore at the new defaults. The rest:</p>
   official TD-MPC2 code changes for its gym MuJoCo tasks: <code>discount_max=0.99</code>
   and <code>rho=0.7</code>. TD-MPC2's defaults are unchanged.</p>
 </li>
+<li>
+<p><strong>Changed default: a <code>train</code> call given no <code>logging_config</code> evaluates and
+  prints.</strong> It evaluates about ten times over the call (every tenth of its
+  steps, rounded up to whole iterations of the agent), prints a line for
+  each (the mean return over the seeds, with the lowest and highest), and
+  returns the evaluations where it returned <code>None</code>. <strong>Upgrade:</strong> pass
+  <code>logging_config=None</code> for the earlier behaviour: no evaluation, nothing
+  printed, <code>None</code> returned, and the fastest run. A call with a
+  <code>LoggingConfig</code> is unchanged.</p>
+</li>
+<li>
+<p><strong>New: the evaluations by name.</strong> <code>train</code>'s second value is still the
+  dict of logged names, and now also has <code>evaluations.returns</code> (seeds x
+  evaluations) and <code>evaluations.timesteps</code>.</p>
+</li>
+<li>
+<p><strong>New: <code>agent.evaluate(state, episodes=10, seed=0)</code></strong>, the returns of
+  fresh episodes of each seed's trained policy, one row per seed, acting as
+  <code>agent.policy</code> does; on a Gymnasium environment the episodes step in
+  Python, one seed after another. The hook of that
+  name on agents with their own loop (UDRL, APG, DreamerV3, TD-MPC2) is now
+  <code>evaluation_metrics</code>; <code>TDMPC2MultiTask.evaluate</code> is unchanged.</p>
+</li>
+<li>
+<p><strong>New: <code>LoggingConfig(on_evaluation=...)</code></strong>, a function called in the
+  training process with each seed's evaluation.</p>
+</li>
 </ul>
 <h2 id="050">0.5.0<a class="headerlink" href="#050" title="Permanent link">&para;</a></h2>
 <p>What a user of 0.4.0 meets:</p>

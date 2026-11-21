@@ -3257,10 +3257,10 @@ DAgger), one update on each step as it comes (<code>IncrementalAgent</code>: AVG
 rollouts (<code>OnPolicyAgent</code>: PPO, APO, PQN) or an iteration of its own
 (<code>OwnIterationAgent</code>: UDRL's segment and replay of segments, APG's
 gradient step through a differentiable rollout; the agent writes
-<code>iterate</code>, <code>report</code> and <code>evaluate</code>, the loop resumes and logs) or rows in
+<code>iterate</code>, <code>report</code> and <code>evaluation_metrics</code>, the loop resumes and logs) or rows in
 a replay of its own, sized for each call (<code>OwnReplayAgent</code>: DreamerV3,
 TD-MPC2; the agent writes <code>prepare_replay</code>, <code>collect</code>, <code>count_updates</code>,
-<code>update</code>, <code>report</code> and <code>evaluate</code> on <code>loop.off_policy</code>'s hooks). Knobs
+<code>update</code>, <code>report</code> and <code>evaluation_metrics</code> on <code>loop.off_policy</code>'s hooks). Knobs
 several agents share are mixins of fields (<code>EntropyTemperature</code>,
 <code>PolicyUpdateStart</code>, <code>ExpertGuided</code>, ...), and an agent changes what its
 family does by overriding a few hooks (<code>network_settings</code>,
@@ -3695,8 +3695,11 @@ own draws.</p>
 </ul>
 <p>What <code>train</code> returns follows from the logging config:</p>
 <ul>
-<li><strong>No <code>LoggingConfig</code>:</strong> no evaluation is traced at all (tracing alone would
+<li><strong><code>logging_config=None</code>:</strong> no evaluation is traced at all (tracing alone would
   rebuild the evaluation environment), and <code>train</code> returns <code>(state, None)</code>.
+  Not given, <code>train</code> makes a <code>LoggingConfig</code> of its own: about ten
+  evaluations, no backend, and a <code>ProgressPrinter</code> as <code>on_evaluation</code>
+  (<a href="https://github.com/YannBerthelot/Ajax/blob/main/src/ajax/logging/progress.py"><code>logging/progress.py</code></a>).
   APG returns its per-update metrics in place of <code>None</code>.</li>
 <li><strong>A <code>LoggingConfig</code>:</strong> the run evaluates whether or not a backend records
   it, and returns <code>(state, evaluations)</code>: every logged key's values per seed

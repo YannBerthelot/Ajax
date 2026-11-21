@@ -3011,6 +3011,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#ajax.evaluate.policy_returns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        policy_returns
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -3734,6 +3745,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#ajax.evaluate.policy_returns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        policy_returns
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -4355,7 +4377,12 @@ evaluation_device: a JAX device, such as jax.devices("cpu")[0] or a
     (ajax.async_evaluation); None: training waits for each evaluation.
     Not the training GPU: one process's programs on a GPU run one after
     the other. On the CPU, a MuJoCo Warp run is evaluated on pure-JAX
-    physics.</p>
+    physics.
+on_evaluation: a function called in the training process with each
+    member's evaluation, on_evaluation(metrics, index): the metrics as
+    arrays and the member's position among train's members. A backend
+    logs in a process of its own; this is for what must happen here,
+    such as printing (ajax.logging.progress.ProgressPrinter).</p>
 
 
 
@@ -5067,6 +5094,34 @@ observations or rewards (the rebuild is the raw env, see
 :func:<code>ajax.environments.row_collector.check_unnormalized_env</code>), and
 <code>env_params</code> describes one system (per-env, batched params cannot be
 rebuilt with <code>num_episodes</code> envs; evaluate a nominal system instead).</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="ajax.evaluate.policy_returns" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">policy_returns</span>
+
+
+<a href="#ajax.evaluate.policy_returns" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">policy_returns</span><span class="p">(</span><span class="n">env_args</span><span class="p">,</span> <span class="n">parts</span><span class="p">,</span> <span class="n">num_episodes</span><span class="p">,</span> <span class="n">key</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>The return and the length of one episode in each of <code>num_episodes</code>
+envs, under a trained policy's <code>parts</code> (<code>ajax.policy.PolicyParts</code>,
+from <code>agent.policy_parts()</code> on one seed's state): what
+<code>agent.evaluate</code> runs.</p>
+<p>The env is rebuilt raw (no normalisation: the parts normalise as the
+agent does) with the training action repeat and episode length, and
+reset from <code>key</code>. The parts act in the env's units from the env's own
+observations, starting an episode on the first step; every env runs one
+episode, its rewards and steps counted until its first end.</p>
 
 
     </div>

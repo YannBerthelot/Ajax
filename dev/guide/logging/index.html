@@ -3140,10 +3140,12 @@
 
 
 <h1 id="logging">Logging<a class="headerlink" href="#logging" title="Permanent link">&para;</a></h1>
-<p>A <code>LoggingConfig</code> turns on evaluation and logging. Every <code>log_frequency</code>
-steps the agent is evaluated, <code>train</code> returns the evaluations, and each run
-logs them to its backends: TensorBoard, Weights &amp; Biases, or a backend of
-your own.</p>
+<p>A <code>LoggingConfig</code> says when a run evaluates and where it logs. Every
+<code>log_frequency</code> steps the agent is evaluated, <code>train</code> returns the
+evaluations, and each run logs them to its backends: TensorBoard, Weights &amp;
+Biases, or a backend of your own. A <code>train</code> call given none evaluates about
+ten times and prints a line for each; <code>logging_config=None</code> evaluates
+nothing.</p>
 <h2 id="loggingconfig"><code>LoggingConfig</code><a class="headerlink" href="#loggingconfig" title="Permanent link">&para;</a></h2>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax.logging</span><span class="w"> </span><span class="kn">import</span> <span class="n">LoggingConfig</span><span class="p">,</span> <span class="n">TensorBoardBackend</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
@@ -3201,6 +3203,11 @@ your own.</p>
 <td><code>use_wandb</code>, <code>use_tensorboard</code></td>
 <td>not set</td>
 <td>deprecated: the earlier way to name backends. Set, they warn and name W&amp;B (on unless set <code>False</code>) and TensorBoard (off unless set <code>True</code>), as before</td>
+</tr>
+<tr>
+<td><code>on_evaluation</code></td>
+<td><code>None</code></td>
+<td>a function called in the training process with each seed's evaluation, <code>on_evaluation(metrics, index)</code>; a backend logs in a process of its own</td>
 </tr>
 <tr>
 <td><code>folder</code></td>

@@ -3536,7 +3536,7 @@ without as an ordinary forward pass. <code>ImageObservations</code> adds the CNN
 <code>loop.train</code> on the agent's own iteration: <code>iterate(agent_state, context)</code>
 acts and learns its way and applies the extensions' <code>post_update</code> where
 its order puts it, <code>report(agent_state, aux)</code> gives the training metrics an
-evaluation logs, <code>evaluate(agent_state, key, context, num_episode_test)</code> its
+evaluation logs, <code>evaluation_metrics(agent_state, key, context, num_episode_test)</code> its
 policy's, and <code>steps_per_iteration(context)</code> the env steps one iteration
 takes. A train call's options go to <code>configure_call(context, n_iterations,
 ...)</code>, which returns the call's context and how a resumed state is
@@ -3551,7 +3551,7 @@ which <code>make_train</code> puts in <code>context.buffer</code>. Each tick,
 <code>collect(agent_state, tick, context)</code> stores one row per env,
 <code>count_updates(agent_state, tick, context)</code> gives the updates of the
 absolute tick (DreamerV3's train ratio, TD-MPC2's seed-phase burst) and
-<code>update(agent_state, tick, context)</code> runs one; <code>report</code> and <code>evaluate</code> are
+<code>update(agent_state, tick, context)</code> runs one; <code>report</code> and <code>evaluation_metrics</code> are
 as in the own-iteration family. An agent may count its ticks its own way
 (<code>count_ticks</code>), restart what it logs after each log (<code>make_after_log</code>)
 and check a finished call (<code>check_run</code>, TD-MPC2's refusal of

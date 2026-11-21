@@ -2589,6 +2589,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#ajax.agents.base.ActorCritic.smallest_evaluation_spacing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        smallest_evaluation_spacing
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#ajax.agents.base.ActorCritic.train" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3049,6 +3060,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#ajax.agents.families.DeclaredAgent.evaluate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        evaluate
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#ajax.agents.families.DeclaredAgent.policy_parts" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3381,6 +3403,17 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#ajax.agents.families.OnPolicyAgent.smallest_evaluation_spacing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        smallest_evaluation_spacing
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#ajax.agents.families.OnPolicyAgent.init" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3475,10 +3508,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#ajax.agents.families.OwnIterationAgent.evaluate" class="md-nav__link">
+  <a href="#ajax.agents.families.OwnIterationAgent.evaluation_metrics" class="md-nav__link">
     <span class="md-ellipsis">
       
-        evaluate
+        evaluation_metrics
       
     </span>
   </a>
@@ -3624,10 +3657,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#ajax.agents.families.OwnReplayAgent.evaluate" class="md-nav__link">
+  <a href="#ajax.agents.families.OwnReplayAgent.evaluation_metrics" class="md-nav__link">
     <span class="md-ellipsis">
       
-        evaluate
+        evaluation_metrics
       
     </span>
   </a>
@@ -5087,6 +5120,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#ajax.agents.base.ActorCritic.smallest_evaluation_spacing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        smallest_evaluation_spacing
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#ajax.agents.base.ActorCritic.train" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -5547,6 +5591,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#ajax.agents.families.DeclaredAgent.evaluate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        evaluate
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#ajax.agents.families.DeclaredAgent.policy_parts" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -5879,6 +5934,17 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#ajax.agents.families.OnPolicyAgent.smallest_evaluation_spacing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        smallest_evaluation_spacing
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#ajax.agents.families.OnPolicyAgent.init" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -5973,10 +6039,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#ajax.agents.families.OwnIterationAgent.evaluate" class="md-nav__link">
+  <a href="#ajax.agents.families.OwnIterationAgent.evaluation_metrics" class="md-nav__link">
     <span class="md-ellipsis">
       
-        evaluate
+        evaluation_metrics
       
     </span>
   </a>
@@ -6122,10 +6188,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#ajax.agents.families.OwnReplayAgent.evaluate" class="md-nav__link">
+  <a href="#ajax.agents.families.OwnReplayAgent.evaluation_metrics" class="md-nav__link">
     <span class="md-ellipsis">
       
-        evaluate
+        evaluation_metrics
       
     </span>
   </a>
@@ -7699,6 +7765,27 @@ rest.</p>
 <div class="doc doc-object doc-function">
 
 
+<h3 id="ajax.agents.base.ActorCritic.smallest_evaluation_spacing" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">smallest_evaluation_spacing</span>
+
+
+<a href="#ajax.agents.base.ActorCritic.smallest_evaluation_spacing" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">smallest_evaluation_spacing</span><span class="p">()</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>The environment steps of one iteration, between two of which a
+run can evaluate: one step in each env.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
 <h3 id="ajax.agents.base.ActorCritic.train" class="doc doc-heading">
             <span class="doc doc-object-name doc-function-name">train</span>
 
@@ -7708,7 +7795,7 @@ rest.</p>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">seed</span><span class="o">=</span><span class="mi">42</span><span class="p">,</span>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="n">n_timesteps</span><span class="o">=</span><span class="nb">int</span><span class="p">(</span><span class="mf">1000000.0</span><span class="p">),</span>
 <a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    <span class="n">num_episode_test</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span>
-<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="n">logging_config</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="n">logging_config</span><span class="o">=</span><span class="s2">&quot;default&quot;</span><span class="p">,</span>
 <a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="n">on_ids_ready</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    <span class="n">initial_state</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>    <span class="n">total_timesteps</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
@@ -7792,20 +7879,22 @@ least one, and warns when it is not a whole number of them.</p>
                 <code>logging_config</code>
             </td>
             <td>
-                  <code><span title="typing.Optional">Optional</span>[<a class="autorefs autorefs-internal" title="LoggingConfig (ajax.logging.wandb_logging.LoggingConfig)" href="../logging/#ajax.logging.wandb_logging.LoggingConfig">LoggingConfig</a>]</code>
+                  <code><span title="typing.Union">Union</span>[<a class="autorefs autorefs-internal" title="LoggingConfig (ajax.logging.wandb_logging.LoggingConfig)" href="../logging/#ajax.logging.wandb_logging.LoggingConfig">LoggingConfig</a>, None, <span title="str">str</span>]</code>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>Turns evaluation and logging on
+                <p>the evaluation and logging
 (<code>ajax.logging.LoggingConfig</code>): the policy is evaluated
 every <code>log_frequency</code> steps on <code>num_episode_test</code>
 episodes, each run logs to the config's backends, and
-<code>out</code> holds the evaluations. <code>None</code>: no evaluation and
-no log.</p>
+<code>out</code> holds the evaluations. Not given (<code>"default"</code>):
+about ten evaluations over the call, a printed line for
+each, no backend. <code>None</code>: no evaluation, no log and
+nothing printed.</p>
               </div>
             </td>
             <td>
-                  <code>None</code>
+                  <code>&#39;default&#39;</code>
             </td>
           </tr>
           <tr class="doc-section-item">
@@ -7935,8 +8024,10 @@ result; a run may resume in another precision.</p>
         <p>Returns <code>(state, out)</code>, each leaf with a leading axis over the
 members: the seeds, or the sweep's configurations, each over the
 seeds, as :attr:<code>members</code> lists them. On the
-shared loop (<code>ajax.agents.loop</code>) <code>out</code> is <code>None</code> without a
-logging config, else the evaluations.</p>
+shared loop (<code>ajax.agents.loop</code>) <code>out</code> is <code>None</code> with
+<code>logging_config=None</code>, else the evaluations
+(<code>ajax.logging.progress.Evaluations</code>: the dict of every logged
+name, with <code>returns</code> and <code>timesteps</code>).</p>
 
 
     </div>
@@ -9758,6 +9849,35 @@ agent's evaluation acts (ajax.policy.Policy).</p>
 <div class="doc doc-object doc-function">
 
 
+<h4 id="ajax.agents.families.DeclaredAgent.evaluate" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">evaluate</span>
+
+
+<a href="#ajax.agents.families.DeclaredAgent.evaluate" class="headerlink" title="Permanent link">&para;</a></h4>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">evaluate</span><span class="p">(</span><span class="n">agent_state</span><span class="p">,</span> <span class="n">episodes</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">seed</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>The return of <code>episodes</code> fresh episodes of each member's trained
+policy: a row per member of agent_state (train's state, or its
+(state, out)), a column per episode. The policy acts as
+agent.policy does, exactly as the agent's evaluation acts; <code>seed</code>
+draws the episodes' starts. On a Gymnasium environment the episodes
+step in Python, a member after another. Its mean over a row is that
+member's score::</p>
+<div class="highlight"><pre><span></span><code>state, _ = agent.train(seed=[0, 1], n_timesteps=50_000)
+agent.evaluate(state).mean(axis=1)
+</code></pre></div>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
 <h4 id="ajax.agents.families.DeclaredAgent.policy_parts" class="doc doc-heading">
             <span class="doc doc-object-name doc-function-name">policy_parts</span>
 
@@ -10958,6 +11078,26 @@ agent_state.last_rollout even when no extension reads it.</p>
 <div class="doc doc-object doc-function">
 
 
+<h4 id="ajax.agents.families.OnPolicyAgent.smallest_evaluation_spacing" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">smallest_evaluation_spacing</span>
+
+
+<a href="#ajax.agents.families.OnPolicyAgent.smallest_evaluation_spacing" class="headerlink" title="Permanent link">&para;</a></h4>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">smallest_evaluation_spacing</span><span class="p">()</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>A rollout: n_steps in each env.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
 <h4 id="ajax.agents.families.OnPolicyAgent.init" class="doc doc-heading">
             <span class="doc doc-object-name doc-function-name">init</span>
 
@@ -11108,7 +11248,7 @@ resumes. UDRL collects a segment and fits its replay of segments
 rollout.</p>
 <p>An agent writes init, iterate (applying the extensions' post_update
 where its order puts it), report (the training metrics an evaluation
-logs), evaluate and count_iteration_steps. It may take options per train
+logs), evaluation_metrics and count_iteration_steps. It may take options per train
 call (configure_call), and return every iteration's output instead of
 the evaluations (returns_iterations, make_iteration_output). It takes no
 dataset: train_offline refuses it.</p>
@@ -11198,12 +11338,14 @@ aux, which report and make_iteration_output read).</p>
 <div class="doc doc-object doc-function">
 
 
-<h4 id="ajax.agents.families.OwnIterationAgent.evaluate" class="doc doc-heading">
-            <span class="doc doc-object-name doc-function-name">evaluate</span>
+<h4 id="ajax.agents.families.OwnIterationAgent.evaluation_metrics" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">evaluation_metrics</span>
 
 
-<a href="#ajax.agents.families.OwnIterationAgent.evaluate" class="headerlink" title="Permanent link">&para;</a></h4>
-<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">evaluate</span><span class="p">(</span><span class="n">agent_state</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">context</span><span class="p">,</span> <span class="n">num_episode_test</span><span class="p">)</span>
+<a href="#ajax.agents.families.OwnIterationAgent.evaluation_metrics" class="headerlink" title="Permanent link">&para;</a></h4>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">evaluation_metrics</span><span class="p">(</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">agent_state</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">context</span><span class="p">,</span> <span class="n">num_episode_test</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="p">)</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -11387,7 +11529,7 @@ each call (prepare_replay), and it takes no dataset. It assumes the row
 collector (ajax.environments.row_collector): a resumed run starts at the
 tick of the rows it counted, and each env copy may carry its own system.</p>
 <p>An agent writes prepare_replay, init, collect, count_updates, update,
-report and evaluate; it may count its ticks (count_ticks), restart what
+report and evaluation_metrics; it may count its ticks (count_ticks), restart what
 it logs after each log (make_after_log) and check a call (check_run).</p>
 
 
@@ -11539,12 +11681,14 @@ what update reads).</p>
 <div class="doc doc-object doc-function">
 
 
-<h4 id="ajax.agents.families.OwnReplayAgent.evaluate" class="doc doc-heading">
-            <span class="doc doc-object-name doc-function-name">evaluate</span>
+<h4 id="ajax.agents.families.OwnReplayAgent.evaluation_metrics" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">evaluation_metrics</span>
 
 
-<a href="#ajax.agents.families.OwnReplayAgent.evaluate" class="headerlink" title="Permanent link">&para;</a></h4>
-<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">evaluate</span><span class="p">(</span><span class="n">agent_state</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">context</span><span class="p">,</span> <span class="n">num_episode_test</span><span class="p">)</span>
+<a href="#ajax.agents.families.OwnReplayAgent.evaluation_metrics" class="headerlink" title="Permanent link">&para;</a></h4>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">evaluation_metrics</span><span class="p">(</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">agent_state</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">context</span><span class="p">,</span> <span class="n">num_episode_test</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="p">)</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -11671,7 +11815,7 @@ after_log). None by default: an identity would still trace the gate.</p>
 
     <div class="doc doc-contents ">
 
-        <p>None: the agent evaluates itself (evaluate), so the shared
+        <p>None: the agent evaluates itself (evaluation_metrics), so the shared
 evaluation's critic estimate is never compared; a world model's
 critic reads its latent state, not the observation that estimate
 passes.</p>
@@ -11715,7 +11859,7 @@ continues instead of restarting.</p>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">seed</span><span class="o">=</span><span class="mi">42</span><span class="p">,</span>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="n">n_timesteps</span><span class="o">=</span><span class="nb">int</span><span class="p">(</span><span class="mf">1000000.0</span><span class="p">),</span>
 <a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    <span class="n">num_episode_test</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span>
-<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="n">logging_config</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="n">logging_config</span><span class="o">=</span><span class="s2">&quot;default&quot;</span><span class="p">,</span>
 <a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="n">on_ids_ready</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    <span class="n">initial_state</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>    <span class="n">total_timesteps</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>

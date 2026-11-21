@@ -3378,7 +3378,7 @@ preprocessing stay yours.</p>
 <a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>    <span class="n">seed</span><span class="o">=</span><span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">],</span>  <span class="c1"># one run per seed, all in one program</span>
 <a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>    <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">2_000</span><span class="p">,</span>  <span class="c1"># environment steps this call trains for</span>
 <a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>    <span class="n">num_episode_test</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span>  <span class="c1"># test episodes per evaluation</span>
-<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>    <span class="n">logging_config</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>  <span class="c1"># None: no evaluation, and out is None</span>
+<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>    <span class="n">logging_config</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>  <span class="c1"># None: no evaluation; not given: about ten, printed</span>
 <a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a>    <span class="n">initial_state</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>  <span class="c1"># or a state to continue from</span>
 <a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a>    <span class="n">total_timesteps</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>  <span class="c1"># the run&#39;s horizon; None: this call&#39;s end</span>
 <a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a><span class="p">)</span>
@@ -3481,14 +3481,21 @@ latent policy or planner. Their pages say what they log.</p>
 <h3 id="what-train-returns">What <code>train</code> returns<a class="headerlink" href="#what-train-returns" title="Permanent link">&para;</a></h3>
 <p><code>train</code> returns <code>(state, out)</code>.</p>
 <ul>
-<li><strong>Without a <code>logging_config</code></strong>, <code>out</code> is <code>None</code>. The evaluation is not
-  even compiled into the program.</li>
-<li><strong>With one</strong>, <code>out</code> holds the evaluations: a dictionary from each logged
-  name to an array of shape <code>(seeds, evaluations)</code>. <code>out["timestep"]</code> says
-  when each evaluation ran. A call that evaluates fewer times than its
-  maximum pads the rest with -1 (the timestep) and NaN (everything else).</li>
-<li><strong>APG</strong> returns its per-update metrics instead. See <a href="../../algorithms/apg/">APG</a>.</li>
+<li><strong>With no <code>logging_config</code> given</strong>, the run evaluates about ten times
+  (every tenth of <code>n_timesteps</code>, rounded up to a whole number of the agent's
+  iterations, such as PPO's rollouts), prints a line for each (the mean return over the seeds, with the lowest
+  and highest) and <code>out</code> holds the evaluations.</li>
+<li><strong>With <code>logging_config=None</code></strong>, <code>out</code> is <code>None</code> and nothing is printed.
+  The evaluation is not even compiled into the program: the fastest run.</li>
+<li><strong>With a <code>LoggingConfig</code></strong>, the run evaluates every <code>log_frequency</code> steps,
+  logs to its backends, prints nothing, and <code>out</code> holds the evaluations.</li>
 </ul>
+<p>The evaluations are a dictionary from each logged name to an array of shape
+<code>(seeds, evaluations)</code>, with two entries by name: <code>out.returns</code> (the mean
+evaluation return) and <code>out.timesteps</code> (when each evaluation ran, also
+<code>out["timestep"]</code> per seed). A call that evaluates fewer times than its
+  maximum pads the rest with -1 (the timestep) and NaN (everything else).
+- <strong>APG</strong> returns its per-update metrics instead. See <a href="../../algorithms/apg/">APG</a>.</p>
 <p>The logged names are listed in <a href="../logging/">Logging</a>.</p>
 <p><code>state</code> is the agent's whole state: <code>actor_state</code> and <code>critic_state</code> (the
 networks, their optimisers and parameters), <code>collector_state</code> (the

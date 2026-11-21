@@ -1687,6 +1687,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#presets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Presets
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#notes" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3234,6 +3245,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#presets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Presets
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#notes" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3783,6 +3805,18 @@ environment steps" are 500,000 agent steps:</p>
 </tr>
 </tbody>
 </table>
+<h2 id="presets">Presets<a class="headerlink" href="#presets" title="Permanent link">&para;</a></h2>
+<p><code>TDMPC2.preset("MuJoCo", env_id)</code> sets <code>discount_max=0.99</code> and <code>rho=0.7</code>,
+which the latest official code sets for every task of its gym module:
+Walker2d, HalfCheetah, BipedalWalker and LunarLander
+(nicklashansen/tdmpc2@<code>eece801</code>, <code>tdmpc2/envs/mujoco.py:57-58</code>;
+<a href="../../guide/training/#presets">Presets</a>). With 1000-step episodes the
+derived <code>gamma</code> becomes 0.99 instead of 0.995, and the loss weights decay
+more slowly along the horizon, whose last step is the only one a
+termination can fall on. The preset is named after the module and applies
+to the gymnasium MuJoCo tasks in general, Hopper included, which the
+reference does not list. A task that terminates also needs <code>episodic=True</code>,
+as in <code>TDMPC2.preset("MuJoCo", "mujoco:Hopper-v5", episodic=True)</code>.</p>
 <h2 id="notes">Notes<a class="headerlink" href="#notes" title="Permanent link">&para;</a></h2>
 <ul>
 <li><strong>What <code>n_timesteps</code> counts.</strong> Agent steps (environment steps after action

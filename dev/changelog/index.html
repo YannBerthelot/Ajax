@@ -3817,6 +3817,11 @@ before this version do not restore at the new defaults. The rest:</p>
 <p><strong>Faster: CQL and Cal-QL score their sampled actions in one critic pass</strong>
   where there were four. Same values to rounding.</p>
 </li>
+<li>
+<p><strong>New: <code>TDMPC2.preset("MuJoCo", env_id)</code>.</strong> The two settings the latest
+  official TD-MPC2 code changes for its gym MuJoCo tasks: <code>discount_max=0.99</code>
+  and <code>rho=0.7</code>. TD-MPC2's defaults are unchanged.</p>
+</li>
 </ul>
 <h2 id="050">0.5.0<a class="headerlink" href="#050" title="Permanent link">&para;</a></h2>
 <p>What a user of 0.4.0 meets:</p>

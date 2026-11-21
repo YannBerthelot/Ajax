@@ -85,6 +85,20 @@ Every default is the paper's (`config.yaml` at `5f6fade`).
 | `episodic` | False | accept terminating tasks (the latest code's episodic mode) |
 | `action_repeat`, `episode_length` | 1, 1000 | simulator steps per agent step, and per episode (Brax, Playground) |
 
+## Presets
+
+`TDMPC2.preset("MuJoCo", env_id)` sets `discount_max=0.99` and `rho=0.7`,
+which the latest official code sets for every task of its gym module:
+Walker2d, HalfCheetah, BipedalWalker and LunarLander
+(nicklashansen/tdmpc2@`eece801`, `tdmpc2/envs/mujoco.py:57-58`;
+[Presets](../guide/training.md#presets)). With 1000-step episodes the
+derived `gamma` becomes 0.99 instead of 0.995, and the loss weights decay
+more slowly along the horizon, whose last step is the only one a
+termination can fall on. The preset is named after the module and applies
+to the gymnasium MuJoCo tasks in general, Hopper included, which the
+reference does not list. A task that terminates also needs `episodic=True`,
+as in `TDMPC2.preset("MuJoCo", "mujoco:Hopper-v5", episodic=True)`.
+
 ## Notes
 
 - **What `n_timesteps` counts.** Agent steps (environment steps after action

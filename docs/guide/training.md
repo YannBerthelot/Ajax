@@ -97,6 +97,7 @@ preprocessing stay yours.
 | [PQN](../algorithms/pqn.md#presets) | `CartPole`, `Atari` | `architecture`, `n_envs`, `n_steps`, `n_epochs`, `num_minibatches`, `learning_rate`, `lr_linear_decay`, `epsilon_end`, `epsilon_decay_frac`, `q_lambda`, `reward_scale` | purejaxql's configs |
 | [REDQ](../algorithms/redq.md#presets) | `Hopper`, `HalfCheetah`, `Walker2d`, `Ant`, `Humanoid` | `target_entropy_per_dim` | MBPO's target entropies |
 | [TD3](../algorithms/td3.md#presets) | `D4RL` (TD3+BC) | `normalize_observations`, `extensions` | TD3_BC's `main.py` |
+| [TDMPC2](../algorithms/tdmpc2.md#presets) | `MuJoCo` | `discount_max`, `rho` | the latest code's `envs/mujoco.py` |
 | [TQC](../algorithms/tqc.md#presets) | `Hopper`, `HalfCheetah`, `Walker2d`, `Ant`, `Humanoid` | `top_quantiles_to_drop_per_net` | the authors' README |
 
 Each agent's page gives the values. A test compares this table with the

@@ -670,6 +670,10 @@ before this version do not restore at the new defaults. The rest:
 - **Faster: CQL and Cal-QL score their sampled actions in one critic pass**
   where there were four. Same values to rounding.
 
+- **New: `TDMPC2.preset("MuJoCo", env_id)`.** The two settings the latest
+  official TD-MPC2 code changes for its gym MuJoCo tasks: `discount_max=0.99`
+  and `rho=0.7`. TD-MPC2's defaults are unchanged.
+
 ## 0.5.0
 
 What a user of 0.4.0 meets:

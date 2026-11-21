@@ -24,13 +24,14 @@ model.learn(total_timesteps=4_096)
 
 ```python
 from ajax import PPO
-from ajax.logging import LoggingConfig
 
 agent = PPO("CartPole-v1")
-logging = LoggingConfig(log_frequency=2_048, backends=())
-state, evaluations = agent.train(seed=[0, 1], n_timesteps=4_096, logging_config=logging)
-print(evaluations["Eval/episodic mean reward"])  # one row per seed
+state, evaluations = agent.train(seed=[0, 1], n_timesteps=4_096)
+print(evaluations.returns)  # one row per seed, one column per evaluation
 ```
+
+`train` evaluates the policy about ten times over the run and prints a line
+for each, with no callback to set up; `logging_config=None` turns both off.
 
 There is no policy name to give: the networks follow the environment's
 observations (an MLP, or a CNN encoder for images, see
@@ -46,7 +47,8 @@ observations (an MLP, or a CNN encoder for images, see
 | `make_vec_env(env_id, n_envs=8)` | `PPO(env_id, n_envs=8)` | [Training an agent](../guide/training.md#parallel-environments) |
 | `VecNormalize(venv)` | `normalize_observations=True`, `normalize_rewards=True` | [Environments](../guide/environments.md#normalisation) |
 | `policy_kwargs=dict(net_arch=[64, 64])` | `actor_architecture=("64", "tanh", "64", "tanh")`, and `critic_architecture` | [Networks](../guide/networks.md) |
-| `EvalCallback(eval_env, eval_freq=...)` | `LoggingConfig(log_frequency=...)`; `train` returns the evaluations | [Logging](../guide/logging.md) |
+| `EvalCallback(eval_env, eval_freq=...)` | nothing: `train` evaluates and returns the evaluations; `LoggingConfig(log_frequency=...)` sets how often | [Logging](../guide/logging.md) |
+| `evaluate_policy(model, env, n_eval_episodes=10)` | `agent.evaluate(state, episodes=10)`, one row of returns per seed | [Quickstart](quickstart.md#use-the-trained-policy) |
 | `tensorboard_log="runs"` | `LoggingConfig(backends=(TensorBoardBackend("runs"),))` | [Logging](../guide/logging.md#backends) |
 | `model.predict(obs, deterministic=True)` | `agent.predict(state, obs)`, or `agent.policy(state)` for a policy with memory | [Train, evaluate, deploy](../guide/deploy.md) |
 | `model.save(path)`, `PPO.load(path)` | `agent.save(state, path)`, `agent, state = PPO.load(path)` | [Checkpoints](../guide/checkpoints.md#save-and-load-an-agent) |
@@ -108,7 +110,7 @@ environment, extensions) are passed to `load` again
 
 - **Callbacks.** A training run is one compiled program, so no Python runs
   between its steps. What a callback would do goes elsewhere: evaluations
-  come from `LoggingConfig`, changes to the training loop are
+  come with `train`, changes to the training loop are
   [extensions](../guide/extensions.md), and a run can be cut into several
   `train` calls with your own code between them
   ([Continuing a run](../guide/training.md#continuing-a-run)).

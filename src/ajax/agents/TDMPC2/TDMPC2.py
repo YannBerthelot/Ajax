@@ -435,7 +435,7 @@ class TDMPC2(OwnReplayAgent):
         )
         return agent_state, None
 
-    def evaluate(
+    def evaluation_metrics(
         self,
         agent_state: TDMPC2State,
         key: jax.Array,

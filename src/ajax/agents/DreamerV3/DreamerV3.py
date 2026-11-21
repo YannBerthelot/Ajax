@@ -440,7 +440,7 @@ class DreamerV3(OwnReplayAgent):
         )
         return agent_state, None
 
-    def evaluate(
+    def evaluation_metrics(
         self,
         agent_state: DreamerV3State,
         key: jax.Array,

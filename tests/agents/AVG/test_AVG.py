@@ -36,7 +36,7 @@ def test_avg_keeps_its_temperature_at_alpha_init():
     )
 
     def log_alpha(n_timesteps: int) -> np.ndarray:
-        state, _ = agent.train(seed=0, n_timesteps=n_timesteps)
+        state, _ = agent.train(seed=0, n_timesteps=n_timesteps, logging_config=None)
         return np.asarray(state.alpha.params["log_alpha"])
 
     initial, trained = log_alpha(0), log_alpha(8)

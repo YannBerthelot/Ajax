@@ -119,7 +119,7 @@ def test_the_actor_remembers_only_its_current_episode(name: str, kind: str) -> N
     agent = getattr(ajax, name)(
         env_id=env, env_params=env.default_params, n_envs=2, memory=memory, **options
     )
-    state, _ = agent.train(seed=SEEDS, n_timesteps=budget)
+    state, _ = agent.train(seed=SEEDS, n_timesteps=budget, logging_config=None)
     actor = state.actor_state
     shown = np.asarray(state.collector_state.last_obs)
     checked = 0
@@ -158,7 +158,7 @@ def test_the_next_action_reads_the_carry(name: str, kind: str) -> None:
     agent = getattr(ajax, name)(
         env_id=env, env_params=env.default_params, n_envs=2, memory=memory, **options
     )
-    state, _ = agent.train(seed=[0], n_timesteps=0)
+    state, _ = agent.train(seed=[0], n_timesteps=0, logging_config=None)
     actor = state.actor_state
     params = _at(actor.params, 0)
     fresh = zeros_carry_like(_at(actor.hidden_state, 0), 1)

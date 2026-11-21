@@ -31,7 +31,9 @@ def _state(name: str, normalize_observations: bool = False):
         critic_architecture=net,
         normalize_observations=normalize_observations,
     )
-    return jax.tree.map(lambda x: x[0], agent.train(seed=0, n_timesteps=0)[0])
+    return jax.tree.map(
+        lambda x: x[0], agent.train(seed=0, n_timesteps=0, logging_config=None)[0]
+    )
 
 
 def _target(
@@ -107,7 +109,9 @@ def test_the_next_actions_log_probability_is_the_joint_one() -> None:
     dimensions: one column, as the target's."""
     env, params = paid_action.make((-1.0, 1.0), length=8, dim=2)
     agent = SAC(env, env_params=params, actor_architecture=("8", "relu"))
-    state = jax.tree.map(lambda x: x[0], agent.train(seed=0, n_timesteps=0)[0])
+    state = jax.tree.map(
+        lambda x: x[0], agent.train(seed=0, n_timesteps=0, logging_config=None)[0]
+    )
     actions, log_probs = sample_next_actions(
         state.actor_state, jnp.ones((ROWS, 3)), KEY
     )

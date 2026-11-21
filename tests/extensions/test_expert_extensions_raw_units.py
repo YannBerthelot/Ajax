@@ -69,7 +69,7 @@ def _seen(expert: _RecordingExpert, *extensions, **kwargs) -> list[np.ndarray]:
         extensions=extensions,
         **kwargs,
     )
-    agent.train(seed=0, n_timesteps=64)
+    agent.train(seed=0, n_timesteps=64, logging_config=None)
     jax.effects_barrier()
     assert 8 in {seen.shape[0] for seen in expert.seen}  # the update called it
     return expert.seen
@@ -144,7 +144,7 @@ def test_the_buffer_keeps_raw_next_observations_only_for_a_declared_reader(
         expert_policy=expert,
         extensions=stacks[name],
     )
-    state, _ = agent.train(seed=0, n_timesteps=0)
+    state, _ = agent.train(seed=0, n_timesteps=0, logging_config=None)
     experience = state.collector_state.buffer_state.experience
     assert ("raw_next_obs" in experience) == stored
 
@@ -176,7 +176,7 @@ def test_the_buffer_keeps_raw_observations_and_expert_flags_only_for_an_expert(
     if extension:
         kw["extensions"] = (ImitationLoss(expert_policy=lambda obs: obs[..., :1]),)
     agent = getattr(ajax, agent_name)("Pendulum-v1", n_envs=2, **kw)
-    state, _ = agent.train(seed=0, n_timesteps=0)
+    state, _ = agent.train(seed=0, n_timesteps=0, logging_config=None)
     experience = state.collector_state.buffer_state.experience
     assert ("raw_obs" in experience) == ("is_expert" in experience) == stored
 

@@ -16,21 +16,45 @@ An agent takes an environment id and its hyperparameters; `train` runs it.
 Here PPO learns CartPole with three seeds at once:
 
 ```python
+from ajax import PPO
+
+agent = PPO("CartPole-v1", n_envs=8, n_steps=128)
+state, evaluations = agent.train(seed=[1, 2, 3], n_timesteps=40_960)
+```
+
+It prints a line when it starts, one per evaluation and one at the end:
+
+```text
+PPO, 3 run(s) of 40,960 steps: compiling, then a line per evaluation (pass logging_config=None for a silent run with none).
+      4,096 / 40,960 steps | return 171.1 (min 69.6, max 280.0 over 3 seeds) | 2.5 s
+      8,192 / 40,960 steps | return 259.1 (min 156.9, max 450.1 over 3 seeds) | 4.2 s
+...
+     40,960 / 40,960 steps | return 500.0 (min 500.0, max 500.0 over 3 seeds) | 5.5 s
+Done in 5.5 s.
+```
+
+What happened:
+
+- `PPO("CartPole-v1", ...)` looked the id up in gymnax and built 8 copies of
+  the environment, which step in parallel inside each seed.
+- `train` compiled the training, environment included, and ran the three
+  seeds side by side. The first line's time includes the compilation.
+- Ten times over the run it evaluated each seed's policy on 10 test
+  episodes (`num_episode_test`) and printed their mean return, with the
+  lowest and highest seed.
+
+`evaluations` holds what was printed, and every other logged value:
+
+```python
 import matplotlib.pyplot as plt
 
 from ajax import PPO
-from ajax.logging import LoggingConfig
 
-agent = PPO("CartPole-v1", n_envs=8, n_steps=128)  # 1,024 steps per rollout
-# Evaluate every 4,096 steps; backends=() keeps the results in memory only.
-logging = LoggingConfig(log_frequency=4_096, backends=())
-state, evaluations = agent.train(
-    seed=[1, 2, 3], n_timesteps=32_768, logging_config=logging
-)
+agent = PPO("CartPole-v1", n_envs=8, n_steps=128)
+state, evaluations = agent.train(seed=[1, 2, 3], n_timesteps=40_960)
 
-steps = evaluations["timestep"][0]  # [ 4096  8192 ... 32768]
-returns = evaluations["Eval/episodic mean reward"]  # shape (3, 8): seeds x evaluations
-print(returns.mean(axis=0))
+steps = evaluations.timesteps  # [ 4096  8192 ... 40960]
+returns = evaluations.returns  # shape (3, 10): seeds x evaluations
 
 plt.plot(steps, returns.mean(axis=0))
 plt.fill_between(steps, returns.min(axis=0), returns.max(axis=0), alpha=0.3)
@@ -39,19 +63,51 @@ plt.ylabel("evaluation return")
 plt.savefig("cartpole.png")
 ```
 
-What happened:
+It is a dict of every logged name to an array with one row per seed and one
+column per evaluation; `returns` and `timesteps` are its two most read
+entries. To choose when the evaluations come, or to log to TensorBoard or
+Weights & Biases, pass a `LoggingConfig` ([Logging](../guide/logging.md));
+`logging_config=None` trains with no evaluation and prints nothing, which is
+the fastest. [Training an agent](../guide/training.md) has the details.
 
-- `PPO("CartPole-v1", ...)` looked the id up in gymnax and built 8 copies of
-  the environment, which step in parallel inside each seed.
-- `train` compiled the training, environment included, and ran the three
-  seeds side by side with `jax.vmap`.
-- Every 4,096 steps it evaluated the policy on 10 test episodes
-  (`num_episode_test`) and stored the mean return.
+## JAX environments first, Gymnasium supported
 
-`evaluations` maps every logged name to an array with one row per seed and
-one column per evaluation. Without a `logging_config`, `train` does not
-evaluate at all and returns `(state, None)`.
-[Training an agent](../guide/training.md) has the details.
+`"CartPole-v1"` above is [gymnax](https://github.com/RobertTLange/gymnax)'s
+CartPole, written in JAX, not Gymnasium's. **Ajax is meant to be used with
+JAX environments**: gymnax, Brax, MuJoCo Playground, Gymnasium's MuJoCo
+tasks in JAX (`"mujoco:<id>"`), or your own with gymnax's interface. The
+environment then compiles into the same program as the agent, and the whole
+run, every environment copy and every seed, stays on one device from start
+to end, a CPU or a GPU. That is where the speed comes from, and what the
+rest of this documentation assumes.
+
+**Gymnasium environments are supported too.** Ask for one with the
+`gymnasium:` prefix:
+
+```python
+from ajax import PPO
+
+agent = PPO("gymnasium:CartPole-v1", n_envs=8, n_steps=128)
+state, evaluations = agent.train(seed=[1, 2], n_timesteps=2_048)
+print(agent.evaluate(state, episodes=5).mean(axis=1))
+```
+
+The calls are the same, but the environment steps in Python:
+
+- every step leaves the compiled program and comes back, so training is
+  slower and a GPU does not help;
+- the seeds train one after another, not side by side;
+- some features refuse it (resuming from a saved state, action repeat,
+  gradients through the environment).
+
+Use it when your task has no JAX version, and a JAX environment whenever one
+exists. An id without the prefix never reaches Gymnasium, and building one
+warns that it steps in Python, naming the closest JAX tasks. Gymnasium's
+MuJoCo tasks need the `gymnasium` extra
+([Installation](installation.md#extras)).
+[Environments](../guide/environments.md) lists the ids of each source, and
+[Gymnasium environments](../guide/environments.md#gymnasium-environments)
+the closest JAX task of each Gymnasium one.
 
 ## Continuous actions
 
@@ -59,14 +115,11 @@ The same pattern works for every agent. SAC on Pendulum:
 
 ```python
 from ajax import SAC
-from ajax.logging import LoggingConfig
 
 # SAC waits learning_starts steps (10,000 by default) before its first update;
 # this short demonstration starts after 1,000.
 agent = SAC("Pendulum-v1", learning_starts=1_000)
-logging = LoggingConfig(log_frequency=1_000, backends=())
-state, evaluations = agent.train(seed=[1, 2], n_timesteps=3_000, logging_config=logging)
-print(evaluations["Eval/episodic mean reward"])
+state, evaluations = agent.train(seed=[1, 2], n_timesteps=3_000)
 ```
 
 Three thousand steps show the mechanics, not a trained pendulum: give SAC
@@ -75,65 +128,49 @@ help pick an agent and list each one's defaults.
 
 ## Use the trained policy
 
-`predict` returns the action of one seed's policy for an observation, in the
-environment's units. It acts as the evaluation acts: it normalises the
-observation as the agent does and maps the action onto the environment's
-bounds.
+`evaluate` runs fresh episodes of each seed's trained policy and
+returns their returns, one row per seed:
 
 ```python
-import gymnax
-import jax
-
 from ajax import PPO
 
 agent = PPO("CartPole-v1", n_envs=8, n_steps=128)
-state, _ = agent.train(seed=[0, 1], n_timesteps=16_384)
+state, _ = agent.train(seed=[0, 1], n_timesteps=16_384, logging_config=None)
 
-env, params = gymnax.make("CartPole-v1")
-key = jax.random.PRNGKey(0)
-obs, env_state = env.reset(key, params)
-episode_return, done = 0.0, False
-while not done:
-    action = agent.predict(state, obs)  # seed 0's policy
-    key, step_key = jax.random.split(key)
-    obs, env_state, reward, terminated, truncated, _ = env.step(
-        step_key, env_state, action, params
-    )
-    episode_return += float(reward)
-    done = bool(terminated or truncated)
-print(episode_return)
+returns = agent.evaluate(state, episodes=20)  # shape (2, 20)
+print(returns.mean(axis=1))  # each seed's score
 ```
 
-An agent with memory, a recurrent actor or a world model, acts through
-`agent.policy(state)`, which carries the memory from step to step.
+To act in a loop of your own, `agent.predict(state, observation)` returns
+one seed's action for an observation, in the environment's units, and
+`agent.policy(state)` carries a memory from step to step.
 [Train, evaluate, deploy](../guide/deploy.md) shows both.
 
-## Save and resume
+## Save and load
 
-`save_checkpoint` writes a state to disk. `load_checkpoint` reads it back
-into an agent built with the same arguments, which `train` then continues:
+`agent.save` writes the state with the agent's class and arguments;
+`ajax.load` builds both again:
 
 ```python
 import os
 import tempfile
 
+import ajax
 from ajax import PPO
-from ajax.checkpoint import load_checkpoint, save_checkpoint
 
 agent = PPO("CartPole-v1", n_envs=8, n_steps=128)
-state, _ = agent.train(seed=[0, 1], n_timesteps=8_192)
+state, _ = agent.train(seed=[0, 1], n_timesteps=8_192, logging_config=None)
 path = os.path.join(tempfile.mkdtemp(), "ppo_cartpole.pkl")
-save_checkpoint(state, path)
+agent.save(state, path)
 
-# Later, in another process: the same agent.
-agent = PPO("CartPole-v1", n_envs=8, n_steps=128)
-state = load_checkpoint(agent, path)
+# Later, in another process.
+agent, state = ajax.load(path)
+print(agent.evaluate(state, episodes=5).mean(axis=1))
 state, _ = agent.train(seed=[0, 1], n_timesteps=8_192, initial_state=state)
-print(state.collector_state.timestep)  # [18432 18432]: PPO adds a rollout per call
 ```
 
 [Checkpoints and resuming](../guide/checkpoints.md) explains what a resume
-keeps.
+keeps, and which arguments must be passed again.
 
 ## Where next
 

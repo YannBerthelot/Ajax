@@ -3,8 +3,7 @@
 It is the first page a reader sees and its examples are the first code they
 run, so each ``python`` block is executed; a block whose first line is
 ``# doc: skip`` (one that would train for minutes, say) is left out. A block
-that trains (calls ``.train(``; the quickstart's PPO takes 1,920 gradient
-steps) runs in the slow tier, word for word. The agent list and the
+that trains (calls ``.train(``) runs in the slow tier, word for word. The agent list and the
 relative links are checked too: both go stale quietly when an agent or a
 documentation page is added, renamed or removed. So are the totals the
 documentation states (agents, extensions), the algorithms index, the

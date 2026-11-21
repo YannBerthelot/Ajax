@@ -113,7 +113,7 @@ state, out = agent.train(
     seed=[1, 2, 3],  # one run per seed, all in one program
     n_timesteps=2_000,  # environment steps this call trains for
     num_episode_test=10,  # test episodes per evaluation
-    logging_config=None,  # None: no evaluation, and out is None
+    logging_config=None,  # None: no evaluation; not given: about ten, printed
     initial_state=None,  # or a state to continue from
     total_timesteps=None,  # the run's horizon; None: this call's end
 )
@@ -219,11 +219,19 @@ latent policy or planner. Their pages say what they log.
 
 `train` returns `(state, out)`.
 
-- **Without a `logging_config`**, `out` is `None`. The evaluation is not
-  even compiled into the program.
-- **With one**, `out` holds the evaluations: a dictionary from each logged
-  name to an array of shape `(seeds, evaluations)`. `out["timestep"]` says
-  when each evaluation ran. A call that evaluates fewer times than its
+- **With no `logging_config` given**, the run evaluates about ten times
+  (every tenth of `n_timesteps`, rounded up to a whole number of the agent's
+  iterations, such as PPO's rollouts), prints a line for each (the mean return over the seeds, with the lowest
+  and highest) and `out` holds the evaluations.
+- **With `logging_config=None`**, `out` is `None` and nothing is printed.
+  The evaluation is not even compiled into the program: the fastest run.
+- **With a `LoggingConfig`**, the run evaluates every `log_frequency` steps,
+  logs to its backends, prints nothing, and `out` holds the evaluations.
+
+The evaluations are a dictionary from each logged name to an array of shape
+`(seeds, evaluations)`, with two entries by name: `out.returns` (the mean
+evaluation return) and `out.timesteps` (when each evaluation ran, also
+`out["timestep"]` per seed). A call that evaluates fewer times than its
   maximum pads the rest with -1 (the timestep) and NaN (everything else).
 - **APG** returns its per-update metrics instead. See [APG](../algorithms/apg.md).
 

@@ -183,7 +183,7 @@ def _run(name: str) -> SimpleNamespace:
     with mock.patch.multiple(jax.random, **spies):
         jax.clear_caches()  # a helper traced before would draw unseen
         agent = cls(env_id, **kwargs, extensions=(recorder,))
-        state, _ = agent.train(seed=0, n_timesteps=n_timesteps)
+        state, _ = agent.train(seed=0, n_timesteps=n_timesteps, logging_config=None)
         jax.effects_barrier()
     jax.clear_caches()  # no trace keeps a spy past the run
     drawn = {tuple(k) for d in DRAWN for k in np.reshape(d, (-1, 2)).tolist()}
@@ -224,7 +224,7 @@ class CountsTargets(Extension):
 def test_the_state_on_target_returns_is_kept(name: str) -> None:
     cls, env_id, kwargs, n_timesteps = _setup(name)
     agent = cls(env_id, **kwargs, extensions=(CountsTargets(),))
-    state, _ = agent.train(seed=0, n_timesteps=n_timesteps)
+    state, _ = agent.train(seed=0, n_timesteps=n_timesteps, logging_config=None)
     assert int(np.asarray(state.ext_state[0]).reshape(-1)[0]) > 0, (
         "a fold's state was lost"
     )

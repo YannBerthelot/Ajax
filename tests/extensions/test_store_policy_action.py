@@ -50,7 +50,7 @@ def test_the_learner_holds_nothing_for_it_and_a_recurrent_agent_takes_it():
         extensions=(StorePolicyAction(),),
         **networks,
     )
-    recurrent.train(seed=0, n_timesteps=8)
+    recurrent.train(seed=0, n_timesteps=8, logging_config=None)
 
 
 @pytest.mark.parametrize("cls", [AVG, PPO], ids=lambda c: c.__name__)
@@ -74,7 +74,7 @@ def test_dqn_stores_its_policys_index_in_the_warm_up():
             architecture=("8", "relu"),
             extensions=extensions,
         )
-        state, _ = agent.train(seed=0, n_timesteps=32)
+        state, _ = agent.train(seed=0, n_timesteps=32, logging_config=None)
         buffer_state = state.collector_state.buffer_state
         assert buffer_state is not None
         return {k: np.asarray(v[0]) for k, v in buffer_state.experience.items()}

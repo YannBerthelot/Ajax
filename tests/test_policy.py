@@ -107,7 +107,9 @@ def evaluated_run(agent: Any, steps: int) -> tuple[Any, float]:
     ends); the second, the same run, evaluates there alone, its horizon
     past it."""
     horizon = 4 * steps
-    state, _ = agent.train(seed=0, n_timesteps=steps, total_timesteps=horizon)
+    state, _ = agent.train(
+        seed=0, n_timesteps=steps, total_timesteps=horizon, logging_config=None
+    )
     final = int(state.collector_state.timestep[0])
     logging_config = LoggingConfig(log_frequency=final, backends=())
     state, logs = agent.train(
@@ -305,7 +307,7 @@ def test_predict_is_the_policys_action_from_a_reset(name: str) -> None:
     """For a feed-forward agent of the on-policy and replay families, on
     seed 1 of two: one observation and a batch."""
     agent, _ = build(name)
-    state, _ = agent.train(seed=[0, 1], n_timesteps=64)
+    state, _ = agent.train(seed=[0, 1], n_timesteps=64, logging_config=None)
     observations = jnp.array([[1.0, 0.0, 0.5], [0.0, 1.0, -3.0]])
     policy = agent.policy(state, seed_index=1)
     # Each on its own batch: XLA may round a batch of one apart from two.
@@ -321,7 +323,7 @@ def test_predict_is_the_policys_action_from_a_reset(name: str) -> None:
 
 def test_predict_of_the_incremental_family_is_the_policys_action() -> None:
     agent = AVG("Pendulum-v1", **NETS)
-    state, _ = agent.train(seed=0, n_timesteps=8)
+    state, _ = agent.train(seed=0, n_timesteps=8, logging_config=None)
     observation = jnp.array([1.0, 0.0, 0.5])
     policy = agent.policy(state)
 
@@ -340,7 +342,7 @@ def test_an_episode_start_restarts_what_the_policy_carries(name: str) -> None:
         agent = PPO("Pendulum-v1", n_envs=2, n_steps=8, memory=memory, **NETS)
     else:
         agent = build(name)[0]
-    state, _ = agent.train(seed=0, n_timesteps=0)
+    state, _ = agent.train(seed=0, n_timesteps=0, logging_config=None)
     policy = agent.policy(state)
     width = get_state_action_shapes(agent.env_args.env)[0][-1]
     observations = jax.random.normal(jax.random.PRNGKey(0), (4, 2, width))
@@ -360,7 +362,7 @@ def test_an_episode_start_restarts_what_the_policy_carries(name: str) -> None:
 
 def test_predict_of_the_own_iteration_family_is_the_policys_action() -> None:
     agent = APG("Pendulum-v1", n_envs=2, horizon=8, actor_architecture=SMALL)
-    state, _ = agent.train(seed=0, n_timesteps=32)
+    state, _ = agent.train(seed=0, n_timesteps=32, logging_config=None)
     observation = jnp.array([1.0, 0.0, 0.5])
     policy = agent.policy(state)
 
@@ -371,7 +373,7 @@ def test_predict_of_the_own_iteration_family_is_the_policys_action() -> None:
 
 def test_a_commanded_policy_asks_for_the_reward_with_done() -> None:
     agent, _ = build("UDRL")
-    state, _ = agent.train(seed=0, n_timesteps=0)
+    state, _ = agent.train(seed=0, n_timesteps=0, logging_config=None)
     policy = agent.policy(state)
     action, carry = policy.act(jnp.zeros((1, 3)), policy.reset(1))
 
@@ -395,7 +397,7 @@ def test_the_multi_task_agent_refuses_a_policy() -> None:
 def test_predict_refuses_a_policy_with_memory_and_sampling() -> None:
     memory = MemoryConfig(kind="gru", hidden_size=4)
     agent = PPO("Pendulum-v1", n_envs=2, n_steps=8, memory=memory, **NETS)
-    state, _ = agent.train(seed=0, n_timesteps=0)
+    state, _ = agent.train(seed=0, n_timesteps=0, logging_config=None)
     observation = jnp.zeros(3)
 
     with pytest.raises(ValueError, match="agent.policy"):
@@ -408,7 +410,7 @@ def test_acting_again_compiles_nothing(caplog: pytest.LogCaptureFixture) -> None
     """Once act has run, with and without the optional inputs, acting on new
     observations, ends and rewards compiles nothing."""
     agent, _ = build("PPO")
-    state, _ = agent.train(seed=0, n_timesteps=64)
+    state, _ = agent.train(seed=0, n_timesteps=64, logging_config=None)
     policy = agent.policy(state)
     carry = policy.reset(2)
     observations = [jnp.full((2, 3), float(i)) for i in range(4)]

@@ -90,13 +90,13 @@ def test_td3_sets_its_critics_units_and_sac_does_not():
         actor_architecture=NET,
         critic_architecture=NET,
         learning_starts=4,
-    ).train(seed=[0], n_timesteps=8)
+    ).train(seed=[0], n_timesteps=8, logging_config=None)
     sac, _ = SAC(
         "Pendulum-v1",
         actor_architecture=NET,
         critic_architecture=NET,
         learning_starts=4,
-    ).train(seed=[0], n_timesteps=8)
+    ).train(seed=[0], n_timesteps=8, logging_config=None)
     assert td3.critic_state.action_units == ((0.0,), (2.0,))
     assert sac.critic_state.action_units is None
     assert jax.tree.structure(td3.critic_state) != jax.tree.structure(

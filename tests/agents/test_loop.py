@@ -659,7 +659,9 @@ def test_a_logged_run_resumes_from_its_checkpoint(tmp_path: Any) -> None:
     path = str(tmp_path / "checkpoint.pkl")
     save_checkpoint((state, rows), path)
     agent = _apo()
-    skeleton = agent.train(seed=SEEDS, n_timesteps=1, num_episode_test=1)
+    skeleton = agent.train(
+        seed=SEEDS, n_timesteps=1, num_episode_test=1, logging_config=None
+    )
     assert skeleton[1] is None
     # Logged, a call too short to evaluate returns no rows.
     _, no_rows = agent.train(seed=SEEDS, n_timesteps=1, logging_config=_config())
@@ -684,10 +686,16 @@ def test_a_run_split_in_whole_rollouts_ends_where_one_call_ends() -> None:
     contract): two calls of 32 steps end at 64 after 4 updates of 16 steps,
     as one call of 64 does."""
     agent = _apo()
-    one, _ = agent.train(seed=SEEDS, n_timesteps=64)
-    first, _ = agent.train(seed=SEEDS, n_timesteps=32, total_timesteps=64)
+    one, _ = agent.train(seed=SEEDS, n_timesteps=64, logging_config=None)
+    first, _ = agent.train(
+        seed=SEEDS, n_timesteps=32, total_timesteps=64, logging_config=None
+    )
     split, _ = agent.train(
-        seed=SEEDS, n_timesteps=32, initial_state=first, total_timesteps=64
+        seed=SEEDS,
+        n_timesteps=32,
+        initial_state=first,
+        total_timesteps=64,
+        logging_config=None,
     )
     for state in (one, split):
         np.testing.assert_array_equal(state.collector_state.timestep, 64)

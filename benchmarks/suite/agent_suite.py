@@ -359,7 +359,10 @@ def time_agent(label: str, n_seeds: int, steps: int, physics: str = "jax") -> di
     spans.clear()
     began = time.perf_counter()
     state, _ = agent.train(
-        seed=seeds, n_timesteps=warm_up, total_timesteps=benchmark.budget
+        seed=seeds,
+        n_timesteps=warm_up,
+        total_timesteps=benchmark.budget,
+        logging_config=None,
     )
     warm_up_s = time.perf_counter() - began
     compile_s = covered_seconds(spans)
@@ -370,6 +373,7 @@ def time_agent(label: str, n_seeds: int, steps: int, physics: str = "jax") -> di
         n_timesteps=measured,
         total_timesteps=benchmark.budget,
         initial_state=state,
+        logging_config=None,
     )
     exec_s = time.perf_counter() - began - covered_seconds(spans)
     return {

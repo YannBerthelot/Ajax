@@ -39,7 +39,7 @@ def test_dqn_variants_smoke():
         td_loss_fn=make_huber_td_loss(1.0),
         q_network_cls=DuelingQNetwork,
     )
-    state, _ = agent.train(seed=42, n_timesteps=128)
+    state, _ = agent.train(seed=42, n_timesteps=128, logging_config=None)
     # CleanRL's rule (the test below): an update at each step past
     # learning_starts (32) that train_frequency (10, the default) divides,
     # 40, 50, ..., 120. Catches a hook combination that skips the updates or
@@ -86,7 +86,7 @@ def test_dqn_updates_and_refreshes_its_target_at_cleanrl_s_steps():
         "target_update_interval": 4,
     }
     agent = DQN(env_id="CartPole-v1", batch_size=16, extensions=(record,), **schedule)
-    state, _ = agent.train(seed=0, n_timesteps=120)
+    state, _ = agent.train(seed=0, n_timesteps=120, logging_config=None)
     updated, refreshed = (np.asarray(x[0]) for x in state.ext_state[0])
     np.testing.assert_array_equal(np.flatnonzero(updated), np.arange(20, 121, 5))
     np.testing.assert_array_equal(np.flatnonzero(refreshed), np.arange(20, 121, 20))
@@ -237,7 +237,7 @@ def test_dqn_trains_minatar_s_network_on_minatar_and_refuses_tinier_images():
         batch_size=4,
         buffer_size=64,
     )
-    agent.train(seed=0, n_timesteps=32)
+    agent.train(seed=0, n_timesteps=32, logging_config=None)
     with pytest.raises(ValueError, match="pass a cnn_spec"):
         DQN(env_id="CartPole-v1", cnn_image_shape=(2, 2, 1))
 
@@ -264,7 +264,7 @@ def test_the_expert_fills_the_prefill_and_the_warm_up_rows_with_its_index():
     policy's rows after learning_starts are not."""
     extensions = (ExpertPrefill(n_steps=16), ExpertWarmup(fraction=1.0))
     agent = DQN(**EXPERT_RUN, extensions=extensions)
-    state, _ = agent.train(seed=0, n_timesteps=64)
+    state, _ = agent.train(seed=0, n_timesteps=64, logging_config=None)
     rows = jax.tree.map(lambda x: np.asarray(x[0]), state.collector_state.buffer_state)
     written = int(rows.current_index)
     assert written == 16 + 32  # the prefill, then 32 steps per env
@@ -281,7 +281,7 @@ def test_expert_value_metrics_read_the_q_network_at_the_stored_indices():
     stored index and value/q_gap that minus its value at the stored action,
     each a column of the Q table, on the replay batch the extension draws."""
     agent = DQN(**EXPERT_RUN, extensions=(ExpertValueMetrics(),))
-    state, _ = agent.train(seed=0, n_timesteps=64)
+    state, _ = agent.train(seed=0, n_timesteps=64, logging_config=None)
     state = jax.tree.map(lambda x: x[0], state)
     _, context = agent.make_context(64)
     metrics = context.extensions.extensions[0]

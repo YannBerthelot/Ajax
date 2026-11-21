@@ -1,21 +1,19 @@
 """Train PPO on CartPole with three seeds and read the evaluations."""
 
 from ajax import PPO
-from ajax.logging import LoggingConfig
 
 
-def main(n_timesteps: int = 32_768) -> None:
+def main(n_timesteps: int = 40_960) -> None:
     agent = PPO("CartPole-v1", n_envs=8, n_steps=128)  # 1,024 steps per rollout
-    # Evaluate every 4,096 steps; backends=() keeps the results in memory only.
-    logging = LoggingConfig(log_frequency=4_096, backends=())
-    _, evaluations = agent.train(
-        seed=[1, 2, 3], n_timesteps=n_timesteps, logging_config=logging
-    )
+    # Without a logging configuration, train evaluates about ten times and
+    # prints a line for each.
+    state, evaluations = agent.train(seed=[1, 2, 3], n_timesteps=n_timesteps)
 
-    steps = evaluations["timestep"][0]
-    returns = evaluations["Eval/episodic mean reward"]  # seeds x evaluations
-    for step, mean in zip(steps, returns.mean(axis=0), strict=True):
-        print(f"step {int(step):6d}: mean return over seeds {float(mean):6.1f}")
+    returns = evaluations.returns  # seeds x evaluations
+    print("evaluated at steps:", evaluations.timesteps)
+    print("last evaluation, per seed:", returns[:, -1])
+    # Fresh episodes of each seed's trained policy: seeds x episodes.
+    print("20 new episodes, per seed:", agent.evaluate(state, episodes=20).mean(axis=1))
 
 
 if __name__ == "__main__":

@@ -88,7 +88,7 @@ def test_the_actor_trains_on_every_policy_delay_th_update() -> None:
         batch_size=8,
         buffer_size=128,
     )
-    state, _ = agent.train(seed=0, n_timesteps=63)
+    state, _ = agent.train(seed=0, n_timesteps=63, logging_config=None)
     assert int(jnp.asarray(state.n_updates)[0]) == 56
     assert steps(state.critic_state.batch_stats) == {56}
     assert steps(state.actor_state.batch_stats) == {18}

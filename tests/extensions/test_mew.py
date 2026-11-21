@@ -81,7 +81,7 @@ def test_it_anneals_the_temperature_of_every_max_entropy_agent(name):
     extensions = (MEW(speed=1.0, history=101),)
     kwargs = {**case.kwargs, **FEWER_CRITIC_STEPS.get(name, {})}
     agent = case.cls("Pendulum-v1", **kwargs, extensions=extensions)
-    state, _ = agent.train(seed=0, n_timesteps=120)
+    state, _ = agent.train(seed=0, n_timesteps=120, logging_config=None)
     alpha = np.exp(np.asarray(state.alpha.params["log_alpha"]))
     assert np.all((alpha > 0.0) & (alpha < agent.alpha_args.alpha_init))
     assert np.all(np.isfinite(np.asarray(state.ext_state[0].friction)))
@@ -99,7 +99,7 @@ def test_before_its_history_fills_the_temperature_stays_where_it_started():
         target_entropy_per_dim=10.0,
         extensions=(MEW(history=1_000),),
     )
-    state, _ = agent.train(seed=0, n_timesteps=64)
+    state, _ = agent.train(seed=0, n_timesteps=64, logging_config=None)
     np.testing.assert_allclose(jnp.exp(state.alpha.params["log_alpha"]), 0.3, rtol=1e-6)
 
 

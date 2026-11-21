@@ -219,14 +219,14 @@ def test_bfloat16_gradients_reach_float32_parameters():
 def test_train_refuses_an_unknown_precision_before_training():
     agent = PPO("Pendulum-v1", n_envs=1)
     with pytest.raises(ValueError, match="precision"):
-        agent.train(seed=0, n_timesteps=64, precision="float16")
+        agent.train(seed=0, n_timesteps=64, precision="float16", logging_config=None)
 
 
 def test_train_records_the_precision_it_computes_in():
     """Catches a run config that logs a request ("auto") instead of what the
     run computed in. On a CPU "auto" is float32."""
     agent = PPO("Pendulum-v1", n_envs=1, n_steps=32, batch_size=32, n_epochs=1)
-    agent.train(seed=0, n_timesteps=32, precision="auto")
+    agent.train(seed=0, n_timesteps=32, precision="auto", logging_config=None)
     assert agent.config["precision"] == "float32"
 
 
@@ -243,7 +243,9 @@ TINY_DREAMER = {
 @pytest.fixture(scope="module")
 def dreamer_bfloat16():
     agent = DreamerV3("Pendulum-v1", n_envs=2, train_ratio=0.0625, **TINY_DREAMER)
-    state, _ = agent.train(seed=0, n_timesteps=400, precision="bfloat16")
+    state, _ = agent.train(
+        seed=0, n_timesteps=400, precision="bfloat16", logging_config=None
+    )
     return agent, state
 
 
@@ -270,5 +272,6 @@ def test_dreamerv3_resumed_in_float32_converts_its_latents(dreamer_bfloat16):
         n_timesteps=100,
         initial_state=jax.tree.map(jnp.copy, state),
         precision="float32",
+        logging_config=None,
     )
     assert resumed.replay_state.deter.dtype == jnp.float32

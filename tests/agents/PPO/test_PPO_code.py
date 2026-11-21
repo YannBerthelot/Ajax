@@ -99,7 +99,9 @@ def test_apply_gradients_runs_once_per_epoch_and_minibatch(extra, num_minibatche
     """
     cfg = {**_CFG, **extra}
     rollout = cfg["n_envs"] * cfg["n_steps"]
-    state, _ = PPO(**cfg).train(seed=[0], n_timesteps=rollout, num_episode_test=1)
+    state, _ = PPO(**cfg).train(
+        seed=[0], n_timesteps=rollout, num_episode_test=1, logging_config=None
+    )
     # train() seed-vmaps: every counter has a leading (1,) seed axis.
     n_updates = int(state.n_updates[0])
     expected = cfg["n_epochs"] * num_minibatches * n_updates
@@ -205,7 +207,7 @@ def test_vf_coef_zero_leaves_the_critic_untrained():
     steps. The actor's moments move, so the walk is not vacuous."""
     rollout = _CFG["n_envs"] * _CFG["n_steps"]
     state, _ = PPO(**_CFG, vf_coef=0.0).train(
-        seed=[0], n_timesteps=rollout, num_episode_test=1
+        seed=[0], n_timesteps=rollout, num_episode_test=1, logging_config=None
     )
 
     def moments(train_state):

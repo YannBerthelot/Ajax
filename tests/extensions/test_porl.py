@@ -57,7 +57,9 @@ def agent(
 
 def run(n_timesteps: int, *args: Any, **kwargs: Any) -> Any:
     """One seed's state after n_timesteps steps of agent(*args, **kwargs)."""
-    state, _ = agent(*args, **kwargs).train(seed=0, n_timesteps=n_timesteps)
+    state, _ = agent(*args, **kwargs).train(
+        seed=0, n_timesteps=n_timesteps, logging_config=None
+    )
     return jax.tree.map(lambda leaf: leaf[0], state)
 
 
@@ -240,4 +242,4 @@ def test_an_action_transform_is_refused():
     arm = porl(cloning(), features=(ResidualPolicy(),))
     residual = SAC("Pendulum-v1", expert_policy=push, **{**SMALL, **arm})
     with pytest.raises(ValueError, match="no action transform"):
-        residual.train(seed=0, n_timesteps=2)
+        residual.train(seed=0, n_timesteps=2, logging_config=None)

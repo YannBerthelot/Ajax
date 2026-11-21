@@ -175,7 +175,7 @@ def test_cloning_pretraining_leaves_jax_caches_alone():
         learning_starts=8,
         batch_size=8,
     )
-    agent.train(seed=0, n_timesteps=16)
+    agent.train(seed=0, n_timesteps=16, logging_config=None)
     assert double._cache_size() == 1
 
 
@@ -210,7 +210,7 @@ def test_cloning_pretrain_seeds_the_agents_statistics(agent_name):
     cloning = CloningPretrain(_half_torque, n_steps=16, epochs=2, batch_size=8)
     extensions = (cloning, *_FEATURES.get(agent_name, ()))
     agent = getattr(module, agent_name)("Pendulum-v1", extensions=extensions, **kw)
-    state = agent.train(seed=0, n_timesteps=0)[0]
+    state = agent.train(seed=0, n_timesteps=0, logging_config=None)[0]
     assert state.collector_state.obs_norm_info is not None
     # AVG's collection normalises what its networks read: they hold none.
     if agent_name != "AVG":
@@ -238,7 +238,7 @@ def test_cloning_leaves_stored_normalised_observations_normalised_once(
     agent = getattr(module, agent_name)(
         "Pendulum-v1", extensions=(cloning,), **kw, **options
     )
-    state = agent.train(seed=0, n_timesteps=0)[0]
+    state = agent.train(seed=0, n_timesteps=0, logging_config=None)[0]
     statistics = state.collector_state.obs_norm_info
     assert float(statistics.count.squeeze()) >= 2 * 16
     assert statistics.clip == options.get("observation_clip")
@@ -260,7 +260,9 @@ def _sac_actor(*extensions):
         expert_policy=_half_torque,
         extensions=extensions,
     )
-    return agent.train(seed=0, n_timesteps=0)[0].actor_state.params["params"]
+    return agent.train(seed=0, n_timesteps=0, logging_config=None)[
+        0
+    ].actor_state.params["params"]
 
 
 def _close(a, b):

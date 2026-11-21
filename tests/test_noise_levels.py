@@ -227,7 +227,7 @@ def udrl_run(env: Plant) -> list:
         n_updates_per_iter=4,
         buffer_capacity=8,
     )
-    state, _ = agent.train(seed=0, n_timesteps=16)
+    state, _ = agent.train(seed=0, n_timesteps=16, logging_config=None)
     return jax.tree.leaves(state.actor_state.params)
 
 
@@ -305,7 +305,7 @@ def measured_run(env: Any, **kwargs: Any) -> tuple:
         normalize_rewards=True,
         **kwargs,
     )
-    return agent, agent.train(seed=0, n_timesteps=16)[0]
+    return agent, agent.train(seed=0, n_timesteps=16, logging_config=None)[0]
 
 
 def test_training_on_the_measured_reward_is_training_where_it_is_the_reward():

@@ -385,9 +385,9 @@ def train_offline(
         budget=protocol.offline_updates,
         chunk=protocol.offline_chunk,
         train=lambda state, n: agent.train(
-            seed=seeds, n_timesteps=n, initial_state=state
+            seed=seeds, n_timesteps=n, initial_state=state, logging_config=None
         )[0],
-        skeleton=lambda: agent.train(seed=seeds, n_timesteps=0)[0],
+        skeleton=lambda: agent.train(seed=seeds, n_timesteps=0, logging_config=None)[0],
         progress_of=agent.resume_update_offset,
         probe=MultiTaskEvalProbe(agent, protocol.eval_episodes),
         save_every_s=save_every_s,

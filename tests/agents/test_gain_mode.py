@@ -74,7 +74,7 @@ def test_an_agent_in_gain_mode_acts_and_stores_in_the_gain_space(name):
         **rollout,
     )
     assert agent.env_args.policy_action_dim == 2
-    state, _ = agent.train(seed=0, n_timesteps=case.n_timesteps)
+    state, _ = agent.train(seed=0, n_timesteps=case.n_timesteps, logging_config=None)
     buffer = state.collector_state.buffer_state
     stored = (
         state.last_rollout.action if buffer is None else buffer.experience["action"]
@@ -101,7 +101,9 @@ def test_udrl_and_apg_act_in_the_gain_space():
         expert_policy=TwoGains(),
         extensions=(ExpertGains(),),
     )
-    state, _ = udrl.train(seed=0, n_timesteps=32, num_episode_test=1)
+    state, _ = udrl.train(
+        seed=0, n_timesteps=32, num_episode_test=1, logging_config=None
+    )
     assert state.buffer.actions.shape[-1] == 2
     env, params = paid_action.make()
     apg = APG(
@@ -114,7 +116,7 @@ def test_udrl_and_apg_act_in_the_gain_space():
         expert_policy=TwoGains(),
         extensions=(ExpertGains(),),
     )
-    state, _ = apg.train(seed=0, n_timesteps=32)
+    state, _ = apg.train(seed=0, n_timesteps=32, logging_config=None)
     leaves = jax.tree.leaves(state.actor_state.params)
     assert all(np.isfinite(np.asarray(x)).all() for x in leaves)
     assert apg.env_args.policy_action_dim == 2
@@ -155,7 +157,7 @@ def test_the_replay_keeps_the_experts_env_action_beside_the_gains(expert):
         buffer_size=64,
         **small,
     )
-    state, _ = agent.train(seed=0, n_timesteps=32)
+    state, _ = agent.train(seed=0, n_timesteps=32, logging_config=None)
     experience = state.collector_state.buffer_state.experience
     assert experience["action"].shape[-1] == len(expert.learnable_fields)
     # Every stored row: the expert's action at its anchor gains (the

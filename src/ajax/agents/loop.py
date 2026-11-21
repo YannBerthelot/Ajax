@@ -400,7 +400,15 @@ class TrainLoop:
         """The loop of one ``make_train`` call; starts the logging worker
         when ``logging_config`` names a backend."""
         log_frequency, evaluator = None, None
-        log_fn = partial(vmap_log, run_ids=run_ids)
+        to_backends = partial(vmap_log, run_ids=run_ids)
+        on_evaluation = getattr(logging_config, "on_evaluation", None)
+
+        def log_fn(metrics: dict, index: Any) -> None:
+            # In the training process first, then to the backends' worker.
+            if on_evaluation is not None:
+                on_evaluation(metrics, index)
+            to_backends(metrics, index)
+
         if logging_config is not None:
             if logging_config.backend:
                 start_async_logging()

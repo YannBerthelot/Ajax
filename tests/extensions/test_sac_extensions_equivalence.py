@@ -249,7 +249,9 @@ def test_every_golden_has_a_configuration():
 
 @pytest.mark.parametrize("name", list(CASES))
 def test_configuration_matches_its_golden(name: str):
-    state, _ = SAC(**_TINY, **CASES[name]).train(seed=_SEED, n_timesteps=_TIMESTEPS)
+    state, _ = SAC(**_TINY, **CASES[name]).train(
+        seed=_SEED, n_timesteps=_TIMESTEPS, logging_config=None
+    )
     new = _agent_fingerprint(state)
     # Relative 1e-3: residual_policy reads 6.65e-4 on the CI runner, a
     # reduction-order drift; a wiring bug moves a fingerprint by O(1).
@@ -262,5 +264,5 @@ def test_expert_obs_aug_constructs_and_trains():
     """Augmenting observations with the expert's action changes the
     networks' input width (init_SAC, collect_experience): it trains."""
     agent = SAC(**_TINY, **_WITH_EXPERT, extensions=(ExpertActionInput(),))
-    state, _ = agent.train(seed=_SEED, n_timesteps=_TIMESTEPS)
+    state, _ = agent.train(seed=_SEED, n_timesteps=_TIMESTEPS, logging_config=None)
     assert state is not None

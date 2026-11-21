@@ -243,7 +243,7 @@ def _apg_read(run: runs.Run) -> dict:
         args = run.agent.env_args
         args = args.replace(env_params=args.env_params.replace(start=x0))
         context = run.agent.make_context(1, env_args=args)[1]
-        m = run.agent.evaluate(state, R.KEY, context, 2)
+        m = run.agent.evaluation_metrics(state, R.KEY, context, 2)
         return a, m["Eval/episodic mean reward"]
 
     out: dict[str, Any] = {}

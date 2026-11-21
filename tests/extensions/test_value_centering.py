@@ -132,6 +132,6 @@ def test_on_rewards_of_one_the_offset_rises_towards_them(rule):
         batch_size=32,
         extensions=(ValueCentering(rule),),
     )
-    state, _ = agent.train(seed=0, n_timesteps=128)  # 96 updates
+    state, _ = agent.train(seed=0, n_timesteps=128, logging_config=None)  # 96 updates
     offset = float(np.asarray(state.ext_state[0]).reshape(-1)[0])
     assert 0.0 < offset

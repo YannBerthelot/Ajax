@@ -41,7 +41,9 @@ def _run(name: str, env_id: str, expert: Any, **extra: Any) -> tuple:
     kwargs.update({"expert_policy": expert, "extensions": (ALWAYS,)})
     kwargs.update(extra)
     agent = case.cls(env_id=env_id, n_envs=2, **kwargs)
-    return agent.train(seed=0, n_timesteps=case.n_timesteps)[0], case
+    return agent.train(seed=0, n_timesteps=case.n_timesteps, logging_config=None)[
+        0
+    ], case
 
 
 @pytest.mark.parametrize(

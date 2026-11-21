@@ -286,7 +286,7 @@ def test_an_agent_refuses_the_action_space_it_cannot_act_in(name: str) -> None:
 def test_a_default_run_keeps_no_extension_state_and_no_rollout(name: str) -> None:
     case = CASES[name]
     agent = case.cls(env_id=case.envs[0], n_envs=1, **case.kwargs)
-    state, out = agent.train(seed=42, n_timesteps=case.n_timesteps)
+    state, out = agent.train(seed=42, n_timesteps=case.n_timesteps, logging_config=None)
     assert state.ext_state == ()
     assert state.last_rollout is None
     assert out is None  # no logging config: no evaluations
@@ -459,7 +459,9 @@ def test_the_evaluation_key_is_apart_from_the_training_key(
 
     monkeypatch.setattr(loop, "fresh_state", recording)
     case = CASES[name]
-    case.cls(env_id=case.envs[0], n_envs=1, **case.kwargs).train(seed=0, n_timesteps=0)
+    case.cls(env_id=case.envs[0], n_envs=1, **case.kwargs).train(
+        seed=0, n_timesteps=0, logging_config=None
+    )
     (rng, eval_rng), *_ = seen
     assert not np.array_equal(rng, eval_rng)
 
@@ -530,7 +532,7 @@ def test_an_agent_acts_on_the_whole_box(name: str) -> None:
     env, params = paid_action.make(BOX)
     if name == "APG":
         apg = APG(env, env_params=params, n_envs=4, horizon=1, pid=None)
-        seeds, _ = apg.train(seed=0, n_timesteps=0)
+        seeds, _ = apg.train(seed=0, n_timesteps=0, logging_config=None)
         state: Any = jax.tree.map(lambda x: x[0], seeds)
         actor = state.actor_state
         _, rollout = compute_rollout_returns(
@@ -552,7 +554,7 @@ def test_an_agent_acts_on_the_whole_box(name: str) -> None:
     if name == "PPO":  # the rewards read back as the env paid them: raw
         kwargs["normalize_rewards"] = False
     agent = case.cls(env_id=env, env_params=params, n_envs=1, **kwargs)
-    state, _ = agent.train(seed=0, n_timesteps=128)
+    state, _ = agent.train(seed=0, n_timesteps=128, logging_config=None)
     actions, rewards = _paid_rows(name, state)
     assert np.abs(actions).max() > 0.01, "no action was collected"
     np.testing.assert_allclose(rewards, paid_action.mapped(actions, BOX), rtol=1e-6)
@@ -585,14 +587,17 @@ def test_a_world_model_acts_on_the_whole_box(name: str) -> None:
         dreamer = DreamerV3(
             env, env_params=params, n_envs=1, train_ratio=32, **DREAMER_TINY
         )
-        final = cast(DreamerV3State, dreamer.train(seed=0, n_timesteps=20)[0])
+        final = cast(
+            DreamerV3State,
+            dreamer.train(seed=0, n_timesteps=20, logging_config=None)[0],
+        )
         replay = final.replay_state
         action, reward = replay.action[0, 0, :, 0], replay.reward[0, 0]
         paid = ~replay.is_last[0, 0, :-1]  # the rows an episode goes on from
         actions, rewards = action[:-1][paid], reward[1:][paid]
     else:
         tdmpc2 = TDMPC2(env, env_params=params, seed_steps=4, **TDMPC2_TINY)
-        ring = tdmpc2.train(seed=0, n_timesteps=20)[0].buffer_state
+        ring = tdmpc2.train(seed=0, n_timesteps=20, logging_config=None)[0].buffer_state
         written = ring.obs[0, :, 0, 0] != 0  # not the staging round's slots
         actions = ring.action[0, written, :-1, 0].ravel()
         rewards = ring.reward[0, written, 1:].ravel()

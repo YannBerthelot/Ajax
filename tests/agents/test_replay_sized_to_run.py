@@ -56,6 +56,7 @@ def build(name: str, buffer_size: int, **options: Any) -> Any:
 def train(agent: Any, ticks: int, **options: Any) -> Any:
     """One seed's state after ticks ticks, on the host: a state passed as
     initial_state may be donated."""
+    options.setdefault("logging_config", None)
     state, _ = agent.train(
         seed=[0], n_timesteps=N_ENVS * ticks, num_episode_test=1, **options
     )
@@ -142,7 +143,12 @@ def test_a_resume_frees_the_replay_it_grows() -> None:
     take twice its memory. A resume donates the state it is given, so the
     replay it replaces is freed as it starts."""
     agent = build("SAC", HUGE)
-    options = {"seed": [0], "num_episode_test": 1, "n_timesteps": N_ENVS * TICKS}
+    options = {
+        "seed": [0],
+        "num_episode_test": 1,
+        "n_timesteps": N_ENVS * TICKS,
+        "logging_config": None,
+    }
     total = {"total_timesteps": 2 * N_ENVS * TICKS}
     given, _ = agent.train(**options, **total)
     shorter = given.collector_state.buffer_state.experience
@@ -209,7 +215,7 @@ def test_a_skeleton_restores_and_resumes_a_longer_ring(sac: dict, tmp_path) -> N
     agent, half = sac["agent"], sac["half"]
     path = str(tmp_path / "half.pkl")
     save_checkpoint(half, path)
-    skeleton, _ = agent.train(seed=[0], n_timesteps=0)
+    skeleton, _ = agent.train(seed=[0], n_timesteps=0, logging_config=None)
     assert ring(skeleton) == 8 // N_ENVS + 1 < ring(half)  # the rows to sample
     assert_equal(leaves(restore_into(skeleton, path)), leaves(half))
     loaded = load_checkpoint(agent, path)

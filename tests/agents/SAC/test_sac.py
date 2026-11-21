@@ -44,7 +44,7 @@ def test_sac_trains_with_rlpd_layernorm_critics():
     updates the norms' scales and keeps every parameter finite."""
     arch = ("64", "layernorm", "relu", "64", "layernorm", "relu")
     agent = SAC(env_id="Pendulum-v1", critic_architecture=arch, learning_starts=100)
-    state, _ = agent.train(seed=0, n_timesteps=200)
+    state, _ = agent.train(seed=0, n_timesteps=200, logging_config=None)
     params = state.critic_state.params
     assert all(jnp.isfinite(leaf).all() for leaf in jax.tree.leaves(params))
     scale = params["params"]["ensemble"]["encoder"]["network"]["layers_1"]["scale"]
@@ -78,10 +78,14 @@ def test_fixed_alpha_keeps_temperature_at_alpha_init():
     }
     expected_log_alpha = jnp.log(alpha_init)
 
-    fixed_state, _ = SAC(**common, fixed_alpha=True).train(seed=42, n_timesteps=60)
+    fixed_state, _ = SAC(**common, fixed_alpha=True).train(
+        seed=42, n_timesteps=60, logging_config=None
+    )
     assert jnp.allclose(fixed_state.alpha.params["log_alpha"], expected_log_alpha)
 
-    learned_state, _ = SAC(**common, fixed_alpha=False).train(seed=42, n_timesteps=60)
+    learned_state, _ = SAC(**common, fixed_alpha=False).train(
+        seed=42, n_timesteps=60, logging_config=None
+    )
     assert not jnp.allclose(
         learned_state.alpha.params["log_alpha"], expected_log_alpha
     ), "sanity check: alpha should move when it is not fixed"
@@ -95,9 +99,11 @@ def test_jsrl_curriculum_counts_the_episode_steps_it_reads():
     kw.update({"batch_size": 8, "buffer_size": 64})
     jsrl = (JSRLCurriculum(episode_length=8, decay_frac=0.5, schedule="time"),)
     agent = SAC(env_id="Pendulum-v1", extensions=jsrl, **kw)
-    state, _ = agent.train(seed=0, n_timesteps=12)
+    state, _ = agent.train(seed=0, n_timesteps=12, logging_config=None)
     np.testing.assert_array_equal(state.collector_state.step_in_episode, [[12]])
-    plain, _ = SAC(env_id="Pendulum-v1", **kw).train(seed=0, n_timesteps=12)
+    plain, _ = SAC(env_id="Pendulum-v1", **kw).train(
+        seed=0, n_timesteps=12, logging_config=None
+    )
     assert plain.collector_state.step_in_episode is None
 
 
@@ -110,7 +116,7 @@ def test_jsrl_flags_the_steps_its_expert_takes():
     kw.update({"batch_size": 4, "buffer_size": 64, "policy_update_start": 100})
     jsrl = (JSRLCurriculum(episode_length=1000, decay_frac=1.0, schedule="time"),)
     agent = SAC(env_id="Pendulum-v1", n_envs=1, extensions=jsrl, **kw)
-    state, _ = agent.train(seed=0, n_timesteps=12)
+    state, _ = agent.train(seed=0, n_timesteps=12, logging_config=None)
     rows = state.collector_state.buffer_state.experience
     flags = np.asarray(rows["is_expert"]).reshape(-1)[:12]
     np.testing.assert_array_equal(flags, [0.0] * 4 + [1.0] * 8)
@@ -129,7 +135,7 @@ def test_the_warmup_draws_each_action_dimension_on_its_own():
     kw = {"learning_starts": 64, "batch_size": 8, "buffer_size": 128}
     kw.update({"expert_policy": lambda obs: jnp.zeros(obs.shape[:-1] + (2,))})
     agent = SAC(env, env_params=params, n_envs=1, **kw)
-    state, _ = agent.train(seed=0, n_timesteps=32)
+    state, _ = agent.train(seed=0, n_timesteps=32, logging_config=None)
     actions = np.asarray(state.collector_state.buffer_state.experience["action"])
     rows = actions.reshape(-1, 2)[:32]
     assert not np.allclose(rows[:, 0], rows[:, 1])
@@ -143,7 +149,7 @@ def test_the_warmup_draws_each_env_on_its_own():
     kw = {"learning_starts": 64, "batch_size": 8, "buffer_size": 128}
     kw.update({"expert_policy": lambda obs: jnp.zeros(obs.shape[:-1] + (1,))})
     agent = SAC("Pendulum-v1", n_envs=2, **kw)
-    state, _ = agent.train(seed=0, n_timesteps=32)
+    state, _ = agent.train(seed=0, n_timesteps=32, logging_config=None)
     actions = np.asarray(state.collector_state.buffer_state.experience["action"])
     rows = actions[0, :, :16, 0]  # (envs, rows): 16 warm-up rows per env
     assert not np.allclose(rows[0], rows[1])

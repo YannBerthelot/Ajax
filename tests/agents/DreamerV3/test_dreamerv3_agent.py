@@ -255,7 +255,7 @@ def test_the_evaluation_draws_from_the_key_it_is_handed(cartpole, monkeypatch):
     agent, key = cartpole.agent, jax.random.PRNGKey(3)
     _, context = agent.make_context(ROWS)
     state = jax.tree.map(lambda x: x[0], cartpole.state)
-    agent.evaluate(state, key, context=context, num_episode_test=1)
+    agent.evaluation_metrics(state, key, context=context, num_episode_test=1)
     np.testing.assert_array_equal(keys, [key])
     assert len(states) == 1 and states[0] is state
 
@@ -360,15 +360,18 @@ def test_resume_continues_the_schedule_and_matches_an_uninterrupted_run(
     agent's stream; the logging of the uninterrupted run does not touch the
     training state)."""
     agent = cartpole_agent(extensions=[CounterExt(), MetricExt()])
-    half = agent.train(seed=SEEDS, n_timesteps=ROWS // 2)
+    half = agent.train(seed=SEEDS, n_timesteps=ROWS // 2, logging_config=None)
     assert half[0].replay_state.obs.shape == (2, N_ENVS, 60, 4)
     assert agent.resume_iteration_offset(half[0]) == ROWS // 2 // N_ENVS
     path = str(tmp_path / "half.pkl")
     save_checkpoint(half, path)
     resumer = cartpole_agent(extensions=[CounterExt(), MetricExt()])
-    skeleton = resumer.train(seed=SEEDS, n_timesteps=0)
+    skeleton = resumer.train(seed=SEEDS, n_timesteps=0, logging_config=None)
     state, _ = resumer.train(
-        seed=SEEDS, n_timesteps=ROWS // 2, initial_state=restore_into(skeleton, path)
+        seed=SEEDS,
+        n_timesteps=ROWS // 2,
+        initial_state=restore_into(skeleton, path),
+        logging_config=None,
     )
     full = cartpole.state
     assert resumer.replay_rows_per_env == 100
@@ -391,14 +394,15 @@ def test_resume_continues_the_schedule_and_matches_an_uninterrupted_run(
     # as much as a lost optimizer does, which the counts above catch.
     two_ticks = 2 * N_ENVS  # rows
     short_resumer = cartpole_agent(extensions=[CounterExt(), MetricExt()])
-    short_skeleton = short_resumer.train(seed=SEEDS, n_timesteps=0)
+    short_skeleton = short_resumer.train(seed=SEEDS, n_timesteps=0, logging_config=None)
     short, _ = short_resumer.train(
         seed=SEEDS,
         n_timesteps=two_ticks,
         initial_state=restore_into(short_skeleton, path),
+        logging_config=None,
     )
     whole, _ = cartpole_agent(extensions=[CounterExt(), MetricExt()]).train(
-        seed=SEEDS, n_timesteps=ROWS // 2 + two_ticks
+        seed=SEEDS, n_timesteps=ROWS // 2 + two_ticks, logging_config=None
     )
     for ours, theirs in zip(
         jax.tree.leaves(_compared(short)),
@@ -488,10 +492,16 @@ def test_a_run_naming_its_horizon_holds_the_whole_runs_ring_from_its_first_chunk
     (total_timesteps) sizes the ring for it: the capacity's 100 rows per
     env from the first chunk, which has seen 60, and no growth after."""
     agent = cartpole_agent()
-    first, _ = agent.train(seed=SEEDS, n_timesteps=ROWS // 2, total_timesteps=ROWS)
+    first, _ = agent.train(
+        seed=SEEDS, n_timesteps=ROWS // 2, total_timesteps=ROWS, logging_config=None
+    )
     assert first.replay_state.obs.shape == (2, N_ENVS, 100, 4)
     state, _ = agent.train(
-        seed=SEEDS, n_timesteps=ROWS // 2, total_timesteps=ROWS, initial_state=first
+        seed=SEEDS,
+        n_timesteps=ROWS // 2,
+        total_timesteps=ROWS,
+        initial_state=first,
+        logging_config=None,
     )
     assert state.replay_state.obs.shape == (2, N_ENVS, 100, 4)
 
@@ -503,9 +513,11 @@ def test_a_resume_frees_the_rings_it_grows():
     beside 80 GB. A resume donates the state it is given, so the rings it
     replaces are freed as it starts."""
     agent = cartpole_agent(replay_on_host=True)
-    given, _ = agent.train(seed=SEEDS, n_timesteps=ROWS // 2)
+    given, _ = agent.train(seed=SEEDS, n_timesteps=ROWS // 2, logging_config=None)
     shorter = given.replay_state
-    state, _ = agent.train(seed=SEEDS, n_timesteps=N_ENVS * 8, initial_state=given)
+    state, _ = agent.train(
+        seed=SEEDS, n_timesteps=N_ENVS * 8, initial_state=given, logging_config=None
+    )
     # 60 rows per env seen, then 8 more: a 68-row ring, under the capacity's 100.
     assert state.replay_state.obs.shape == (2, N_ENVS, 68, 4)
     assert is_on_host(state.replay_state.deter)
@@ -573,7 +585,7 @@ def test_latents_kept_on_the_host_train_as_on_the_device(cartpole):
 def pendulum():
     # One update (train_ratio 1/16): the run checks the stored actions.
     agent = DreamerV3("Pendulum-v1", n_envs=2, train_ratio=0.0625, **TINY)
-    state, _ = agent.train(seed=0, n_timesteps=400)
+    state, _ = agent.train(seed=0, n_timesteps=400, logging_config=None)
     return SimpleNamespace(agent=agent, state=state)
 
 
@@ -634,7 +646,7 @@ def test_playground_cartpole_with_action_repeat():
         train_ratio=0.0625,  # one update: the run checks the rows and the logs
         **TINY,
     )
-    state, _ = agent.train(seed=0, n_timesteps=200)
+    state, _ = agent.train(seed=0, n_timesteps=200, logging_config=None)
     replay = jax.tree.map(lambda x: x[0], state.replay_state)
     rows = np.arange(100)
     np.testing.assert_array_equal(

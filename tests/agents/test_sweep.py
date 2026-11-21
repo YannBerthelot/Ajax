@@ -229,7 +229,9 @@ def test_every_sweepable_field_reaches_the_training(
         changed = dict(base)
         changed[name] = value
         configurations.append(changed)
-    state, _ = agent.train(seed=0, n_timesteps=64, sweep=configurations)
+    state, _ = agent.train(
+        seed=0, n_timesteps=64, sweep=configurations, logging_config=None
+    )
     leaves = list(floating_leaves(state).values())
     for row, name in enumerate(changes, start=1):
         # equal_nan: NaN fills a metrics slot no update wrote yet, in every row.
@@ -274,7 +276,7 @@ def test_a_sweep_outside_the_sweepable_numbers_is_refused_before_training(
     """Catches a sweep that would compile one program per value, or train
     every member with a value its replay or loop fixed when built."""
     with pytest.raises(ValueError, match=refused):
-        make().train(seed=0, n_timesteps=16, sweep=sweep)
+        make().train(seed=0, n_timesteps=16, sweep=sweep, logging_config=None)
 
 
 def test_a_normaliser_with_its_own_discount_leaves_gamma_sweepable() -> None:
@@ -290,12 +292,27 @@ def test_a_resumed_sweep_continues_as_the_uninterrupted_sweep() -> None:
     with the base agent's) or reorders them; a state of other members is
     refused."""
     sweep = {"tau": [0.005, 0.05], "actor_learning_rate": [1e-3]}
-    whole, _ = tiny_sac().train(seed=0, n_timesteps=64, sweep=sweep)
+    whole, _ = tiny_sac().train(
+        seed=0, n_timesteps=64, sweep=sweep, logging_config=None
+    )
     agent = tiny_sac()
-    half, _ = agent.train(seed=0, n_timesteps=32, sweep=sweep, total_timesteps=64)
+    half, _ = agent.train(
+        seed=0, n_timesteps=32, sweep=sweep, total_timesteps=64, logging_config=None
+    )
     with pytest.raises(ValueError, match="same seed and sweep"):
-        agent.train(seed=[0, 1], n_timesteps=32, sweep=sweep, initial_state=half)
+        agent.train(
+            seed=[0, 1],
+            n_timesteps=32,
+            sweep=sweep,
+            initial_state=half,
+            logging_config=None,
+        )
     resumed, _ = agent.train(
-        seed=0, n_timesteps=32, sweep=sweep, total_timesteps=64, initial_state=half
+        seed=0,
+        n_timesteps=32,
+        sweep=sweep,
+        total_timesteps=64,
+        initial_state=half,
+        logging_config=None,
     )
     assert_rows_match(resumed, slice(None), whole)

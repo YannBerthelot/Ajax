@@ -142,7 +142,11 @@ def _epsilon_trace(legs: tuple[int, ...], horizon: int) -> list[tuple[int, float
     with mock.patch.object(dqn_file, "epsilon_greedy", recorded):
         for steps in legs:
             state, _ = agent.train(
-                seed=0, n_timesteps=steps, initial_state=state, total_timesteps=horizon
+                seed=0,
+                n_timesteps=steps,
+                initial_state=state,
+                total_timesteps=horizon,
+                logging_config=None,
             )
             jax.effects_barrier()
     return sorted(trace)
@@ -178,7 +182,7 @@ def test_a_horizon_before_the_calls_end_is_refused(name: str) -> None:
 
     before = records()
     with pytest.raises(ValueError, match="total_timesteps=32 ends before"):
-        agent.train(seed=0, n_timesteps=64, total_timesteps=32)
+        agent.train(seed=0, n_timesteps=64, total_timesteps=32, logging_config=None)
     assert records() == before
 
 
@@ -201,5 +205,5 @@ def test_the_world_models_build_their_train_on_the_runs_horizon(
 
     monkeypatch.setattr(agent, "make_train", make_train)
     with pytest.raises(_Built):
-        agent.train(seed=0, n_timesteps=64, total_timesteps=96)
+        agent.train(seed=0, n_timesteps=64, total_timesteps=96, logging_config=None)
     assert (seen["total_timesteps"], seen.get("end_timestep")) == (96, 64)

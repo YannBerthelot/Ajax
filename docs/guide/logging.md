@@ -1,9 +1,11 @@
 # Logging
 
-A `LoggingConfig` turns on evaluation and logging. Every `log_frequency`
-steps the agent is evaluated, `train` returns the evaluations, and each run
-logs them to its backends: TensorBoard, Weights & Biases, or a backend of
-your own.
+A `LoggingConfig` says when a run evaluates and where it logs. Every
+`log_frequency` steps the agent is evaluated, `train` returns the
+evaluations, and each run logs them to its backends: TensorBoard, Weights &
+Biases, or a backend of your own. A `train` call given none evaluates about
+ten times and prints a line for each; `logging_config=None` evaluates
+nothing.
 
 ## `LoggingConfig`
 
@@ -27,6 +29,7 @@ logging = LoggingConfig(
 | `sweep` | `False` | deprecated: the earlier name of `evaluate_last_fifth_only`. Set `True`, it warns. It is not `train(sweep=...)` |
 | `evaluation_device` | `None` | a JAX device to evaluate on while training goes on ([below](#evaluating-on-another-device)); `None`: training waits for each evaluation |
 | `use_wandb`, `use_tensorboard` | not set | deprecated: the earlier way to name backends. Set, they warn and name W&B (on unless set `False`) and TensorBoard (off unless set `True`), as before |
+| `on_evaluation` | `None` | a function called in the training process with each seed's evaluation, `on_evaluation(metrics, index)`; a backend logs in a process of its own |
 | `folder` | `None` | where the default TensorBoard backend writes, `<folder>/tensorboard/<run id>/` (the working directory when `None`) |
 | `project_name`, `group_name` | `None` | with the deprecated flags: the W&B project and group |
 

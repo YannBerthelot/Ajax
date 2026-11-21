@@ -50,12 +50,12 @@ def test_pqn_keeps_the_executed_actions_it_learns_from():
         num_minibatches=2,
         expose_recent_rollout=True,
     )
-    state, _ = agent.train(seed=0, n_timesteps=32)
+    state, _ = agent.train(seed=0, n_timesteps=32, logging_config=None)
     rollout = state.last_rollout
     assert rollout.executed_action.dtype == rollout.action.dtype
     np.testing.assert_array_equal(rollout.executed_action, rollout.action)
     ppo = PPO(**small, batch_size=8, expose_recent_rollout=True)
-    state, _ = ppo.train(seed=0, n_timesteps=32)
+    state, _ = ppo.train(seed=0, n_timesteps=32, logging_config=None)
     assert state.last_rollout.executed_action is None
 
 
@@ -84,7 +84,7 @@ def test_pqn_fits_q_where_the_expert_acted(monkeypatch):
             JSRLCurriculum(episode_length=1000, decay_frac=1e6, schedule="time"),
         ),
     )
-    agent.train(seed=0, n_timesteps=32)
+    agent.train(seed=0, n_timesteps=32, logging_config=None)
     jax.effects_barrier()
     assert seen
     for actions in seen:
@@ -102,7 +102,7 @@ def test_pqn_huber_loss_smoke():
         num_minibatches=2,
         td_loss_fn=make_huber_td_loss(1.0),
     )
-    state, _ = agent.train(seed=42, n_timesteps=256)
+    state, _ = agent.train(seed=42, n_timesteps=256, logging_config=None)
     # 256 steps hold 16 rollouts of 2 envs x 8 steps. Catches a Huber hook
     # that skips the updates or leaves non-finite parameters.
     assert np.asarray(state.n_updates).tolist() == [16]
@@ -170,4 +170,4 @@ def test_pqn_images_build_purejaxql_s_network_and_train_on_minatar():
     assert sorted(params) == ["CNNEncoder_0", "Dense_0"]
     assert params["Dense_0"]["kernel"].shape == (128, 3)
     agent = PQN(env_id="Breakout-MinAtar", cnn_image_shape=(10, 10, 4), n_envs=2)
-    agent.train(seed=0, n_timesteps=2 * agent.n_steps)
+    agent.train(seed=0, n_timesteps=2 * agent.n_steps, logging_config=None)

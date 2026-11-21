@@ -438,7 +438,7 @@ def test_a_trained_run_evaluates_from_trains_own_return():
     study's set; fewer would quietly widen every seed's score."""
     env, params = gymnax.make("Pendulum-v1")
     agent = sac(env, params)
-    trained = agent.train(seed=[0, 1], n_timesteps=16)
+    trained = agent.train(seed=[0, 1], n_timesteps=16, logging_config=None)
 
     result = final_evaluation(agent, trained, "task", [0, 1], IntegratingExpert())
 

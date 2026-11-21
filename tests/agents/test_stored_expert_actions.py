@@ -111,7 +111,9 @@ def train(agent: str, expert: Any, extensions: tuple = ()) -> Any:
         extensions=extensions,
         **kw,
     )
-    state, _ = model.train(seed=0, n_timesteps=64, num_episode_test=1)
+    state, _ = model.train(
+        seed=0, n_timesteps=64, num_episode_test=1, logging_config=None
+    )
     jax.effects_barrier()
     return state
 

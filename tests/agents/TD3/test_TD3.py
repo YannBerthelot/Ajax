@@ -76,7 +76,9 @@ def test_the_behaviour_policy_adds_its_exploration_noise():
     2018): at sigma = 0.3 the executed action is off the actor's mean by
     about sigma, and at sigma = 0 it is the mean."""
     agent = TD3(env_id="Pendulum-v1", n_envs=64)
-    state = jax.tree.map(lambda x: x[0], agent.train(seed=0, n_timesteps=0)[0])
+    state = jax.tree.map(
+        lambda x: x[0], agent.train(seed=0, n_timesteps=0, logging_config=None)[0]
+    )
     keys = jax.random.split(jax.random.PRNGKey(1), 3)
     actor = state.actor_state
     mean = get_pi(actor, actor.params, state.collector_state.last_obs)[0].mean()
@@ -168,7 +170,7 @@ def test_recurrent_td3s_actor_maximises_the_critics_minimum():
         batch_size=4,
         sequence_length=8,
     )
-    state, _ = agent.train(seed=0, n_timesteps=96)
+    state, _ = agent.train(seed=0, n_timesteps=96, logging_config=None)
     state = jax.tree.map(lambda leaf: leaf[0], state)
     batch, carries = sample_replay(state, agent.buffer, KEY, True, burn_in=0)
 

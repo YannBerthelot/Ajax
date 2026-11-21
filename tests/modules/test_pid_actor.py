@@ -332,7 +332,9 @@ def test_every_continuous_agent_trains_a_pid_policy(case):
         extensions=(setpoint_env.TERMS,),
         **overrides,
     )
-    state, _ = agent.train(seed=[0], n_timesteps=steps, num_episode_test=2)
+    state, _ = agent.train(
+        seed=[0], n_timesteps=steps, num_episode_test=2, logging_config=None
+    )
     gains = pid_gains(state.actor_state.params)
     assert gains["kp"].shape == (1, 1, 1)
     assert float(jnp.abs(jnp.stack(list(gains.values()))).sum()) > 0
@@ -351,7 +353,7 @@ def test_the_gains_are_normalised_on_a_wider_box():
     twice them (small-signal)."""
     env, params = paid_action.make()
     agent = SAC(env, env_params=params, n_envs=1, actor_architecture=PIDPolicy())
-    state, _ = agent.train(seed=0, n_timesteps=0)
+    state, _ = agent.train(seed=0, n_timesteps=0, logging_config=None)
     actor = jax.tree.map(lambda x: x[0], state.actor_state)
     gains = {
         "kp": jnp.array([[0.4]]),

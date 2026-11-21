@@ -75,7 +75,7 @@ def build(stack: tuple, policy: Any = expert, agent: Any = SAC, **kwargs: Any) -
 
 
 def train(agent: Any, n_timesteps: int) -> Any:
-    return agent.train(seed=0, n_timesteps=n_timesteps)[0]
+    return agent.train(seed=0, n_timesteps=n_timesteps, logging_config=None)[0]
 
 
 def one_seed(state: Any) -> Any:

@@ -77,10 +77,10 @@ DAgger), one update on each step as it comes (`IncrementalAgent`: AVG),
 rollouts (`OnPolicyAgent`: PPO, APO, PQN) or an iteration of its own
 (`OwnIterationAgent`: UDRL's segment and replay of segments, APG's
 gradient step through a differentiable rollout; the agent writes
-`iterate`, `report` and `evaluate`, the loop resumes and logs) or rows in
+`iterate`, `report` and `evaluation_metrics`, the loop resumes and logs) or rows in
 a replay of its own, sized for each call (`OwnReplayAgent`: DreamerV3,
 TD-MPC2; the agent writes `prepare_replay`, `collect`, `count_updates`,
-`update`, `report` and `evaluate` on `loop.off_policy`'s hooks). Knobs
+`update`, `report` and `evaluation_metrics` on `loop.off_policy`'s hooks). Knobs
 several agents share are mixins of fields (`EntropyTemperature`,
 `PolicyUpdateStart`, `ExpertGuided`, ...), and an agent changes what its
 family does by overriding a few hooks (`network_settings`,
@@ -413,8 +413,11 @@ Three modules share the work:
 
 What `train` returns follows from the logging config:
 
-- **No `LoggingConfig`:** no evaluation is traced at all (tracing alone would
+- **`logging_config=None`:** no evaluation is traced at all (tracing alone would
   rebuild the evaluation environment), and `train` returns `(state, None)`.
+  Not given, `train` makes a `LoggingConfig` of its own: about ten
+  evaluations, no backend, and a `ProgressPrinter` as `on_evaluation`
+  ([`logging/progress.py`](../../src/ajax/logging/progress.py)).
   APG returns its per-update metrics in place of `None`.
 - **A `LoggingConfig`:** the run evaluates whether or not a backend records
   it, and returns `(state, evaluations)`: every logged key's values per seed

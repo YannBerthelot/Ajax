@@ -123,7 +123,9 @@ _TOL = 1e-4
 
 def _run_plain_sac():
     agent = SAC(**_PARITY_CONFIG)
-    state, _metrics = agent.train(seed=_PARITY_SEED, n_timesteps=_PARITY_TIMESTEPS)
+    state, _metrics = agent.train(
+        seed=_PARITY_SEED, n_timesteps=_PARITY_TIMESTEPS, logging_config=None
+    )
     return state
 
 

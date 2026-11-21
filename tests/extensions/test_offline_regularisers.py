@@ -30,7 +30,9 @@ def sac_batch(return_to_go: float) -> dict[str, Any]:
         actor_architecture=("8", "relu"),
         critic_architecture=("8", "relu"),
     )
-    state = jax.tree.map(lambda x: x[0], agent.train(seed=0, n_timesteps=0)[0])
+    state = jax.tree.map(
+        lambda x: x[0], agent.train(seed=0, n_timesteps=0, logging_config=None)[0]
+    )
     obs = jax.random.normal(KEY, (ROWS, 3))
     return {
         "observations": obs,
@@ -84,14 +86,16 @@ def test_the_gap_falls_by_the_datas_own_values() -> None:
 
 def test_the_replay_keeps_a_datasets_return_and_minus_inf_for_collected_rows() -> None:
     agent = SAC("Pendulum-v1", buffer_size=64, batch_size=8, extensions=(CalQL(),))
-    state, _ = agent.train(seed=0, n_timesteps=4)
+    state, _ = agent.train(seed=0, n_timesteps=4, logging_config=None)
     replay = jax.tree.map(lambda x: x[0], state.collector_state.buffer_state)
     np.testing.assert_array_equal(replay.experience["return_to_go"][0, :4], -np.inf)
     obs, ends = np.zeros((ROWS, 3)), np.ones(ROWS, bool)
     rows = TransitionDataset(
         obs, np.zeros((ROWS, 1)), np.arange(ROWS), ends, ~ends, obs
     )
-    empty = agent.train(seed=0, n_timesteps=0)[0].collector_state.buffer_state
+    empty = agent.train(seed=0, n_timesteps=0, logging_config=None)[
+        0
+    ].collector_state.buffer_state
     filled = fill_replay(jax.tree.map(lambda x: x[0], empty), rows)
     np.testing.assert_array_equal(
         filled.experience["return_to_go"][0, :ROWS, 0], rows.return_to_go
@@ -106,7 +110,7 @@ def test_expert_prefill_rows_keep_minus_inf() -> None:
         extensions=(CalQL(), ExpertPrefill(n_steps=4)),
         expert_policy=lambda obs: jnp.zeros((*obs.shape[:-1], 1)),
     )
-    state, _ = agent.train(seed=0, n_timesteps=0)
+    state, _ = agent.train(seed=0, n_timesteps=0, logging_config=None)
     replay = jax.tree.map(lambda x: x[0], state.collector_state.buffer_state)
     np.testing.assert_array_equal(replay.experience["return_to_go"][0, :4], -np.inf)
 

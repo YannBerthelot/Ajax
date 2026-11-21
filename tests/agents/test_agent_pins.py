@@ -1845,7 +1845,7 @@ _GOLDEN.update(
 def fingerprint(name: str) -> dict[str, float]:
     agent_cls, kwargs, steps = _CASES[name]
     agent = agent_cls(**kwargs)
-    state, _ = agent.train(seed=0, n_timesteps=steps)
+    state, _ = agent.train(seed=0, n_timesteps=steps, logging_config=None)
     out = {"actor": float(tree_norm(state.actor_state.params, squared=True))}
     if state.critic_state is not None:
         out["critic"] = float(tree_norm(state.critic_state.params, squared=True))

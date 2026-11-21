@@ -251,7 +251,7 @@ def test_dqn_builds_a_plain_q_network_unless_the_encoder_norm_is_opted_in() -> N
     agent = ajax.DQN("CartPole-v1", architecture=("16", "relu"))
 
     def q_network() -> Any:
-        state, _ = agent.train(seed=0, n_timesteps=0)
+        state, _ = agent.train(seed=0, n_timesteps=0, logging_config=None)
         return jax.tree.map(lambda x: x[0], state.actor_state)
 
     def leaves(params: Any) -> dict[str, jax.Array]:

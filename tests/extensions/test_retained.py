@@ -45,7 +45,10 @@ def logged() -> ds.TransitionDataset:
 def train(ext: Any, n_timesteps: int = 0, agent: Any = SAC, **kwargs: Any) -> Any:
     kwargs = {**KWARGS, "critic_architecture": LAYER_NORM, **kwargs}
     run = agent(IdentityEnv(), extensions=(ext,), **kwargs)
-    return jax.tree.map(lambda x: x[0], run.train(seed=0, n_timesteps=n_timesteps)[0])
+    return jax.tree.map(
+        lambda x: x[0],
+        run.train(seed=0, n_timesteps=n_timesteps, logging_config=None)[0],
+    )
 
 
 def test_logged_rows_stay_as_logged_in_a_buffer_of_their_own(logged) -> None:
@@ -73,7 +76,9 @@ def test_the_expert_fills_the_buffer_with_the_runs_features() -> None:
         critic_architecture=LAYER_NORM,
         **KWARGS,
     )
-    state = jax.tree.map(lambda x: x[0], agent.train(seed=0, n_timesteps=0)[0])
+    state = jax.tree.map(
+        lambda x: x[0], agent.train(seed=0, n_timesteps=0, logging_config=None)[0]
+    )
     kept = state.collector_state.buffer_state.retained
     assert int(kept.current_index) == 12
     assert kept.experience["obs"].shape[-1] == 2 + 3
@@ -198,9 +203,11 @@ def test_a_resumed_run_keeps_the_retained_rows(logged, tmp_path) -> None:
         **KWARGS,
     )
     path = str(tmp_path / "run.pkl")
-    save_checkpoint(agent.train(seed=[0], n_timesteps=20)[0], path)
+    save_checkpoint(agent.train(seed=[0], n_timesteps=20, logging_config=None)[0], path)
     state = load_checkpoint(agent, path)
-    resumed = agent.train(seed=[0], n_timesteps=24, initial_state=state)[0]
+    resumed = agent.train(
+        seed=[0], n_timesteps=24, initial_state=state, logging_config=None
+    )[0]
     replay = jax.tree.map(lambda x: x[0], resumed).collector_state.buffer_state
     assert isinstance(replay, TwoBufferState)
     n = len(logged.reward)
@@ -231,7 +238,9 @@ def test_demonstrations_are_drawn_over_all_rows_by_default() -> None:
         critic_architecture=SMALL,
         **KWARGS,
     )
-    state = jax.tree.map(lambda x: x[0], agent.train(seed=0, n_timesteps=0)[0])
+    state = jax.tree.map(
+        lambda x: x[0], agent.train(seed=0, n_timesteps=0, logging_config=None)[0]
+    )
     replay = state.collector_state.buffer_state
     assert replay.share is None and int(replay.retained.current_index) == 8
 
@@ -250,7 +259,9 @@ def test_cloning_then_prefill_is_rainbows_baseline() -> None:
         critic_architecture=SMALL,
         **KWARGS,
     )
-    state = jax.tree.map(lambda x: x[0], agent.train(seed=0, n_timesteps=24)[0])
+    state = jax.tree.map(
+        lambda x: x[0], agent.train(seed=0, n_timesteps=24, logging_config=None)[0]
+    )
     assert int(state.collector_state.buffer_state.retained.current_index) == 8
 
 
@@ -273,4 +284,4 @@ def test_two_rings_of_retained_rows_are_refused(logged) -> None:
         **KWARGS,
     )
     with pytest.raises(ValueError, match="one ring"):
-        agent.train(seed=0, n_timesteps=0)
+        agent.train(seed=0, n_timesteps=0, logging_config=None)

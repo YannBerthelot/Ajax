@@ -15,26 +15,13 @@
 <p align="center">
   <a href="#install">Install</a> ·
   <a href="#quickstart">Quickstart</a> ·
+  <a href="#why-ajax">Why Ajax</a> ·
   <a href="#agents">Agents</a> ·
   <a href="#learning-from-an-expert-or-from-data">Expert and data</a> ·
   <a href="#beside-reference-implementations">Reproduction</a> ·
   <a href="#benchmark">Benchmark</a> ·
   <a href="https://yannberthelot.github.io/Ajax/">Documentation</a>
 </p>
-
-Ajax has nineteen agents, each from a published paper. Compared with
-[Stable-Baselines3](https://github.com/DLR-RM/stable-baselines3) and
-[SBX](https://github.com/araffin/sbx), it offers:
-
-- **[Fast and parallel](docs/guide/performance.md)**: the environment steps beside the agent on a CPU or a GPU, with no Python in the loop, so many seeds and environment copies train at once on one device. With 10 seeds, one NVIDIA L40S ran SAC about 7 times as fast as four CPU cores, and CrossQ and REDQ over 50 times ([speeds](docs/guide/performance.md#cpu-or-gpu)).
-- **[Modular](docs/guide/extensions.md)**: GRU, LSTM, transformer and Mamba memories, CNN encoders, sequence replay with burn-in, a PID policy and forty-four extensions, combined in the agent's constructor. The [compatibility table](docs/guide/compatibility.md) shows which parts go together.
-- **Multi-paradigm**: discounted and average-reward agents ([ASAC](docs/algorithms/asac.md), [RVI-SAC](docs/algorithms/rvisac.md), [APO](docs/algorithms/apo.md)), model-free and model-based, online and offline, all behind one interface.
-- **[Expert-guided](docs/guide/expert-guidance.md)**: cloning, imitation, prior data and offline training.
-- **[World models, ready to use](docs/guide/world-models.md)**: DreamerV3 and TD-MPC2 are among the hardest agents to get right, and their papers run them on over a hundred tasks with one set of hyperparameters. Ajax checks them against the official code, update by update.
-
-[Why Ajax](docs/getting-started/why-ajax.md) compares it with SB3, SBX,
-PureJaxRL, Brax, Stoix, Rejax, TorchRL and Tianshou, including when to use
-them instead.
 
 ## Install
 
@@ -51,19 +38,29 @@ covers the other extras and `uv sync` from a clone.
 
 ```python
 from ajax import PPO
-from ajax.logging import LoggingConfig
 
-agent = PPO("CartPole-v1")  # one environment, 2048-step rollouts: one update per 2,048 steps
-# Evaluate every 4 updates; backends=() keeps the results in memory only.
-logging = LoggingConfig(log_frequency=8_192, backends=())
-state, evaluations = agent.train(seed=[1, 2, 3], n_timesteps=40_960, logging_config=logging)
+agent = PPO("CartPole-v1", n_envs=8, n_steps=128)
+state, evaluations = agent.train(seed=[1, 2, 3], n_timesteps=40_960)
 
-print(evaluations["timestep"][0])                # when each evaluation ran
-print(evaluations["Eval/episodic mean reward"])  # one row per seed, one column per evaluation
+print(evaluations.timesteps)  # when each evaluation ran
+print(evaluations.returns)    # one row per seed, one column per evaluation
+print(agent.evaluate(state, episodes=20).mean(axis=1))  # each seed's score now
 ```
 
-The three seeds train together, in about fifteen seconds on a laptop CPU,
-compilation included. Parts combine in the constructor:
+`train` prints a line per evaluation, with the mean return over the seeds.
+The three seeds train together, in under a minute on a laptop CPU,
+compilation included.
+
+`"CartPole-v1"` here is [gymnax](https://github.com/RobertTLange/gymnax)'s
+CartPole, written in JAX. That is the intended use: with a JAX environment
+(gymnax, Brax, MuJoCo Playground) the environment, the agent and every seed
+compile into one program that stays on the CPU or the GPU from start to
+end. [Gymnasium](https://gymnasium.farama.org) environments are supported
+too, with `PPO("gymnasium:CartPole-v1")`; they step in Python, so training
+is slower and a GPU does not help
+([Environments](docs/guide/environments.md#gymnasium-environments)).
+
+Parts combine in the constructor:
 
 ```python
 from ajax import PPO, SAC
@@ -82,6 +79,22 @@ agent = PPO("ant", n_envs=8)
 A notebook trains, acts and saves step by step: [`notebooks/quickstart.ipynb`](notebooks/quickstart.ipynb)
 ([open in Colab](https://colab.research.google.com/github/YannBerthelot/Ajax/blob/main/notebooks/quickstart.ipynb)).
 Complete scripts are in [`examples/`](examples/).
+
+## Why Ajax
+
+Ajax has nineteen agents, each from a published paper. Compared with
+[Stable-Baselines3](https://github.com/DLR-RM/stable-baselines3) and
+[SBX](https://github.com/araffin/sbx), it offers:
+
+- **[Fast and parallel](docs/guide/performance.md)**: the environment steps beside the agent on a CPU or a GPU, with no Python in the loop, so many seeds and environment copies train at once on one device. With 10 seeds, one NVIDIA L40S ran SAC about 7 times as fast as four CPU cores, and CrossQ and REDQ over 50 times ([speeds](docs/guide/performance.md#cpu-or-gpu)).
+- **[Modular](docs/guide/extensions.md)**: GRU, LSTM, transformer and Mamba memories, CNN encoders, sequence replay with burn-in, a PID policy and forty-four extensions, combined in the agent's constructor. The [compatibility table](docs/guide/compatibility.md) shows which parts go together.
+- **Multi-paradigm**: discounted and average-reward agents ([ASAC](docs/algorithms/asac.md), [RVI-SAC](docs/algorithms/rvisac.md), [APO](docs/algorithms/apo.md)), model-free and model-based, online and offline, all behind one interface.
+- **[Expert-guided](docs/guide/expert-guidance.md)**: cloning, imitation, prior data and offline training.
+- **[World models, ready to use](docs/guide/world-models.md)**: DreamerV3 and TD-MPC2 are among the hardest agents to get right, and their papers run them on over a hundred tasks with one set of hyperparameters. Ajax checks them against the official code, update by update.
+
+[Why Ajax](docs/getting-started/why-ajax.md) compares it with SB3, SBX,
+PureJaxRL, Brax, Stoix, Rejax, TorchRL and Tianshou, including when to use
+them instead.
 
 ## Agents
 

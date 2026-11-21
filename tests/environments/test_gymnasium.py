@@ -234,9 +234,9 @@ def test_gradients_through_the_env_are_refused():
 def test_resuming_from_a_saved_state_is_refused():
     with pytest.warns(PythonEnvironmentWarning):
         agent = SAC("gymnasium:Pendulum-v1", learning_starts=100)
-    state, _ = agent.train(seed=0, n_timesteps=4)
+    state, _ = agent.train(seed=0, n_timesteps=4, logging_config=None)
     with pytest.raises(ValueError, match="cannot resume"):
-        agent.train(seed=0, n_timesteps=4, initial_state=state)
+        agent.train(seed=0, n_timesteps=4, initial_state=state, logging_config=None)
 
 
 def test_action_repeat_is_refused():

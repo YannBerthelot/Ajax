@@ -95,5 +95,5 @@ def test_an_agent_trains_on_a_noisy_env():
         actor_architecture=("8", "tanh"),
         critic_architecture=("8", "tanh"),
     )
-    state, _ = agent.train(seed=0, n_timesteps=32)
+    state, _ = agent.train(seed=0, n_timesteps=32, logging_config=None)
     assert all(np.isfinite(x).all() for x in jax.tree.leaves(state.actor_state.params))

@@ -19,7 +19,7 @@ def main(n_timesteps: int = 30_000, folder: str = "runs") -> None:
     _, evaluations = agent.train(
         seed=[1, 2], n_timesteps=n_timesteps, logging_config=logging
     )
-    print("last evaluation, per seed:", evaluations["Eval/episodic mean reward"][:, -1])
+    print("last evaluation, per seed:", evaluations.returns[:, -1])
     print("runs logged:", agent.run_ids)
 
 

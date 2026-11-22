@@ -144,8 +144,19 @@ program, every seed in step. More seeds cost little extra time until the
 device is full ([Performance](performance.md) has the measurements), so run
 the seeds you need in one call rather than one call per seed.
 
-Every array in the returned state has the seed axis first. Seed `i`'s part
-is `jax.tree.map(lambda x: x[i], state)`.
+Everything `train` returns has the seed axis first, whatever the number of
+seeds: with `seed=0`, `evaluations.returns` has shape `(1, evaluations)`, and
+that run's curve is `evaluations.returns[0]`. The shape does not depend on
+how the seed is written, so a script keeps working when one seed becomes
+several. The last line `train` prints gives the shape, and so does
+`print(evaluations)`. Seed `i`'s part of the state is
+`jax.tree.map(lambda x: x[i], state)`.
+
+To summarise several seeds, the scores of
+[`ajax.compare`](comparing-agents.md) take that array as it is
+(`final_return`, `last_third`, `auc`), and so do libraries that expect one
+row per run, such as [rliable](https://github.com/google-research/rliable)
+for interquartile means and their intervals.
 
 The same seed on the same machine and library versions gives the same run.
 Two programs compiled apart, or on different hardware, may round

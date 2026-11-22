@@ -65,7 +65,8 @@ plt.savefig("cartpole.png")
 
 It is a dict of every logged name to an array with one row per seed and one
 column per evaluation; `returns` and `timesteps` are its two most read
-entries. To choose when the evaluations come, or to log to TensorBoard or
+entries. One seed has its row too: after `train(seed=0)`, the run's curve is
+`evaluations.returns[0]`. To choose when the evaluations come, or to log to TensorBoard or
 Weights & Biases, pass a `LoggingConfig` ([Logging](../guide/logging.md));
 `logging_config=None` trains with no evaluation and prints nothing, which is
 the fastest. [Training an agent](../guide/training.md) has the details.

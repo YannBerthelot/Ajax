@@ -35,6 +35,11 @@ The next release is 0.6.0: the first item changes results.
   first comparison. Not yet: the world models and APG, and fields whose
   optimiser or schedule is built with the agent (DQN's and CrossQ's
   `learning_rate`, the exploration's `epsilon_decay_frac`).
+- **The seed axis is said where it is read.** Results keep their seed axis
+  whatever the number of seeds. The last line `train` prints now gives
+  `evaluations.returns`' layout and shape, `print(evaluations)` opens on it,
+  and the quickstart and the training page show a single seed's curve as
+  `evaluations.returns[0]`.
 - **More checks**, after a third newcomer trial:
     - an expert whose action drops its last axis is refused where Ajax
       first calls it, naming the expert and the axis (before, a

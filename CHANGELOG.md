@@ -8,6 +8,32 @@ PyPI as `ajax-rl`.
 
 The next release is 0.6.0: the first item changes results.
 
+- **New: `ajax.wrappers.ObservationWrapper`**, a base class whose
+  `observation(obs)` changes every observation, the one an episode's end
+  leaves in the info included. A wrapper changing only what `reset` and
+  `step` return trained on two kinds of observations, with no error
+  (Environments, "Changing the observations"). The memory guide trains on
+  a CartPole with hidden velocities built with it.
+- **Clearer errors and checks**, after a second newcomer trial:
+    - an unknown environment id names the closest ids, and an unknown agent
+      argument the closest arguments (`learning_rate`:
+      `actor_learning_rate`, `critic_learning_rate`);
+    - an agent on the wrong kind of actions names the agents that fit;
+    - a `mujoco:` id without MuJoCo names the `playground` extra, and a
+      Gymnasium environment outside the `gymnasium` extra (LunarLander's
+      Box2D) no longer points at that extra;
+    - `predict` checks the observation's shape, `policy` and `predict`
+      refuse a `seed_index` the state does not hold (it returned an action
+      before), `policy.act` refuses an observation without a row per
+      environment, and `evaluate`, `policy` and `predict` say so when given
+      train's evaluations instead of its state;
+    - image observations read by an MLP warn and name the
+      `cnn_image_shape` to pass, and one in another order than the
+      environment's (channels first) raises;
+    - a budget below one rollout warns that no evaluation is recorded.
+- **Docs:** where each source lists its environment ids, a hand-written
+  loop for one environment with a recurrent policy, and PPO's rollout count
+  corrected (Training).
 - **New: a sweep reads by configuration.** A sweep's default progress
   shows a line per configuration under each evaluation, and
   `agent.by_configuration(evaluations.returns)` gives each configuration

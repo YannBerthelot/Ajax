@@ -25,8 +25,23 @@ Two prefixes choose a source outright: `"mujoco:<id>"` for
 
 Brax and Playground ids need Ajax's `brax` or `playground` extra
 ([Installation](../getting-started/installation.md#extras)). An unknown id
-raises `ValueError`, naming the extras that are not installed. The agent
-builds `n_envs` copies, which step in parallel.
+raises `ValueError`, naming the closest ids and the extras that are not
+installed. The agent builds `n_envs` copies, which step in parallel.
+
+Each source lists its own ids:
+
+| Source | Its ids |
+| --- | --- |
+| gymnax | `gymnax.registered_envs` |
+| MuJoCo Playground | `mujoco_playground.registry.ALL_ENVS` |
+| Brax | the modules of [`brax.envs`](https://github.com/google/brax/tree/main/brax/envs) |
+| `mujoco:` | `ajax.environments.mujoco.tasks.TASKS`, [listed below](#gymnasiums-mujoco-tasks-in-jax) |
+
+```python
+import gymnax
+
+print(gymnax.registered_envs)  # ['Pendulum-v1', 'CartPole-v1', ...]
+```
 
 ```python
 from ajax import PPO, SAC
@@ -36,8 +51,10 @@ agent = PPO("CartPole-v1")  # gymnax, discrete actions
 ```
 
 gymnax environments with image observations are flattened to one vector,
-because the networks read flat vectors. A [CNN encoder](networks.md) can
-rebuild the image from it.
+because the networks read flat vectors. An MLP reads that vector unless you
+pass `cnn_image_shape`, which turns on a
+[CNN encoder](networks.md#image-observations) that rebuilds the image; Ajax
+warns when images reach an MLP.
 
 ### Brax and Playground
 
@@ -326,6 +343,7 @@ Ajax ships gymnax wrappers for common changes to a task:
 | --- | --- |
 | `InitialStateWrapper(env, init_state_fn)` | replaces the reset state, for every episode (fixed or narrowed initial conditions) |
 | `ObservationNoiseWrapper(env, sigma, scale=1.0)` | adds sensor noise to the observations (see [below](#sensor-noise)) |
+| `ObservationWrapper(env)` | a base class: your `observation(obs)` changes every observation (see [below](#changing-the-observations)) |
 | `TerminatedTruncatedWrapper(env)` | splits an old-style `done` into `terminated` and `truncated` (see [time limits](#time-limits)) |
 
 ```python
@@ -374,6 +392,42 @@ env, params = gymnax.make("Pendulum-v1")
 agent = SAC(ScaleReward(env), env_params=params, learning_starts=500)
 state, _ = agent.train(seed=0, n_timesteps=1_000)
 ```
+
+#### Changing the observations
+
+To change the observations, subclass `ObservationWrapper` and write
+`observation`; do not override `reset` and `step` on a `GymnaxWrapper`. When
+an episode ends, gymnax has already reset the environment, and the last
+observation of the finished episode travels in `info["final_observation"]`.
+The agent learns from it. `ObservationWrapper` changes it as it changes the
+others. A wrapper that changes only what `reset` and `step` return leaves
+it as the environment made it: the agent then trains on two kinds of
+observations and learns poorly, with no error.
+
+```python
+import gymnax
+import jax.numpy as jnp
+
+from ajax import PPO
+from ajax.wrappers import ObservationWrapper
+
+
+class HideVelocities(ObservationWrapper):
+    """CartPole showing positions only: both velocities read zero."""
+
+    def observation(self, obs):
+        # CartPole observes [position, velocity, angle, angular velocity].
+        return obs * jnp.array([1.0, 0.0, 1.0, 0.0])
+
+
+env, params = gymnax.make("CartPole-v1")
+agent = PPO(HideVelocities(env), env_params=params, n_envs=8, n_steps=64)
+state, _ = agent.train(seed=0, n_timesteps=1_024)
+```
+
+A wrapper that changes the observations' shape also defines
+`observation_space(params)`. This CartPole needs memory to be solved:
+[Memory](memory.md) trains on it.
 
 Two more modules turn one environment into a family of tasks:
 `ajax.environments.model_reference` (follow a reference model's response)

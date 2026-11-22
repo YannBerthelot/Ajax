@@ -125,8 +125,10 @@ state, out = agent.train(
 off-policy agent collects one step in each copy per iteration, so 100,000
 steps with `n_envs=4` are 25,000 iterations. An on-policy agent (PPO, APO,
 PQN) collects a rollout of `n_steps` per copy per iteration and trains in
-whole rollouts: it runs `n_timesteps // (n_envs * n_steps) + 1` of them, so
-it can stop a little past the budget.
+whole rollouts: it runs `n_timesteps // (n_envs * n_steps)` of them, and at
+least one. A budget that is not whole rollouts stops at the last whole one,
+with a warning; a budget below one rollout runs that one rollout and
+records no evaluation.
 
 The off-policy agents act uniformly at random and do not update until
 `learning_starts` steps are collected: 10,000 by default for SAC, TD3, REDQ

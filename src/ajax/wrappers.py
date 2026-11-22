@@ -130,6 +130,33 @@ class BinaryObservations(GymnaxWrapper):
         return spaces.Box(space.low, space.high, space.shape, jnp.bool_)
 
 
+class ObservationWrapper(GymnaxWrapper):
+    """A gymnax env whose observations are ``self.observation(obs)``: at
+    reset, at every step, and for the pre-reset observation an episode end
+    leaves in the info, which the agent reads as that transition's next
+    observation. A wrapper changing only what reset and step return leaves
+    that one as the env made it, and the agent then learns from two kinds
+    of observations, with no error. A subclass that changes the
+    observations' shape also defines ``observation_space``."""
+
+    def observation(self, obs: jax.Array) -> jax.Array:
+        raise NotImplementedError
+
+    def reset(self, key, params=None):
+        obs, state = self._env.reset(key, params)
+        return self.observation(obs), state
+
+    def step(self, key, state, action, params=None):
+        obs, state, reward, terminated, truncated, info = self._env.step(
+            key, state, action, params
+        )
+        info = {
+            name: self.observation(value) if name in _FINAL_OBS_KEYS else value
+            for name, value in info.items()
+        }
+        return self.observation(obs), state, reward, terminated, truncated, info
+
+
 class FlattenObservationWrapper(GymnaxWrapper):
     """Flatten the observations of the environment."""
 

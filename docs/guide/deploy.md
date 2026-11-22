@@ -108,6 +108,39 @@ random state.
 An agent whose policy carries memory refuses `predict`, since one call cannot
 carry it between steps: a recurrent actor, a world model (DreamerV3,
 TD-MPC2), UDRL, an expert or a feature with a state. Use `policy` instead.
+For one environment, it is the same loop with a carry and a batch of one:
+`obs[None]` adds the batch axis and `actions[0]` removes it.
+
+```python
+from ajax import PPO
+from ajax.networks.memory import MemoryConfig
+
+memory_agent = PPO(
+    "CartPole-v1",
+    n_envs=4,
+    n_steps=32,
+    memory=MemoryConfig(kind="gru", hidden_size=16),
+    bptt_length=16,
+)
+memory_state, _ = memory_agent.train(seed=0, n_timesteps=512, logging_config=None)
+
+cartpole, cartpole_params = gymnax.make("CartPole-v1")
+memory_policy = memory_agent.policy(memory_state)
+memory_carry = memory_policy.reset(1)  # one environment
+reset_key, loop_key = jax.random.split(jax.random.PRNGKey(2))
+one_obs, one_state = cartpole.reset(reset_key, cartpole_params)
+episode_return, episode_over = 0.0, False
+while not episode_over:
+    actions, memory_carry = memory_policy.act(one_obs[None], memory_carry)
+    loop_key, step_key = jax.random.split(loop_key)
+    one_obs, one_state, one_reward, terminated, truncated, _ = cartpole.step(
+        step_key, one_state, actions[0], cartpole_params
+    )
+    episode_return += float(one_reward)
+    episode_over = bool(terminated or truncated)
+print(episode_return)
+```
+
 TDMPC2MultiTask has no policy yet: its planner acts for one task of its set.
 
 ## Save and load

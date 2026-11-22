@@ -31,7 +31,9 @@ from __future__ import annotations
 
 import copy
 import dataclasses
+import difflib
 import inspect
+import warnings
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import KW_ONLY, dataclass
 from functools import partial
@@ -86,9 +88,15 @@ from ajax.controller import (
 )
 from ajax.environments.interaction import init_collector_state
 from ajax.environments.row_collector import resume_tick
-from ajax.environments.utils import get_state_action_shapes, steps_in_python
+from ajax.environments.utils import (
+    get_env_type,
+    get_raw_env,
+    get_state_action_shapes,
+    steps_in_python,
+)
 from ajax.evaluate import ValueEstimate, policy_returns
 from ajax.extensions.base import Extension, ExtensionStack, holds_expert
+from ajax.logging.progress import Evaluations
 from ajax.networks.memory import (
     MemoryConfig,
     parse_memory_config,
@@ -421,6 +429,49 @@ class PolicyUpdateStart:
         return self.policy_update_start > 0
 
 
+def _unknown_argument(agent: type, name: str, known: Iterable[str]) -> str:
+    """The message for an argument ``agent`` does not take: the arguments
+    holding its name (learning_rate: actor_learning_rate), then the closest
+    spellings (n_step: n_steps)."""
+    known = sorted(known)
+    close = [other for other in known if name in other]
+    for other in difflib.get_close_matches(name, known, n=3):
+        if other not in close:
+            close.append(other)
+    meant = f" Did you mean {', '.join(close[:3])}?" if close else ""
+    return (
+        f"{agent.__name__} has no argument {name!r}.{meant}"
+        f" help({agent.__name__}) lists its arguments."
+    )
+
+
+def _agents_acting_in(action_space: str) -> list[str]:
+    """The names of Ajax's agents acting in ``action_space``."""
+    import ajax  # ajax imports this module: resolved at call time
+
+    agents = [getattr(ajax, name) for name in ajax.__all__]
+    return sorted(
+        agent.__name__
+        for agent in agents
+        if isinstance(agent, type)
+        and issubclass(agent, DeclaredAgent)
+        and agent.action_space in (action_space, "any")
+    )
+
+
+def _train_state(agent_state: Any) -> Any:
+    """The state of train's (state, evaluations), or of the state itself;
+    the evaluations alone are refused, since no policy is in them."""
+    if isinstance(agent_state, tuple) and len(agent_state) == 2:
+        agent_state = agent_state[0]
+    if isinstance(agent_state, Evaluations):
+        raise TypeError(
+            "This is train's second value, the evaluations; pass the first,"
+            " the state: state, evaluations = agent.train(...)."
+        )
+    return agent_state
+
+
 @dataclass(eq=False, repr=False)
 class DeclaredAgent(ActorCritic):
     """An agent whose constructor is its fields' (keyword-only but
@@ -458,6 +509,18 @@ class DeclaredAgent(ActorCritic):
 
     #: The action spaces the algorithm acts in: "continuous", "discrete", "any".
     action_space: ClassVar[str] = "continuous"
+
+    def __new__(cls, *_positional: Any, **kwargs: Any) -> Self:
+        # Python's own TypeError names an unknown argument and nothing else.
+        parameters = inspect.signature(cls.__init__).parameters
+        open_ended = any(
+            parameter.kind is inspect.Parameter.VAR_KEYWORD
+            for parameter in parameters.values()
+        )
+        for name in kwargs:
+            if name not in parameters and not open_ended:
+                raise TypeError(_unknown_argument(cls, name, parameters))
+        return super().__new__(cls)
 
     def __post_init__(self) -> None:
         # The run config the loggers record: the call, before any check.
@@ -503,8 +566,11 @@ class DeclaredAgent(ActorCritic):
         if self.action_space != "any" and self.env_args.continuous != (
             self.action_space == "continuous"
         ):
+            found = "continuous" if self.env_args.continuous else "discrete"
             raise ValueError(
                 f"{self.name} only supports {self.action_space} action spaces."
+                f" This environment's actions are {found}; the agents acting"
+                f" in them: {', '.join(_agents_acting_in(found))}."
             )
         settings = self.optimizer_settings()
         self.actor_optimizer_args = self.actor_optimizer_args.replace(**settings)
@@ -519,7 +585,34 @@ class DeclaredAgent(ActorCritic):
             self.network_args = self.network_args.replace(share_encoder=share_encoder)
         self._build_family()
         self.setup()
+        self._check_image_encoder()
         object.__setattr__(self, "_built", True)
+
+    def _check_image_encoder(self) -> None:
+        """Says when a gymnax environment's image observations are read
+        without the CNN encoder, which nothing turns on by itself, and
+        refuses an image shape other than the environment's."""
+        env = self.env_args.env
+        if not isinstance(self, ImageObservations) or get_env_type(env) != "gymnax":
+            return
+        raw = get_raw_env(env)
+        image = tuple(raw.observation_space(raw.default_params).shape)
+        if len(image) != 3:
+            return
+        if self.cnn_image_shape is None:
+            warnings.warn(
+                f"The observations are images of shape {image}, read here by an"
+                " MLP on the flattened image. Pass"
+                f" cnn_image_shape={image} to read them with a CNN encoder.",
+                UserWarning,
+                stacklevel=4,
+            )
+        elif self.cnn_extra_obs_dim == 0 and tuple(self.cnn_image_shape) != image:
+            raise ValueError(
+                f"cnn_image_shape={tuple(self.cnn_image_shape)}, but the"
+                f" environment's images have shape {image} (height, width,"
+                f" channels): pass cnn_image_shape={image}."
+            )
 
     def __setattr__(self, name: str, value: Any) -> None:
         # Fixed once built (owner, 2026-10-24), so what trains is what the
@@ -658,8 +751,13 @@ class DeclaredAgent(ActorCritic):
         """The policy of seed seed_index of agent_state (train's state, or
         its (state, out)), acting in the environment's units exactly as the
         agent's evaluation acts (ajax.policy.Policy)."""
-        if isinstance(agent_state, tuple) and len(agent_state) == 2:
-            agent_state = agent_state[0]
+        agent_state = _train_state(agent_state)
+        seeds = int(jax.tree.leaves(agent_state)[0].shape[0])
+        if not 0 <= seed_index < seeds:
+            raise IndexError(
+                f"seed_index={seed_index}, but the state holds {seeds} seed(s):"
+                f" 0 to {seeds - 1}."
+            )
         one_seed = jax.tree.map(lambda leaf: leaf[seed_index], agent_state)
         return Policy(self.policy_parts(), one_seed)
 
@@ -677,8 +775,7 @@ class DeclaredAgent(ActorCritic):
             state, _ = agent.train(seed=[0, 1], n_timesteps=50_000)
             agent.evaluate(state).mean(axis=1)
         """
-        if isinstance(agent_state, tuple) and len(agent_state) == 2:
-            agent_state = agent_state[0]
+        agent_state = _train_state(agent_state)
         build = self.policy_parts()
         members = int(jax.tree.leaves(agent_state)[0].shape[0])
         keys = split_by_index(jax.random.PRNGKey(seed), members)
@@ -742,6 +839,15 @@ class DeclaredAgent(ActorCritic):
         policy = self._predicting[2]
         observation = jnp.asarray(observation)
         obs_shape, _ = get_state_action_shapes(self.env_args.env)
+        rank = len(obs_shape)
+        sized = all(isinstance(size, int) for size in obs_shape)
+        own = observation.shape[max(observation.ndim - rank, 0) :]
+        if sized and (own != tuple(obs_shape) or observation.ndim > rank + 1):
+            raise ValueError(
+                f"observation has shape {observation.shape}; this environment's"
+                f" have shape {tuple(obs_shape)}: pass one, or a batch with a"
+                " row per env."
+            )
         single = observation.ndim == len(obs_shape)
         batch = observation[None] if single else observation
         action, _ = policy.act(batch, policy.reset(batch.shape[0]))

@@ -94,7 +94,7 @@ from ajax.environments.utils import (
     get_state_action_shapes,
     steps_in_python,
 )
-from ajax.evaluate import ValueEstimate, policy_episode, policy_returns
+from ajax.evaluate import ValueEstimate, policy_returns
 from ajax.extensions.base import Extension, ExtensionStack, holds_expert
 from ajax.logging.progress import Evaluations
 from ajax.networks.memory import (
@@ -110,7 +110,7 @@ from ajax.networks.networks import (
 )
 from ajax.policy import Policy, PolicyParts, evaluation_policy
 from ajax.random_keys import split_by_index
-from ajax.render import animation_suffix, save_episode
+from ajax.render import animation_suffix, render_episode
 from ajax.schedule import Schedule, at
 from ajax.state import (
     AlphaConfig,
@@ -790,6 +790,7 @@ class DeclaredAgent(ActorCritic):
         seed_index: int = 0,
         seed: int = 0,
         max_steps: Optional[int] = None,
+        draw: Optional[Callable[[Any], Any]] = None,
     ) -> str:
         """Saves one fresh episode of seed seed_index's trained policy as an
         animation at ``path``, and returns the path. The policy acts as in
@@ -799,9 +800,13 @@ class DeclaredAgent(ActorCritic):
 
             state, _ = agent.train(seed=0, n_timesteps=50_000)
             agent.render(state, "cartpole.gif")
-        """
+
+        ``draw`` draws an environment Ajax has no drawing for, such as one
+        of your own: a function from one environment state (its own
+        fields, without a leading axis) to a ``(height, width, 3)``
+        picture, 8-bit or floats in [0, 1]. Given, it is what draws."""
         path = str(path)
-        suffix = animation_suffix(self.env_args.env)
+        suffix = animation_suffix(self.env_args.env, draw)
         if not path.lower().endswith(suffix):
             raise ValueError(
                 f"An episode of this environment is saved as a {suffix} file:"
@@ -809,10 +814,9 @@ class DeclaredAgent(ActorCritic):
             )
         policy = self.policy(agent_state, seed_index)
         parts = policy.build(policy.agent_state)
-        env, states, rewards = policy_episode(
-            self.env_args, parts, jax.random.PRNGKey(seed), max_steps
+        render_episode(
+            self.env_args, parts, jax.random.PRNGKey(seed), path, max_steps, draw
         )
-        save_episode(env, states, rewards, path, self.env_args.action_repeat)
         return path
 
     def policy_parts(self) -> Callable[[Any], PolicyParts]:

@@ -24,6 +24,7 @@ run's key, rather than Ajax's episode keys.
 import copy
 import warnings
 from dataclasses import dataclass
+from functools import partial
 from typing import Any, Callable, Optional
 
 import gymnasium
@@ -260,9 +261,13 @@ class GymnasiumEnv(environment.Environment):
         super().__init__()
         self.env_id = env_id
 
-        def make() -> gymnasium.Env:
+        def make(**overrides: Any) -> gymnasium.Env:
+            """A copy; ``overrides`` replace this env's own make arguments
+            (rendering asks for ``render_mode``)."""
+            arguments = dict(make_kwargs)
+            arguments.update(overrides)
             try:
-                return gymnasium.make(env_id, **make_kwargs)
+                return gymnasium.make(env_id, **arguments)
             except (
                 gymnasium.error.DependencyNotInstalled,
                 ModuleNotFoundError,
@@ -372,17 +377,38 @@ class GymnasiumEnv(environment.Environment):
         return obs, next_state, reward, terminated, truncated, info
 
 
-def with_own_copies(env: Any) -> Any:
+def with_own_copies(env: Any, **make_overrides: Any) -> Any:
     """``env`` with every :class:`GymnasiumEnv` under its wrappers given a
     pool of its own, so that stepping it (evaluation does) leaves ``env``'s
-    episodes where they are. Other environments come back as they are."""
+    episodes where they are. Other environments come back as they are.
+    ``make_overrides`` replace the make arguments of the pool's copies
+    (``render_mode="rgb_array"``, to draw them)."""
     if isinstance(env, GymnasiumEnv):
         separate = copy.copy(env)
         separate._copies = _Copies(env._copies.make, env._copies.discrete)
+        if make_overrides:
+            separate._copies.make = partial(env._copies.make, **make_overrides)
         return separate
     inner = getattr(env, "__dict__", {}).get("_env")
     if inner is None:
         return env
     rewrapped = copy.copy(env)
-    rewrapped._env = with_own_copies(inner)
+    rewrapped._env = with_own_copies(inner, **make_overrides)
     return rewrapped
+
+
+def rendered_frame(env: GymnasiumEnv) -> np.ndarray:
+    """The picture of ``env``'s first copy where it stands, for a pool built
+    with ``render_mode="rgb_array"``."""
+    copy_ = env._copies.envs[0]
+    frame = copy_.render()
+    if frame is None:
+        raise ValueError(
+            f"{env.env_id} returned no picture with render_mode='rgb_array'."
+        )
+    return np.asarray(frame)
+
+
+def frames_per_second(env: GymnasiumEnv, default: float = 30.0) -> float:
+    """The speed ``env``'s copies say they are drawn at (``render_fps``)."""
+    return float(env._copies.envs[0].metadata.get("render_fps", default))

@@ -49,12 +49,39 @@ depends on the environment:
 | gymnax: MinAtar, `Catch-bsuite`, `Pong-misc`, `PointRobot-misc`, the mazes | `.gif` | nothing more |
 | Brax | `.html`, a page showing the episode in three dimensions | nothing to install; the page loads its viewer from the internet when opened |
 | MuJoCo Playground and `mujoco:` tasks | `.gif` | the `render` extra, for the GIF writer; without a display, set `MUJOCO_GL=egl` |
+| Gymnasium (`gymnasium:` ids) | `.gif` of the environment's own pictures | what Gymnasium needs to draw that environment (pygame for classic control, in the `render` extra) |
+| Any other, with `draw=` | `.gif` | nothing more |
 
 The gymnax drawings are gymnax's own, and the MuJoCo frames are 320 by 240
-pixels from the task's default camera. A Gymnasium environment, another
-gymnax task and an environment of your own are not drawn: `render` says so
-before running anything. Act with `predict` or `policy`, below, and draw
-the states yourself.
+pixels from the task's default camera. A Gymnasium environment is drawn by
+copies built with `render_mode="rgb_array"`, at the speed it names.
+
+Another gymnax task, or an environment of your own, has no drawing Ajax
+knows, and `render` says so before running anything. Pass it a function
+drawing one state:
+
+```python
+import jax.numpy as jnp
+
+from ajax import PPO
+
+
+def draw(env_state):
+    """A white dot at the arm's tip, on a 64 by 64 black picture."""
+    angles = jnp.cumsum(env_state.angles)
+    tip = jnp.stack([jnp.cos(angles).sum(), jnp.sin(angles).sum()]) / env_state.angles.size
+    column, row = jnp.round(31.5 + 28 * tip).astype(int)
+    return jnp.zeros((64, 64, 3)).at[row, column].set(1.0)
+
+
+agent = PPO("Reacher-misc", n_envs=4, n_steps=32)
+state, _ = agent.train(seed=0, n_timesteps=1_024)
+agent.render(state, "reacher.gif", draw=draw, max_steps=50)
+```
+
+`draw` receives one environment's state, with the environment's own fields
+and no leading axis, and returns a `(height, width, 3)` picture: 8-bit
+colours, or floats between 0 and 1. The GIF plays 30 pictures a second.
 
 ## Act with the trained policy
 

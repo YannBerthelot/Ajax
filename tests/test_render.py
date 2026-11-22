@@ -8,8 +8,14 @@ docs/guide/deploy.md, "Watch the policy"):
   - ``agent.render(state, path)`` writes the animation at ``path`` and
     returns it: a GIF with a frame per state on a gymnax task gymnax
     draws, an HTML page on Brax;
-  - a path with another ending is refused before anything runs, as are a
-    gymnax task gymnax does not draw and a Gymnasium environment;
+  - a path with another ending is refused before anything runs, as is a
+    gymnax task gymnax does not draw, naming ``draw``;
+  - a Gymnasium environment is drawn with its own pictures, a frame per
+    state (owner's decision of 2026-11-22: before, it was refused);
+  - with ``draw``, any environment is saved as a GIF of what ``draw``
+    returns for each state, one environment's, in order; a picture is
+    ``(height, width, 3)``, 8-bit or floats in [0, 1], and another shape is
+    refused;
   - a classic-control drawing is written with Ajax's render extra, and
     without pygame names that extra.
 """
@@ -18,8 +24,9 @@ import importlib.util
 import os
 
 import jax
+import numpy as np
 import pytest
-from PIL import Image
+from PIL import Image, ImageSequence
 
 from ajax import PPO, PQN
 from ajax.evaluate import policy_episode
@@ -84,15 +91,73 @@ def test_a_path_with_another_ending_is_refused_before_anything_runs(cartpole):
 
 def test_a_gymnax_task_gymnax_does_not_draw_is_refused():
     agent = PPO("Reacher-misc", n_envs=2, n_steps=8)
-    with pytest.raises(NotImplementedError, match="CartPole-v1"):
+    with pytest.raises(NotImplementedError, match="CartPole-v1") as refusal:
         agent.render(None, "reacher.gif")
+    assert "draw=" in str(refusal.value)
 
 
-def test_a_gymnasium_environment_is_refused():
+@pytest.mark.skipif(
+    importlib.util.find_spec("pygame") is None,
+    reason="Gymnasium draws CartPole with pygame",
+)
+def test_a_gymnasium_environment_is_drawn_with_its_own_pictures(tmp_path):
+    """Gymnasium draws CartPole on a 600 by 400 screen at 50 pictures a
+    second (its cartpole.py); three steps cannot drop the pole, so four
+    states are drawn: 80 ms. The GIF writer merges equal consecutive
+    pictures into one shown longer, so the frames are counted by their time."""
     with pytest.warns(UserWarning):
         agent = PPO("gymnasium:CartPole-v1", n_envs=2, n_steps=8)
-    with pytest.raises(NotImplementedError, match="Gymnasium"):
-        agent.render(None, "cartpole.gif")
+    state, _ = agent.train(seed=0, n_timesteps=16, logging_config=None)
+    path = agent.render(state, tmp_path / "cartpole.gif", max_steps=3)
+    with Image.open(path) as animation:
+        assert animation.size == (600, 400)
+        shown = 0
+        for frame in ImageSequence.Iterator(animation):
+            shown += frame.info["duration"]
+    assert shown == 80
+
+
+@pytest.fixture(scope="module")
+def reacher():
+    """A gymnax task gymnax does not draw."""
+    agent = PPO("Reacher-misc", n_envs=2, n_steps=8)
+    state, _ = agent.train(seed=0, n_timesteps=16, logging_config=None)
+    return agent, state
+
+
+def test_a_draw_function_draws_each_state_of_one_environment_in_order(
+    reacher, tmp_path
+):
+    """gymnax counts an episode's steps in its state's ``time``: the reset
+    and three steps are times 0 to 3, each a scalar (one environment). The
+    pictures are 8 rows by 12 columns, a grey of time / 3: black first,
+    white last (float colours span 0 to 1)."""
+    agent, state = reacher
+    times = []
+
+    def draw(env_state):
+        times.append(np.asarray(env_state.time).tolist())
+        return np.full((8, 12, 3), times[-1] / 3, np.float32)
+
+    path = agent.render(state, tmp_path / "reacher.gif", max_steps=3, draw=draw)
+    assert times == [0, 1, 2, 3]
+    with Image.open(path) as animation:
+        assert animation.n_frames == 4
+        assert animation.size == (12, 8)
+        assert animation.convert("RGB").getpixel((0, 0)) == (0, 0, 0)
+        animation.seek(3)
+        assert animation.convert("RGB").getpixel((0, 0)) == (255, 255, 255)
+
+
+def test_a_picture_of_another_shape_is_refused(reacher, tmp_path):
+    agent, state = reacher
+    with pytest.raises(ValueError, match=r"\(height, width, 3\)"):
+        agent.render(
+            state,
+            tmp_path / "reacher.gif",
+            max_steps=1,
+            draw=lambda env_state: np.zeros((8, 12)),
+        )
 
 
 def test_a_classic_control_drawing_needs_pygame_and_says_so(cartpole, tmp_path):

@@ -1210,6 +1210,7 @@ def policy_episode(
     parts: Any,
     key: jax.Array,
     max_steps: Optional[int] = None,
+    snapshot: Optional[Callable[[Any, Any], Any]] = None,
 ) -> tuple[Any, list, list[float]]:
     """One episode under a trained policy's ``parts``, kept step by step for
     drawing: the env it ran on (:func:`policy_returns`' rebuilt one, a
@@ -1218,7 +1219,10 @@ def policy_episode(
     each with its leading axis of one env, and every step's reward. It
     stops at the episode's end, or after ``max_steps`` steps. The steps run
     one by one from Python, each compiled: the states are kept, which a
-    compiled loop would have to hold for the longest episode possible."""
+    compiled loop would have to hold for the longest episode possible.
+    ``snapshot(env, state)`` replaces each kept state by what it returns,
+    taken when the env stands there: a Gymnasium env's state lives in its
+    simulator, which the next step moves."""
     env, mode, env_params, horizon = _raw_evaluation_env(env_args, 1)
     key, obs, env_state = _reset_envs(env, mode, env_params, 1, key)
 
@@ -1241,7 +1245,15 @@ def policy_episode(
 
     policy_carry, starts = parts.initial(1), jnp.ones(1, bool)
     reward = jnp.zeros(1, jnp.float32)
-    states, rewards = [env_state], []
+
+    def kept(env_state: Any) -> Any:
+        if snapshot is None:
+            return env_state
+        # The reset or step that led here has run once its outputs exist.
+        jax.block_until_ready(env_state)
+        return snapshot(env, env_state)
+
+    states, rewards = [kept(env_state)], []
     for index in range(horizon if max_steps is None else min(horizon, max_steps)):
         obs, env_state, policy_carry, reward, ended = advance(
             obs, env_state, policy_carry, starts, reward, index
@@ -1250,7 +1262,7 @@ def policy_episode(
         rewards.append(float(reward[0]))
         if bool(ended):
             break
-        states.append(env_state)
+        states.append(kept(env_state))
     return env, states, rewards
 
 

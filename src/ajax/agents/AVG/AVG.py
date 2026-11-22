@@ -101,6 +101,9 @@ class AVG(
     sweepable: ClassVar[frozenset[str]] = frozenset(
         {
             "actor_learning_rate",
+            "alpha_init",
+            "critic_learning_rate",
+            "gamma",
             "reward_scale",
         }
     )

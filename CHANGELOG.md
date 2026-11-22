@@ -25,14 +25,16 @@ The next release is 0.6.0: the first item changes results.
   environment takes `agent.render(state, path, draw=my_draw)`, where
   `my_draw(env_state)` returns one picture. Both were refused before.
 - **Sweeps on every agent of the shared loop.** `train(sweep=...)` now
-  varies numbers on APO, ASAC, AVG, DAgger, DQN, IQL, PQN, REDQ, RVI-SAC,
+  varies numbers on APO, ASAC, AVG, CrossQ, DAgger, DQN, IQL, PQN, REDQ, RVI-SAC,
   TD3, TQC and UDRL as on SAC and PPO; `agent.sweepable_fields()` lists each
   agent's. A class declares the fields it defines (`sweepable`), a mixin its
   own, and an agent takes the union, less those it refuses with a reason
   (`unsweepable`). One test checks every declared field of every agent
-  against separate runs. Not yet: CrossQ, the world models and APG, and
-  fields whose optimiser or schedule is built with the agent (DQN's and
-  CrossQ's `learning_rate`, the exploration's `epsilon_decay_frac`).
+  against separate runs, and against a sweep of the agent built with the
+  value: CrossQ's sweep rounds apart from a separate run too soon for the
+  first comparison. Not yet: the world models and APG, and fields whose
+  optimiser or schedule is built with the agent (DQN's and CrossQ's
+  `learning_rate`, the exploration's `epsilon_decay_frac`).
 - **More checks**, after a third newcomer trial:
     - an expert whose action drops its last axis is refused where Ajax
       first calls it, naming the expert and the axis (before, a

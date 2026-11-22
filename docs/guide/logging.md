@@ -29,7 +29,7 @@ logging = LoggingConfig(
 | `sweep` | `False` | deprecated: the earlier name of `evaluate_last_fifth_only`. Set `True`, it warns. It is not `train(sweep=...)` |
 | `evaluation_device` | `None` | a JAX device to evaluate on while training goes on ([below](#evaluating-on-another-device)); `None`: training waits for each evaluation |
 | `use_wandb`, `use_tensorboard` | not set | deprecated: the earlier way to name backends. Set, they warn and name W&B (on unless set `False`) and TensorBoard (off unless set `True`), as before |
-| `on_evaluation` | `None` | a function called in the training process with each seed's evaluation, `on_evaluation(metrics, index)`; a backend logs in a process of its own |
+| `on_evaluation` | `None` | a function called in the training process with each seed's evaluation, `on_evaluation(metrics, index)`, where `index` says which seed; within one evaluation the seeds' calls come in no fixed order; a backend logs in a process of its own |
 | `folder` | `None` | where the default TensorBoard backend writes, `<folder>/tensorboard/<run id>/` (the working directory when `None`) |
 | `project_name`, `group_name` | `None` | with the deprecated flags: the W&B project and group |
 

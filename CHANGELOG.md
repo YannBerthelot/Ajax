@@ -20,6 +20,10 @@ The next release is 0.6.0: the first item changes results.
   `step` return trained on two kinds of observations, with no error
   (Environments, "Changing the observations"). The memory guide trains on
   a CartPole with hidden velocities built with it.
+- **`agent.render` draws Gymnasium environments and your own.** A
+  `gymnasium:` environment is saved as a GIF of its own pictures. Any other
+  environment takes `agent.render(state, path, draw=my_draw)`, where
+  `my_draw(env_state)` returns one picture. Both were refused before.
 - **More checks**, after a third newcomer trial:
     - an expert whose action drops its last axis is refused where Ajax
       first calls it, naming the expert and the axis (before, a

@@ -3430,8 +3430,10 @@ of its configuration with its seed would, up to floating-point rounding, and
 the sweep compiles once.</p>
 <p>Only the agent's sweepable fields can vary (<code>agent.sweepable_fields()</code>):
 numbers its training reads as numbers, such as SAC's learning rates, <code>gamma</code>
-and <code>tau</code>, or PPO's <code>ent_coef</code> and <code>clip_range</code>. So far only SAC and PPO
-declare any. A setting that changes array shapes or the program, such as the
+and <code>tau</code>, or PPO's <code>ent_coef</code> and <code>clip_range</code>. Every agent on the shared
+training loop declares some, but CrossQ; <code>print(agent.sweepable_fields())</code>
+lists them, and a refused field's message gives the agent's reason where it
+has one. A setting that changes array shapes or the program, such as the
 network sizes, <code>n_envs</code>, <code>batch_size</code> or <code>buffer_size</code>, takes one <code>train</code>
 call per value. Each member keeps its own replay buffer, so memory grows with
 the members.</p>
@@ -3439,6 +3441,12 @@ the members.</p>
 and one per configuration under it. With one, each member is a logged run
 of its own, with its values in its run config. A sweep continues from its state with the same
 <code>seed</code> and <code>sweep</code>.</p>
+<p>An agent of your own declares the fields it adds in a <code>sweepable</code> class
+attribute, and takes those of its base classes with them (the temperature's
+come with <code>EntropyTemperature</code>); <code>unsweepable</code> refuses an inherited one, with
+the reason its message gives. A field belongs there once a member changing it
+trains as a separate run built with the value does, which
+<code>tests/agents/test_sweep_every_agent.py</code> checks for every declared field.</p>
 <h3 id="parallel-environments">Parallel environments<a class="headerlink" href="#parallel-environments" title="Permanent link">&para;</a></h3>
 <p><code>n_envs</code> copies of the environment step together inside each seed. They
 collect more data per iteration, and each copy starts its own episodes. For

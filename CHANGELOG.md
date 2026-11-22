@@ -20,6 +20,12 @@ The next release is 0.6.0: the first item changes results.
   `step` return trained on two kinds of observations, with no error
   (Environments, "Changing the observations"). The memory guide trains on
   a CartPole with hidden velocities built with it.
+- **Ajax's PPO and SAC were run beside SBX**, Stable-Baselines3's JAX
+  version (0.28.0), under the reproduction protocol. Both are similar by
+  the registered margin. On CartPole, SBX's PPO ends at 500 on every seed
+  and Ajax's at 489.4 on average, a difference AdaStop detects at 28 seeds
+  a side; four Ajax seeds end between 414 and 461, and the cause is not
+  traced (Reproduction, "Results").
 - **`agent.render` draws Gymnasium environments and your own.** A
   `gymnasium:` environment is saved as a GIF of its own pictures. Any other
   environment takes `agent.render(state, path, draw=my_draw)`, where

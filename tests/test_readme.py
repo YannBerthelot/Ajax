@@ -153,15 +153,17 @@ def test_the_memory_table_says_which_agents_take_memory():
         assert ("built in" in what) == (name == "DreamerV3"), name
 
 
-# The README's reproduction table: each row's (agent, task) and the
+# The README's reproduction table: each row's (agent, task, reference) and the
 # comparison of docs/reproduction/results.md it reports.
 REPRODUCTION_ROWS = {
-    ("PPO", "CartPole-v1"): "PPO",
-    ("PPO", "inverted_pendulum"): "PPO-inverted_pendulum",
-    ("PQN", "CartPole-v1"): "PQN",
-    ("PQN", "Asterix-MinAtar"): "PQN-Asterix",
-    ("SAC", "Pendulum-v1"): "SAC",
-    ("TD3", "Pendulum-v1"): "TD3",
+    ("PPO", "CartPole-v1", "Stable-Baselines3"): "PPO",
+    ("PPO", "CartPole-v1", "SBX"): "PPO-sbx",
+    ("PPO", "inverted_pendulum", "Brax"): "PPO-inverted_pendulum",
+    ("PQN", "CartPole-v1", "purejaxql"): "PQN",
+    ("PQN", "Asterix-MinAtar", "purejaxql"): "PQN-Asterix",
+    ("SAC", "Pendulum-v1", "Stable-Baselines3"): "SAC",
+    ("SAC", "Pendulum-v1", "SBX"): "SAC-sbx",
+    ("TD3", "Pendulum-v1", "Stable-Baselines3"): "TD3",
 }
 
 
@@ -189,9 +191,11 @@ def test_the_reproduction_table_reports_every_comparison_as_the_results_page():
         cpu_seconds[(row[0], side)] = row[3]
 
     # Every comparison of the results page, the inconclusive one included.
-    assert {REPRODUCTION_ROWS[(row[0], row[1])] for row in shown} == set(verdicts)
+    assert {REPRODUCTION_ROWS[(row[0], row[1], row[2])] for row in shown} == set(
+        verdicts
+    )
     for row in shown:
-        name = REPRODUCTION_ROWS[(row[0], row[1])]
+        name = REPRODUCTION_ROWS[(row[0], row[1], row[2])]
         recorded = verdicts[name]
         # Results columns: verdict 2, reference's return 5, Ajax's 6.
         assert row[3:6] == [recorded[5], recorded[6], recorded[2]], name

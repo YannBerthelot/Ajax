@@ -9,9 +9,11 @@ libraries in a uv project with its lockfile. It runs on demand, not in CI.
 | Ajax | Reference | Task | Budget |
 |---|---|---|---|
 | PPO | Stable-Baselines3 | CartPole-v1 | 200,704 steps |
+| PPO | SBX (Stable-Baselines3 in JAX) | CartPole-v1 | 200,704 steps |
 | PPO | Brax's PPO trainer | inverted_pendulum (Brax) | 819,200 steps |
 | DQN | Stable-Baselines3 | CartPole-v1 | 100,000 steps |
 | SAC | Stable-Baselines3 | Pendulum-v1 | 20,000 steps |
+| SAC | SBX | Pendulum-v1 | 20,000 steps |
 | TD3 | Stable-Baselines3 | Pendulum-v1 | 20,000 steps |
 | PQN | purejaxql, the PQN authors' code (`vendor/`) | CartPole-v1 | 491,520 steps |
 | PQN | purejaxql | Asterix-MinAtar | 1,228,800 steps |

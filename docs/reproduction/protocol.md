@@ -17,12 +17,12 @@ paper. The harness lives in
 ## Choosing the reference
 
 The reference is a library's implementation of the algorithm
-(Stable-Baselines3, Brax), or the authors' code where no library has it
+(Stable-Baselines3, its JAX version SBX, Brax), or the authors' code where no library has it
 (purejaxql for PQN). Both sides train on the same JAX environment, the
 closest one to the task the reference was written for: gymnax's ports of
 Gymnasium's CartPole and Pendulum and of MinAtar, or Brax's own tasks.
-Stable-Baselines3 steps a gymnax environment through a small `VecEnv`
-adapter (`refcmp_sb3.gymnax_vec_env`), so it runs the same environment code
+Stable-Baselines3 and SBX step a gymnax environment through a small `VecEnv`
+adapter (`refcmp_sb3.gymnax_vec_env`), so they run the same environment code
 as Ajax. Ajax itself only trains on JAX environments.
 
 ## What a comparison fixes before it runs
@@ -68,8 +68,8 @@ scratch, whose report (`report PQN --cache DIR`) can be set beside the
 published one.
 
 At each interim, every side still in an undecided comparison trains `n`
-new seeds: Ajax and purejaxql in one program, Stable-Baselines3 and Brax
-one process per seed, all on the CPU, each in its own uv project. Every
+new seeds: Ajax and purejaxql in one program, Stable-Baselines3, SBX and
+Brax one process per seed, all on the CPU, each in its own uv project. Every
 batch is appended to `benchmarks/reference/results/protocol/<comparison>.jsonl`
 with:
 

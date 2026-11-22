@@ -127,15 +127,20 @@ class CrossQ(
     batch_size: int = 256
     learning_starts: int = 5000
 
-    #: The temperature's numbers (EntropyTemperature) are refused: a CrossQ
-    #: member trained apart from its separate run by 1e-5 after 64 steps, ten
-    #: times the rounding the other agents show, and that is not explained.
+    #: The numbers a sweep may vary in one program (ActorCritic.sweepable),
+    #: with the temperature's from EntropyTemperature. A CrossQ sweep rounds
+    #: apart from separate runs sooner than the other agents' (its moments
+    #: are of order 10, and no target network damps a difference), so
+    #: tests/agents/test_sweep_every_agent.py checks each against a sweep of
+    #: the agent built with the value.
+    sweepable: ClassVar[frozenset[str]] = frozenset({"gamma", "reward_scale"})
     unsweepable: ClassVar[Mapping[str, str]] = MappingProxyType(
-        dict.fromkeys(
-            ("alpha_learning_rate", "alpha_init", "target_entropy_per_dim"),
-            "a CrossQ member trained apart from its separate run by more than"
-            " rounding, which is not explained yet.",
-        )
+        {
+            "alpha_learning_rate": (
+                "CrossQ steps its temperature at the actor's rate unless given"
+                " one (None), and a sweep varies numbers."
+            ),
+        }
     )
 
     def actor_critic_args(self) -> dict[str, Any]:

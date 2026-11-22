@@ -9,7 +9,8 @@ sweeps"; ActorCritic.sweepable):
 - a member changing one sweepable field trains otherwise than the member at
   the agent's own value: the field reaches the training;
 - that member trains as a separate run built with the value does, up to
-  float32 rounding;
+  float32 rounding, and as the same member of a sweep of the agent built
+  with the value does: what the sweep sets is what construction would set;
 - every library agent has a row here or a stated reason for none.
 
 The values are half the agent's own: a learning rate, a discount, a
@@ -39,6 +40,17 @@ from tests.test_exports import library_agents
 #: leaves 1e-3 or more.
 ROUNDING = 1e-6
 RELATIVE_ROUNDING = 1e-6
+
+#: The agents whose sweep and separate run are too far apart by rounding
+#: to compare, each with the measurement: a sweep of two equal
+#: configurations against the separate run, no field changed.
+ROUNDS_APART = {
+    "CrossQ": (
+        "8e-6 on moments of order 10 within 24 steps, and 0.5 by 96 steps at"
+        " gamma 0.495, where the member and a sweep of the agent built at"
+        " 0.495 stay equal"
+    ),
+}
 
 #: The values that replace halving where half changes nothing
 #: (tests/agents/test_sweep.py uses the same two). PPO's ent_coef is 0 by
@@ -97,14 +109,18 @@ def test_every_library_agent_has_a_row_or_a_reason() -> None:
 
 def test_a_mixins_fields_join_the_agents_own_less_those_it_refuses() -> None:
     """SAC takes the temperature's three from EntropyTemperature beside its
-    own; CrossQ, with the same mixin, refuses them and says why."""
+    own; CrossQ, with the same mixin, refuses its learning rate (None there:
+    the actor's) and says why, and takes the other two."""
     temperature = {"alpha_learning_rate", "alpha_init", "target_entropy_per_dim"}
     sac = CASES["SAC"].cls
     assert temperature < sac.sweepable and "tau" in sac.sweepable
-    assert not temperature.intersection(CrossQ.sweepable)
+    assert temperature.intersection(CrossQ.sweepable) == {
+        "alpha_init",
+        "target_entropy_per_dim",
+    }
     crossq = build(CASES["CrossQ"])
-    with pytest.raises(ValueError, match="not explained yet"):
-        crossq.train(seed=0, n_timesteps=16, sweep={"alpha_init": [0.5, 1.0]})
+    with pytest.raises(ValueError, match="actor's rate"):
+        crossq.train(seed=0, n_timesteps=16, sweep={"alpha_learning_rate": [1e-4]})
 
 
 @pytest.mark.parametrize("name", SWEEPING)
@@ -127,8 +143,42 @@ def test_every_sweepable_field_reaches_the_agents_training(name: str) -> None:
         assert any(moved), f"{name}'s {field} changed nothing"
 
 
+def swept_from(case: Case, built_with: dict[str, float], sweep: list) -> dict:
+    agent = build(case, **built_with)
+    state, _ = agent.train(
+        seed=0, n_timesteps=case.n_timesteps, sweep=sweep, logging_config=None
+    )
+    return floating_leaves(state)
+
+
 @pytest.mark.slow
 @pytest.mark.parametrize("name", SWEEPING)
+def test_a_member_trains_as_a_sweep_of_the_agent_built_with_its_value(
+    name: str,
+) -> None:
+    """Catches a value construction keeps, whatever the rounding between a
+    sweep and a separate run: the second member of a sweep from the agent's
+    own value to the changed one, against the second member of a sweep of
+    the agent built with the changed value, both members at it. The two
+    programs differ by the numbers they read alone."""
+    case = CASES[name]
+    names, configurations = one_field_changes(build(case))
+    for row, field in enumerate(names, start=1):
+        own, changed = configurations[0][field], configurations[row][field]
+        swept = swept_from(case, {}, [{field: own}, {field: changed}])
+        built = swept_from(case, {field: changed}, [{field: changed}] * 2)
+        for path, leaf in built.items():
+            np.testing.assert_allclose(
+                swept[path][1],
+                leaf[1],
+                atol=ROUNDING,
+                rtol=RELATIVE_ROUNDING,
+                err_msg=f"{name} {field} {path}",
+            )
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("name", sorted(set(SWEEPING).difference(ROUNDS_APART)))
 def test_each_member_trains_as_its_separate_run(name: str) -> None:
     case = CASES[name]
     agent = build(case)

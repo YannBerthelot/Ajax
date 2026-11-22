@@ -3285,7 +3285,9 @@ sets the convolutions:</p>
 PPO and UDRL to <code>CNNSpec()</code>. <code>CNNSpec()</code> with no arguments is this encoder: two ReLU convolutions
 of 16 and 32 channels (kernels 4 and 3, stride 2, <code>"SAME"</code> padding), then a
 128-wide dense layer, all at flax's default initialisation. The image is
-read in height, width, channels order. <code>padding</code> takes flax's padding
+read in height, width, channels order: on a gymnax environment, a
+<code>cnn_image_shape</code> other than the environment's raises an error, and leaving
+it out warns that an MLP reads the flattened image. <code>padding</code> takes flax's padding
 (<code>"VALID"</code> for none), <code>layer_norm=True</code> puts a LayerNorm after every layer,
 before its ReLU, and <code>kernel_init</code> names the initialiser of every layer, as
 the network's other <code>*_kernel_init</code> settings do.</p>
@@ -3365,7 +3367,7 @@ encoder and the memory block. PureJaxRL also gives each head a hidden layer
 of its own after the memory: a Dense(128) and a ReLU, orthogonal with gain 2.
 Recurrent PPO has those layers by default (<a href="#layers-per-head">layers per head</a>),
 but keeps separate memories. With one memory, it fails the memory probe
-(CartPole with the velocities hidden) even with the layers and with
+(CartPole with the velocities hidden, as in <a href="../memory/">Memory</a>) even with the layers and with
 normalised rewards, while separate memories pass it.</p>
 <h2 id="the-pid-policy">The PID policy<a class="headerlink" href="#the-pid-policy" title="Permanent link">&para;</a></h2>
 <p>Many control tasks are run by PID controllers, which engineers can read,

@@ -2972,6 +2972,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#ajax.wrappers.ObservationWrapper" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ObservationWrapper
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#ajax.wrappers.FlattenObservationWrapper" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4470,6 +4481,17 @@
     <span class="md-ellipsis">
       
         BinaryObservations
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.wrappers.ObservationWrapper" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ObservationWrapper
       
     </span>
   </a>
@@ -6761,6 +6783,61 @@ declared float32 (gymnax's MinAtar games: Young and Tian, 2019, binary
 channels; gymnax builds a bool grid and casts it). The space says bool, so
 a replay keeps them in a byte (ajax.buffers.utils.stored_observation_dtype);
 the observations themselves are unchanged.</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h3 id="ajax.wrappers.ObservationWrapper" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">ObservationWrapper</span>
+
+
+<a href="#ajax.wrappers.ObservationWrapper" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">ObservationWrapper</span><span class="p">(</span><span class="n">env</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+            <p class="doc doc-class-bases">
+              Bases: <code><a class="autorefs autorefs-internal" title="GymnaxWrapper (ajax.wrappers.GymnaxWrapper)" href="#ajax.wrappers.GymnaxWrapper">GymnaxWrapper</a></code></p>
+
+
+
+        <p>A gymnax env whose observations are <code>self.observation(obs)</code>: at
+reset, at every step, and for the pre-reset observation an episode end
+leaves in the info, which the agent reads as that transition's next
+observation. A wrapper changing only what reset and step return leaves
+that one as the env made it, and the agent then learns from two kinds
+of observations, with no error. A subclass that changes the
+observations' shape also defines <code>observation_space</code>.</p>
 
 
 

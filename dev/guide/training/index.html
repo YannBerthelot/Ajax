@@ -3388,8 +3388,10 @@ preprocessing stay yours.</p>
 off-policy agent collects one step in each copy per iteration, so 100,000
 steps with <code>n_envs=4</code> are 25,000 iterations. An on-policy agent (PPO, APO,
 PQN) collects a rollout of <code>n_steps</code> per copy per iteration and trains in
-whole rollouts: it runs <code>n_timesteps // (n_envs * n_steps) + 1</code> of them, so
-it can stop a little past the budget.</p>
+whole rollouts: it runs <code>n_timesteps // (n_envs * n_steps)</code> of them, and at
+least one. A budget that is not whole rollouts stops at the last whole one,
+with a warning; a budget below one rollout runs that one rollout and
+records no evaluation.</p>
 <p>The off-policy agents act uniformly at random and do not update until
 <code>learning_starts</code> steps are collected: 10,000 by default for SAC, TD3, REDQ
 and ASAC, 5,000 for CrossQ, 1,000 for DQN, 257 for TQC (whose policy acts

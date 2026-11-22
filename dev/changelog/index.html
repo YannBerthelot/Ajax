@@ -3124,6 +3124,34 @@ PyPI as <code>ajax-rl</code>.</p>
 <h2 id="unreleased">Unreleased<a class="headerlink" href="#unreleased" title="Permanent link">&para;</a></h2>
 <p>The next release is 0.6.0: the first item changes results.</p>
 <ul>
+<li><strong>New: <code>ajax.wrappers.ObservationWrapper</code></strong>, a base class whose
+  <code>observation(obs)</code> changes every observation, the one an episode's end
+  leaves in the info included. A wrapper changing only what <code>reset</code> and
+  <code>step</code> return trained on two kinds of observations, with no error
+  (Environments, "Changing the observations"). The memory guide trains on
+  a CartPole with hidden velocities built with it.</li>
+<li><strong>Clearer errors and checks</strong>, after a second newcomer trial:<ul>
+<li>an unknown environment id names the closest ids, and an unknown agent
+  argument the closest arguments (<code>learning_rate</code>:
+  <code>actor_learning_rate</code>, <code>critic_learning_rate</code>);</li>
+<li>an agent on the wrong kind of actions names the agents that fit;</li>
+<li>a <code>mujoco:</code> id without MuJoCo names the <code>playground</code> extra, and a
+  Gymnasium environment outside the <code>gymnasium</code> extra (LunarLander's
+  Box2D) no longer points at that extra;</li>
+<li><code>predict</code> checks the observation's shape, <code>policy</code> and <code>predict</code>
+  refuse a <code>seed_index</code> the state does not hold (it returned an action
+  before), <code>policy.act</code> refuses an observation without a row per
+  environment, and <code>evaluate</code>, <code>policy</code> and <code>predict</code> say so when given
+  train's evaluations instead of its state;</li>
+<li>image observations read by an MLP warn and name the
+  <code>cnn_image_shape</code> to pass, and one in another order than the
+  environment's (channels first) raises;</li>
+<li>a budget below one rollout warns that no evaluation is recorded.</li>
+</ul>
+</li>
+<li><strong>Docs:</strong> where each source lists its environment ids, a hand-written
+  loop for one environment with a recurrent policy, and PPO's rollout count
+  corrected (Training).</li>
 <li><strong>New: a sweep reads by configuration.</strong> A sweep's default progress
   shows a line per configuration under each evaluation, and
   <code>agent.by_configuration(evaluations.returns)</code> gives each configuration

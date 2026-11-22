@@ -3018,9 +3018,10 @@ holds one copy per seed.</p>
 </code></pre></div>
 <p><code>train</code> evaluates the policy about ten times over the run and prints a line
 for each, with no callback to set up; <code>logging_config=None</code> turns both off.</p>
-<p>There is no policy name to give: the networks follow the environment's
-observations (an MLP, or a CNN encoder for images, see
-<a href="../../guide/networks/">Networks</a>).</p>
+<p>There is no policy name to give: an MLP reads the observations. For images,
+pass <code>cnn_image_shape</code> to read them with a CNN encoder
+(<a href="../../guide/networks/#image-observations">Networks</a>); Ajax warns when
+images reach an MLP.</p>
 <h2 id="the-calls-side-by-side">The calls side by side<a class="headerlink" href="#the-calls-side-by-side" title="Permanent link">&para;</a></h2>
 <table>
 <thead>

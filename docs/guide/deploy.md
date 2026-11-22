@@ -45,10 +45,9 @@ depends on the environment:
 
 | Environment | File | Needs |
 | --- | --- | --- |
-| gymnax classic control (`CartPole-v1`, `Pendulum-v1`, `Acrobot-v1`, MountainCar) | `.gif` | `pip install "gymnasium[classic-control]" matplotlib` |
-| gymnax MinAtar, `Catch-bsuite`, `Pong-misc`, `PointRobot-misc`, the mazes | `.gif` | `pip install matplotlib` |
+| gymnax: classic control (`CartPole-v1`, `Pendulum-v1`, `Acrobot-v1`, MountainCar), MinAtar, `Catch-bsuite`, `Pong-misc`, `PointRobot-misc`, the mazes | `.gif` | the `render` extra: `pip install "ajax-rl[render]"` |
 | Brax | `.html`, a page showing the episode in three dimensions | nothing more |
-| MuJoCo Playground and `mujoco:` tasks | `.gif` | `pip install pillow`; without a display, set `MUJOCO_GL=egl` |
+| MuJoCo Playground and `mujoco:` tasks | `.gif` | the `render` extra, for the GIF writer; without a display, set `MUJOCO_GL=egl` |
 
 The gymnax drawings are gymnax's own, and the MuJoCo frames are 320 by 240
 pixels from the task's default camera. A Gymnasium environment, another

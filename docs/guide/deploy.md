@@ -21,6 +21,41 @@ print(evaluations["Eval/episodic mean reward"])  # seeds x evaluations
 
 [Training an agent](training.md) and [Logging](logging.md) have the details.
 
+## Watch the policy
+
+`agent.render(state, path)` runs one fresh episode of a trained policy and
+saves it as an animation:
+
+```python
+import os
+import tempfile
+
+from ajax import PQN
+
+breakout = PQN("Breakout-MinAtar", cnn_image_shape=(10, 10, 4), n_envs=8, n_steps=16)
+breakout_state, _ = breakout.train(seed=0, n_timesteps=1_024, logging_config=None)
+animation = os.path.join(tempfile.mkdtemp(), "breakout.gif")
+breakout.render(breakout_state, animation, max_steps=50)
+```
+
+The policy acts as in `evaluate`. `seed_index` picks the seed whose policy
+plays, `seed` draws the episode's start, and `max_steps` cuts a long
+episode short. What the file is, and what drawing needs beyond Ajax,
+depends on the environment:
+
+| Environment | File | Needs |
+| --- | --- | --- |
+| gymnax classic control (`CartPole-v1`, `Pendulum-v1`, `Acrobot-v1`, MountainCar) | `.gif` | `pip install "gymnasium[classic-control]" matplotlib` |
+| gymnax MinAtar, `Catch-bsuite`, `Pong-misc`, `PointRobot-misc`, the mazes | `.gif` | `pip install matplotlib` |
+| Brax | `.html`, a page showing the episode in three dimensions | nothing more |
+| MuJoCo Playground and `mujoco:` tasks | `.gif` | `pip install pillow`; without a display, set `MUJOCO_GL=egl` |
+
+The gymnax drawings are gymnax's own, and the MuJoCo frames are 320 by 240
+pixels from the task's default camera. A Gymnasium environment, another
+gymnax task and an environment of your own are not drawn: `render` says so
+before running anything. Act with `predict` or `policy`, below, and draw
+the states yourself.
+
 ## Act with the trained policy
 
 `agent.policy(state, seed_index)` returns the policy of one seed. It acts on

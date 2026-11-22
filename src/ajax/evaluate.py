@@ -1178,25 +1178,16 @@ def evaluate_policy(
     return final[5].mean(), final[6].mean()
 
 
-def policy_returns(
-    env_args: EnvironmentConfig, parts: Any, num_episodes: int, key: jax.Array
-) -> tuple[jax.Array, jax.Array]:
-    """The return and the length of one episode in each of ``num_episodes``
-    envs, under a trained policy's ``parts`` (``ajax.policy.PolicyParts``,
-    from ``agent.policy_parts()`` on one seed's state): what
-    ``agent.evaluate`` runs.
-
-    The env is rebuilt raw (no normalisation: the parts normalise as the
-    agent does) with the training action repeat and episode length, and
-    reset from ``key``. The parts act in the env's units from the env's own
-    observations, starting an episode on the first step; every env runs one
-    episode, its rewards and steps counted until its first end.
-    """
+def _raw_evaluation_env(env_args: EnvironmentConfig, num_episodes: int) -> tuple:
+    """``(env, mode, env_params, horizon)``: ``env_args``' env rebuilt raw for
+    ``num_episodes`` envs (no normalisation: a policy's parts normalise as
+    the agent does), with the training action repeat and episode length,
+    and the agent steps an episode lasts at most."""
     env, env_params = env_args.env, env_args.env_params
     if env_params_is_batched(env_params):
         raise ValueError(
-            "agent.evaluate runs one system: pass unbatched env_params,"
-            " not per-env params."
+            "agent.evaluate and agent.render run one system: pass unbatched"
+            " env_params, not per-env params."
         )
     train_episode_length = (
         getattr(env, "episode_length", None) if get_env_type(env) == "brax" else None
@@ -1211,6 +1202,73 @@ def policy_returns(
         episode_length=train_episode_length,
     )
     horizon = agent_episode_length(env, env_params, env_args.action_repeat)
+    return env, mode, env_params, horizon
+
+
+def policy_episode(
+    env_args: EnvironmentConfig,
+    parts: Any,
+    key: jax.Array,
+    max_steps: Optional[int] = None,
+) -> tuple[Any, list, list[float]]:
+    """One episode under a trained policy's ``parts``, kept step by step for
+    drawing: the env it ran on (:func:`policy_returns`' rebuilt one, a
+    single copy), that env's state at the reset and after every step but
+    the one ending the episode (whose state is already the next episode's),
+    each with its leading axis of one env, and every step's reward. It
+    stops at the episode's end, or after ``max_steps`` steps. The steps run
+    one by one from Python, each compiled: the states are kept, which a
+    compiled loop would have to hold for the longest episode possible."""
+    env, mode, env_params, horizon = _raw_evaluation_env(env_args, 1)
+    key, obs, env_state = _reset_envs(env, mode, env_params, 1, key)
+
+    @jax.jit
+    def advance(obs, env_state, policy_carry, starts, reward, index):
+        step_key = fold_index(key, index)
+        policy_key = derive_key(step_key, "rollout_action")
+        action, policy_carry = parts.step(obs, policy_carry, starts, reward, policy_key)
+        obs, env_state, reward, terminated, truncated, _ = step(
+            env_keys(derive_key(step_key, "rollout_env_step"), mode, 1),
+            env_state,
+            action,
+            env,
+            mode,
+            env_params,
+        )
+        ended = (terminated.reshape(1) > 0) | (truncated.reshape(1) > 0)
+        reward = reward.reshape(1).astype(jnp.float32)
+        return obs, env_state, policy_carry, reward, ended[0]
+
+    policy_carry, starts = parts.initial(1), jnp.ones(1, bool)
+    reward = jnp.zeros(1, jnp.float32)
+    states, rewards = [env_state], []
+    for index in range(horizon if max_steps is None else min(horizon, max_steps)):
+        obs, env_state, policy_carry, reward, ended = advance(
+            obs, env_state, policy_carry, starts, reward, index
+        )
+        starts = jnp.zeros(1, bool)
+        rewards.append(float(reward[0]))
+        if bool(ended):
+            break
+        states.append(env_state)
+    return env, states, rewards
+
+
+def policy_returns(
+    env_args: EnvironmentConfig, parts: Any, num_episodes: int, key: jax.Array
+) -> tuple[jax.Array, jax.Array]:
+    """The return and the length of one episode in each of ``num_episodes``
+    envs, under a trained policy's ``parts`` (``ajax.policy.PolicyParts``,
+    from ``agent.policy_parts()`` on one seed's state): what
+    ``agent.evaluate`` runs.
+
+    The env is rebuilt raw (no normalisation: the parts normalise as the
+    agent does) with the training action repeat and episode length, and
+    reset from ``key``. The parts act in the env's units from the env's own
+    observations, starting an episode on the first step; every env runs one
+    episode, its rewards and steps counted until its first end.
+    """
+    env, mode, env_params, horizon = _raw_evaluation_env(env_args, num_episodes)
     key, obs, env_state = _reset_envs(env, mode, env_params, num_episodes, key)
 
     def body(carry: tuple, index: jax.Array) -> tuple[tuple, None]:

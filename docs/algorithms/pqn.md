@@ -30,9 +30,7 @@ from ajax.logging import LoggingConfig
 
 agent = PQN("CartPole-v1")  # 8 envs, 128-step rollouts
 logging = LoggingConfig(log_frequency=32_768, backends=())
-state, evaluations = agent.train(
-    seed=[0, 1], n_timesteps=131_072, logging_config=logging
-)
+state, evaluations = agent.train(seed=[0, 1], n_timesteps=131_072, logging_config=logging)
 print(evaluations["Eval/episodic mean reward"])  # one row per seed
 ```
 

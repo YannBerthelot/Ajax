@@ -59,9 +59,7 @@ from ajax import SAC
 from ajax.environments.create import build_env_from_id
 
 # Every episode of copy i restarts from the same cached state, as older runs did.
-env, _ = build_env_from_id(
-    "CartpoleBalance", n_envs=4, episode_length=1_000, fresh_reset=False
-)
+env, _ = build_env_from_id("CartpoleBalance", n_envs=4, episode_length=1_000, fresh_reset=False)
 agent = SAC(env, n_envs=4)
 ```
 

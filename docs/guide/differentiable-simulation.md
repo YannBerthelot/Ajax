@@ -40,17 +40,12 @@ pendulums:
 import gymnax
 import jax
 import jax.numpy as jnp
-from ajax.environments.differentiable import (
-    closed_loop_rollout,
-    with_transition_gradients,
-)
+from ajax.environments.differentiable import closed_loop_rollout, with_transition_gradients
 from ajax.environments.system_class import UniformPerturbation
 
 env, params = gymnax.make("Pendulum-v1")
 env = with_transition_gradients(env)
-systems = UniformPerturbation(
-    params, fields=("m", "l"), scale=0.2
-)  # mass, length +-20 %
+systems = UniformPerturbation(params, fields=("m", "l"), scale=0.2)  # mass, length +-20 %
 
 
 def mean_return(gains, key):
@@ -172,9 +167,7 @@ def at_rest(key, state, params):  # every episode starts at angle 0, at rest
 
 task = ModelReferenceWrapper(
     InitialStateWrapper(plant, at_rest),
-    StepReference(
-        horizon=100, min_value=-0.5, max_value=0.5, min_duration=20, max_duration=50
-    ),
+    StepReference(horizon=100, min_value=-0.5, max_value=0.5, min_duration=20, max_duration=50),
     LinearReferenceModel.first_order(a=0.9, b=0.1, c=1.0, d=0.0),
     output_fn=lambda obs: jnp.arctan2(obs[1], obs[0]),  # the measured output: the angle
 )
@@ -189,9 +182,7 @@ agent = APG(
     pid=PIDHeadConfig(),  # close the controller with a learnable PID layer
 )
 state, aux = agent.train(seed=0, n_timesteps=8 * 100 * 200)  # 200 updates
-print(
-    aux.m_rmse[0, 0], aux.m_rmse[0, -1]
-)  # (seeds, updates): falls from about 1.7 to 0.45
+print(aux.m_rmse[0, 0], aux.m_rmse[0, -1])  # (seeds, updates): falls from about 1.7 to 0.45
 ```
 
 `train` always returns every update's `loss`, `matching_loss`, `m_rmse`,
@@ -259,9 +250,7 @@ from ajax.environments.system_class import FixedSystem, UniformPerturbation
 _, params = gymnax.make("Pendulum-v1")
 systems = UniformPerturbation(params, fields=("m", "l"), scale=0.05)
 stages = [
-    CurriculumStage(
-        APG.contextual_controller(task, FixedSystem(params)), n_timesteps=200_000
-    ),
+    CurriculumStage(APG.contextual_controller(task, FixedSystem(params)), n_timesteps=200_000),
     CurriculumStage(APG.contextual_controller(task, systems), n_timesteps=500_000),
 ]
 results = train_curriculum(stages, seed=0)  # one (state, aux) per stage

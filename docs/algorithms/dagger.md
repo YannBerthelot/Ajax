@@ -44,7 +44,7 @@ def pd_expert(obs):
 agent = DAgger("Pendulum-v1", expert_policy=pd_expert, n_envs=2)
 logging = LoggingConfig(log_frequency=1_000, backends=())
 state, evaluations = agent.train(seed=[1, 2], n_timesteps=2_000, logging_config=logging)
-print(evaluations["Eval/episodic mean reward"])  # the policy's return
+print(evaluations["Eval/episodic mean reward"])         # the policy's return
 print(evaluations["Eval/episodic mean expert reward"])  # the expert's, same episodes
 ```
 

@@ -268,18 +268,15 @@ h ← act(Norm(Dropout_{p·[i==0]}(h W_i + b_i))). The bias is **always** presen
 ```python
 class NormedMLP(nn.Module):
     hidden: Sequence[int]
-    out: int | tuple | None = None  # None -> no output layer (D3 encoder tokens)
-    out_norm_act: Callable | None = (
-        None  # None -> plain Linear output; e.g. simnorm -> Linear->Norm->SimNorm
-    )
+    out: int | tuple | None = None       # None -> no output layer (D3 encoder tokens)
+    out_norm_act: Callable | None = None # None -> plain Linear output; e.g. simnorm -> Linear->Norm->SimNorm
     norm: Literal["rms", "layer", "none"] = "rms"
     norm_eps: float = 1e-4
     act: Callable = jax.nn.silu
-    dropout: float = 0.0  # first hidden layer only
+    dropout: float = 0.0                 # first hidden layer only
     kernel_init: Initializer = dreamer_trunc_normal()
     out_kernel_init: Initializer = dreamer_trunc_normal(outscale=1.0)
-    dtype: Any = jnp.float32  # compute dtype (bf16 for D3 on GPU)
-
+    dtype: Any = jnp.float32             # compute dtype (bf16 for D3 on GPU)
     @nn.compact
     def __call__(self, x, deterministic: bool = True): ...
 ```

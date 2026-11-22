@@ -188,9 +188,7 @@ from ajax.logging import LoggingConfig
 
 agent = PPO("CartPole-v1", n_envs=8, n_steps=128)
 logging = LoggingConfig(log_frequency=4_096, backends=())
-state, evaluations = agent.train(
-    seed=[0, 1], n_timesteps=16_384, logging_config=logging
-)
+state, evaluations = agent.train(seed=[0, 1], n_timesteps=16_384, logging_config=logging)
 
 print(sorted(evaluations))  # every logged name
 print(evaluations["timestep"][0])  # [ 4096  8192 12288 16384]
@@ -334,9 +332,7 @@ class JsonLinesBackend:
         pass
 
 
-logging = LoggingConfig(
-    log_frequency=5_000, backends=(JsonLinesBackend("evals.jsonl"),)
-)
+logging = LoggingConfig(log_frequency=5_000, backends=(JsonLinesBackend("evals.jsonl"),))
 ```
 
 The backend runs in the logging worker (below), a process of its own: it

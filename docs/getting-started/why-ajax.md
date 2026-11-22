@@ -123,26 +123,18 @@ def pd_expert(obs):
 
 
 # SAC writes 1,000 expert steps to its replay buffer before training.
-sac = SAC(
-    "Pendulum-v1",
-    expert_policy=pd_expert,
-    learning_starts=1_000,
-    extensions=(ExpertPrefill(n_steps=1_000),),
-)
+sac = SAC("Pendulum-v1", expert_policy=pd_expert, learning_starts=1_000,
+          extensions=(ExpertPrefill(n_steps=1_000),))
 logging = LoggingConfig(log_frequency=1_000, backends=())
 state, evaluations = sac.train(seed=0, n_timesteps=2_000, logging_config=logging)
 print(evaluations["Eval/expert bias"])  # the agent's return minus the expert's
 
 # TD3 clones the expert on 1,000 of its steps before training, then keeps
 # pulling its actor towards the expert's actions with an extra loss term.
-td3 = TD3(
-    "Pendulum-v1",
-    learning_starts=1_000,
-    extensions=(
-        CloningPretrain(pd_expert, n_steps=1_000, epochs=2),
-        ImitationLoss(pd_expert),
-    ),
-)
+td3 = TD3("Pendulum-v1", learning_starts=1_000, extensions=(
+    CloningPretrain(pd_expert, n_steps=1_000, epochs=2),
+    ImitationLoss(pd_expert),
+))
 state, _ = td3.train(seed=0, n_timesteps=2_000)
 ```
 
@@ -165,14 +157,8 @@ the other agents; `TDMPC2MultiTask` steps no environment while it trains.
 from ajax import DreamerV3
 
 # The smallest model and a low train ratio, for a first look on a CPU.
-agent = DreamerV3(
-    "CartPole-v1",
-    model_size="1m",
-    n_envs=4,
-    train_ratio=32,
-    batch_size=4,
-    batch_length=16,
-)
+agent = DreamerV3("CartPole-v1", model_size="1m", n_envs=4, train_ratio=32,
+                  batch_size=4, batch_length=16)
 state, _ = agent.train(seed=0, n_timesteps=1_000)
 ```
 

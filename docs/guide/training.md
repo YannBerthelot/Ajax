@@ -321,9 +321,7 @@ def pd_expert(obs):
 agent = TD3("Pendulum-v1", learning_starts=0)  # online: update from the first step
 data = record(pd_expert, agent.env_args, jax.random.PRNGKey(0), n_steps=1_000)
 logging = LoggingConfig(log_frequency=500, backends=())
-state, offline = agent.train_offline(
-    data, n_updates=1_000, seed=[0], logging_config=logging
-)
+state, offline = agent.train_offline(data, n_updates=1_000, seed=[0], logging_config=logging)
 print(offline["timestep"])  # [[ 500 1000]]: updates done
 state, online = agent.train(seed=[0], n_timesteps=1_000, initial_state=state)
 ```

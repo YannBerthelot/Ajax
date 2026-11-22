@@ -40,9 +40,7 @@ agent = PPO(
     ),
 )
 logging = LoggingConfig(log_frequency=8_192, backends=())
-state, evaluations = agent.train(
-    seed=[1, 2], n_timesteps=16_384, logging_config=logging
-)
+state, evaluations = agent.train(seed=[1, 2], n_timesteps=16_384, logging_config=logging)
 print(evaluations["Cond/critic_srank"])  # one row per seed, one column per evaluation
 ```
 
@@ -142,9 +140,7 @@ def expert(obs):
 try:
     DQN("CartPole-v1", extensions=(ImitationLoss(expert),))
 except ValueError as error:
-    print(
-        error
-    )  # DQN cannot run ImitationLoss ('imitation_loss'), which needs actor (...), continuous_actions (...).
+    print(error)  # DQN cannot run ImitationLoss ('imitation_loss'), which needs actor (...), continuous_actions (...).
 ```
 
 When the run has everything but the agent's code does not pass it on yet (it
@@ -352,10 +348,7 @@ buffer = SAC("Pendulum-v1", learning_starts=500).buffer  # same settings as belo
 agent = SAC(
     "Pendulum-v1",
     learning_starts=500,
-    extensions=(
-        ConditioningMetrics(buffer=buffer),
-        BiasVoreDecomposition(buffer=buffer),
-    ),
+    extensions=(ConditioningMetrics(buffer=buffer), BiasVoreDecomposition(buffer=buffer)),
 )
 logging = LoggingConfig(log_frequency=1_000, backends=())
 state, evaluations = agent.train(seed=0, n_timesteps=2_000, logging_config=logging)

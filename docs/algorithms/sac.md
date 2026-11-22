@@ -42,7 +42,7 @@ agent = SAC("Pendulum-v1", n_envs=4, learning_starts=1_000)
 logging = LoggingConfig(log_frequency=2_000, backends=())
 state, evaluations = agent.train(seed=[0, 1], n_timesteps=4_000, logging_config=logging)
 
-print(evaluations["timestep"][0])  # when each evaluation ran
+print(evaluations["timestep"][0])                # when each evaluation ran
 print(evaluations["Eval/episodic mean reward"])  # one row per seed
 ```
 

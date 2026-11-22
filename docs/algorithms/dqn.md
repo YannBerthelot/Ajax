@@ -34,9 +34,7 @@ from ajax.logging import LoggingConfig
 # A short run: the default warm-up, CleanRL's, is 10,000 steps.
 agent = DQN("CartPole-v1", n_envs=4, learning_starts=1_000)
 logging = LoggingConfig(log_frequency=5_000, backends=())
-state, evaluations = agent.train(
-    seed=[0, 1], n_timesteps=10_000, logging_config=logging
-)
+state, evaluations = agent.train(seed=[0, 1], n_timesteps=10_000, logging_config=logging)
 print(evaluations["Eval/episodic mean reward"])  # one row per seed
 ```
 
@@ -51,8 +49,8 @@ from ajax.agents.DQN.DQN import compute_double_dqn_td_target
 agent = DQN(
     "CartPole-v1",
     td_target_fn=compute_double_dqn_td_target,  # Double DQN
-    q_network_cls=DuelingQNetwork,  # dueling heads
-    td_loss_fn=compute_mse_td_loss,  # squared error instead of Huber
+    q_network_cls=DuelingQNetwork,               # dueling heads
+    td_loss_fn=compute_mse_td_loss,              # squared error instead of Huber
 )
 state, _ = agent.train(seed=0, n_timesteps=2_000)
 ```

@@ -47,9 +47,7 @@ def pd_expert(obs):
 agent = IQL("Pendulum-v1", buffer_size=10_000)
 data = record(pd_expert, agent.env_args, jax.random.PRNGKey(0), n_steps=2_000)
 logging = LoggingConfig(log_frequency=1_000, backends=())
-state, offline = agent.train_offline(
-    data, n_updates=3_000, seed=[0], logging_config=logging
-)
+state, offline = agent.train_offline(data, n_updates=3_000, seed=[0], logging_config=logging)
 print(offline["Eval/episodic mean reward"])
 state, online = agent.train(seed=[0], n_timesteps=1_000, initial_state=state)
 ```

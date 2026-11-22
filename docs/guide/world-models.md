@@ -115,13 +115,10 @@ print(evaluations["Train/episodic mean reward"])  # the score the paper reports
 from ajax import TDMPC2
 from ajax.logging import LoggingConfig
 
-agent = TDMPC2(
-    "Pendulum-v1", model_size=1
-)  # the first 1,000 steps are random (seed_steps)
+agent = TDMPC2("Pendulum-v1", model_size=1)  # the first 1,000 steps are random (seed_steps)
 logging = LoggingConfig(log_frequency=600, backends=())
-state, evaluations = agent.train(
-    seed=0, n_timesteps=1_200, num_episode_test=2, logging_config=logging
-)
+state, evaluations = agent.train(seed=0, n_timesteps=1_200, num_episode_test=2,
+                                 logging_config=logging)
 print(evaluations["Eval/episodic mean reward"])
 ```
 

@@ -81,9 +81,7 @@ class PIDExpert:
         theta = jnp.arctan2(obs[..., 1:2], obs[..., 0:1])  # raw [cos, sin, velocity]
         integral = integral + self.dt * theta
         torque = -(self.kp * theta + self.ki * integral + self.kd * obs[..., 2:3])
-        return jnp.clip(
-            torque, -2.0, 2.0
-        ), integral  # newton-metres, as the env takes them
+        return jnp.clip(torque, -2.0, 2.0), integral  # newton-metres, as the env takes them
 
 
 agent = SAC("Pendulum-v1", expert_policy=PIDExpert(), learning_starts=500)
@@ -165,7 +163,7 @@ agent = SAC(
 logging = LoggingConfig(log_frequency=1_000, backends=())
 state, evaluations = agent.train(seed=0, n_timesteps=2_000, logging_config=logging)
 print(evaluations["Eval/episodic mean reward"])
-print(evaluations["Eval/expert bias"])  # agent minus expert
+print(evaluations["Eval/expert bias"])       # agent minus expert
 print(evaluations["edge/live_expert_frac"])  # share of envs the expert drove
 ```
 

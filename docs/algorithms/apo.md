@@ -36,9 +36,7 @@ from ajax.logging import LoggingConfig
 
 agent = APO("Pendulum-v1", normalize_observations=True)
 logging = LoggingConfig(log_frequency=10_000, backends=())
-state, evaluations = agent.train(
-    seed=[1, 2], n_timesteps=50_000, logging_config=logging
-)
+state, evaluations = agent.train(seed=[1, 2], n_timesteps=50_000, logging_config=logging)
 print(evaluations["Eval/episodic mean reward"])
 print(state.average_reward)  # the estimated reward per step, one per seed
 ```

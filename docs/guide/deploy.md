@@ -54,9 +54,7 @@ for _ in range(200):  # one Pendulum episode
     action, carry = policy.act(obs, carry, done, reward)
     key, step_key = jax.random.split(key)
     keys = jax.random.split(step_key, n_envs)
-    obs, env_state, reward, terminated, truncated, _ = step(
-        keys, env_state, action, params
-    )
+    obs, env_state, reward, terminated, truncated, _ = step(keys, env_state, action, params)
     done = jnp.logical_or(terminated, truncated)
     returns = returns + reward
 print(returns)  # one return per environment

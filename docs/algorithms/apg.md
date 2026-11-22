@@ -45,7 +45,7 @@ _, params = gymnax.make("Pendulum-v1")
 systems = UniformPerturbation(params, fields=("m", "l"), scale=0.1)  # +-10 %
 agent = APG("Pendulum-v1", n_envs=16, horizon=50, system_class=systems)
 state, aux = agent.train(seed=[1, 2], n_timesteps=80_000)
-print(aux.matching_loss.shape)  # (seeds, updates): 80,000 / (16 * 50) = 100 updates
+print(aux.matching_loss.shape)     # (seeds, updates): 80,000 / (16 * 50) = 100 updates
 print(aux.matching_loss[:, ::20])  # minus the closed-loop return
 ```
 
@@ -67,42 +67,25 @@ reference-tracking task (`train_curriculum`, the paper's Algorithm 2):
 import gymnax
 import jax.numpy as jnp
 from ajax.agents.APG import APG, CurriculumStage, train_curriculum
-from ajax.environments.model_reference import (
-    LinearReferenceModel,
-    ModelReferenceWrapper,
-    StepReference,
-)
+from ajax.environments.model_reference import LinearReferenceModel, ModelReferenceWrapper, StepReference
 from ajax.environments.system_class import FixedSystem, UniformPerturbation
 from ajax.wrappers import InitialStateWrapper
 
 plant, params = gymnax.make("Pendulum-v1")
-fixed_start = lambda key, s, p: s.replace(
-    theta=jnp.asarray(0.0), theta_dot=jnp.asarray(0.0)
-)
-plant = InitialStateWrapper(
-    plant, fixed_start
-)  # the paper keeps the initial conditions fixed
+fixed_start = lambda key, s, p: s.replace(theta=jnp.asarray(0.0), theta_dot=jnp.asarray(0.0))
+plant = InitialStateWrapper(plant, fixed_start)  # the paper keeps the initial conditions fixed
 task = ModelReferenceWrapper(  # track a reference model's step response
     plant,
-    StepReference(
-        horizon=100, min_value=-0.5, max_value=0.5, min_duration=20, max_duration=50
-    ),
+    StepReference(horizon=100, min_value=-0.5, max_value=0.5, min_duration=20, max_duration=50),
     LinearReferenceModel.first_order(a=0.9, b=0.1, c=1.0, d=0.0),
     output_fn=lambda obs: jnp.arctan2(obs[1], obs[0]),
 )
 systems = UniformPerturbation(params, fields=("m", "l"), scale=0.05)
 stages = [  # the nominal pendulum first, then the whole family
-    CurriculumStage(
-        APG.contextual_controller(task, FixedSystem(params), env_params=params),
-        n_timesteps=200_000,
-    ),
-    CurriculumStage(
-        APG.contextual_controller(task, systems, env_params=params), n_timesteps=500_000
-    ),
+    CurriculumStage(APG.contextual_controller(task, FixedSystem(params), env_params=params), n_timesteps=200_000),
+    CurriculumStage(APG.contextual_controller(task, systems, env_params=params), n_timesteps=500_000),
 ]
-*_, (state, aux) = train_curriculum(
-    stages, seed=0
-)  # one (state, aux) per stage: keep the last
+*_, (state, aux) = train_curriculum(stages, seed=0)  # one (state, aux) per stage: keep the last
 ```
 
 ## Key hyperparameters

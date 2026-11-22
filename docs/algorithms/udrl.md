@@ -37,12 +37,10 @@ from ajax.logging import LoggingConfig
 
 agent = UDRL("CartPole-v1", n_envs=4)
 logging = LoggingConfig(log_frequency=10_240, backends=())
-state, evaluations = agent.train(
-    seed=[1, 2], n_timesteps=51_200, logging_config=logging
-)
-print(evaluations["Eval/episodic mean reward"])  # the policy, commanded as below
+state, evaluations = agent.train(seed=[1, 2], n_timesteps=51_200, logging_config=logging)
+print(evaluations["Eval/episodic mean reward"])   # the policy, commanded as below
 print(evaluations["Train/episodic mean reward"])  # returns of the episodes collected
-print(state.command_target_return)  # the return the agent now asks for
+print(state.command_target_return)                # the return the agent now asks for
 ```
 
 With a `logging_config`, every `log_frequency` steps UDRL evaluates its

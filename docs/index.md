@@ -63,18 +63,12 @@ installing from a clone.
 from ajax import PPO
 from ajax.logging import LoggingConfig
 
-agent = PPO(
-    "CartPole-v1"
-)  # one environment, 2048-step rollouts: one update per 2,048 steps
+agent = PPO("CartPole-v1")  # one environment, 2048-step rollouts: one update per 2,048 steps
 # Evaluate every 4 updates; backends=() keeps the results in memory only.
 logging = LoggingConfig(log_frequency=8_192, backends=())
-state, evaluations = agent.train(
-    seed=[1, 2, 3], n_timesteps=40_960, logging_config=logging
-)
+state, evaluations = agent.train(seed=[1, 2, 3], n_timesteps=40_960, logging_config=logging)
 
-print(
-    evaluations["Eval/episodic mean reward"]
-)  # one row per seed, one column per evaluation
+print(evaluations["Eval/episodic mean reward"])  # one row per seed, one column per evaluation
 ```
 
 [Quickstart →](getting-started/quickstart.md){ .md-button .md-button--primary }

@@ -142,6 +142,10 @@ returns = agent.evaluate(state, episodes=20)  # shape (2, 20)
 print(returns.mean(axis=1))  # each seed's score
 ```
 
+`agent.render(state, "cartpole.gif")` saves one episode as an animation;
+[Watch the policy](../guide/deploy.md#watch-the-policy) says what each
+environment's drawing needs installed.
+
 To act in a loop of your own, `agent.predict(state, observation)` returns
 the first seed's action for an observation (`seed_index` picks another), in
 the environment's units, and

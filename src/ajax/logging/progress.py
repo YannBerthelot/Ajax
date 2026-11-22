@@ -48,6 +48,27 @@ class Evaluations(dict):
         member."""
         return self[TIMESTEP][0]
 
+    def layout(self, rows: str = "seed") -> str:
+        """How ``returns`` is laid out, on one line: a row per ``rows``
+        (a single seed has a row too), a column per evaluation, with its
+        shape."""
+        shape = tuple(np.shape(self[RETURN]))
+        return (
+            f"evaluations.returns has a row per {rows} and a column per"
+            f" evaluation: shape {shape}."
+        )
+
+    def __repr__(self) -> str:
+        # The layout before the arrays: a dict's own repr opens on them,
+        # where the row of a single seed reads as one more bracket.
+        if RETURN not in self:
+            return f"Evaluations({dict.__repr__(self)})"
+        names = ", ".join(sorted(self))
+        return (
+            f"Evaluations: {self.layout()} Every logged name has that"
+            f" layout ({names}); dict(evaluations) shows the arrays."
+        )
+
 
 def _flatten(evaluations: Evaluations) -> tuple[list, tuple]:
     names = tuple(sorted(evaluations))
@@ -138,8 +159,13 @@ class ProgressPrinter:
             own = [s for s, g in zip(scores, self.groups, strict=True) if g == group]
             self.write(f"{'':>14}{group}: {summary(own, 'seeds')}")
 
-    def close(self) -> None:
-        self.write(f"Done in {self.clock() - self.started:.1f} s.")
+    def close(self, evaluations: Any = None) -> None:
+        """The last line, with how the returned ``evaluations`` are laid
+        out: every call prints it, since a single seed has its row too."""
+        text = f"Done in {self.clock() - self.started:.1f} s."
+        if isinstance(evaluations, Evaluations) and RETURN in evaluations:
+            text += " " + evaluations.layout("run" if self.groups else "seed")
+        self.write(text)
 
 
 def run_logging(
@@ -187,9 +213,9 @@ def run_logging(
 def finished(result: Any, printer: Any) -> Any:
     """train's ``(state, out)`` at its end: the printer closed, a dict of
     evaluations as :class:`Evaluations`."""
-    if printer is not None:
-        printer.close()
     state, out = result
     if isinstance(out, dict) and not isinstance(out, Evaluations):
         out = Evaluations(out)
+    if printer is not None:
+        printer.close(out)
     return state, out

@@ -6,6 +6,9 @@ Contract (docs/getting-started/quickstart.md, ``ActorCritic.train``,
     a first line, one line per evaluation and a last line, and returns the
     evaluations, each after a whole number of the agent's iterations; logging_config=None evaluates nothing, prints nothing and
     returns None; a LoggingConfig of the caller's prints nothing;
+  - the last line gives the layout and shape of the returned returns, a
+    row per seed (per run in a sweep), with one seed too, and printing the
+    evaluations opens on the same layout;
   - the evaluations are the dict of logged names, with ``returns`` (members
     x evaluations) and ``timesteps`` (one per evaluation);
   - a printed evaluation is one line for all members trained side by side
@@ -270,3 +273,48 @@ def test_an_agent_prints_as_the_call_that_builds_it():
     assert "gamma" not in shown  # left at its default
     rebuilt = eval(shown, {"PPO": PPO})
     assert rebuilt.config == agent.config
+
+
+def test_the_closing_line_gives_the_layout_of_the_returns_for_one_seed(capsys):
+    """One seed has its row too (docs/guide/training.md, "Seeds"): 160
+    steps are 10 evaluations, so the returns are 1 by 10, and the last
+    line says so."""
+    _, evaluations = tiny_ppo().train(seed=0, n_timesteps=160)
+    last = capsys.readouterr().out.splitlines()[-1]
+    assert evaluations.returns.shape == (1, 10)
+    assert last.startswith("Done in ")
+    assert "a row per seed and a column per evaluation: shape (1, 10)." in last
+
+
+def test_printing_the_evaluations_opens_on_their_layout():
+    table = Evaluations(
+        {
+            "timestep": np.array([[100, 200, 300]] * 2),
+            RETURN: np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]),
+        }
+    )
+    shown = repr(table)
+    assert shown.startswith(
+        "Evaluations: evaluations.returns has a row per seed and a column per"
+        " evaluation: shape (2, 3)."
+    )
+    assert RETURN in shown and "timestep" in shown
+    # The arrays stay a dict's.
+    assert dict(table)[RETURN].shape == (2, 3)
+
+
+def test_a_sweeps_closing_line_counts_runs():
+    """A sweep's rows are its runs, a configuration with a seed each."""
+    lines: list = []
+    printer = ProgressPrinter(
+        "SAC",
+        ["seed 0", "seed 0"],
+        200,
+        write=lines.append,
+        clock=lambda: 0.0,
+        groups=["tau=0.1", "tau=0.2"],
+    )
+    printer.close(Evaluations({RETURN: np.zeros((2, 4))}))
+    assert lines[-1].endswith(
+        "a row per run and a column per evaluation: shape (2, 4)."
+    )

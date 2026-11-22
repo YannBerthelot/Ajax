@@ -74,9 +74,9 @@ def draw(env_state):
     return jnp.zeros((64, 64, 3)).at[row, column].set(1.0)
 
 
-agent = PPO("Reacher-misc", n_envs=4, n_steps=32)
-state, _ = agent.train(seed=0, n_timesteps=1_024)
-agent.render(state, "reacher.gif", draw=draw, max_steps=50)
+reacher = PPO("Reacher-misc", n_envs=4, n_steps=32)
+reacher_state, _ = reacher.train(seed=0, n_timesteps=1_024)
+reacher.render(reacher_state, "reacher.gif", draw=draw, max_steps=50)
 ```
 
 `draw` receives one environment's state, with the environment's own fields

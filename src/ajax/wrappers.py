@@ -650,11 +650,15 @@ class EpisodeKeyedAutoResetWrapper(GymnaxWrapper):
                 environment.Environment, method
             ):
                 raise ValueError(
-                    f"{type(env).__name__} overrides gymnax's {method}, which"
-                    " resets keyed by episode would bypass. Build it with"
-                    " episode_keys=False: build_env_from_id(env_id, ...,"
-                    " episode_keys=False), or with_episode_keys(env, on=False)"
-                    " (ajax.environments.create) for an env you built."
+                    f"{type(env).__name__} has a {method} of its own, which"
+                    " Ajax's episode-keyed resets would bypass. Build it"
+                    " without them and pass the agent that environment: env,"
+                    " env_params = build_env_from_id(env_id, n_envs=...,"
+                    " episode_keys=False) (ajax.environments.create), then"
+                    " Agent(env, env_params=env_params, n_envs=...); for an"
+                    " env you built, with_episode_keys(env, on=False). Its"
+                    " episodes then start on gymnax's own keys (see"
+                    " 'Episode keys' in the environments guide)."
                 )
         _, state = jax.eval_shape(
             lambda key: env.reset_env(key, env.default_params), jax.random.PRNGKey(0)

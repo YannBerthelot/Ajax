@@ -31,7 +31,6 @@ from __future__ import annotations
 
 import copy
 import dataclasses
-import difflib
 import inspect
 import warnings
 from collections.abc import Callable, Iterable, Sequence
@@ -49,6 +48,7 @@ from ajax.agents.base import (
     release_replaced,
     run_horizon,
     shared_counters,
+    unknown_argument,
 )
 from ajax.agents.loop import LOOP_PHASES, Evaluation, TrainLoop
 from ajax.agents.presets import presets_of
@@ -430,22 +430,6 @@ class PolicyUpdateStart:
         return self.policy_update_start > 0
 
 
-def _unknown_argument(agent: type, name: str, known: Iterable[str]) -> str:
-    """The message for an argument ``agent`` does not take: the arguments
-    holding its name (learning_rate: actor_learning_rate), then the closest
-    spellings (n_step: n_steps)."""
-    known = sorted(known)
-    close = [other for other in known if name in other]
-    for other in difflib.get_close_matches(name, known, n=3):
-        if other not in close:
-            close.append(other)
-    meant = f" Did you mean {', '.join(close[:3])}?" if close else ""
-    return (
-        f"{agent.__name__} has no argument {name!r}.{meant}"
-        f" help({agent.__name__}) lists its arguments."
-    )
-
-
 def _agents_acting_in(action_space: str) -> list[str]:
     """The names of Ajax's agents acting in ``action_space``."""
     import ajax  # ajax imports this module: resolved at call time
@@ -520,7 +504,7 @@ class DeclaredAgent(ActorCritic):
         )
         for name in kwargs:
             if name not in parameters and not open_ended:
-                raise TypeError(_unknown_argument(cls, name, parameters))
+                raise TypeError(unknown_argument(cls.__name__, name, parameters))
         return super().__new__(cls)
 
     def __post_init__(self) -> None:
@@ -859,7 +843,10 @@ class DeclaredAgent(ActorCritic):
             )
         cached = getattr(self, "_predicting", None)
         if cached is None or cached[0] is not agent_state or cached[1] != seed_index:
-            policy = self.policy(agent_state, seed_index)
+            # Concrete also when predict is first called inside a traced
+            # function (record's rollout): the policy is kept across calls.
+            with jax.ensure_compile_time_eval():
+                policy = self.policy(agent_state, seed_index)
             if policy.has_memory:
                 raise ValueError(
                     f"{self.name}'s policy carries memory from one step to the"

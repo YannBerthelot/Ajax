@@ -328,6 +328,12 @@ print(offline["timestep"])  # [[ 500 1000]]: updates done
 state, online = agent.train(seed=[0], n_timesteps=1_000, initial_state=state)
 ```
 
+`record` takes any function from observations to actions in the
+environment's units. A trained agent's `predict` is one, so
+`record(lambda obs: agent.predict(state, obs), agent.env_args, key, n_steps)`
+records its policy. `export(state, seed_index=0)`, from the same module,
+gives the whole episodes a replay agent's own replay holds.
+
 `train_offline` runs the agent's own update, with its extensions' terms:
 [TD3+BC](../algorithms/td3.md#td3bc-offline) is TD3 with a cloning term, and
 [IQL](../algorithms/iql.md) an agent of its own.

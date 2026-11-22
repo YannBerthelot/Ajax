@@ -465,27 +465,21 @@ class TrainLoop:
         stop at a multiple of it, not at the call's end, so the run trains
         another number of steps than asked and an evaluation due at that end
         never happens (its row stays NaN)."""
-        if self.budget < per_iteration:
-            warnings.warn(
-                f"n_timesteps={self.budget} is less than the {per_iteration} env"
-                f" steps of one iteration ({unit}): one iteration runs, past"
-                " the budget, where no evaluation happens, so the evaluations"
-                f" come back empty. Pass at least {per_iteration}, or lower"
-                " what makes an iteration.",
-                UserWarning,
-                stacklevel=2,
-            )
-        elif self.budget % per_iteration:
+        if self.budget % per_iteration:
             end = self.start_timestep + self.budget
-            warnings.warn(
+            message = (
                 f"n_timesteps={self.budget} is not a multiple of the"
                 f" {per_iteration} env steps of one iteration ({unit}): the run"
                 f" stops at a multiple of {per_iteration}, so an evaluation due"
                 f" at timestep {end} does not happen (NaN)."
-                f" Pass a multiple of {per_iteration}.",
-                UserWarning,
-                stacklevel=2,
+                f" Pass a multiple of {per_iteration}."
             )
+            if self.start_timestep + per_iteration > self.total_timesteps:
+                message += (
+                    " The one iteration that runs ends past the run's last"
+                    " timestep, so no evaluation is recorded."
+                )
+            warnings.warn(message, UserWarning, stacklevel=2)
 
     def n_rollouts(self, n_steps: int, timesteps: Optional[int] = None) -> int:
         """The iterations of :meth:`on_policy` for ``n_steps`` rollouts over

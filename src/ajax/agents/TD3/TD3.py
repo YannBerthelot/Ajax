@@ -27,7 +27,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from functools import partial
-from typing import Any, Callable, Optional
+from typing import Any, Callable, ClassVar, Optional
 
 import jax
 import jax.numpy as jnp
@@ -129,6 +129,21 @@ class TD3(
     #: Collection's action selection, in place of make_gaussian_exploration
     #: (AjaxExperiments' TD3 variants).
     action_pipeline: Optional[Callable] = None
+
+    #: The numbers a sweep may vary in one program (ActorCritic.sweepable),
+    #: each checked against separate runs by tests/agents/test_sweep_every_agent.py.
+    sweepable: ClassVar[frozenset[str]] = frozenset(
+        {
+            "actor_learning_rate",
+            "critic_learning_rate",
+            "exploration_noise",
+            "gamma",
+            "reward_scale",
+            "target_noise_clip",
+            "target_policy_noise",
+            "tau",
+        }
+    )
 
     def __post_init__(self) -> None:
         # Resolved before the run config records it.

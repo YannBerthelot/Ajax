@@ -261,7 +261,14 @@ class ActorCritic:
     # ajax.agents.sweep): numbers the training reads as numbers, which no
     # construction check reads. Each is covered by a test that a sweep trains
     # as separate runs of its configurations would.
+    #
+    # Declared where the field is: an agent's class names its own, a mixin
+    # (EntropyTemperature) the ones it brings, and each class's sweepable is
+    # the union over its bases (__init_subclass__), less its unsweepable.
     sweepable: ClassVar[frozenset[str]] = frozenset()
+    # The fields a base declares sweepable that this agent's sweep refuses,
+    # each with the reason the refusal gives.
+    unsweepable: ClassVar[Mapping[str, str]] = {}
     # What construction builds from a field and keeps: the field's name, then
     # the attribute built and the field of it that holds the value. A sweep
     # member's copy rebuilds each one it sets (member); an agent building
@@ -643,6 +650,16 @@ class ActorCritic:
         del n_timesteps, train_options
         return state
 
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        super().__init_subclass__(**kwargs)
+        declared: set[str] = set()
+        refused: dict[str, str] = {}
+        for base in reversed(cls.__mro__):
+            declared.update(vars(base).get("sweepable", ()))
+            refused.update(vars(base).get("unsweepable", {}))
+        cls.unsweepable = refused
+        cls.sweepable = frozenset(declared.difference(refused))
+
     def sweepable_fields(self) -> frozenset[str]:
         """The fields this agent's sweep may vary: :attr:`sweepable`, less
         those this configuration captures when built."""
@@ -801,7 +818,12 @@ class ActorCritic:
         self.use_precision(precision, devices)
         found = sweep_configurations(sweep)
         if found:
-            check_sweep(type(self).__name__, self.sweepable_fields(), list(found[0]))
+            check_sweep(
+                type(self).__name__,
+                self.sweepable_fields(),
+                list(found[0]),
+                self.unsweepable,
+            )
             if in_python:
                 raise ValueError(
                     "A Gymnasium environment trains its seeds one after"

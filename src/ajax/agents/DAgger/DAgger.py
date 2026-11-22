@@ -39,7 +39,7 @@ from __future__ import annotations
 
 import dataclasses
 from dataclasses import dataclass
-from typing import Any, Callable, Union
+from typing import Any, Callable, ClassVar, Union
 
 import jax
 import jax.numpy as jnp
@@ -194,6 +194,14 @@ class DAgger(GradientClipping, ObservationNormalization, ExpertGuided, ReplayAge
     learning_starts: int = dataclasses.field(init=False)
     #: Not a keyword: an IterationFit fits once per iteration (setup).
     train_frequency: int = dataclasses.field(init=False)
+
+    #: The numbers a sweep may vary in one program (ActorCritic.sweepable),
+    #: each checked against separate runs by tests/agents/test_sweep_every_agent.py.
+    sweepable: ClassVar[frozenset[str]] = frozenset(
+        {
+            "actor_learning_rate",
+        }
+    )
 
     def check(self) -> None:
         if self.expert_policy is None:

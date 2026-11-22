@@ -279,6 +279,12 @@ class Policy:
             stream, key = split_carry_first(carry.key, 1)
             carry = carry._replace(key=stream)
         obs, reward = jnp.asarray(obs), jnp.asarray(reward, jnp.float32)
+        if obs.ndim == 0 or obs.shape[0] != n_envs:
+            raise ValueError(
+                f"obs has shape {obs.shape}; act takes a row per env of the"
+                f" carry, here {n_envs}: shape ({n_envs}, ...). For one"
+                " observation, pass obs[None]."
+            )
         return self._step(self.agent_state, obs, carry, done, reward, key)
 
 

@@ -228,6 +228,22 @@ def _flat(observations: list) -> np.ndarray:
     return np.stack([np.asarray(obs, np.float32).reshape(-1) for obs in observations])
 
 
+def _missing_dependency(env_id: str, error: Exception) -> str:
+    """What to install for a Gymnasium environment whose package is missing.
+    Ajax's gymnasium extra holds Gymnasium's MuJoCo tasks only: the others
+    (Box2D's, Atari's) name their own install in Gymnasium's message."""
+    if "mujoco" in str(error).lower() or "imageio" in str(error).lower():
+        return (
+            f"{env_id} needs Ajax's gymnasium extra: pip install"
+            f" 'ajax-rl[gymnasium]' ({error})"
+        )
+    return (
+        f"{env_id} needs a package that Ajax's gymnasium extra does not"
+        f" install (it holds Gymnasium's MuJoCo tasks only). Gymnasium says:"
+        f" {error}"
+    )
+
+
 class GymnasiumEnv(environment.Environment):
     """A Gymnasium environment, ``gymnasium.make(env_id, **make_kwargs)``,
     with gymnax's interface. ``"gymnasium:<env_id>"`` builds one by id.
@@ -247,11 +263,11 @@ class GymnasiumEnv(environment.Environment):
         def make() -> gymnasium.Env:
             try:
                 return gymnasium.make(env_id, **make_kwargs)
-            except gymnasium.error.DependencyNotInstalled as error:
-                raise ImportError(
-                    f"{env_id} needs Ajax's gymnasium extra: pip install"
-                    f" 'ajax-rl[gymnasium]' ({error})"
-                ) from error
+            except (
+                gymnasium.error.DependencyNotInstalled,
+                ModuleNotFoundError,
+            ) as error:
+                raise ImportError(_missing_dependency(env_id, error)) from error
 
         sample = make()
         max_steps = sample.spec.max_episode_steps if sample.spec else None

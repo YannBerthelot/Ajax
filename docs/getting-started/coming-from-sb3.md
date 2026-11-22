@@ -33,9 +33,10 @@ print(evaluations.returns)  # one row per seed, one column per evaluation
 `train` evaluates the policy about ten times over the run and prints a line
 for each, with no callback to set up; `logging_config=None` turns both off.
 
-There is no policy name to give: the networks follow the environment's
-observations (an MLP, or a CNN encoder for images, see
-[Networks](../guide/networks.md)).
+There is no policy name to give: an MLP reads the observations. For images,
+pass `cnn_image_shape` to read them with a CNN encoder
+([Networks](../guide/networks.md#image-observations)); Ajax warns when
+images reach an MLP.
 
 ## The calls side by side
 

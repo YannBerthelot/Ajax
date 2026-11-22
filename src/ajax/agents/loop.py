@@ -465,7 +465,17 @@ class TrainLoop:
         stop at a multiple of it, not at the call's end, so the run trains
         another number of steps than asked and an evaluation due at that end
         never happens (its row stays NaN)."""
-        if self.budget % per_iteration:
+        if self.budget < per_iteration:
+            warnings.warn(
+                f"n_timesteps={self.budget} is less than the {per_iteration} env"
+                f" steps of one iteration ({unit}): one iteration runs, past"
+                " the budget, where no evaluation happens, so the evaluations"
+                f" come back empty. Pass at least {per_iteration}, or lower"
+                " what makes an iteration.",
+                UserWarning,
+                stacklevel=2,
+            )
+        elif self.budget % per_iteration:
             end = self.start_timestep + self.budget
             warnings.warn(
                 f"n_timesteps={self.budget} is not a multiple of the"

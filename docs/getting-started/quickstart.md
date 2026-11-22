@@ -105,7 +105,8 @@ exists. An id without the prefix never reaches Gymnasium, and building one
 warns that it steps in Python, naming the closest JAX tasks. Gymnasium's
 MuJoCo tasks need the `gymnasium` extra
 ([Installation](installation.md#extras)).
-[Environments](../guide/environments.md) lists the ids of each source, and
+[Environments](../guide/environments.md) says where each source lists its
+ids, and
 [Gymnasium environments](../guide/environments.md#gymnasium-environments)
 the closest JAX task of each Gymnasium one.
 

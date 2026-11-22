@@ -1,4 +1,5 @@
 import copy
+import difflib
 import importlib
 import importlib.metadata
 import inspect
@@ -71,16 +72,38 @@ def _installed(module: str) -> Optional[ModuleType]:
         return None
 
 
+def _known_ids() -> list[str]:
+    """The ids an unknown one is compared with: gymnax's, the registered
+    builders' and, when installed, MuJoCo Playground's (brax lists its own
+    only privately)."""
+    known = [*gymnax.registered_envs, *_PLAYGROUND_BUILDERS, *_BRAX_BUILDERS]
+    playground = _installed("mujoco_playground")
+    if playground is not None:
+        known.extend(playground.registry.ALL_ENVS)
+    return known
+
+
 def _unknown_env(env_id: str) -> ValueError:
+    by_lower_case = {known.lower(): known for known in _known_ids()}
+    close = difflib.get_close_matches(env_id.lower(), list(by_lower_case), n=3)
+    message = f"Environment {env_id} not found in gymnax, brax or MuJoCo Playground"
+    if close:
+        names = ", ".join(repr(by_lower_case[name]) for name in close)
+        message += f". Did you mean {names}?"
+    elif ":" in env_id:
+        message += (
+            f". The prefixes are {GYMNASIUM_PREFIX!r} (a Gymnasium environment,"
+            f" stepped in Python) and {MUJOCO_PREFIX!r} (Gymnasium's MuJoCo"
+            " tasks in JAX)."
+        )
     missing = [
         f"{name} (ajax-rl[{extra}])"
         for package, (extra, name) in _EXTRAS.items()
         if _installed(package) is None
     ]
-    hint = f"; not installed: {', '.join(missing)}" if missing else ""
-    return ValueError(
-        f"Environment {env_id} not found in gymnax, brax or MuJoCo Playground{hint}"
-    )
+    if missing:
+        message += f" Not installed: {', '.join(missing)}."
+    return ValueError(message)
 
 
 def _builder_accepts_action_repeat(builder: Callable) -> bool:
@@ -459,7 +482,13 @@ def build_env_from_id(
     if physics == "warp":
         _check_warp_physics(differentiable_reset)
     if env_id.startswith(MUJOCO_PREFIX):
-        from ajax.environments.mujoco.tasks import TASKS
+        try:
+            from ajax.environments.mujoco.tasks import TASKS
+        except ModuleNotFoundError as error:
+            raise ImportError(
+                f"{env_id} needs Ajax's playground extra, which holds MuJoCo"
+                f" and MJX: pip install 'ajax-rl[playground]' ({error})"
+            ) from error
 
         task_id = env_id.removeprefix(MUJOCO_PREFIX)
         if task_id not in TASKS:

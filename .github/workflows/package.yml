@@ -74,7 +74,7 @@ jobs:
       fail-fast: false
       matrix:
         python: ["3.12", "3.14"]
-        check: [docs, core, brax, playground, gymnasium, compare, reproduction, manifolds, wandb, cuda]
+        check: [docs, core, brax, playground, gymnasium, compare, reproduction, manifolds, render, wandb, cuda]
     steps:
       - uses: actions/checkout@v7
         with:
@@ -99,8 +99,8 @@ jobs:
           adastop=$(python3 -c 'import tomllib; source = tomllib.load(open("pyproject.toml", "rb"))["tool"]["uv"]["sources"]["adastop"]; print("adastop @ git+" + source["git"] + "@" + source["rev"])')
           wheel=$(ls "$RUNNER_TEMP"/dist/ajax_rl-*.whl)
           case "$CHECK" in
-            # matplotlib: the quickstart plots.
-            docs) requirements=("ajax-rl[playground,compare,reproduction,wandb] @ file://$wheel" "$adastop" matplotlib) ;;
+            # render: the quickstart plots (matplotlib) and draws an episode.
+            docs) requirements=("ajax-rl[playground,compare,reproduction,wandb,render] @ file://$wheel" "$adastop") ;;
             core) requirements=("ajax-rl @ file://$wheel") ;;
             compare) requirements=("ajax-rl[compare] @ file://$wheel" "$adastop") ;;
             *) requirements=("ajax-rl[$CHECK] @ file://$wheel") ;;

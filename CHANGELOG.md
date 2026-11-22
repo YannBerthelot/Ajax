@@ -11,7 +11,9 @@ The next release is 0.6.0: the first item changes results.
 - **New: `agent.render(state, path)` saves an episode of the trained
   policy as an animation**: a GIF on the gymnax tasks gymnax draws, on
   MuJoCo Playground and on the `mujoco:` tasks, an interactive page on
-  Brax (Train, evaluate, deploy, "Watch the policy").
+  Brax (Train, evaluate, deploy, "Watch the policy"). The new `render`
+  extra installs what the gymnax drawings need: matplotlib and
+  Gymnasium's classic-control drawings.
 - **New: `ajax.wrappers.ObservationWrapper`**, a base class whose
   `observation(obs)` changes every observation, the one an episode's end
   leaves in the info included. A wrapper changing only what `reset` and

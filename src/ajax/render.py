@@ -1,7 +1,8 @@
 """Saving an episode as an animation (``agent.render``): gymnax's drawings
 for the tasks it draws, Brax's interactive page, MuJoCo's renderer for
-MuJoCo Playground and the ``mujoco:`` tasks. Each needs a package Ajax does
-not require, named when it is missing."""
+MuJoCo Playground and the ``mujoco:`` tasks. The gymnax drawings and the
+GIF writer need packages Ajax does not require, which its ``render`` extra
+installs; the message says so when one is missing."""
 
 from __future__ import annotations
 
@@ -77,7 +78,8 @@ def _one_env(tree: Any) -> Any:
 
 def _missing(package: str, error: Exception) -> ImportError:
     return ImportError(
-        f"agent.render needs {package} here: pip install {package} ({error})"
+        f"agent.render needs {package} here, which Ajax's render extra"
+        f" installs: pip install 'ajax-rl[render]' ({error})"
     )
 
 
@@ -103,7 +105,8 @@ def _save_gymnax(env: Any, states: list, rewards: list[float], path: str) -> Non
     if env.name in CLASSIC_CONTROL and importlib.util.find_spec("pygame") is None:
         raise ImportError(
             f"gymnax draws {env.name} with Gymnasium's drawing, which needs"
-            ' pygame: pip install "gymnasium[classic-control]" matplotlib'
+            " pygame. Ajax's render extra installs it: pip install"
+            " 'ajax-rl[render]'"
         )
     try:
         import matplotlib

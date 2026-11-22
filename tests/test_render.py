@@ -10,7 +10,8 @@ docs/guide/deploy.md, "Watch the policy"):
     draws, an HTML page on Brax;
   - a path with another ending is refused before anything runs, as are a
     gymnax task gymnax does not draw and a Gymnasium environment;
-  - a classic-control drawing without pygame names what to install.
+  - a classic-control drawing is written with Ajax's render extra, and
+    without pygame names that extra.
 """
 
 import importlib.util
@@ -98,11 +99,12 @@ def test_a_classic_control_drawing_needs_pygame_and_says_so(cartpole, tmp_path):
     agent, state = cartpole
     path = tmp_path / "cartpole.gif"
     if importlib.util.find_spec("pygame") is None:
-        with pytest.raises(ImportError, match=r"gymnasium\[classic-control\]"):
+        with pytest.raises(ImportError, match=r"ajax-rl\[render\]"):
             agent.render(state, path, max_steps=3)
     else:
         agent.render(state, path, max_steps=3)
-        assert os.path.getsize(path) > 0
+        with Image.open(path) as animation:
+            assert animation.n_frames == 4
 
 
 @pytest.mark.skipif(

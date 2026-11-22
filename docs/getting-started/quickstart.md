@@ -142,9 +142,22 @@ returns = agent.evaluate(state, episodes=20)  # shape (2, 20)
 print(returns.mean(axis=1))  # each seed's score
 ```
 
-`agent.render(state, "cartpole.gif")` saves one episode as an animation;
-[Watch the policy](../guide/deploy.md#watch-the-policy) says what each
-environment's drawing needs installed.
+To watch it, `render` saves one episode of a seed's policy as an animation.
+It needs the `render` extra (`pip install "ajax-rl[render]"`):
+
+```python
+import os
+import tempfile
+
+from ajax import PPO
+
+agent = PPO("CartPole-v1", n_envs=8, n_steps=128)
+state, _ = agent.train(seed=[0, 1], n_timesteps=16_384, logging_config=None)
+agent.render(state, os.path.join(tempfile.mkdtemp(), "cartpole.gif"))
+```
+
+[Watch the policy](../guide/deploy.md#watch-the-policy) covers Brax and
+MuJoCo tasks.
 
 To act in a loop of your own, `agent.predict(state, observation)` returns
 the first seed's action for an observation (`seed_index` picks another), in

@@ -3574,6 +3574,11 @@ its replay keeping the dataset's rows:</p>
 <a id="__codelineno-7-18" name="__codelineno-7-18" href="#__codelineno-7-18"></a><span class="nb">print</span><span class="p">(</span><span class="n">offline</span><span class="p">[</span><span class="s2">&quot;timestep&quot;</span><span class="p">])</span>  <span class="c1"># [[ 500 1000]]: updates done</span>
 <a id="__codelineno-7-19" name="__codelineno-7-19" href="#__codelineno-7-19"></a><span class="n">state</span><span class="p">,</span> <span class="n">online</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">seed</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">1_000</span><span class="p">,</span> <span class="n">initial_state</span><span class="o">=</span><span class="n">state</span><span class="p">)</span>
 </code></pre></div>
+<p><code>record</code> takes any function from observations to actions in the
+environment's units. A trained agent's <code>predict</code> is one, so
+<code>record(lambda obs: agent.predict(state, obs), agent.env_args, key, n_steps)</code>
+records its policy. <code>export(state, seed_index=0)</code>, from the same module,
+gives the whole episodes a replay agent's own replay holds.</p>
 <p><code>train_offline</code> runs the agent's own update, with its extensions' terms:
 <a href="../../algorithms/td3/#td3bc-offline">TD3+BC</a> is TD3 with a cloning term, and
 <a href="../../algorithms/iql/">IQL</a> an agent of its own.

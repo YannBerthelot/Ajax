@@ -3008,8 +3008,12 @@ continues the run from its timestep:</p>
 <a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="n">state</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">seed</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">],</span> <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">1_000</span><span class="p">,</span> <span class="n">initial_state</span><span class="o">=</span><span class="n">state</span><span class="p">)</span>
 <a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="nb">print</span><span class="p">(</span><span class="n">state</span><span class="o">.</span><span class="n">collector_state</span><span class="o">.</span><span class="n">timestep</span><span class="p">)</span>  <span class="c1"># [2000 2000]</span>
 </code></pre></div>
-<p>Pass the same seeds in every call. The call may reuse the memory of the
-state you pass in, so read or save what you need from it first.</p>
+<p>Pass the same seeds in every call. The state carries each run's random
+streams, so a resumed run continues the same whatever seeds the call names;
+they only name the runs in the logs and in <code>agent.members</code>, and <code>train</code> cannot
+tell that they changed. A different number of seeds is refused. The call may
+reuse the memory of the state you pass in, so read or save what you need from
+it first.</p>
 <h2 id="save-and-load-an-agent">Save and load an agent<a class="headerlink" href="#save-and-load-an-agent" title="Permanent link">&para;</a></h2>
 <p><code>agent.save</code> writes the state together with the agent's class and its
 arguments, and <code>load</code> gives both back, so the loading script does not build

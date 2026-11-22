@@ -3136,6 +3136,22 @@ PyPI as <code>ajax-rl</code>.</p>
   <code>step</code> return trained on two kinds of observations, with no error
   (Environments, "Changing the observations"). The memory guide trains on
   a CartPole with hidden velocities built with it.</li>
+<li><strong>More checks</strong>, after a third newcomer trial:<ul>
+<li>an expert whose action drops its last axis is refused where Ajax
+  first calls it, naming the expert and the axis (before, a
+  broadcasting error, or a silent broadcast);</li>
+<li><code>LoggingConfig(backends=TensorBoardBackend(...))</code>, without the tuple,
+  shows the tuple to write;</li>
+<li><code>train</code> refuses a keyword it does not take before anything starts,
+  naming the one meant (<code>logging</code>: <code>logging_config</code>);</li>
+<li>a dataset whose rows do not fit the agent's environment says so, and
+  a gymnax environment with a step of its own (bsuite's DeepSea) names
+  the two lines that build it;</li>
+<li>the docs give each expert piece's module, how to <code>record</code> a trained
+  agent's policy, what the seeds of a resuming call do, and what
+  <code>render</code> needs for MinAtar (nothing) and Brax (the internet).</li>
+</ul>
+</li>
 <li><strong>Clearer errors and checks</strong>, after a second newcomer trial:<ul>
 <li>an unknown environment id names the closest ids, and an unknown agent
   argument the closest arguments (<code>learning_rate</code>:
@@ -3745,6 +3761,10 @@ one env and 64-64 layers), DQN, PQN, APO, REDQ's warm-up, DAgger's fit and
 and windows. Checkpoints of recurrent SAC-family agents and of DAgger saved
 before this version do not restore at the new defaults. The rest:</p>
 <ul>
+<li><strong>An expert must keep its action's last axis</strong>, as the expert guide has
+  asked: <code>expert(obs)</code> returns <code>(..., action_dim)</code>, an index column <code>(..., 1)</code>
+  on discrete actions. One that returned <code>(...,)</code> and ran by broadcasting is
+  now refused; add <code>[..., None]</code>.</li>
 <li><strong>On-policy runs train one rollout fewer per <code>train</code> call</strong>, so their
   results move a little. A call asked for 8,192 steps of 1,024-step rollouts
   now stops at 8,192, not 9,216. <em>What to do:</em> compare with runs of this

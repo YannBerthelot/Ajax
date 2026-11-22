@@ -3586,6 +3586,50 @@ keeps no replay).</p>
 <p>The agents in brackets are those that accept each piece, as
 <a href="../compatibility/">Compatibility</a> lists them from the code. "Developed with
 Ajax" marks a feature with no external reference.</p>
+<p>Each piece is imported from its module:</p>
+<table>
+<thead>
+<tr>
+<th>Module</th>
+<th>Pieces</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ajax.extensions.expert</code></td>
+<td><code>ImitationLoss</code>, <code>OnlineBC</code>, <code>ExpertWarmup</code>, <code>JSRLCurriculum</code>, <code>ResidualPolicy</code>, <code>ExpertGains</code></td>
+</tr>
+<tr>
+<td><code>ajax.extensions.pretrain</code></td>
+<td><code>ExpertPrefill</code>, <code>PriorData</code>, <code>CloningPretrain</code>, <code>MCPretrain</code>, <code>BellmanPretrain</code>, <code>PhiRefresh</code></td>
+</tr>
+<tr>
+<td><code>ajax.extensions.retained</code></td>
+<td><code>RetainedDemonstrations</code>, <code>RLPD</code></td>
+</tr>
+<tr>
+<td><code>ajax.extensions.exploration</code></td>
+<td><code>EDGEExploration</code></td>
+</tr>
+<tr>
+<td><code>ajax.extensions.target_mods</code></td>
+<td><code>IBRL</code>, <code>LCBGatedBootstrap</code>, <code>CriticBlend</code>, <code>ValueBox</code></td>
+</tr>
+<tr>
+<td><code>ajax.extensions.cheq</code></td>
+<td><code>CHEQ</code></td>
+</tr>
+<tr>
+<td><code>ajax.extensions.observe</code></td>
+<td><code>ExpertActionInput</code></td>
+</tr>
+<tr>
+<td><code>ajax.extensions.structure</code></td>
+<td><code>ExpertLaw</code></td>
+</tr>
+</tbody>
+</table>
+<p>The <a href="../extensions/">Extensions</a> page has the full catalogue.</p>
 <table>
 <thead>
 <tr>

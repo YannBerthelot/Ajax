@@ -3012,6 +3012,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#ajax.evaluate.policy_episode" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        policy_episode
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#ajax.evaluate.policy_returns" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3739,6 +3750,17 @@
     <span class="md-ellipsis">
       
         evaluate_policy
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.evaluate.policy_episode" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        policy_episode
       
     </span>
   </a>
@@ -5094,6 +5116,33 @@ observations or rewards (the rebuild is the raw env, see
 :func:<code>ajax.environments.row_collector.check_unnormalized_env</code>), and
 <code>env_params</code> describes one system (per-env, batched params cannot be
 rebuilt with <code>num_episodes</code> envs; evaluate a nominal system instead).</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="ajax.evaluate.policy_episode" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">policy_episode</span>
+
+
+<a href="#ajax.evaluate.policy_episode" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">policy_episode</span><span class="p">(</span><span class="n">env_args</span><span class="p">,</span> <span class="n">parts</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">max_steps</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>One episode under a trained policy's <code>parts</code>, kept step by step for
+drawing: the env it ran on (:func:<code>policy_returns</code>' rebuilt one, a
+single copy), that env's state at the reset and after every step but
+the one ending the episode (whose state is already the next episode's),
+each with its leading axis of one env, and every step's reward. It
+stops at the episode's end, or after <code>max_steps</code> steps. The steps run
+one by one from Python, each compiled: the states are kept, which a
+compiled loop would have to hold for the longest episode possible.</p>
 
 
     </div>

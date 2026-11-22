@@ -3093,6 +3093,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#ajax.agents.families.DeclaredAgent.render" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        render
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#ajax.agents.families.DeclaredAgent.policy_parts" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -5661,6 +5672,17 @@
     <span class="md-ellipsis">
       
         evaluate
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.agents.families.DeclaredAgent.render" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        render
       
     </span>
   </a>
@@ -10000,6 +10022,35 @@ step in Python, a member after another. Its mean over a row is that
 member's score::</p>
 <div class="highlight"><pre><span></span><code>state, _ = agent.train(seed=[0, 1], n_timesteps=50_000)
 agent.evaluate(state).mean(axis=1)
+</code></pre></div>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="ajax.agents.families.DeclaredAgent.render" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">render</span>
+
+
+<a href="#ajax.agents.families.DeclaredAgent.render" class="headerlink" title="Permanent link">&para;</a></h4>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">render</span><span class="p">(</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">agent_state</span><span class="p">,</span> <span class="n">path</span><span class="p">,</span> <span class="n">seed_index</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">seed</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">max_steps</span><span class="o">=</span><span class="kc">None</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Saves one fresh episode of seed seed_index's trained policy as an
+animation at <code>path</code>, and returns the path. The policy acts as in
+agent.evaluate; <code>seed</code> draws the episode's start, and
+<code>max_steps</code> cuts a long episode short. The file is a <code>.gif</code>, or
+an <code>.html</code> page on Brax (ajax.render.animation_suffix)::</p>
+<div class="highlight"><pre><span></span><code>state, _ = agent.train(seed=0, n_timesteps=50_000)
+agent.render(state, &quot;cartpole.gif&quot;)
 </code></pre></div>
 
 

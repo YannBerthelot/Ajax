@@ -3124,6 +3124,10 @@ PyPI as <code>ajax-rl</code>.</p>
 <h2 id="unreleased">Unreleased<a class="headerlink" href="#unreleased" title="Permanent link">&para;</a></h2>
 <p>The next release is 0.6.0: the first item changes results.</p>
 <ul>
+<li><strong>New: <code>agent.render(state, path)</code> saves an episode of the trained
+  policy as an animation</strong>: a GIF on the gymnax tasks gymnax draws, on
+  MuJoCo Playground and on the <code>mujoco:</code> tasks, an interactive page on
+  Brax (Train, evaluate, deploy, "Watch the policy").</li>
 <li><strong>New: <code>ajax.wrappers.ObservationWrapper</code></strong>, a base class whose
   <code>observation(obs)</code> changes every observation, the one an episode's end
   leaves in the info included. A wrapper changing only what <code>reset</code> and

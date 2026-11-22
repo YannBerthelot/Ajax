@@ -687,6 +687,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#watch-the-policy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Watch the policy
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#act-with-the-trained-policy" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2892,6 +2903,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#watch-the-policy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Watch the policy
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#act-with-the-trained-policy" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2965,6 +2987,59 @@ for later.</p>
 <a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="nb">print</span><span class="p">(</span><span class="n">evaluations</span><span class="p">[</span><span class="s2">&quot;Eval/episodic mean reward&quot;</span><span class="p">])</span>  <span class="c1"># seeds x evaluations</span>
 </code></pre></div>
 <p><a href="../training/">Training an agent</a> and <a href="../logging/">Logging</a> have the details.</p>
+<h2 id="watch-the-policy">Watch the policy<a class="headerlink" href="#watch-the-policy" title="Permanent link">&para;</a></h2>
+<p><code>agent.render(state, path)</code> runs one fresh episode of a trained policy and
+saves it as an animation:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="kn">import</span><span class="w"> </span><span class="nn">tempfile</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax</span><span class="w"> </span><span class="kn">import</span> <span class="n">PQN</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="n">breakout</span> <span class="o">=</span> <span class="n">PQN</span><span class="p">(</span><span class="s2">&quot;Breakout-MinAtar&quot;</span><span class="p">,</span> <span class="n">cnn_image_shape</span><span class="o">=</span><span class="p">(</span><span class="mi">10</span><span class="p">,</span> <span class="mi">10</span><span class="p">,</span> <span class="mi">4</span><span class="p">),</span> <span class="n">n_envs</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">n_steps</span><span class="o">=</span><span class="mi">16</span><span class="p">)</span>
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="n">breakout_state</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">breakout</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">seed</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">1_024</span><span class="p">,</span> <span class="n">logging_config</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="n">animation</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">tempfile</span><span class="o">.</span><span class="n">mkdtemp</span><span class="p">(),</span> <span class="s2">&quot;breakout.gif&quot;</span><span class="p">)</span>
+<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="n">breakout</span><span class="o">.</span><span class="n">render</span><span class="p">(</span><span class="n">breakout_state</span><span class="p">,</span> <span class="n">animation</span><span class="p">,</span> <span class="n">max_steps</span><span class="o">=</span><span class="mi">50</span><span class="p">)</span>
+</code></pre></div>
+<p>The policy acts as in <code>evaluate</code>. <code>seed_index</code> picks the seed whose policy
+plays, <code>seed</code> draws the episode's start, and <code>max_steps</code> cuts a long
+episode short. What the file is, and what drawing needs beyond Ajax,
+depends on the environment:</p>
+<table>
+<thead>
+<tr>
+<th>Environment</th>
+<th>File</th>
+<th>Needs</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>gymnax classic control (<code>CartPole-v1</code>, <code>Pendulum-v1</code>, <code>Acrobot-v1</code>, MountainCar)</td>
+<td><code>.gif</code></td>
+<td><code>pip install "gymnasium[classic-control]" matplotlib</code></td>
+</tr>
+<tr>
+<td>gymnax MinAtar, <code>Catch-bsuite</code>, <code>Pong-misc</code>, <code>PointRobot-misc</code>, the mazes</td>
+<td><code>.gif</code></td>
+<td><code>pip install matplotlib</code></td>
+</tr>
+<tr>
+<td>Brax</td>
+<td><code>.html</code>, a page showing the episode in three dimensions</td>
+<td>nothing more</td>
+</tr>
+<tr>
+<td>MuJoCo Playground and <code>mujoco:</code> tasks</td>
+<td><code>.gif</code></td>
+<td><code>pip install pillow</code>; without a display, set <code>MUJOCO_GL=egl</code></td>
+</tr>
+</tbody>
+</table>
+<p>The gymnax drawings are gymnax's own, and the MuJoCo frames are 320 by 240
+pixels from the task's default camera. A Gymnasium environment, another
+gymnax task and an environment of your own are not drawn: <code>render</code> says so
+before running anything. Act with <code>predict</code> or <code>policy</code>, below, and draw
+the states yourself.</p>
 <h2 id="act-with-the-trained-policy">Act with the trained policy<a class="headerlink" href="#act-with-the-trained-policy" title="Permanent link">&para;</a></h2>
 <p><code>agent.policy(state, seed_index)</code> returns the policy of one seed. It acts on
 the environment's own observations and returns actions in the environment's
@@ -2975,29 +3050,29 @@ repeat any of that yourself.</p>
 <p>A policy keeps what it needs from one step to the next in a carry: the
 memory of a recurrent actor or a world model, a stateful expert's state,
 UDRL's command. <code>reset(n_envs)</code> starts one, and <code>act</code> returns the next:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">gymnax</span>
-<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="kn">import</span><span class="w"> </span><span class="nn">jax</span>
-<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="kn">import</span><span class="w"> </span><span class="nn">jax.numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">jnp</span>
-<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>
-<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="n">env</span><span class="p">,</span> <span class="n">params</span> <span class="o">=</span> <span class="n">gymnax</span><span class="o">.</span><span class="n">make</span><span class="p">(</span><span class="s2">&quot;Pendulum-v1&quot;</span><span class="p">)</span>
-<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="n">n_envs</span> <span class="o">=</span> <span class="mi">4</span>
-<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="n">reset</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">vmap</span><span class="p">(</span><span class="n">env</span><span class="o">.</span><span class="n">reset</span><span class="p">,</span> <span class="n">in_axes</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="kc">None</span><span class="p">))</span>
-<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="n">step</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">jit</span><span class="p">(</span><span class="n">jax</span><span class="o">.</span><span class="n">vmap</span><span class="p">(</span><span class="n">env</span><span class="o">.</span><span class="n">step</span><span class="p">,</span> <span class="n">in_axes</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="kc">None</span><span class="p">)))</span>
-<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>
-<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="n">policy</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">policy</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="n">seed_index</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
-<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="n">carry</span> <span class="o">=</span> <span class="n">policy</span><span class="o">.</span><span class="n">reset</span><span class="p">(</span><span class="n">n_envs</span><span class="p">)</span>
-<a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a><span class="n">key</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">PRNGKey</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
-<a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a><span class="n">obs</span><span class="p">,</span> <span class="n">env_state</span> <span class="o">=</span> <span class="n">reset</span><span class="p">(</span><span class="n">jax</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">n_envs</span><span class="p">),</span> <span class="n">params</span><span class="p">)</span>
-<a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a><span class="n">done</span> <span class="o">=</span> <span class="n">reward</span> <span class="o">=</span> <span class="kc">None</span>
-<a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a><span class="n">returns</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">n_envs</span><span class="p">)</span>
-<a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a><span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">200</span><span class="p">):</span>  <span class="c1"># one Pendulum episode</span>
-<a id="__codelineno-1-17" name="__codelineno-1-17" href="#__codelineno-1-17"></a>    <span class="n">action</span><span class="p">,</span> <span class="n">carry</span> <span class="o">=</span> <span class="n">policy</span><span class="o">.</span><span class="n">act</span><span class="p">(</span><span class="n">obs</span><span class="p">,</span> <span class="n">carry</span><span class="p">,</span> <span class="n">done</span><span class="p">,</span> <span class="n">reward</span><span class="p">)</span>
-<a id="__codelineno-1-18" name="__codelineno-1-18" href="#__codelineno-1-18"></a>    <span class="n">key</span><span class="p">,</span> <span class="n">step_key</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="n">key</span><span class="p">)</span>
-<a id="__codelineno-1-19" name="__codelineno-1-19" href="#__codelineno-1-19"></a>    <span class="n">keys</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="n">step_key</span><span class="p">,</span> <span class="n">n_envs</span><span class="p">)</span>
-<a id="__codelineno-1-20" name="__codelineno-1-20" href="#__codelineno-1-20"></a>    <span class="n">obs</span><span class="p">,</span> <span class="n">env_state</span><span class="p">,</span> <span class="n">reward</span><span class="p">,</span> <span class="n">terminated</span><span class="p">,</span> <span class="n">truncated</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">step</span><span class="p">(</span><span class="n">keys</span><span class="p">,</span> <span class="n">env_state</span><span class="p">,</span> <span class="n">action</span><span class="p">,</span> <span class="n">params</span><span class="p">)</span>
-<a id="__codelineno-1-21" name="__codelineno-1-21" href="#__codelineno-1-21"></a>    <span class="n">done</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">logical_or</span><span class="p">(</span><span class="n">terminated</span><span class="p">,</span> <span class="n">truncated</span><span class="p">)</span>
-<a id="__codelineno-1-22" name="__codelineno-1-22" href="#__codelineno-1-22"></a>    <span class="n">returns</span> <span class="o">=</span> <span class="n">returns</span> <span class="o">+</span> <span class="n">reward</span>
-<a id="__codelineno-1-23" name="__codelineno-1-23" href="#__codelineno-1-23"></a><span class="nb">print</span><span class="p">(</span><span class="n">returns</span><span class="p">)</span>  <span class="c1"># one return per environment</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">gymnax</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="kn">import</span><span class="w"> </span><span class="nn">jax</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="kn">import</span><span class="w"> </span><span class="nn">jax.numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">jnp</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="n">env</span><span class="p">,</span> <span class="n">params</span> <span class="o">=</span> <span class="n">gymnax</span><span class="o">.</span><span class="n">make</span><span class="p">(</span><span class="s2">&quot;Pendulum-v1&quot;</span><span class="p">)</span>
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="n">n_envs</span> <span class="o">=</span> <span class="mi">4</span>
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="n">reset</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">vmap</span><span class="p">(</span><span class="n">env</span><span class="o">.</span><span class="n">reset</span><span class="p">,</span> <span class="n">in_axes</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="kc">None</span><span class="p">))</span>
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="n">step</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">jit</span><span class="p">(</span><span class="n">jax</span><span class="o">.</span><span class="n">vmap</span><span class="p">(</span><span class="n">env</span><span class="o">.</span><span class="n">step</span><span class="p">,</span> <span class="n">in_axes</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="kc">None</span><span class="p">)))</span>
+<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a>
+<a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a><span class="n">policy</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">policy</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="n">seed_index</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+<a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="n">carry</span> <span class="o">=</span> <span class="n">policy</span><span class="o">.</span><span class="n">reset</span><span class="p">(</span><span class="n">n_envs</span><span class="p">)</span>
+<a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a><span class="n">key</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">PRNGKey</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+<a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a><span class="n">obs</span><span class="p">,</span> <span class="n">env_state</span> <span class="o">=</span> <span class="n">reset</span><span class="p">(</span><span class="n">jax</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">n_envs</span><span class="p">),</span> <span class="n">params</span><span class="p">)</span>
+<a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a><span class="n">done</span> <span class="o">=</span> <span class="n">reward</span> <span class="o">=</span> <span class="kc">None</span>
+<a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a><span class="n">returns</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">n_envs</span><span class="p">)</span>
+<a id="__codelineno-2-16" name="__codelineno-2-16" href="#__codelineno-2-16"></a><span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">200</span><span class="p">):</span>  <span class="c1"># one Pendulum episode</span>
+<a id="__codelineno-2-17" name="__codelineno-2-17" href="#__codelineno-2-17"></a>    <span class="n">action</span><span class="p">,</span> <span class="n">carry</span> <span class="o">=</span> <span class="n">policy</span><span class="o">.</span><span class="n">act</span><span class="p">(</span><span class="n">obs</span><span class="p">,</span> <span class="n">carry</span><span class="p">,</span> <span class="n">done</span><span class="p">,</span> <span class="n">reward</span><span class="p">)</span>
+<a id="__codelineno-2-18" name="__codelineno-2-18" href="#__codelineno-2-18"></a>    <span class="n">key</span><span class="p">,</span> <span class="n">step_key</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="n">key</span><span class="p">)</span>
+<a id="__codelineno-2-19" name="__codelineno-2-19" href="#__codelineno-2-19"></a>    <span class="n">keys</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="n">step_key</span><span class="p">,</span> <span class="n">n_envs</span><span class="p">)</span>
+<a id="__codelineno-2-20" name="__codelineno-2-20" href="#__codelineno-2-20"></a>    <span class="n">obs</span><span class="p">,</span> <span class="n">env_state</span><span class="p">,</span> <span class="n">reward</span><span class="p">,</span> <span class="n">terminated</span><span class="p">,</span> <span class="n">truncated</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">step</span><span class="p">(</span><span class="n">keys</span><span class="p">,</span> <span class="n">env_state</span><span class="p">,</span> <span class="n">action</span><span class="p">,</span> <span class="n">params</span><span class="p">)</span>
+<a id="__codelineno-2-21" name="__codelineno-2-21" href="#__codelineno-2-21"></a>    <span class="n">done</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">logical_or</span><span class="p">(</span><span class="n">terminated</span><span class="p">,</span> <span class="n">truncated</span><span class="p">)</span>
+<a id="__codelineno-2-22" name="__codelineno-2-22" href="#__codelineno-2-22"></a>    <span class="n">returns</span> <span class="o">=</span> <span class="n">returns</span> <span class="o">+</span> <span class="n">reward</span>
+<a id="__codelineno-2-23" name="__codelineno-2-23" href="#__codelineno-2-23"></a><span class="nb">print</span><span class="p">(</span><span class="n">returns</span><span class="p">)</span>  <span class="c1"># one return per environment</span>
 </code></pre></div>
 <p><code>act(obs, carry, done, reward, key)</code> takes:</p>
 <ul>
@@ -3015,23 +3090,23 @@ UDRL's command. <code>reset(n_envs)</code> starts one, and <code>act</code> retu
 <h2 id="one-action-at-a-time">One action at a time<a class="headerlink" href="#one-action-at-a-time" title="Permanent link">&para;</a></h2>
 <p>For an agent without memory, <code>predict</code> returns one action, without a carry.
 It acts as the policy acts at the start of an episode:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="n">action</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="n">obs</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>  <span class="c1"># one observation; a batch works too</span>
-<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="nb">print</span><span class="p">(</span><span class="n">action</span><span class="p">)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="n">action</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="n">obs</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>  <span class="c1"># one observation; a batch works too</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="nb">print</span><span class="p">(</span><span class="n">action</span><span class="p">)</span>
 </code></pre></div>
 <p>It acts for the first seed; <code>seed_index</code> picks another. With it, an episode
 in one environment is a plain loop:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="n">single_reset_key</span><span class="p">,</span> <span class="n">single_key</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="n">jax</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">PRNGKey</span><span class="p">(</span><span class="mi">1</span><span class="p">))</span>
-<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="n">single_obs</span><span class="p">,</span> <span class="n">single_state</span> <span class="o">=</span> <span class="n">env</span><span class="o">.</span><span class="n">reset</span><span class="p">(</span><span class="n">single_reset_key</span><span class="p">,</span> <span class="n">params</span><span class="p">)</span>
-<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="n">episode_return</span><span class="p">,</span> <span class="n">episode_over</span> <span class="o">=</span> <span class="mf">0.0</span><span class="p">,</span> <span class="kc">False</span>
-<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="k">while</span> <span class="ow">not</span> <span class="n">episode_over</span><span class="p">:</span>
-<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>    <span class="n">single_action</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="n">single_obs</span><span class="p">)</span>
-<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>    <span class="n">single_key</span><span class="p">,</span> <span class="n">step_key</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="n">single_key</span><span class="p">)</span>
-<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>    <span class="n">single_obs</span><span class="p">,</span> <span class="n">single_state</span><span class="p">,</span> <span class="n">single_reward</span><span class="p">,</span> <span class="n">terminated</span><span class="p">,</span> <span class="n">truncated</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">env</span><span class="o">.</span><span class="n">step</span><span class="p">(</span>
-<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>        <span class="n">step_key</span><span class="p">,</span> <span class="n">single_state</span><span class="p">,</span> <span class="n">single_action</span><span class="p">,</span> <span class="n">params</span>
-<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a>    <span class="p">)</span>
-<a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a>    <span class="n">episode_return</span> <span class="o">+=</span> <span class="nb">float</span><span class="p">(</span><span class="n">single_reward</span><span class="p">)</span>
-<a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a>    <span class="n">episode_over</span> <span class="o">=</span> <span class="nb">bool</span><span class="p">(</span><span class="n">terminated</span> <span class="ow">or</span> <span class="n">truncated</span><span class="p">)</span>
-<a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a><span class="nb">print</span><span class="p">(</span><span class="n">episode_return</span><span class="p">)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="n">single_reset_key</span><span class="p">,</span> <span class="n">single_key</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="n">jax</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">PRNGKey</span><span class="p">(</span><span class="mi">1</span><span class="p">))</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="n">single_obs</span><span class="p">,</span> <span class="n">single_state</span> <span class="o">=</span> <span class="n">env</span><span class="o">.</span><span class="n">reset</span><span class="p">(</span><span class="n">single_reset_key</span><span class="p">,</span> <span class="n">params</span><span class="p">)</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="n">episode_return</span><span class="p">,</span> <span class="n">episode_over</span> <span class="o">=</span> <span class="mf">0.0</span><span class="p">,</span> <span class="kc">False</span>
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="k">while</span> <span class="ow">not</span> <span class="n">episode_over</span><span class="p">:</span>
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>    <span class="n">single_action</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="n">single_obs</span><span class="p">)</span>
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>    <span class="n">single_key</span><span class="p">,</span> <span class="n">step_key</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="n">single_key</span><span class="p">)</span>
+<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a>    <span class="n">single_obs</span><span class="p">,</span> <span class="n">single_state</span><span class="p">,</span> <span class="n">single_reward</span><span class="p">,</span> <span class="n">terminated</span><span class="p">,</span> <span class="n">truncated</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">env</span><span class="o">.</span><span class="n">step</span><span class="p">(</span>
+<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a>        <span class="n">step_key</span><span class="p">,</span> <span class="n">single_state</span><span class="p">,</span> <span class="n">single_action</span><span class="p">,</span> <span class="n">params</span>
+<a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a>    <span class="p">)</span>
+<a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a>    <span class="n">episode_return</span> <span class="o">+=</span> <span class="nb">float</span><span class="p">(</span><span class="n">single_reward</span><span class="p">)</span>
+<a id="__codelineno-4-11" name="__codelineno-4-11" href="#__codelineno-4-11"></a>    <span class="n">episode_over</span> <span class="o">=</span> <span class="nb">bool</span><span class="p">(</span><span class="n">terminated</span> <span class="ow">or</span> <span class="n">truncated</span><span class="p">)</span>
+<a id="__codelineno-4-12" name="__codelineno-4-12" href="#__codelineno-4-12"></a><span class="nb">print</span><span class="p">(</span><span class="n">episode_return</span><span class="p">)</span>
 </code></pre></div>
 <p>Each step draws on a fresh key, split from the last: JAX has no hidden
 random state.</p>
@@ -3040,33 +3115,33 @@ carry it between steps: a recurrent actor, a world model (DreamerV3,
 TD-MPC2), UDRL, an expert or a feature with a state. Use <code>policy</code> instead.
 For one environment, it is the same loop with a carry and a batch of one:
 <code>obs[None]</code> adds the batch axis and <code>actions[0]</code> removes it.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax</span><span class="w"> </span><span class="kn">import</span> <span class="n">PPO</span>
-<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax.networks.memory</span><span class="w"> </span><span class="kn">import</span> <span class="n">MemoryConfig</span>
-<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>
-<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="n">memory_agent</span> <span class="o">=</span> <span class="n">PPO</span><span class="p">(</span>
-<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>    <span class="s2">&quot;CartPole-v1&quot;</span><span class="p">,</span>
-<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>    <span class="n">n_envs</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span>
-<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a>    <span class="n">n_steps</span><span class="o">=</span><span class="mi">32</span><span class="p">,</span>
-<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a>    <span class="n">memory</span><span class="o">=</span><span class="n">MemoryConfig</span><span class="p">(</span><span class="n">kind</span><span class="o">=</span><span class="s2">&quot;gru&quot;</span><span class="p">,</span> <span class="n">hidden_size</span><span class="o">=</span><span class="mi">16</span><span class="p">),</span>
-<a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a>    <span class="n">bptt_length</span><span class="o">=</span><span class="mi">16</span><span class="p">,</span>
-<a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a><span class="p">)</span>
-<a id="__codelineno-4-11" name="__codelineno-4-11" href="#__codelineno-4-11"></a><span class="n">memory_state</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">memory_agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">seed</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">512</span><span class="p">,</span> <span class="n">logging_config</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
-<a id="__codelineno-4-12" name="__codelineno-4-12" href="#__codelineno-4-12"></a>
-<a id="__codelineno-4-13" name="__codelineno-4-13" href="#__codelineno-4-13"></a><span class="n">cartpole</span><span class="p">,</span> <span class="n">cartpole_params</span> <span class="o">=</span> <span class="n">gymnax</span><span class="o">.</span><span class="n">make</span><span class="p">(</span><span class="s2">&quot;CartPole-v1&quot;</span><span class="p">)</span>
-<a id="__codelineno-4-14" name="__codelineno-4-14" href="#__codelineno-4-14"></a><span class="n">memory_policy</span> <span class="o">=</span> <span class="n">memory_agent</span><span class="o">.</span><span class="n">policy</span><span class="p">(</span><span class="n">memory_state</span><span class="p">)</span>
-<a id="__codelineno-4-15" name="__codelineno-4-15" href="#__codelineno-4-15"></a><span class="n">memory_carry</span> <span class="o">=</span> <span class="n">memory_policy</span><span class="o">.</span><span class="n">reset</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>  <span class="c1"># one environment</span>
-<a id="__codelineno-4-16" name="__codelineno-4-16" href="#__codelineno-4-16"></a><span class="n">reset_key</span><span class="p">,</span> <span class="n">loop_key</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="n">jax</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">PRNGKey</span><span class="p">(</span><span class="mi">2</span><span class="p">))</span>
-<a id="__codelineno-4-17" name="__codelineno-4-17" href="#__codelineno-4-17"></a><span class="n">one_obs</span><span class="p">,</span> <span class="n">one_state</span> <span class="o">=</span> <span class="n">cartpole</span><span class="o">.</span><span class="n">reset</span><span class="p">(</span><span class="n">reset_key</span><span class="p">,</span> <span class="n">cartpole_params</span><span class="p">)</span>
-<a id="__codelineno-4-18" name="__codelineno-4-18" href="#__codelineno-4-18"></a><span class="n">episode_return</span><span class="p">,</span> <span class="n">episode_over</span> <span class="o">=</span> <span class="mf">0.0</span><span class="p">,</span> <span class="kc">False</span>
-<a id="__codelineno-4-19" name="__codelineno-4-19" href="#__codelineno-4-19"></a><span class="k">while</span> <span class="ow">not</span> <span class="n">episode_over</span><span class="p">:</span>
-<a id="__codelineno-4-20" name="__codelineno-4-20" href="#__codelineno-4-20"></a>    <span class="n">actions</span><span class="p">,</span> <span class="n">memory_carry</span> <span class="o">=</span> <span class="n">memory_policy</span><span class="o">.</span><span class="n">act</span><span class="p">(</span><span class="n">one_obs</span><span class="p">[</span><span class="kc">None</span><span class="p">],</span> <span class="n">memory_carry</span><span class="p">)</span>
-<a id="__codelineno-4-21" name="__codelineno-4-21" href="#__codelineno-4-21"></a>    <span class="n">loop_key</span><span class="p">,</span> <span class="n">step_key</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="n">loop_key</span><span class="p">)</span>
-<a id="__codelineno-4-22" name="__codelineno-4-22" href="#__codelineno-4-22"></a>    <span class="n">one_obs</span><span class="p">,</span> <span class="n">one_state</span><span class="p">,</span> <span class="n">one_reward</span><span class="p">,</span> <span class="n">terminated</span><span class="p">,</span> <span class="n">truncated</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">cartpole</span><span class="o">.</span><span class="n">step</span><span class="p">(</span>
-<a id="__codelineno-4-23" name="__codelineno-4-23" href="#__codelineno-4-23"></a>        <span class="n">step_key</span><span class="p">,</span> <span class="n">one_state</span><span class="p">,</span> <span class="n">actions</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">cartpole_params</span>
-<a id="__codelineno-4-24" name="__codelineno-4-24" href="#__codelineno-4-24"></a>    <span class="p">)</span>
-<a id="__codelineno-4-25" name="__codelineno-4-25" href="#__codelineno-4-25"></a>    <span class="n">episode_return</span> <span class="o">+=</span> <span class="nb">float</span><span class="p">(</span><span class="n">one_reward</span><span class="p">)</span>
-<a id="__codelineno-4-26" name="__codelineno-4-26" href="#__codelineno-4-26"></a>    <span class="n">episode_over</span> <span class="o">=</span> <span class="nb">bool</span><span class="p">(</span><span class="n">terminated</span> <span class="ow">or</span> <span class="n">truncated</span><span class="p">)</span>
-<a id="__codelineno-4-27" name="__codelineno-4-27" href="#__codelineno-4-27"></a><span class="nb">print</span><span class="p">(</span><span class="n">episode_return</span><span class="p">)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax</span><span class="w"> </span><span class="kn">import</span> <span class="n">PPO</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax.networks.memory</span><span class="w"> </span><span class="kn">import</span> <span class="n">MemoryConfig</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="n">memory_agent</span> <span class="o">=</span> <span class="n">PPO</span><span class="p">(</span>
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>    <span class="s2">&quot;CartPole-v1&quot;</span><span class="p">,</span>
+<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>    <span class="n">n_envs</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span>
+<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a>    <span class="n">n_steps</span><span class="o">=</span><span class="mi">32</span><span class="p">,</span>
+<a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a>    <span class="n">memory</span><span class="o">=</span><span class="n">MemoryConfig</span><span class="p">(</span><span class="n">kind</span><span class="o">=</span><span class="s2">&quot;gru&quot;</span><span class="p">,</span> <span class="n">hidden_size</span><span class="o">=</span><span class="mi">16</span><span class="p">),</span>
+<a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a>    <span class="n">bptt_length</span><span class="o">=</span><span class="mi">16</span><span class="p">,</span>
+<a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a><span class="p">)</span>
+<a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a><span class="n">memory_state</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">memory_agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">seed</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">512</span><span class="p">,</span> <span class="n">logging_config</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
+<a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a>
+<a id="__codelineno-5-13" name="__codelineno-5-13" href="#__codelineno-5-13"></a><span class="n">cartpole</span><span class="p">,</span> <span class="n">cartpole_params</span> <span class="o">=</span> <span class="n">gymnax</span><span class="o">.</span><span class="n">make</span><span class="p">(</span><span class="s2">&quot;CartPole-v1&quot;</span><span class="p">)</span>
+<a id="__codelineno-5-14" name="__codelineno-5-14" href="#__codelineno-5-14"></a><span class="n">memory_policy</span> <span class="o">=</span> <span class="n">memory_agent</span><span class="o">.</span><span class="n">policy</span><span class="p">(</span><span class="n">memory_state</span><span class="p">)</span>
+<a id="__codelineno-5-15" name="__codelineno-5-15" href="#__codelineno-5-15"></a><span class="n">memory_carry</span> <span class="o">=</span> <span class="n">memory_policy</span><span class="o">.</span><span class="n">reset</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>  <span class="c1"># one environment</span>
+<a id="__codelineno-5-16" name="__codelineno-5-16" href="#__codelineno-5-16"></a><span class="n">reset_key</span><span class="p">,</span> <span class="n">loop_key</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="n">jax</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">PRNGKey</span><span class="p">(</span><span class="mi">2</span><span class="p">))</span>
+<a id="__codelineno-5-17" name="__codelineno-5-17" href="#__codelineno-5-17"></a><span class="n">one_obs</span><span class="p">,</span> <span class="n">one_state</span> <span class="o">=</span> <span class="n">cartpole</span><span class="o">.</span><span class="n">reset</span><span class="p">(</span><span class="n">reset_key</span><span class="p">,</span> <span class="n">cartpole_params</span><span class="p">)</span>
+<a id="__codelineno-5-18" name="__codelineno-5-18" href="#__codelineno-5-18"></a><span class="n">episode_return</span><span class="p">,</span> <span class="n">episode_over</span> <span class="o">=</span> <span class="mf">0.0</span><span class="p">,</span> <span class="kc">False</span>
+<a id="__codelineno-5-19" name="__codelineno-5-19" href="#__codelineno-5-19"></a><span class="k">while</span> <span class="ow">not</span> <span class="n">episode_over</span><span class="p">:</span>
+<a id="__codelineno-5-20" name="__codelineno-5-20" href="#__codelineno-5-20"></a>    <span class="n">actions</span><span class="p">,</span> <span class="n">memory_carry</span> <span class="o">=</span> <span class="n">memory_policy</span><span class="o">.</span><span class="n">act</span><span class="p">(</span><span class="n">one_obs</span><span class="p">[</span><span class="kc">None</span><span class="p">],</span> <span class="n">memory_carry</span><span class="p">)</span>
+<a id="__codelineno-5-21" name="__codelineno-5-21" href="#__codelineno-5-21"></a>    <span class="n">loop_key</span><span class="p">,</span> <span class="n">step_key</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="n">loop_key</span><span class="p">)</span>
+<a id="__codelineno-5-22" name="__codelineno-5-22" href="#__codelineno-5-22"></a>    <span class="n">one_obs</span><span class="p">,</span> <span class="n">one_state</span><span class="p">,</span> <span class="n">one_reward</span><span class="p">,</span> <span class="n">terminated</span><span class="p">,</span> <span class="n">truncated</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">cartpole</span><span class="o">.</span><span class="n">step</span><span class="p">(</span>
+<a id="__codelineno-5-23" name="__codelineno-5-23" href="#__codelineno-5-23"></a>        <span class="n">step_key</span><span class="p">,</span> <span class="n">one_state</span><span class="p">,</span> <span class="n">actions</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">cartpole_params</span>
+<a id="__codelineno-5-24" name="__codelineno-5-24" href="#__codelineno-5-24"></a>    <span class="p">)</span>
+<a id="__codelineno-5-25" name="__codelineno-5-25" href="#__codelineno-5-25"></a>    <span class="n">episode_return</span> <span class="o">+=</span> <span class="nb">float</span><span class="p">(</span><span class="n">one_reward</span><span class="p">)</span>
+<a id="__codelineno-5-26" name="__codelineno-5-26" href="#__codelineno-5-26"></a>    <span class="n">episode_over</span> <span class="o">=</span> <span class="nb">bool</span><span class="p">(</span><span class="n">terminated</span> <span class="ow">or</span> <span class="n">truncated</span><span class="p">)</span>
+<a id="__codelineno-5-27" name="__codelineno-5-27" href="#__codelineno-5-27"></a><span class="nb">print</span><span class="p">(</span><span class="n">episode_return</span><span class="p">)</span>
 </code></pre></div>
 <p>TDMPC2MultiTask has no policy yet: its planner acts for one task of its set.</p>
 <h2 id="save-and-load">Save and load<a class="headerlink" href="#save-and-load" title="Permanent link">&para;</a></h2>
@@ -3076,18 +3151,18 @@ shortest way, shown in <a href="../checkpoints/#save-and-load-an-agent">Checkpoi
 The pair below stores the state alone: <code>save_checkpoint</code> writes it, and
 <code>load_checkpoint</code> reads it back into an agent you build with the same
 arguments, in this process or another:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
-<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="kn">import</span><span class="w"> </span><span class="nn">tempfile</span>
-<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>
-<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax.checkpoint</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_checkpoint</span><span class="p">,</span> <span class="n">save_checkpoint</span>
-<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>
-<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="n">path</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">tempfile</span><span class="o">.</span><span class="n">mkdtemp</span><span class="p">(),</span> <span class="s2">&quot;sac_pendulum.pkl&quot;</span><span class="p">)</span>
-<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="n">save_checkpoint</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="n">path</span><span class="p">)</span>
-<a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a>
-<a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a><span class="c1"># Later, in another process: the same agent, then its policy.</span>
-<a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a><span class="n">agent</span> <span class="o">=</span> <span class="n">SAC</span><span class="p">(</span><span class="s2">&quot;Pendulum-v1&quot;</span><span class="p">,</span> <span class="n">learning_starts</span><span class="o">=</span><span class="mi">1_000</span><span class="p">)</span>
-<a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a><span class="n">state</span> <span class="o">=</span> <span class="n">load_checkpoint</span><span class="p">(</span><span class="n">agent</span><span class="p">,</span> <span class="n">path</span><span class="p">)</span>
-<a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a><span class="n">policy</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">policy</span><span class="p">(</span><span class="n">state</span><span class="p">)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="kn">import</span><span class="w"> </span><span class="nn">tempfile</span>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax.checkpoint</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_checkpoint</span><span class="p">,</span> <span class="n">save_checkpoint</span>
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>
+<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="n">path</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">tempfile</span><span class="o">.</span><span class="n">mkdtemp</span><span class="p">(),</span> <span class="s2">&quot;sac_pendulum.pkl&quot;</span><span class="p">)</span>
+<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="n">save_checkpoint</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="n">path</span><span class="p">)</span>
+<a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a>
+<a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a><span class="c1"># Later, in another process: the same agent, then its policy.</span>
+<a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a><span class="n">agent</span> <span class="o">=</span> <span class="n">SAC</span><span class="p">(</span><span class="s2">&quot;Pendulum-v1&quot;</span><span class="p">,</span> <span class="n">learning_starts</span><span class="o">=</span><span class="mi">1_000</span><span class="p">)</span>
+<a id="__codelineno-6-11" name="__codelineno-6-11" href="#__codelineno-6-11"></a><span class="n">state</span> <span class="o">=</span> <span class="n">load_checkpoint</span><span class="p">(</span><span class="n">agent</span><span class="p">,</span> <span class="n">path</span><span class="p">)</span>
+<a id="__codelineno-6-12" name="__codelineno-6-12" href="#__codelineno-6-12"></a><span class="n">policy</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">policy</span><span class="p">(</span><span class="n">state</span><span class="p">)</span>
 </code></pre></div>
 <p>The loaded state also resumes training with <code>train(initial_state=state)</code>.
 A run whose <code>train</code> call took options that shape its update (APG's

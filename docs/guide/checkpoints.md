@@ -19,8 +19,12 @@ state, _ = agent.train(seed=[0, 1], n_timesteps=1_000, initial_state=state)
 print(state.collector_state.timestep)  # [2000 2000]
 ```
 
-Pass the same seeds in every call. The call may reuse the memory of the
-state you pass in, so read or save what you need from it first.
+Pass the same seeds in every call. The state carries each run's random
+streams, so a resumed run continues the same whatever seeds the call names;
+they only name the runs in the logs and in `agent.members`, and `train` cannot
+tell that they changed. A different number of seeds is refused. The call may
+reuse the memory of the state you pass in, so read or save what you need from
+it first.
 
 ## Save and load an agent
 

@@ -112,6 +112,12 @@ class LoggingConfig:
                 " one in backends, such as backends=(TensorBoardBackend(folder),"
                 " WandbBackend(project, group))."
             )
+        if isinstance(self.backends, LoggingBackend):
+            raise TypeError(
+                "LoggingConfig's backends is a tuple of backends: write"
+                f" backends=({type(self.backends).__name__}(...),), with the"
+                " trailing comma."
+            )
         for backend in self.backends or ():
             if not isinstance(backend, LoggingBackend):
                 raise TypeError(

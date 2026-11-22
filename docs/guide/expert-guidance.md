@@ -377,6 +377,21 @@ The agents in brackets are those that accept each piece, as
 [Compatibility](compatibility.md) lists them from the code. "Developed with
 Ajax" marks a feature with no external reference.
 
+Each piece is imported from its module:
+
+| Module | Pieces |
+| --- | --- |
+| `ajax.extensions.expert` | `ImitationLoss`, `OnlineBC`, `ExpertWarmup`, `JSRLCurriculum`, `ResidualPolicy`, `ExpertGains` |
+| `ajax.extensions.pretrain` | `ExpertPrefill`, `PriorData`, `CloningPretrain`, `MCPretrain`, `BellmanPretrain`, `PhiRefresh` |
+| `ajax.extensions.retained` | `RetainedDemonstrations`, `RLPD` |
+| `ajax.extensions.exploration` | `EDGEExploration` |
+| `ajax.extensions.target_mods` | `IBRL`, `LCBGatedBootstrap`, `CriticBlend`, `ValueBox` |
+| `ajax.extensions.cheq` | `CHEQ` |
+| `ajax.extensions.observe` | `ExpertActionInput` |
+| `ajax.extensions.structure` | `ExpertLaw` |
+
+The [Extensions](extensions.md) page has the full catalogue.
+
 | You want to | Use | Method |
 | --- | --- | --- |
 | Start the replay with good experience | `ExpertPrefill(n_steps)` (SAC, REDQ, ASAC, TQC, TD3, CrossQ, IQL, DQN); `PriorData` with a [transition dataset](../api/buffers.md) (SAC, TD3, REDQ, ASAC, TQC, CrossQ, IQL, DQN) | expert prefill; prior data in the replay as RLPD (Ball et al., 2023), without its symmetric sampling, and optional offline updates |

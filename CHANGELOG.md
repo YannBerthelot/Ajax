@@ -20,6 +20,20 @@ The next release is 0.6.0: the first item changes results.
   `step` return trained on two kinds of observations, with no error
   (Environments, "Changing the observations"). The memory guide trains on
   a CartPole with hidden velocities built with it.
+- **More checks**, after a third newcomer trial:
+    - an expert whose action drops its last axis is refused where Ajax
+      first calls it, naming the expert and the axis (before, a
+      broadcasting error, or a silent broadcast);
+    - `LoggingConfig(backends=TensorBoardBackend(...))`, without the tuple,
+      shows the tuple to write;
+    - `train` refuses a keyword it does not take before anything starts,
+      naming the one meant (`logging`: `logging_config`);
+    - a dataset whose rows do not fit the agent's environment says so, and
+      a gymnax environment with a step of its own (bsuite's DeepSea) names
+      the two lines that build it;
+    - the docs give each expert piece's module, how to `record` a trained
+      agent's policy, what the seeds of a resuming call do, and what
+      `render` needs for MinAtar (nothing) and Brax (the internet).
 - **Clearer errors and checks**, after a second newcomer trial:
     - an unknown environment id names the closest ids, and an unknown agent
       argument the closest arguments (`learning_rate`:
@@ -602,6 +616,10 @@ one env and 64-64 layers), DQN, PQN, APO, REDQ's warm-up, DAgger's fit and
 and windows. Checkpoints of recurrent SAC-family agents and of DAgger saved
 before this version do not restore at the new defaults. The rest:
 
+- **An expert must keep its action's last axis**, as the expert guide has
+  asked: `expert(obs)` returns `(..., action_dim)`, an index column `(..., 1)`
+  on discrete actions. One that returned `(...,)` and ran by broadcasting is
+  now refused; add `[..., None]`.
 - **On-policy runs train one rollout fewer per `train` call**, so their
   results move a little. A call asked for 8,192 steps of 1,024-step rollouts
   now stops at 8,192, not 9,216. *What to do:* compare with runs of this

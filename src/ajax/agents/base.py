@@ -1,6 +1,7 @@
 import copy
+import difflib
 import inspect
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from functools import partial
 from typing import Any, Callable, ClassVar, Optional, Tuple, Union
 
@@ -67,6 +68,21 @@ def run_config(
     config = {k: v for k, v in arguments.items() if k not in dropped}
     config.update({"algo_name": name})
     return config
+
+
+def unknown_argument(owner: str, name: str, known: Iterable[str]) -> str:
+    """The message for an argument ``owner`` (an agent, or one of its
+    methods) does not take: the arguments holding its name (learning_rate:
+    actor_learning_rate), then the closest spellings (n_step: n_steps)."""
+    known = sorted(known)
+    close = [other for other in known if name in other]
+    for other in difflib.get_close_matches(name, known, n=3):
+        if other not in close:
+            close.append(other)
+    meant = f" Did you mean {', '.join(close[:3])}?" if close else ""
+    return (
+        f"{owner} has no argument {name!r}.{meant} help({owner}) lists its arguments."
+    )
 
 
 def _seed_by_seed(train: Callable, keys: jax.Array, index: jax.Array) -> Any:
@@ -769,6 +785,7 @@ class ActorCritic:
         """
         if isinstance(seed, int):
             seed = [seed]
+        self._check_train_options(kwargs)
 
         # ``agent.train()`` returns ``(state, out)``: accept either form.
         if isinstance(initial_state, tuple) and len(initial_state) == 2:
@@ -932,6 +949,23 @@ class ActorCritic:
         jax.block_until_ready(result)
         stop_async_logging()
         return finished(result, printer)
+
+    def _check_train_options(self, options: Mapping[str, Any]) -> None:
+        """Refuse a keyword neither ``train`` nor this agent's train function
+        takes, before anything is built: left to the train function, the
+        error comes after the logging has started and names an internal."""
+        takes = inspect.signature(self.get_make_train()).parameters
+        if any(p.kind is inspect.Parameter.VAR_KEYWORD for p in takes.values()):
+            return
+        own = [
+            name
+            for name in inspect.signature(ActorCritic.train).parameters
+            if name not in ("self", "kwargs")
+        ]
+        for name in options:
+            if name not in takes:
+                owner = f"{type(self).__name__}.train"
+                raise TypeError(unknown_argument(owner, name, own))
 
     def by_configuration(self, values: Any) -> list[tuple[dict, np.ndarray]]:
         """The last train call's ``values``, a row per member (such as

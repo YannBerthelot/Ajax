@@ -17,7 +17,20 @@ the CHANGELOG's "Clearer errors and checks"):
   - a budget below one rollout warns that no evaluation is recorded;
   - a Gymnasium environment whose package Ajax's extra does not hold is
     not answered with that extra, and a ``mujoco:`` id without MuJoCo names
-    the playground extra.
+    the playground extra;
+  - (docs/guide/expert-guidance.md, "The expert", convention 3) an expert
+    keeps its action's last axis: one that drops it is refused, naming the
+    expert, where Ajax first calls it;
+  - (docs/guide/training.md) ``record`` takes a trained agent's ``predict``;
+  - ``LoggingConfig`` refuses a backend passed without its tuple, and
+    ``train`` a keyword it does not take, naming the one meant;
+  - a dataset whose rows do not fit the agent's environment is refused
+    saying so;
+  - (docs/guide/environments.md, "Episode keys") a gymnax environment with
+    a step of its own is refused naming ``episode_keys=False``, and builds
+    that way;
+  - (docs/guide/checkpoints.md) a resumed run continues the same whatever
+    seeds the resuming call names.
 """
 
 import importlib.util
@@ -31,7 +44,9 @@ import numpy as np
 import pytest
 
 from ajax import PPO, PQN, SAC
+from ajax.buffers.dataset import TransitionDataset, record
 from ajax.environments.create import build_env_from_id
+from ajax.logging import LoggingConfig
 from ajax.logging.progress import Evaluations
 from ajax.wrappers import ObservationWrapper
 
@@ -187,3 +202,117 @@ def test_a_mujoco_id_without_mujoco_names_the_playground_extra(monkeypatch):
     monkeypatch.setitem(sys.modules, "ajax.environments.mujoco.tasks", None)
     with pytest.raises(ImportError, match=r"ajax-rl\[playground\]"):
         build_env_from_id("mujoco:Reacher-v5")
+
+
+def torque_of_one(obs):
+    """An expert on Pendulum: a torque of 1 whatever the observation."""
+    return jnp.ones_like(obs[..., :1])
+
+
+def torque_without_its_axis(obs):
+    return jnp.ones_like(obs[..., 0])
+
+
+@pytest.mark.parametrize("n_envs", [1, 4])
+def test_an_expert_dropping_the_actions_axis_is_refused_by_name(n_envs):
+    agent = SAC("Pendulum-v1", n_envs=n_envs)
+    with pytest.raises(ValueError, match="expert policy returned") as refusal:
+        record(torque_without_its_axis, agent.env_args, jax.random.PRNGKey(0), 200)
+    assert "[..., None]" in str(refusal.value)
+
+
+def test_an_expert_keeping_the_actions_axis_is_recorded_in_agent_units():
+    """Pendulum's torque spans [-2, 2], so a torque of 1 is 0.5 in agent
+    units; its time limit of 200 steps makes 200 steps one whole episode."""
+    agent = SAC("Pendulum-v1", n_envs=1)
+    data = record(torque_of_one, agent.env_args, jax.random.PRNGKey(0), 200)
+    np.testing.assert_array_equal(data.action, np.full((200, 1), 0.5, np.float32))
+
+
+def test_record_takes_a_trained_agents_predict():
+    """The recorded actions are predict's at the recorded observations:
+    predict returns env units, the dataset holds agent units, half of them
+    on Pendulum's [-2, 2]."""
+    agent = SAC("Pendulum-v1", n_envs=1, learning_starts=10)
+    state, _ = agent.train(seed=[0], n_timesteps=20, logging_config=None)
+    data = record(
+        lambda obs: agent.predict(state, obs),
+        agent.env_args,
+        jax.random.PRNGKey(0),
+        200,
+    )
+    assert data.action.shape == (200, 1)
+    # float32: one affine map apart, a few ulp.
+    np.testing.assert_allclose(
+        2.0 * data.action, agent.predict(state, data.obs), rtol=1e-5, atol=1e-6
+    )
+
+
+class ListBackend:
+    """A logging backend by its three methods (LoggingBackend)."""
+
+    def open(self, run):
+        pass
+
+    def log(self, metrics, step):
+        pass
+
+    def close(self):
+        pass
+
+
+def test_a_backend_without_its_tuple_is_refused_showing_the_tuple():
+    with pytest.raises(TypeError, match=r"backends=\(ListBackend\(\.\.\.\),\)"):
+        LoggingConfig(backends=ListBackend())
+    assert LoggingConfig(backends=(ListBackend(),)).backends is not None
+
+
+@pytest.mark.parametrize("agent", [PPO("CartPole-v1"), SAC("Pendulum-v1")])
+def test_train_refuses_a_keyword_it_does_not_take_naming_the_one_meant(agent):
+    with pytest.raises(
+        TypeError, match=r"\.train has no argument 'logging'"
+    ) as refusal:
+        agent.train(seed=0, n_timesteps=64, logging=None)
+    assert "logging_config" in str(refusal.value)
+
+
+def test_a_dataset_from_another_environment_is_refused_saying_so():
+    """Four rows of two-column observations, for Pendulum's three."""
+    two_columns = np.zeros((4, 2), np.float32)
+    data = TransitionDataset(
+        obs=two_columns,
+        action=np.zeros((4, 1), np.float32),
+        reward=np.zeros(4, np.float32),
+        terminated=np.zeros(4, bool),
+        truncated=np.array([False, False, False, True]),
+        next_obs=two_columns,
+    )
+    with pytest.raises(ValueError, match="another one"):
+        SAC("Pendulum-v1").train_offline(data, n_updates=4, seed=[0])
+
+
+def test_an_environment_with_its_own_step_names_the_way_to_build_it():
+    with pytest.raises(ValueError, match="episode_keys=False"):
+        PPO("DeepSea-bsuite")
+    env, env_params = build_env_from_id("DeepSea-bsuite", n_envs=2, episode_keys=False)
+    agent = PPO(env, env_params=env_params, n_envs=2)
+    assert agent.env_args.n_envs == 2
+
+
+def test_a_resumed_run_continues_the_same_whatever_seeds_the_call_names():
+    """Two identical runs, each resumed for one more rollout, one under
+    other seeds: the same parameters, bit for bit (the same program on the
+    same inputs)."""
+
+    def resumed(seeds):
+        agent = PPO("CartPole-v1", n_envs=2, n_steps=16)
+        state, _ = agent.train(seed=[0, 1], n_timesteps=32, logging_config=None)
+        state, _ = agent.train(
+            seed=seeds, n_timesteps=32, initial_state=state, logging_config=None
+        )
+        return jax.tree.leaves(state.actor_state.params)
+
+    same, others = resumed([0, 1]), resumed([5, 6])
+    assert len(same) == len(others)
+    for kept, renamed in zip(same, others, strict=True):
+        np.testing.assert_array_equal(kept, renamed)

@@ -383,6 +383,24 @@ def _to_agent_units(action: jax.Array, bounds: Optional[tuple[Any, Any]]) -> jax
     return (action - centre) / half
 
 
+def _checked_expert_action(action: Any, obs: Any, width: int) -> Any:
+    """``action`` when its last axis holds the env's ``width`` action
+    components (one, an index, on a discrete env), as the expert guide asks.
+    Without the check an action missing that axis broadcasts against the
+    agent's own, and the error names neither the expert nor the axis."""
+    shape = jnp.shape(action)
+    if len(shape) == 0 or shape[-1] != width:
+        seen = getattr(obs, "shape", None)
+        raise ValueError(
+            f"The expert policy returned an action of shape {shape} for an"
+            f" observation of shape {seen}: its last axis must hold the env's"
+            f" {width} action component(s). Index the observation's last axis"
+            " (obs[..., 0]) and keep the action's (action[..., None] for one"
+            " component)."
+        )
+    return action
+
+
 class ExpertInAgentUnits:
     """An expert written in env units, read in agent units (``[-1, 1]``).
 
@@ -401,7 +419,7 @@ class ExpertInAgentUnits:
     number of actions, the width of its one-hot.
     """
 
-    __slots__ = ("_bounds", "action_count", "expert")
+    __slots__ = ("_bounds", "_width", "action_count", "expert")
     _FORWARDED = frozenset({"init_state", "learnable_fields", "anchor_gains"})
 
     def __init__(
@@ -424,6 +442,7 @@ class ExpertInAgentUnits:
         self.action_count: Optional[int] = None
         if bounds is None:
             self.action_count = get_action_dim(env, env_params)
+        self._width = 1 if bounds is None else int(np.shape(bounds[0])[-1])
 
     @classmethod
     def wrap(
@@ -439,8 +458,10 @@ class ExpertInAgentUnits:
         # The call, not init_state, says what came back: an expert with a
         # state may also be called on observations alone (expert(obs)).
         if len(args) == 2:  # expert(state, obs) -> (action, state)
-            return _to_agent_units(out[0], self._bounds), out[1]
-        return _to_agent_units(out, self._bounds)
+            action = _checked_expert_action(out[0], args[1], self._width)
+            return _to_agent_units(action, self._bounds), out[1]
+        action = _checked_expert_action(out, args[0], self._width)
+        return _to_agent_units(action, self._bounds)
 
     def __getattr__(self, name: str) -> Any:
         if name in ExpertInAgentUnits._FORWARDED:
@@ -450,6 +471,7 @@ class ExpertInAgentUnits:
 
             def step_with_gains(state: Any, obs: Any, gains: Any) -> Any:
                 action, state = step(state, obs, gains)
+                action = _checked_expert_action(action, obs, self._width)
                 return _to_agent_units(action, self._bounds), state
 
             return step_with_gains

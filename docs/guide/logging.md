@@ -34,8 +34,12 @@ logging = LoggingConfig(
 | `project_name`, `group_name` | `None` | with the deprecated flags: the W&B project and group |
 
 With `backends=()`, `train` still evaluates and returns the evaluations in
-memory: the quickest way to get learning curves. Without `backends`, each
-run writes TensorBoard event files under `./tensorboard/<run id>/`. Setting
+memory: the quickest way to get learning curves. A `LoggingConfig` built
+without the `backends` argument writes each run's TensorBoard event files
+under `./tensorboard/<run id>/`; the folder is named by the run id alone,
+without `run_name`. A `train` call given no `logging_config` writes no
+file: it prints a line per evaluation, which a `LoggingConfig` of yours
+does not. Setting
 a deprecated flag together with `backends` is refused.
 
 ### The run configuration

@@ -84,6 +84,27 @@ action = agent.predict(state, obs[0])  # one observation; a batch works too
 print(action)
 ```
 
+It acts for the first seed; `seed_index` picks another. With it, an episode
+in one environment is a plain loop:
+
+```python
+single_reset_key, single_key = jax.random.split(jax.random.PRNGKey(1))
+single_obs, single_state = env.reset(single_reset_key, params)
+episode_return, episode_over = 0.0, False
+while not episode_over:
+    single_action = agent.predict(state, single_obs)
+    single_key, step_key = jax.random.split(single_key)
+    single_obs, single_state, single_reward, terminated, truncated, _ = env.step(
+        step_key, single_state, single_action, params
+    )
+    episode_return += float(single_reward)
+    episode_over = bool(terminated or truncated)
+print(episode_return)
+```
+
+Each step draws on a fresh key, split from the last: JAX has no hidden
+random state.
+
 An agent whose policy carries memory refuses `predict`, since one call cannot
 carry it between steps: a recurrent actor, a world model (DreamerV3,
 TD-MPC2), UDRL, an expert or a feature with a state. Use `policy` instead.
@@ -91,8 +112,12 @@ TDMPC2MultiTask has no policy yet: its planner acts for one task of its set.
 
 ## Save and load
 
-`save_checkpoint` writes a state to disk. `load_checkpoint` reads it back
-into an agent built with the same arguments, in this process or another:
+`agent.save(state, path)` writes the state with the agent's class and
+arguments, and `agent, state = ajax.load(path)` builds both again: the
+shortest way, shown in [Checkpoints](checkpoints.md#save-and-load-an-agent).
+The pair below stores the state alone: `save_checkpoint` writes it, and
+`load_checkpoint` reads it back into an agent you build with the same
+arguments, in this process or another:
 
 ```python
 import os

@@ -1,7 +1,5 @@
 """Train a grid of learning rates with every seed in one program."""
 
-import numpy as np
-
 from ajax import SAC
 
 
@@ -14,10 +12,9 @@ def main(n_timesteps: int = 20_000) -> None:
         sweep={"actor_learning_rate": [1e-4, 3e-4, 1e-3]},
     )
 
-    last = np.asarray(evaluations.returns)[:, -1]
-    # One row per member, in the order agent.members lists them.
-    for member, final_return in zip(agent.members, last, strict=True):
-        print(member, f"final return {float(final_return):8.1f}")
+    # Each configuration with its returns, a row per seed.
+    for configuration, returns in agent.by_configuration(evaluations.returns):
+        print(configuration, f"final return {float(returns[:, -1].mean()):8.1f}")
 
 
 if __name__ == "__main__":

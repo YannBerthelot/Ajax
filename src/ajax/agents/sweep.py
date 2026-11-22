@@ -20,10 +20,11 @@ from __future__ import annotations
 import itertools
 import numbers
 from collections.abc import Mapping, Sequence
-from typing import Optional, Union
+from typing import Any, Optional, Union
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 
 #: A sweep: a dict of value lists, whose grid is trained, or a list of
 #: configurations.
@@ -74,6 +75,33 @@ def member_row(configuration: Mapping[str, float], seed: int) -> dict[str, float
     row: dict[str, float] = {"seed": int(seed)}
     row.update(configuration)
     return row
+
+
+def configuration_label(configuration: Mapping[str, float]) -> str:
+    """A configuration on one line, as the progress lines name it."""
+    return ", ".join(f"{name}={value:g}" for name, value in configuration.items())
+
+
+def by_configuration(
+    members: Sequence[Mapping[str, float]], values: Any
+) -> list[tuple[dict[str, float], np.ndarray]]:
+    """``values``, a row per member, as ``(configuration, rows)`` pairs in
+    the sweep's order: each configuration's rows, one per seed. ``members``
+    is ``ActorCritic.members``; without a sweep there is one pair, of an
+    empty configuration."""
+    rows = np.asarray(values)
+    if len(rows) != len(members):
+        raise ValueError(
+            f"{len(rows)} rows for {len(members)} members: pass an array with"
+            " a row per member, such as evaluations.returns."
+        )
+    grouped: list[tuple[dict[str, float], list]] = []
+    for member, row in zip(members, rows, strict=True):
+        configuration = {k: v for k, v in member.items() if k != "seed"}
+        if not grouped or grouped[-1][0] != configuration:
+            grouped.append((configuration, []))
+        grouped[-1][1].append(row)
+    return [(configuration, np.stack(found)) for configuration, found in grouped]
 
 
 def member_values(

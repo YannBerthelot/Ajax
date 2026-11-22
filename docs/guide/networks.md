@@ -32,6 +32,10 @@ a callable works too. `"layernorm"` adds a LayerNorm where it stands, so
 layers: the policy's mean and standard deviation, the value, the Q-values.
 DQN and PQN take a single `architecture` for their Q-network.
 
+`print(agent)` shows the agent as the call that builds it, with every
+argument that differs from its default, so a setting that did not reach the
+agent is missing from it. `agent.config` is the dict of all of them.
+
 Each agent's default follows its paper or reference implementation:
 
 | Default | Agents |

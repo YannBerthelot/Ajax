@@ -21,6 +21,7 @@ import numpy as np
 import pytest
 
 from ajax import PPO
+from ajax.agents.sweep import by_configuration
 from ajax.evaluate import policy_returns
 from ajax.logging import LoggingConfig
 from ajax.logging.progress import (
@@ -185,3 +186,87 @@ def test_evaluate_runs_on_a_gymnasium_environment():
     assert returns.min() >= 1 and returns.max() < 500
     again = np.asarray(agent.evaluate(state, episodes=3, seed=3))
     np.testing.assert_array_equal(again, returns)
+
+
+def test_a_sweep_prints_a_line_per_configuration_under_each_evaluation():
+    lines = []
+    printer = ProgressPrinter(
+        "PPO",
+        ["seed 0", "seed 1", "seed 0", "seed 1"],
+        200,
+        write=lines.append,
+        clock=lambda: 0.0,
+        groups=["lr=0.1", "lr=0.1", "lr=0.2", "lr=0.2"],
+    )
+    for member, score in enumerate([10.0, 30.0, 50.0, 90.0]):
+        printer({"timestep": np.array(100), RETURN: np.array(score)}, member)
+    # All four: mean 45, from 10 to 90. lr=0.1: mean 20; lr=0.2: mean 70.
+    assert lines == [
+        "        100 / 200 steps | return 45.0"
+        " (min 10.0, max 90.0 over 4 runs) | 0.0 s",
+        "              lr=0.1: return 20.0 (min 10.0, max 30.0 over 2 seeds)",
+        "              lr=0.2: return 70.0 (min 50.0, max 90.0 over 2 seeds)",
+    ]
+
+
+def test_seeds_of_one_configuration_print_no_configuration_line():
+    lines = []
+    printer = ProgressPrinter(
+        "PPO", ["seed 0", "seed 1"], 200, write=lines.append, groups=["", ""]
+    )
+    printer({"timestep": np.array(100), RETURN: np.array(1.0)}, 0)
+    printer({"timestep": np.array(100), RETURN: np.array(3.0)}, 1)
+    assert len(lines) == 1
+    assert "over 2 seeds" in lines[0]
+
+
+def test_rows_group_by_configuration_in_the_sweeps_order():
+    members = [
+        {"seed": 1, "tau": 0.5},
+        {"seed": 2, "tau": 0.5},
+        {"seed": 1, "tau": 0.1},
+        {"seed": 2, "tau": 0.1},
+    ]
+    values = np.array([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0], [7.0, 8.0]])
+    grouped = by_configuration(members, values)
+    assert [configuration for configuration, _ in grouped] == [
+        {"tau": 0.5},
+        {"tau": 0.1},
+    ]
+    np.testing.assert_array_equal(grouped[0][1], [[1.0, 2.0], [3.0, 4.0]])
+    np.testing.assert_array_equal(grouped[1][1], [[5.0, 6.0], [7.0, 8.0]])
+
+
+def test_rows_that_do_not_match_the_members_are_refused():
+    with pytest.raises(ValueError, match="a row per member"):
+        by_configuration([{"seed": 0}], np.zeros((2, 3)))
+
+
+def test_a_default_sweep_prints_and_returns_each_configuration(capsys):
+    agent = tiny_ppo()
+    _, evaluations = agent.train(
+        seed=[0, 1], n_timesteps=32, sweep={"ent_coef": [0.0, 0.01]}
+    )
+    printed = capsys.readouterr().out.splitlines()
+    # Two evaluations (every 16 steps), each a line and one per configuration.
+    assert len(printed) == 1 + 2 * 3 + 1
+    assert "over 4 runs" in printed[1]
+    assert printed[2].strip().startswith("ent_coef=0: return")
+    assert printed[3].strip().startswith("ent_coef=0.01: return")
+    grouped = agent.by_configuration(evaluations.returns)
+    assert [configuration for configuration, _ in grouped] == [
+        {"ent_coef": 0.0},
+        {"ent_coef": 0.01},
+    ]
+    np.testing.assert_array_equal(grouped[1][1], evaluations.returns[2:])
+
+
+def test_an_agent_prints_as_the_call_that_builds_it():
+    agent = PPO("CartPole-v1", n_envs=2, n_steps=8, actor_architecture=("8", "tanh"))
+    shown = repr(agent)
+    assert shown.startswith("PPO(env_id='CartPole-v1'")
+    assert "n_envs=2" in shown
+    assert "actor_architecture=('8', 'tanh')" in shown
+    assert "gamma" not in shown  # left at its default
+    rebuilt = eval(shown, {"PPO": PPO})
+    assert rebuilt.config == agent.config

@@ -151,3 +151,49 @@ def test_the_memory_table_says_which_agents_take_memory():
         supports = getattr(getattr(ajax, name), "supports_memory", False)
         assert what.startswith("`memory=`") == supports, name
         assert ("built in" in what) == (name == "DreamerV3"), name
+
+
+# The README's reproduction table: each row's (agent, task) and the
+# comparison of docs/reproduction/results.md it reports.
+REPRODUCTION_ROWS = {
+    ("PPO", "CartPole-v1"): "PPO",
+    ("PPO", "inverted_pendulum"): "PPO-inverted_pendulum",
+    ("PQN", "CartPole-v1"): "PQN",
+    ("PQN", "Asterix-MinAtar"): "PQN-Asterix",
+    ("SAC", "Pendulum-v1"): "SAC",
+    ("TD3", "Pendulum-v1"): "TD3",
+}
+
+
+def _table_rows(text: str) -> list:
+    """The cells of each table row of ``text``, less header and rule."""
+    rows = [
+        [cell.strip() for cell in line.strip("|").split("|")]
+        for line in text.splitlines()
+        if line.startswith("|")
+    ]
+    return [row for row in rows[2:] if not set(row[0]) <= {"-"}]
+
+
+def test_the_reproduction_table_reports_every_comparison_as_the_results_page():
+    readme = README.read_text()
+    block = readme.split("<!-- reproduction-summary:start -->")[1]
+    shown = _table_rows(block.split("<!-- reproduction-summary:end -->")[0])
+    results, speed = (
+        (DOCS / "reproduction" / "results.md").read_text().split("## Speed")
+    )
+    verdicts = {row[0]: row for row in _table_rows(results)}
+    cpu_seconds: dict = {}
+    for row in _table_rows(speed.split("## Learning curves")[0]):
+        side = "Ajax" if row[1] == "Ajax" else "reference"
+        cpu_seconds[(row[0], side)] = row[3]
+
+    # Every comparison of the results page, the inconclusive one included.
+    assert {REPRODUCTION_ROWS[(row[0], row[1])] for row in shown} == set(verdicts)
+    for row in shown:
+        name = REPRODUCTION_ROWS[(row[0], row[1])]
+        recorded = verdicts[name]
+        # Results columns: verdict 2, reference's return 5, Ajax's 6.
+        assert row[3:6] == [recorded[5], recorded[6], recorded[2]], name
+        assert row[6] == cpu_seconds[(name, "reference")], name
+        assert row[7] == cpu_seconds[(name, "Ajax")], name

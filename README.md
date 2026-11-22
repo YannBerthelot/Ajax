@@ -16,9 +16,9 @@
   <a href="#install">Install</a> ·
   <a href="#quickstart">Quickstart</a> ·
   <a href="#why-ajax">Why Ajax</a> ·
+  <a href="#beside-reference-implementations">Reproduction</a> ·
   <a href="#agents">Agents</a> ·
   <a href="#learning-from-an-expert-or-from-data">Expert and data</a> ·
-  <a href="#beside-reference-implementations">Reproduction</a> ·
   <a href="#benchmark">Benchmark</a> ·
   <a href="https://yannberthelot.github.io/Ajax/">Documentation</a>
 </p>
@@ -96,6 +96,38 @@ Ajax has nineteen agents, each from a published paper. Compared with
 PureJaxRL, Brax, Stoix, Rejax, TorchRL and Tianshou, including when to use
 them instead.
 
+## Beside reference implementations
+
+Each agent below was run beside a reference implementation on the same JAX
+environment, with the reference's settings, 96 seeds a side:
+
+<!-- reproduction-summary:start -->
+| Agent | Task | Reference | Reference's return | Ajax's return | Verdict | Reference's CPU s per 1M steps | Ajax's |
+|---|---|---|---|---|---|---|---|
+| PPO | CartPole-v1 | Stable-Baselines3 | 493.8 | 496.7 | similar | 502 | 54 |
+| PPO | inverted_pendulum | Brax | 1000 | 1000 | similar | 246 | 225 |
+| PQN | CartPole-v1 | purejaxql | 498 | 499 | similar | 121 | 96 |
+| PQN | Asterix-MinAtar | purejaxql | 2.292 | 2.455 | inconclusive | 63 | 61 |
+| SAC | Pendulum-v1 | Stable-Baselines3 | -146.7 | -148 | similar | 23,620 | 13,242 |
+| TD3 | Pendulum-v1 | Stable-Baselines3 | -148.9 | -144.2 | similar | 22,334 | 17,257 |
+<!-- reproduction-summary:end -->
+
+A return is the mean at the end of training. "Similar" means the interval of
+the difference lies inside a margin registered before the runs;
+"inconclusive" means it does not, without the returns being shown different.
+CPU seconds are for one run on a 4-core Xeon, both sides of a row on the
+same machine.
+
+<p align="center">
+  <img src="docs/reproduction/PPO.svg" width="45%" alt="PPO on CartPole-v1, Ajax and Stable-Baselines3, 96 seeds each">
+  <img src="docs/reproduction/SAC.svg" width="45%" alt="SAC on Pendulum-v1, Ajax and Stable-Baselines3, 96 seeds each">
+</p>
+
+[Results](docs/reproduction/results.md) has every learning curve, the
+differences with their intervals and the machines; the
+[protocol](docs/reproduction/protocol.md) says how the comparisons are run,
+and each one reproduces with one command ([specifications](docs/reproduction/specs.md)).
+
 ## Agents
 
 - **Off-policy actor-critic**: [SAC](docs/algorithms/sac.md), [TD3](docs/algorithms/td3.md), [REDQ](docs/algorithms/redq.md), [CrossQ](docs/algorithms/crossq.md) (batch-renormalised, no target networks), [TQC](docs/algorithms/tqc.md) (truncated quantile critics), [AVG](docs/algorithms/avg.md) (no replay), [ASAC](docs/algorithms/asac.md) and [RVISAC](docs/algorithms/rvisac.md) (RVI-SAC; average reward), [IQL](docs/algorithms/iql.md) (offline)
@@ -119,19 +151,6 @@ per agent.
 
 [Choosing the pieces](docs/guide/expert-guidance.md#choosing-the-pieces) gives
 each method's paper and the agents that take it.
-
-## Beside reference implementations
-
-<p align="center">
-  <img src="docs/reproduction/PPO.svg" width="45%" alt="PPO on CartPole-v1, Ajax and Stable-Baselines3, 96 seeds each">
-  <img src="docs/reproduction/PQN.svg" width="45%" alt="PQN on CartPole-v1, Ajax and purejaxql, 96 seeds each">
-</p>
-
-Ajax's PPO beside Stable-Baselines3's and its PQN beside purejaxql's, on the
-same JAX environment, 96 seeds each; both comparisons find the returns similar
-within the registered margin. [Results](docs/reproduction/results.md) has two
-more comparisons (one inconclusive) and the speed of each side; the
-[protocol](docs/reproduction/protocol.md) says how they are run.
 
 ## Benchmark
 

@@ -304,3 +304,72 @@ Not matched:
 - Brax clips each gradient entry to [-1, 1]; its loss is the mean reward over the horizon, Ajax's the summed return
 - network: ELU with LayerNorm and orthogonal(0.01) in Brax, ReLU in Ajax
 - Adam eps: 1e-5 in Ajax, 1e-8 in the reference
+
+## PPO-sbx, version 1
+
+Ajax's PPO against sbx-rl 0.28.0's PPO, MlpPolicy.
+
+- Environment: gymnax CartPole-v1, a port of Gymnasium's CartPole-v1 (dynamics, termination, 500-step limit); SBX steps it through refcmp_sb3.gymnax_vec_env.
+- Budget: 200,704 steps per seed.
+- Evaluation: 10 episodes of the deterministic policy, every 14,336 steps; a seed's score is the last one's mean return.
+- AdaStop: n = 4, K = 24, alpha = 0.05.
+- Margin: ±25.
+- Spec hash: `6c5bc5baa1d55368`.
+- Reproduce: `uv run python benchmarks/reference/refcmp_protocol.py run PPO-sbx --cache DIR`
+
+| Reference setting | Value | Ajax setting | Value |
+|---|---|---|---|
+| `n_envs` | `8` | `n_envs` | `8` |
+| `n_steps` | `256` | `n_steps` | `256` |
+| `batch_size` | `256` | - |  |
+| `n_epochs` | `10` | `n_epochs` | `10` |
+| `learning_rate` | `0.0003` | `actor_learning_rate`, `critic_learning_rate` | `0.0003`, `0.0003` |
+| `gamma` | `0.99` | `gamma` | `0.99` |
+| `gae_lambda` | `0.95` | `gae_lambda` | `0.95` |
+| `clip_range` | `0.2` | `clip_range` | `0.2` |
+| `ent_coef` | `0.0` | `ent_coef` | `0.0` |
+| `vf_coef` | `0.5` | `vf_coef` | `1.0` |
+| `max_grad_norm` | `0.5` | `max_grad_norm` | `0.5` |
+| `normalize_advantage` | `True` | `normalize_advantage` | `True` |
+| `net_arch` | `{'pi': [64, 64], 'vf': [64, 64]}` | - |  |
+
+Ajax settings without a reference counterpart: `num_minibatches=8`, `actor_architecture=('64', 'tanh', '64', 'tanh')`, `critic_architecture=('64', 'tanh', '64', 'tanh')`, `adam_eps=1e-05`, `encoder_kernel_init='lecun_normal()'`, `normalize_observations=False`, `normalize_rewards=False`.
+
+Not matched:
+
+- output layers: lecun_normal in SBX (its ortho_init is off), an orthogonal policy layer of gain 0.01 and value layer of gain 1 in Ajax
+- gradient clip: SBX clips each network's gradient at max_grad_norm in its own optimiser; Ajax clips the two together
+- value weight: SBX's vf_coef scales the loss of the critic's own optimiser, which Adam's step mostly cancels; in Ajax it sets the critic's share of the joint clip
+
+## SAC-sbx, version 1
+
+Ajax's SAC against sbx-rl 0.28.0's SAC, MlpPolicy.
+
+- Environment: gymnax Pendulum-v1, a port of Gymnasium's Pendulum-v1 (200-step episodes); SBX steps it through refcmp_sb3.gymnax_vec_env.
+- Budget: 20,000 steps per seed.
+- Evaluation: 10 episodes of the deterministic policy, every 1,000 steps; a seed's score is the last one's mean return.
+- AdaStop: n = 4, K = 24, alpha = 0.05.
+- Margin: ±14.
+- Spec hash: `63640429b3d6ec09`.
+- Reproduce: `uv run python benchmarks/reference/refcmp_protocol.py run SAC-sbx --cache DIR`
+
+| Reference setting | Value | Ajax setting | Value |
+|---|---|---|---|
+| `learning_rate` | `0.001` | - |  |
+| `buffer_size` | `20000` | `buffer_size` | `20000` |
+| `learning_starts` | `100` | `learning_starts` | `100` |
+| `batch_size` | `256` | `batch_size` | `256` |
+| `tau` | `0.005` | `tau` | `0.005` |
+| `gamma` | `0.99` | `gamma` | `0.99` |
+| `train_freq` | `1` | - |  |
+| `gradient_steps` | `1` | - |  |
+| `policy_delay` | `1` | - |  |
+| `ent_coef` | `'auto'` | - |  |
+| `net_arch` | `[256, 256]` | - |  |
+
+Ajax settings without a reference counterpart: `n_envs=1`, `actor_learning_rate=0.001`, `critic_learning_rate=0.001`, `alpha_learning_rate=0.001`, `alpha_init=1.0`, `target_entropy_per_dim=-1.0`, `policy_update_start=0`, `alpha_update_start=0`, `actor_architecture=('256', 'relu', '256', 'relu')`, `critic_architecture=('256', 'relu', '256', 'relu')`.
+
+Not matched:
+
+- weight initialisation: Glorot-uniform kernels in Ajax (softlearning's), flax's lecun_normal in SBX; zero biases in both
+- update order: SBX steps the critics, moves the targets, steps the actor, then the temperature on the entropy of the sample the actor's loss drew before its step (sac.py, _train); Ajax steps the critics, the actor on its own sample, then the temperature on a fresh sample of the stepped actor

@@ -62,6 +62,12 @@ IMPLEMENTATIONS = {
         True,
         ("envs/sb3", "refcmp_sb3.py"),
     ),
+    "sbx": (
+        HERE / "envs" / "sbx",
+        "refcmp_sbx.py",
+        True,
+        ("envs/sbx", "refcmp_sbx.py", "refcmp_sb3.py"),
+    ),
     "purejaxql": (
         HERE / "envs" / "purejaxql",
         "refcmp_jax.py",

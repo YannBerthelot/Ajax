@@ -99,24 +99,27 @@ them instead.
 ## Beside reference implementations
 
 Each agent below was run beside a reference implementation on the same JAX
-environment, with the reference's settings, 96 seeds a side:
+environment, with the reference's settings, up to 96 seeds a side:
 
 <!-- reproduction-summary:start -->
 | Agent | Task | Reference | Reference's return | Ajax's return | Verdict | Reference's CPU s per 1M steps | Ajax's |
 |---|---|---|---|---|---|---|---|
 | PPO | CartPole-v1 | Stable-Baselines3 | 493.8 | 496.7 | similar | 502 | 54 |
+| PPO | CartPole-v1 | SBX | 500 | 489.4 | similar | 376 | 93 |
 | PPO | inverted_pendulum | Brax | 1000 | 1000 | similar | 246 | 225 |
 | PQN | CartPole-v1 | purejaxql | 498 | 499 | similar | 121 | 96 |
 | PQN | Asterix-MinAtar | purejaxql | 2.292 | 2.455 | inconclusive | 63 | 61 |
 | SAC | Pendulum-v1 | Stable-Baselines3 | -146.7 | -148 | similar | 23,620 | 13,242 |
+| SAC | Pendulum-v1 | SBX | -147.2 | -148.5 | similar | 32,163 | 31,706 |
 | TD3 | Pendulum-v1 | Stable-Baselines3 | -148.9 | -144.2 | similar | 22,334 | 17,257 |
 <!-- reproduction-summary:end -->
 
 A return is the mean at the end of training. "Similar" means the interval of
 the difference lies inside a margin registered before the runs;
 "inconclusive" means it does not, without the returns being shown different.
-CPU seconds are for one run on a 4-core Xeon, both sides of a row on the
-same machine.
+CPU seconds are for one run, both sides of a row on the same machine: a
+4-core Xeon, or a 32-core one for the SBX rows. PPO against SBX stopped at
+28 seeds a side, where AdaStop found Ajax's return lower.
 
 <p align="center">
   <img src="docs/reproduction/PPO.svg" width="45%" alt="PPO on CartPole-v1, Ajax and Stable-Baselines3, 96 seeds each">

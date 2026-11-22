@@ -1,0 +1,19 @@
+# SBX, pinned for the reference comparisons (../../README.md). It trains on
+# the same gymnax environments as Ajax, through refcmp_sb3.gymnax_vec_env;
+# jax and gymnax are at the versions of Ajax's uv.lock, and
+# Stable-Baselines3 and torch at those of ../sb3, whose buffers and
+# evaluation SBX uses.
+[project]
+name = "refcmp-sbx"
+version = "0"
+requires-python = "==3.12.*"
+dependencies = [
+    "sbx-rl==0.28.0",
+    "stable-baselines3==2.9.0",
+    "torch==2.13.0",
+    "jax==0.7.2",
+    "gymnax==1.0.1",
+]
+
+[tool.uv]
+package = false

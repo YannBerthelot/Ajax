@@ -3008,12 +3008,12 @@ paper. The harness lives in
 <a href="https://github.com/YannBerthelot/Ajax/blob/main/benchmarks/reference/README.md"><code>benchmarks/reference</code></a>.</p>
 <h2 id="choosing-the-reference">Choosing the reference<a class="headerlink" href="#choosing-the-reference" title="Permanent link">&para;</a></h2>
 <p>The reference is a library's implementation of the algorithm
-(Stable-Baselines3, Brax), or the authors' code where no library has it
+(Stable-Baselines3, its JAX version SBX, Brax), or the authors' code where no library has it
 (purejaxql for PQN). Both sides train on the same JAX environment, the
 closest one to the task the reference was written for: gymnax's ports of
 Gymnasium's CartPole and Pendulum and of MinAtar, or Brax's own tasks.
-Stable-Baselines3 steps a gymnax environment through a small <code>VecEnv</code>
-adapter (<code>refcmp_sb3.gymnax_vec_env</code>), so it runs the same environment code
+Stable-Baselines3 and SBX step a gymnax environment through a small <code>VecEnv</code>
+adapter (<code>refcmp_sb3.gymnax_vec_env</code>), so they run the same environment code
 as Ajax. Ajax itself only trains on JAX environments.</p>
 <h2 id="what-a-comparison-fixes-before-it-runs">What a comparison fixes before it runs<a class="headerlink" href="#what-a-comparison-fixes-before-it-runs" title="Permanent link">&para;</a></h2>
 <p>Each comparison in
@@ -3051,8 +3051,8 @@ seed again instead of reusing the recorded ones: a reproduction from
 scratch, whose report (<code>report PQN --cache DIR</code>) can be set beside the
 published one.</p>
 <p>At each interim, every side still in an undecided comparison trains <code>n</code>
-new seeds: Ajax and purejaxql in one program, Stable-Baselines3 and Brax
-one process per seed, all on the CPU, each in its own uv project. Every
+new seeds: Ajax and purejaxql in one program, Stable-Baselines3, SBX and
+Brax one process per seed, all on the CPU, each in its own uv project. Every
 batch is appended to <code>benchmarks/reference/results/protocol/&lt;comparison&gt;.jsonl</code>
 with:</p>
 <ul>

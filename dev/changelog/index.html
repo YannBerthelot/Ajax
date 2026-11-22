@@ -3136,6 +3136,12 @@ PyPI as <code>ajax-rl</code>.</p>
   <code>step</code> return trained on two kinds of observations, with no error
   (Environments, "Changing the observations"). The memory guide trains on
   a CartPole with hidden velocities built with it.</li>
+<li><strong>Ajax's PPO and SAC were run beside SBX</strong>, Stable-Baselines3's JAX
+  version (0.28.0), under the reproduction protocol. Both are similar by
+  the registered margin. On CartPole, SBX's PPO ends at 500 on every seed
+  and Ajax's at 489.4 on average, a difference AdaStop detects at 28 seeds
+  a side; four Ajax seeds end between 414 and 461, and the cause is not
+  traced (Reproduction, "Results").</li>
 <li><strong><code>agent.render</code> draws Gymnasium environments and your own.</strong> A
   <code>gymnasium:</code> environment is saved as a GIF of its own pictures. Any other
   environment takes <code>agent.render(state, path, draw=my_draw)</code>, where

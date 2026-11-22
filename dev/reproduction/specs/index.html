@@ -1881,6 +1881,28 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#ppo-sbx-version-1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        PPO-sbx, version 1
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sac-sbx-version-1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SAC-sbx, version 1
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -3012,6 +3034,28 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#ppo-sbx-version-1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        PPO-sbx, version 1
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sac-sbx-version-1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SAC-sbx, version 1
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -3995,6 +4039,209 @@ version (see the <a href="../protocol/">protocol</a>).</p>
 <li>Brax clips each gradient entry to [-1, 1]; its loss is the mean reward over the horizon, Ajax's the summed return</li>
 <li>network: ELU with LayerNorm and orthogonal(0.01) in Brax, ReLU in Ajax</li>
 <li>Adam eps: 1e-5 in Ajax, 1e-8 in the reference</li>
+</ul>
+<h2 id="ppo-sbx-version-1">PPO-sbx, version 1<a class="headerlink" href="#ppo-sbx-version-1" title="Permanent link">&para;</a></h2>
+<p>Ajax's PPO against sbx-rl 0.28.0's PPO, MlpPolicy.</p>
+<ul>
+<li>Environment: gymnax CartPole-v1, a port of Gymnasium's CartPole-v1 (dynamics, termination, 500-step limit); SBX steps it through refcmp_sb3.gymnax_vec_env.</li>
+<li>Budget: 200,704 steps per seed.</li>
+<li>Evaluation: 10 episodes of the deterministic policy, every 14,336 steps; a seed's score is the last one's mean return.</li>
+<li>AdaStop: n = 4, K = 24, alpha = 0.05.</li>
+<li>Margin: ±25.</li>
+<li>Spec hash: <code>6c5bc5baa1d55368</code>.</li>
+<li>Reproduce: <code>uv run python benchmarks/reference/refcmp_protocol.py run PPO-sbx --cache DIR</code></li>
+</ul>
+<table>
+<thead>
+<tr>
+<th>Reference setting</th>
+<th>Value</th>
+<th>Ajax setting</th>
+<th>Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>n_envs</code></td>
+<td><code>8</code></td>
+<td><code>n_envs</code></td>
+<td><code>8</code></td>
+</tr>
+<tr>
+<td><code>n_steps</code></td>
+<td><code>256</code></td>
+<td><code>n_steps</code></td>
+<td><code>256</code></td>
+</tr>
+<tr>
+<td><code>batch_size</code></td>
+<td><code>256</code></td>
+<td>-</td>
+<td></td>
+</tr>
+<tr>
+<td><code>n_epochs</code></td>
+<td><code>10</code></td>
+<td><code>n_epochs</code></td>
+<td><code>10</code></td>
+</tr>
+<tr>
+<td><code>learning_rate</code></td>
+<td><code>0.0003</code></td>
+<td><code>actor_learning_rate</code>, <code>critic_learning_rate</code></td>
+<td><code>0.0003</code>, <code>0.0003</code></td>
+</tr>
+<tr>
+<td><code>gamma</code></td>
+<td><code>0.99</code></td>
+<td><code>gamma</code></td>
+<td><code>0.99</code></td>
+</tr>
+<tr>
+<td><code>gae_lambda</code></td>
+<td><code>0.95</code></td>
+<td><code>gae_lambda</code></td>
+<td><code>0.95</code></td>
+</tr>
+<tr>
+<td><code>clip_range</code></td>
+<td><code>0.2</code></td>
+<td><code>clip_range</code></td>
+<td><code>0.2</code></td>
+</tr>
+<tr>
+<td><code>ent_coef</code></td>
+<td><code>0.0</code></td>
+<td><code>ent_coef</code></td>
+<td><code>0.0</code></td>
+</tr>
+<tr>
+<td><code>vf_coef</code></td>
+<td><code>0.5</code></td>
+<td><code>vf_coef</code></td>
+<td><code>1.0</code></td>
+</tr>
+<tr>
+<td><code>max_grad_norm</code></td>
+<td><code>0.5</code></td>
+<td><code>max_grad_norm</code></td>
+<td><code>0.5</code></td>
+</tr>
+<tr>
+<td><code>normalize_advantage</code></td>
+<td><code>True</code></td>
+<td><code>normalize_advantage</code></td>
+<td><code>True</code></td>
+</tr>
+<tr>
+<td><code>net_arch</code></td>
+<td><code>{'pi': [64, 64], 'vf': [64, 64]}</code></td>
+<td>-</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<p>Ajax settings without a reference counterpart: <code>num_minibatches=8</code>, <code>actor_architecture=('64', 'tanh', '64', 'tanh')</code>, <code>critic_architecture=('64', 'tanh', '64', 'tanh')</code>, <code>adam_eps=1e-05</code>, <code>encoder_kernel_init='lecun_normal()'</code>, <code>normalize_observations=False</code>, <code>normalize_rewards=False</code>.</p>
+<p>Not matched:</p>
+<ul>
+<li>output layers: lecun_normal in SBX (its ortho_init is off), an orthogonal policy layer of gain 0.01 and value layer of gain 1 in Ajax</li>
+<li>gradient clip: SBX clips each network's gradient at max_grad_norm in its own optimiser; Ajax clips the two together</li>
+<li>value weight: SBX's vf_coef scales the loss of the critic's own optimiser, which Adam's step mostly cancels; in Ajax it sets the critic's share of the joint clip</li>
+</ul>
+<h2 id="sac-sbx-version-1">SAC-sbx, version 1<a class="headerlink" href="#sac-sbx-version-1" title="Permanent link">&para;</a></h2>
+<p>Ajax's SAC against sbx-rl 0.28.0's SAC, MlpPolicy.</p>
+<ul>
+<li>Environment: gymnax Pendulum-v1, a port of Gymnasium's Pendulum-v1 (200-step episodes); SBX steps it through refcmp_sb3.gymnax_vec_env.</li>
+<li>Budget: 20,000 steps per seed.</li>
+<li>Evaluation: 10 episodes of the deterministic policy, every 1,000 steps; a seed's score is the last one's mean return.</li>
+<li>AdaStop: n = 4, K = 24, alpha = 0.05.</li>
+<li>Margin: ±14.</li>
+<li>Spec hash: <code>63640429b3d6ec09</code>.</li>
+<li>Reproduce: <code>uv run python benchmarks/reference/refcmp_protocol.py run SAC-sbx --cache DIR</code></li>
+</ul>
+<table>
+<thead>
+<tr>
+<th>Reference setting</th>
+<th>Value</th>
+<th>Ajax setting</th>
+<th>Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>learning_rate</code></td>
+<td><code>0.001</code></td>
+<td>-</td>
+<td></td>
+</tr>
+<tr>
+<td><code>buffer_size</code></td>
+<td><code>20000</code></td>
+<td><code>buffer_size</code></td>
+<td><code>20000</code></td>
+</tr>
+<tr>
+<td><code>learning_starts</code></td>
+<td><code>100</code></td>
+<td><code>learning_starts</code></td>
+<td><code>100</code></td>
+</tr>
+<tr>
+<td><code>batch_size</code></td>
+<td><code>256</code></td>
+<td><code>batch_size</code></td>
+<td><code>256</code></td>
+</tr>
+<tr>
+<td><code>tau</code></td>
+<td><code>0.005</code></td>
+<td><code>tau</code></td>
+<td><code>0.005</code></td>
+</tr>
+<tr>
+<td><code>gamma</code></td>
+<td><code>0.99</code></td>
+<td><code>gamma</code></td>
+<td><code>0.99</code></td>
+</tr>
+<tr>
+<td><code>train_freq</code></td>
+<td><code>1</code></td>
+<td>-</td>
+<td></td>
+</tr>
+<tr>
+<td><code>gradient_steps</code></td>
+<td><code>1</code></td>
+<td>-</td>
+<td></td>
+</tr>
+<tr>
+<td><code>policy_delay</code></td>
+<td><code>1</code></td>
+<td>-</td>
+<td></td>
+</tr>
+<tr>
+<td><code>ent_coef</code></td>
+<td><code>'auto'</code></td>
+<td>-</td>
+<td></td>
+</tr>
+<tr>
+<td><code>net_arch</code></td>
+<td><code>[256, 256]</code></td>
+<td>-</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<p>Ajax settings without a reference counterpart: <code>n_envs=1</code>, <code>actor_learning_rate=0.001</code>, <code>critic_learning_rate=0.001</code>, <code>alpha_learning_rate=0.001</code>, <code>alpha_init=1.0</code>, <code>target_entropy_per_dim=-1.0</code>, <code>policy_update_start=0</code>, <code>alpha_update_start=0</code>, <code>actor_architecture=('256', 'relu', '256', 'relu')</code>, <code>critic_architecture=('256', 'relu', '256', 'relu')</code>.</p>
+<p>Not matched:</p>
+<ul>
+<li>weight initialisation: Glorot-uniform kernels in Ajax (softlearning's), flax's lecun_normal in SBX; zero biases in both</li>
+<li>update order: SBX steps the critics, moves the targets, steps the actor, then the temperature on the entropy of the sample the actor's loss drew before its step (sac.py, _train); Ajax steps the critics, the actor on its own sample, then the temperature on a fresh sample of the stepped actor</li>
 </ul>
 
 

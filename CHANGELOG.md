@@ -30,9 +30,11 @@ The next release is 0.6.0: the first item changes results.
   agent's. A class declares the fields it defines (`sweepable`), a mixin its
   own, and an agent takes the union, less those it refuses with a reason
   (`unsweepable`). One test checks every declared field of every agent
-  against separate runs. Not yet: CrossQ, the world models and APG, and
-  fields whose optimiser or schedule is built with the agent (DQN's and
-  CrossQ's `learning_rate`, the exploration's `epsilon_decay_frac`).
+  against separate runs, and against a sweep of the agent built with the
+  value: CrossQ's sweep rounds apart from a separate run too soon for the
+  first comparison. Not yet: the world models and APG, and fields whose
+  optimiser or schedule is built with the agent (DQN's and CrossQ's
+  `learning_rate`, the exploration's `epsilon_decay_frac`).
 - **More checks**, after a third newcomer trial:
     - an expert whose action drops its last axis is refused where Ajax
       first calls it, naming the expert and the axis (before, a

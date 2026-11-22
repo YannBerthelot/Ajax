@@ -25,7 +25,7 @@ The next release is 0.6.0: the first item changes results.
   environment takes `agent.render(state, path, draw=my_draw)`, where
   `my_draw(env_state)` returns one picture. Both were refused before.
 - **Sweeps on every agent of the shared loop.** `train(sweep=...)` now
-  varies numbers on APO, ASAC, AVG, DAgger, DQN, IQL, PQN, REDQ, RVI-SAC,
+  varies numbers on APO, ASAC, AVG, CrossQ, DAgger, DQN, IQL, PQN, REDQ, RVI-SAC,
   TD3, TQC and UDRL as on SAC and PPO; `agent.sweepable_fields()` lists each
   agent's. A class declares the fields it defines (`sweepable`), a mixin its
   own, and an agent takes the union, less those it refuses with a reason

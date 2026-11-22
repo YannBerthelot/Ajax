@@ -2611,6 +2611,28 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#ajax.agents.base.ActorCritic.by_configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        by_configuration
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.agents.base.ActorCritic.__repr__" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        __repr__
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#ajax.agents.base.ActorCritic.save" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3909,6 +3931,28 @@
     <span class="md-ellipsis">
       
         member_row
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.agents.sweep.configuration_label" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        configuration_label
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.agents.sweep.by_configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        by_configuration
       
     </span>
   </a>
@@ -5142,6 +5186,28 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#ajax.agents.base.ActorCritic.by_configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        by_configuration
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.agents.base.ActorCritic.__repr__" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        __repr__
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#ajax.agents.base.ActorCritic.save" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -6440,6 +6506,28 @@
     <span class="md-ellipsis">
       
         member_row
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.agents.sweep.configuration_label" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        configuration_label
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.agents.sweep.by_configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        by_configuration
       
     </span>
   </a>
@@ -8028,6 +8116,50 @@ shared loop (<code>ajax.agents.loop</code>) <code>out</code> is <code>None</code
 <code>logging_config=None</code>, else the evaluations
 (<code>ajax.logging.progress.Evaluations</code>: the dict of every logged
 name, with <code>returns</code> and <code>timesteps</code>).</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="ajax.agents.base.ActorCritic.by_configuration" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">by_configuration</span>
+
+
+<a href="#ajax.agents.base.ActorCritic.by_configuration" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">by_configuration</span><span class="p">(</span><span class="n">values</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>The last train call's <code>values</code>, a row per member (such as
+<code>evaluations.returns</code>), as <code>(configuration, rows)</code> pairs in the
+sweep's order, each configuration's rows one per seed.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="ajax.agents.base.ActorCritic.__repr__" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">__repr__</span>
+
+
+<a href="#ajax.agents.base.ActorCritic.__repr__" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">__repr__</span><span class="p">()</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>The agent as the call that builds it: its class and the
+arguments that differ from their defaults. An object (a prebuilt
+environment, an extension) shows as its class.</p>
 
 
     </div>
@@ -12304,6 +12436,49 @@ without a sweep.</p>
     <div class="doc doc-contents ">
 
         <p>A member's seed and values, as <code>ActorCritic.members</code> lists them.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="ajax.agents.sweep.configuration_label" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">configuration_label</span>
+
+
+<a href="#ajax.agents.sweep.configuration_label" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">configuration_label</span><span class="p">(</span><span class="n">configuration</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>A configuration on one line, as the progress lines name it.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="ajax.agents.sweep.by_configuration" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">by_configuration</span>
+
+
+<a href="#ajax.agents.sweep.by_configuration" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">by_configuration</span><span class="p">(</span><span class="n">members</span><span class="p">,</span> <span class="n">values</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p><code>values</code>, a row per member, as <code>(configuration, rows)</code> pairs in
+the sweep's order: each configuration's rows, one per seed. <code>members</code>
+is <code>ActorCritic.members</code>; without a sweep there is one pair, of an
+empty configuration.</p>
 
 
     </div>

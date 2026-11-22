@@ -3222,8 +3222,12 @@ nothing.</p>
 </tbody>
 </table>
 <p>With <code>backends=()</code>, <code>train</code> still evaluates and returns the evaluations in
-memory: the quickest way to get learning curves. Without <code>backends</code>, each
-run writes TensorBoard event files under <code>./tensorboard/&lt;run id&gt;/</code>. Setting
+memory: the quickest way to get learning curves. A <code>LoggingConfig</code> built
+without the <code>backends</code> argument writes each run's TensorBoard event files
+under <code>./tensorboard/&lt;run id&gt;/</code>; the folder is named by the run id alone,
+without <code>run_name</code>. A <code>train</code> call given no <code>logging_config</code> writes no
+file: it prints a line per evaluation, which a <code>LoggingConfig</code> of yours
+does not. Setting
 a deprecated flag together with <code>backends</code> is refused.</p>
 <h3 id="the-run-configuration">The run configuration<a class="headerlink" href="#the-run-configuration" title="Permanent link">&para;</a></h3>
 <p>Each run stores <code>config</code> merged with the agent's <code>agent.config</code>: every

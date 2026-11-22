@@ -3108,7 +3108,8 @@ returns their returns, one row per seed:</p>
 <a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="nb">print</span><span class="p">(</span><span class="n">returns</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">))</span>  <span class="c1"># each seed&#39;s score</span>
 </code></pre></div>
 <p>To act in a loop of your own, <code>agent.predict(state, observation)</code> returns
-one seed's action for an observation, in the environment's units, and
+the first seed's action for an observation (<code>seed_index</code> picks another), in
+the environment's units, and
 <code>agent.policy(state)</code> carries a memory from step to step.
 <a href="../../guide/deploy/">Train, evaluate, deploy</a> shows both.</p>
 <h2 id="save-and-load">Save and load<a class="headerlink" href="#save-and-load" title="Permanent link">&para;</a></h2>

@@ -3124,6 +3124,16 @@ PyPI as <code>ajax-rl</code>.</p>
 <h2 id="unreleased">Unreleased<a class="headerlink" href="#unreleased" title="Permanent link">&para;</a></h2>
 <p>The next release is 0.6.0: the first item changes results.</p>
 <ul>
+<li><strong>New: a sweep reads by configuration.</strong> A sweep's default progress
+  shows a line per configuration under each evaluation, and
+  <code>agent.by_configuration(evaluations.returns)</code> gives each configuration
+  with its rows, one per seed.</li>
+<li><strong>New: <code>print(agent)</code> shows the call that builds it</strong>, with the arguments
+  that differ from their defaults.</li>
+<li><strong>Docs: writing your own environment</strong> has its own example
+  (Environments), which says that gymnax applies the time limit: <code>step_env</code>
+  returns the termination only. The sweep, save and load, TensorBoard and
+  hand-written loop pages are corrected after a newcomer trial.</li>
 <li>
 <p><strong>New: <code>train(precision=...)</code> runs the networks in bfloat16.</strong> Mixed
   precision: parameters, gradients and optimiser stay float32, the layers

@@ -3084,7 +3084,9 @@ compiler's scratch memory is never allocated.</p>
 <li><strong>It serves relaunches, not new trials.</strong> A rerun of the same script, or
   a repeated or resumed trial, loads its program from the cache. A new trial
   of a hyperparameter sweep is a different program: its hyperparameters are
-  compiled in as constants, so it compiles from scratch. The budget, the
+  compiled in as constants, so it compiles from scratch. <code>train(sweep=...)</code>
+  avoids this for the fields it covers
+  (<a href="../training/#hyperparameter-sweeps">Hyperparameter sweeps</a>). The budget, the
   agent's settings and the shapes are all part of the program.</li>
 <li><strong>A logged run is cached from JAX 0.11.</strong> The <a href="../logging/">logging worker</a>
   is fed by a host callback, and JAX 0.10 never stores a program that

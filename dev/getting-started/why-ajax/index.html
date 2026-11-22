@@ -3307,10 +3307,12 @@ end-to-end JAX libraries, not beside these two.</p>
   over devices (<a href="../../guide/performance/">Performance</a>), but each seed
   trains on one: it has no <code>pmap</code> or sharding. Brax's training agents and
   Stoix train across devices (<a href="https://github.com/google/brax/tree/main/brax/training/agents">Brax</a>, <a href="https://github.com/EdanToledo/Stoix">Stoix</a>).</li>
-<li><strong>You want a hyperparameter sweep in one program.</strong> Ajax compiles the
-  hyperparameters into the program, so each trial of a sweep compiles anew
-  (<a href="../../guide/performance/">Performance</a>). Rejax vmaps over
-  hyperparameters as well as seeds (<a href="https://github.com/keraJLi/rejax">README</a>).</li>
+<li><strong>You want to sweep any hyperparameter of any agent in one program.</strong>
+  <code>train(sweep=...)</code> trains several configurations in one program, but only
+  over the numbers an agent declares sweepable, and so far only SAC and PPO
+  declare any (<a href="../../guide/training/#hyperparameter-sweeps">Training an agent</a>).
+  Any other trial compiles anew. Rejax vmaps over hyperparameters as well
+  as seeds (<a href="https://github.com/keraJLi/rejax">README</a>).</li>
 <li><strong>You want a mature, stable library.</strong> SB3 describes itself as stable, with
   development focused on bug fixes and maintenance, and lists documentation,
   high code coverage and type hints among its features (<a href="https://github.com/DLR-RM/stable-baselines3">README</a>). It

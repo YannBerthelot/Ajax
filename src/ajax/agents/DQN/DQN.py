@@ -113,6 +113,18 @@ class DQN(
     (the module's equations), acting epsilon-greedy.
 
     Defaults: on vector observations, CleanRL's dqn.py (vwxyzjn/cleanrl
+    #: The numbers a sweep may vary in one program (ActorCritic.sweepable),
+    #: each checked against separate runs by tests/agents/test_sweep_every_agent.py.
+    sweepable: ClassVar[frozenset[str]] = frozenset(
+        {
+            "epsilon_end",
+            "epsilon_start",
+            "gamma",
+            "reward_scale",
+            "tau",
+        }
+    )
+
     @fe8d8a0, its Args at lines 47-71 and QNetwork at 95-99), the
     classic-control reference, with Mnih et al.'s optimiser and Huber loss
     (optimizer_settings, td_loss_fn), which google-deepmind/dqn @9d9b1d1

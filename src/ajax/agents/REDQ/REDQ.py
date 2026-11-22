@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import dataclasses
 from dataclasses import dataclass
-from typing import Any, Callable, Literal, Optional, Union
+from typing import Any, Callable, ClassVar, Literal, Optional, Union
 
 import jax
 import jax.numpy as jnp
@@ -176,6 +176,18 @@ class REDQ(
     # start_steps=5000 uniform actions, and updates that wait as long
     # (delay_update_steps='auto'): redq_sac.py:34, :85.
     learning_starts: int = 5_000
+
+    #: The numbers a sweep may vary in one program (ActorCritic.sweepable),
+    #: each checked against separate runs by tests/agents/test_sweep_every_agent.py.
+    sweepable: ClassVar[frozenset[str]] = frozenset(
+        {
+            "actor_learning_rate",
+            "critic_learning_rate",
+            "gamma",
+            "reward_scale",
+            "tau",
+        }
+    )
 
     def actor_critic_args(self) -> dict[str, Any]:
         # The initialisation of REDQ's reference code: watchernyu/REDQ

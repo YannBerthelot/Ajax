@@ -21,7 +21,7 @@ from __future__ import annotations
 import dataclasses
 from dataclasses import dataclass
 from functools import partial
-from typing import Any, Literal, Optional
+from typing import Any, ClassVar, Literal, Optional
 
 import jax
 import jax.numpy as jnp
@@ -122,6 +122,19 @@ class IQL(
     #: train(initial_state=...) that fine-tunes it: train both with None. A
     #: schedule given as actor_learning_rate runs as given.
     actor_lr_decay: Optional[Literal["cosine"]] = "cosine"
+
+    #: The numbers a sweep may vary in one program (ActorCritic.sweepable),
+    #: each checked against separate runs by tests/agents/test_sweep_every_agent.py.
+    sweepable: ClassVar[frozenset[str]] = frozenset(
+        {
+            "critic_learning_rate",
+            "expectile",
+            "gamma",
+            "reward_scale",
+            "tau",
+            "temperature",
+        }
+    )
 
     def check(self) -> None:
         if not 0.0 < self.expectile < 1.0:

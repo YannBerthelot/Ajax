@@ -29,8 +29,10 @@ below or one of the equations under it::
 from __future__ import annotations
 
 import math
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, Callable, Optional, Union
+from types import MappingProxyType
+from typing import Any, Callable, ClassVar, Optional, Union
 
 import jax
 import jax.numpy as jnp
@@ -170,6 +172,26 @@ class ASAC(
     # None: 256 rows, or 64 windows with memory (RecurrentReplayAgent).
     batch_size: Optional[int] = None  # type: ignore[assignment]
     learning_starts: int = int(1e4)
+
+    #: The numbers a sweep may vary in one program (ActorCritic.sweepable),
+    #: each checked against separate runs by tests/agents/test_sweep_every_agent.py.
+    sweepable: ClassVar[frozenset[str]] = frozenset(
+        {
+            "actor_learning_rate",
+            "critic_learning_rate",
+            "reward_scale",
+            "tau",
+            "tau_theta",
+        }
+    )
+    #: Declared by a base, refused here (ActorCritic.unsweepable).
+    unsweepable: ClassVar[Mapping[str, str]] = MappingProxyType(
+        {
+            "target_entropy_per_dim": (
+                "not shown to reach ASAC's training (a member and the base trained alike)."
+            ),
+        }
+    )
 
     def actor_critic_args(self) -> dict[str, Any]:
         # The initialisation of ASAC's reference code: BobMak/asac

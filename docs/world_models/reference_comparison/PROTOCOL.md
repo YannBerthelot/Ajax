@@ -155,13 +155,24 @@ stock `main.py:35-38` update):
 
 ```python
 OVERRIDES = {
-    "seed": s, "task": "gymnax_cartpole", "logdir": f"{RR}/full/ref_s{s}",
-    "jax.platform": "cpu", "jax.compute_dtype": "float32", "jax.param_dtype": "float32",
-    "jax.prealloc": False, "jax.transfer_guard": False,
-    "dyn.rssm.deter": 512, "dyn.rssm.hidden": 64, "dyn.rssm.classes": 4,
+    "seed": s,
+    "task": "gymnax_cartpole",
+    "logdir": f"{RR}/full/ref_s{s}",
+    "jax.platform": "cpu",
+    "jax.compute_dtype": "float32",
+    "jax.param_dtype": "float32",
+    "jax.prealloc": False,
+    "jax.transfer_guard": False,
+    "dyn.rssm.deter": 512,
+    "dyn.rssm.hidden": 64,
+    "dyn.rssm.classes": 4,
     r".*\.units": 64,
-    "run.train_ratio": 512.0, "run.steps": 20000, "run.num_envs": 16,
-    "run.log_every": -1, "run.eval_every": -1, "run.save_every": -1,
+    "run.train_ratio": 512.0,
+    "run.steps": 20000,
+    "run.num_envs": 16,
+    "run.log_every": -1,
+    "run.eval_every": -1,
+    "run.save_every": -1,
     "run.driver_parallel": False,
 }
 ```

@@ -47,6 +47,7 @@ observations (an MLP, or a CNN encoder for images, see
 | `make_vec_env(env_id, n_envs=8)` | `PPO(env_id, n_envs=8)` | [Training an agent](../guide/training.md#parallel-environments) |
 | `VecNormalize(venv)` | `normalize_observations=True`, `normalize_rewards=True` | [Environments](../guide/environments.md#normalisation) |
 | `policy_kwargs=dict(net_arch=[64, 64])` | `actor_architecture=("64", "tanh", "64", "tanh")`, and `critic_architecture` | [Networks](../guide/networks.md) |
+| `learning_rate=3e-4` | `actor_learning_rate=3e-4, critic_learning_rate=3e-4`: one per network | [Algorithms](../algorithms/index.md) |
 | `EvalCallback(eval_env, eval_freq=...)` | nothing: `train` evaluates and returns the evaluations; `LoggingConfig(log_frequency=...)` sets how often | [Logging](../guide/logging.md) |
 | `evaluate_policy(model, env, n_eval_episodes=10)` | `agent.evaluate(state, episodes=10)`, one row of returns per seed | [Quickstart](quickstart.md#use-the-trained-policy) |
 | `tensorboard_log="runs"` | `LoggingConfig(backends=(TensorBoardBackend("runs"),))` | [Logging](../guide/logging.md#backends) |

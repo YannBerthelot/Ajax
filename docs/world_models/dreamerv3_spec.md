@@ -92,7 +92,7 @@ These are the modular primitives worth implementing once and sharing. They are a
 ### Algorithm D: two-hot loss and prediction (raw-space interpolation)
 
 ```python
-def twohot_loss(logits, y, bins):                      # logits [..., n] f32, y [...] f32 raw
+def twohot_loss(logits, y, bins):  # logits [..., n] f32, y [...] f32 raw
     n = len(bins)
     below = clip(sum(bins <= y[..., None], -1) - 1, 0, n - 1)
     above = clip(n - sum(bins > y[..., None], -1), 0, n - 1)
@@ -101,14 +101,17 @@ def twohot_loss(logits, y, bins):                      # logits [..., n] f32, y 
     d_above = where(equal, 1, abs(bins[above] - y))
     w_below = d_above / (d_below + d_above)
     w_above = d_below / (d_below + d_above)
-    target = w_below[..., None] * one_hot(below, n) + w_above[..., None] * one_hot(above, n)
+    target = w_below[..., None] * one_hot(below, n) + w_above[..., None] * one_hot(
+        above, n
+    )
     return -sum(target * (logits - logsumexp(logits, -1, keepdims=True)), -1)
 
-def twohot_pred(logits, bins):                         # odd n, m = (n - 1) // 2
+
+def twohot_pred(logits, bins):  # odd n, m = (n - 1) // 2
     p = softmax(logits)
     m = (len(bins) - 1) // 2
     pb = p * bins
-    return pb[..., m] + sum(pb[..., :m][..., ::-1] + pb[..., m + 1:], -1)
+    return pb[..., m] + sum(pb[..., :m][..., ::-1] + pb[..., m + 1 :], -1)
 ```
 
 ---
@@ -138,23 +141,27 @@ def twohot_pred(logits, bins):                         # odd n, m = (n - 1) // 2
 ### Algorithm A: block-GRU core (`RSSM._core`, dynlayers = 1)
 
 ```python
-def core(deter, stoch, action):     # deter [B, D] bf16, stoch [B, S, C] bf16 one-hot, action [B, A] bf16
-    D, Hd, g = 8 * d, d, 8          # Hd = rssm.hidden
+def core(
+    deter, stoch, action
+):  # deter [B, D] bf16, stoch [B, S, C] bf16 one-hot, action [B, A] bf16
+    D, Hd, g = 8 * d, d, 8  # Hd = rssm.hidden
     z = stoch.reshape(B, S * C)
     a = action / sg(maximum(1, abs(action)))
-    x0 = silu(rms(Linear(Hd)(deter)))          # 'dynin0'  (full deter: the only cross-block mixing)
-    x1 = silu(rms(Linear(Hd)(z)))              # 'dynin1'
-    x2 = silu(rms(Linear(Hd)(a)))              # 'dynin2'
-    x = concat([x0, x1, x2], -1)               # [B, 3Hd]
-    x = repeat(x[:, None, :], g, axis=1)       # [B, g, 3Hd]: same embedding for every block
+    x0 = silu(
+        rms(Linear(Hd)(deter))
+    )  # 'dynin0'  (full deter: the only cross-block mixing)
+    x1 = silu(rms(Linear(Hd)(z)))  # 'dynin1'
+    x2 = silu(rms(Linear(Hd)(a)))  # 'dynin2'
+    x = concat([x0, x1, x2], -1)  # [B, 3Hd]
+    x = repeat(x[:, None, :], g, axis=1)  # [B, g, 3Hd]: same embedding for every block
     x = concat([deter.reshape(B, g, D // g), x], -1).reshape(B, g * (D // g + 3 * Hd))
-    x = silu(rms(BlockLinear(D, g)(x)))        # 'dynhid0'; RMSNorm over the FULL D vector
-    x = BlockLinear(3 * D, g)(x)               # 'dyngru'; no norm, no activation
-    r, c, u = split(x.reshape(B, g, 3 * D // g), 3, axis=-1)   # per-block [r | c | u]
+    x = silu(rms(BlockLinear(D, g)(x)))  # 'dynhid0'; RMSNorm over the FULL D vector
+    x = BlockLinear(3 * D, g)(x)  # 'dyngru'; no norm, no activation
+    r, c, u = split(x.reshape(B, g, 3 * D // g), 3, axis=-1)  # per-block [r | c | u]
     r, c, u = (y.reshape(B, D) for y in (r, c, u))
     r = sigmoid(r)
-    c = tanh(r * c)                            # reset gate scales the whole candidate pre-activation
-    u = sigmoid(u - 1)                         # u weights the candidate; ~0.27 at init
+    c = tanh(r * c)  # reset gate scales the whole candidate pre-activation
+    u = sigmoid(u - 1)  # u weights the candidate; ~0.27 at init
     return u * c + (1 - u) * deter
 ```
 
@@ -233,14 +240,18 @@ losses.dyn, losses.rep = dyn, rep                          # all [B, T]
 ### Algorithm H: λ-return (shared by imagination and replay)
 
 ```python
-def lambda_return(last, term, rew, boot, disc, lam):     # all [N, L] f32; the code's unused 'val' arg dropped
+def lambda_return(
+    last, term, rew, boot, disc, lam
+):  # all [N, L] f32; the code's unused 'val' arg dropped
     live = (1 - term)[:, 1:] * disc
     cont = (1 - last)[:, 1:] * lam
     interm = rew[:, 1:] + (1 - cont) * live * boot[:, 1:]
     R = [boot[:, -1]]
     for t in reversed(range(L - 1)):
         R.append(interm[:, t] + live[:, t] * cont[:, t] * R[-1])
-    return stack(list(reversed(R))[:-1], 1)               # [N, L-1] = R_0 .. R_{L-2}
+    return stack(list(reversed(R))[:-1], 1)  # [N, L-1] = R_0 .. R_{L-2}
+
+
 # imagination: last=0, term=1-c_hat, rew=r_hat, boot=v_online, disc=1 (contdisc), lam=0.95, L=H+1=16
 # replay:      last=is_last, term=is_terminal, rew=reward, boot=imag_R0.reshape(B,K), disc=1-1/333, lam=0.95, L=T=64
 ```
@@ -267,12 +278,17 @@ losses.policy = L_pol.mean(1).reshape(B, K); losses.value = L_val.mean(1).reshap
 ### Algorithm G: replay critic loss (`repl_loss`)
 
 ```python
-feat = repfeat                                    # NOT sg (repval_grad=True)
-boot = R_imag[:, 0].reshape(B, K)                 # imagined lambda-return from each replay state
-Rr   = lambda_return(obs.is_last, obs.is_terminal, obs.reward, boot, 1 - 1/333, 0.95)   # [B, T-1]
-tar  = concat([Rr, zeros(B, 1)], 1)
-L    = f32(~obs.is_last)[:, :-1] * (v(feat).loss(sg(tar)) + 1.0 * v(feat).loss(sg(v_slow(feat).pred())))[:, :-1]
-losses.repval = L                                 # [B, T-1]; mean over all entries, x 0.3
+feat = repfeat  # NOT sg (repval_grad=True)
+boot = R_imag[:, 0].reshape(B, K)  # imagined lambda-return from each replay state
+Rr = lambda_return(
+    obs.is_last, obs.is_terminal, obs.reward, boot, 1 - 1 / 333, 0.95
+)  # [B, T-1]
+tar = concat([Rr, zeros(B, 1)], 1)
+L = (
+    f32(~obs.is_last)[:, :-1]
+    * (v(feat).loss(sg(tar)) + 1.0 * v(feat).loss(sg(v_slow(feat).pred())))[:, :-1]
+)
+losses.repval = L  # [B, T-1]; mean over all entries, x 0.3
 ```
 
 ---
@@ -310,19 +326,23 @@ losses.repval = L                                 # [B, T-1]; mean over all entr
 ### Algorithm I: one optimizer update (shared by all modules)
 
 ```python
-def opt_update(params, grads, state):                 # all f32
-    k = state.count                                   # 0, 1, 2, ...
-    g = {name: gi / max(1.0, norm(gi) / (0.3 * max(1e-3, norm(params[name]))))
-         for name, gi in grads.items()}               # AGC per tensor
+def opt_update(params, grads, state):  # all f32
+    k = state.count  # 0, 1, 2, ...
+    g = {
+        name: gi / max(1.0, norm(gi) / (0.3 * max(1e-3, norm(params[name]))))
+        for name, gi in grads.items()
+    }  # AGC per tensor
     state.t_rms += 1
     state.nu = 0.999 * state.nu + 0.001 * g**2
     u = g / (sqrt(state.nu / (1 - 0.999**state.t_rms)) + 1e-20)
     state.t_mom += 1
     state.mu = 0.9 * state.mu + 0.1 * u
     m = state.mu / (1 - 0.9**state.t_mom)
-    lr = 4e-5 * min(k / 1000, 1.0)                    # first update: lr = 0
+    lr = 4e-5 * min(k / 1000, 1.0)  # first update: lr = 0
     state.count += 1
     return params - lr * m, state
+
+
 # then: slowval = 0.02 * val + 0.98 * slowval
 ```
 
@@ -348,14 +368,21 @@ def opt_update(params, grads, state):                 # all f32
 
 ```python
 # data: dict of [B, 65, ...] incl. obs keys, action, reward, is_first/last/terminal, dyn/deter, dyn/stoch, stepid
-carry0  = dict(deter=bf16(data['dyn/deter'][:, 0]), stoch=bf16(data['dyn/stoch'][:, 0]))   # constants, no grad
-obs     = {k: data[k][:, 1:] for k in obs_keys}            # [B, 64]
-prevact = {k: data[k][:, 0:64] for k in act_keys}          # a_{t-1} for each obs_t
-(loss, aux), grads = value_and_grad(total_loss)(params, carry0, obs, prevact)   # Algorithms E, F, G
-params, opt_state = opt_update(params, grads, opt_state)   # Algorithm I
+carry0 = dict(
+    deter=bf16(data["dyn/deter"][:, 0]), stoch=bf16(data["dyn/stoch"][:, 0])
+)  # constants, no grad
+obs = {k: data[k][:, 1:] for k in obs_keys}  # [B, 64]
+prevact = {k: data[k][:, 0:64] for k in act_keys}  # a_{t-1} for each obs_t
+(loss, aux), grads = value_and_grad(total_loss)(
+    params, carry0, obs, prevact
+)  # Algorithms E, F, G
+params, opt_state = opt_update(params, grads, opt_state)  # Algorithm I
 slowval = 0.02 * params.val + 0.98 * slowval
-replay.update(stepid=data['stepid'][:, 1:],                # write back fresh posteriors for indices 1..64
-              deter=aux.entries.deter, stoch=aux.entries.stoch)   # computed with the PRE-update params
+replay.update(
+    stepid=data["stepid"][:, 1:],  # write back fresh posteriors for indices 1..64
+    deter=aux.entries.deter,
+    stoch=aux.entries.stoch,
+)  # computed with the PRE-update params
 ```
 
 ---
@@ -374,21 +401,34 @@ replay.update(stepid=data['stepid'][:, 1:],                # write back fresh po
 
 ```python
 step = 0
-ratio = Ratio(train_ratio / (B * T))                  # 512 / 1024 = 0.5 for the DMC-proprio paper setting
-obs = envs.reset()                                    # N = 16 envs; is_first=True, reward=0
-carry = init_policy(N)                                # zeros; prevact zeros
-while step < total_agent_steps:                       # 250K agent steps = 500K env steps at repeat 2
-    carry, act, entries = policy(params, carry, obs)  # Algorithm B on the (N,) batch, then sample pi
-    act_env = clip(act, -1, 1)                        # ClipAction then NormalizeAction
-    act_store = where(obs.is_last, 0, act)            # driver zeroes actions at is_last
-    for w in range(N):                                # per transition
+ratio = Ratio(
+    train_ratio / (B * T)
+)  # 512 / 1024 = 0.5 for the DMC-proprio paper setting
+obs = envs.reset()  # N = 16 envs; is_first=True, reward=0
+carry = init_policy(N)  # zeros; prevact zeros
+while step < total_agent_steps:  # 250K agent steps = 500K env steps at repeat 2
+    carry, act, entries = policy(
+        params, carry, obs
+    )  # Algorithm B on the (N,) batch, then sample pi
+    act_env = clip(act, -1, 1)  # ClipAction then NormalizeAction
+    act_store = where(obs.is_last, 0, act)  # driver zeroes actions at is_last
+    for w in range(N):  # per transition
         step += 1
-        replay.add(w, {**obs[w], 'action': act_store[w], 'dyn/deter': entries.deter[w],
-                       'dyn/stoch': entries.stoch[w]})
-        if len(replay) >= B * T:                      # items, 1024
+        replay.add(
+            w,
+            {
+                **obs[w],
+                "action": act_store[w],
+                "dyn/deter": entries.deter[w],
+                "dyn/stoch": entries.stoch[w],
+            },
+        )
+        if len(replay) >= B * T:  # items, 1024
             for _ in range(ratio(step)):
-                train_step(replay.sample(B))          # Algorithm J; online-queue pops first
-    obs = envs.step(act_env, reset=obs.is_last)       # is_last envs are reset; next obs is_first
+                train_step(replay.sample(B))  # Algorithm J; online-queue pops first
+    obs = envs.step(
+        act_env, reset=obs.is_last
+    )  # is_last envs are reset; next obs is_first
 ```
 
 ---

@@ -59,7 +59,9 @@ from ajax import SAC
 from ajax.environments.create import build_env_from_id
 
 # Every episode of copy i restarts from the same cached state, as older runs did.
-env, _ = build_env_from_id("CartpoleBalance", n_envs=4, episode_length=1_000, fresh_reset=False)
+env, _ = build_env_from_id(
+    "CartpoleBalance", n_envs=4, episode_length=1_000, fresh_reset=False
+)
 agent = SAC(env, n_envs=4)
 ```
 
@@ -223,6 +225,81 @@ state, _ = agent.train(seed=0, n_timesteps=1_000)
 
 `SAC("Pendulum-v1", env_params=params)` does the same with an id. Brax and
 Playground ids take no `env_params`: passing some raises.
+
+### Writing one
+
+An environment of your own is a subclass of gymnax's `Environment`: a state,
+parameters, a reset, a step and the two spaces. Here a point moves along a
+line and is rewarded for nearing a target:
+
+```python
+import jax
+import jax.numpy as jnp
+from flax import struct
+from gymnax.environments import environment, spaces
+
+from ajax import PPO
+
+
+@struct.dataclass
+class State(environment.EnvState):  # EnvState holds `time`, the step count
+    x: jax.Array  # the point's position
+    target: jax.Array
+
+
+@struct.dataclass
+class Params(environment.EnvParams):
+    max_steps_in_episode: int = 50  # the time limit
+
+
+class Reach(environment.Environment):
+    """A point moves by 0.1 * action towards a random target."""
+
+    @property
+    def default_params(self):
+        return Params()
+
+    def reset_env(self, key, params):
+        target = jax.random.uniform(key, minval=-1.0, maxval=1.0)
+        state = State(time=0, x=jnp.float32(0.0), target=target)
+        return self.get_obs(state), state
+
+    def step_env(self, key, state, action, params):
+        x = state.x + 0.1 * jnp.clip(action[0], -1.0, 1.0)
+        state = state.replace(x=x, time=state.time + 1)
+        reward = -jnp.abs(state.target - x)
+        terminated = jnp.abs(x) > 2.0  # the task's own end, not the time limit
+        return self.get_obs(state), state, reward, terminated, {}
+
+    def get_obs(self, state, params=None, key=None):
+        return jnp.stack([state.x, state.target])
+
+    def observation_space(self, params):
+        return spaces.Box(-jnp.inf, jnp.inf, (2,))
+
+    def action_space(self, params):
+        return spaces.Box(-1.0, 1.0, (1,))
+
+
+agent = PPO(Reach(), env_params=Params(), n_envs=8, n_steps=64)
+state, evaluations = agent.train(seed=[0, 1], n_timesteps=5_120)
+```
+
+What to know when writing one:
+
+- **`step_env` returns five values, and the fourth is the termination
+  only.** Count the steps in `state.time`. gymnax's own `step`, the one Ajax
+  and your loops call, compares it with `params.max_steps_in_episode`, adds
+  the `truncated` flag and resets the environment, so `env.step` returns six
+  values: `obs, state, reward, terminated, truncated, info`.
+- **Leave the time limit out of that fourth value.** Returned there, it
+  would be a termination, and the agent would stop bootstrapping at the
+  limit ([Time limits](#time-limits)).
+- **The step is compiled.** It reads its randomness from `key`, and chooses
+  between values with `jnp.where`, not with a Python `if` on them.
+- **A saved agent does not hold the environment.** `agent.save` stores the
+  agent's plain arguments; pass the environment again when loading:
+  `ajax.load(path, env_id=Reach(), env_params=Params())`.
 
 ### TargetGym
 
@@ -549,7 +626,8 @@ it for the bootstrap.
 Each backend reports the two flags its own way:
 
 - **gymnax 1.0** returns `terminated` and `truncated` apart. Ajax uses them
-  as they are.
+  as they are. An environment of your own gets its `truncated` from gymnax
+  the same way ([Writing one](#writing-one)).
 - **Older gymnax-style environments** return one `done` that folds in the
   time limit, which gymnax hands back as `terminated`: every time limit then
   looks like the end of the task. Wrap such an environment in

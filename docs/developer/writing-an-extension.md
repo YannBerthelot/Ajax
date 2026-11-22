@@ -218,8 +218,8 @@ agent = TD3(
 )
 logging = LoggingConfig(log_frequency=500, backends=())
 state, evaluations = agent.train(seed=[0, 1], n_timesteps=2000, logging_config=logging)
-print(state.ext_state[0])                              # [800 800]
-print(evaluations["ClippedTarget/active updates"])     # [[301. 800. 800. 800.] ...]
+print(state.ext_state[0])  # [800 800]
+print(evaluations["ClippedTarget/active updates"])  # [[301. 800. 800. 800.] ...]
 ```
 
 Reading it part by part:
@@ -415,11 +415,15 @@ class EffectiveHorizon(Extension):
 
     def eval_metrics(self, agent_state, ext_state, rng, context):
         if self.gamma is None:
-            raise ValueError("EffectiveHorizon needs gamma: pass it, or use an agent that binds it")
+            raise ValueError(
+                "EffectiveHorizon needs gamma: pass it, or use an agent that binds it"
+            )
         return {"Debug/effective horizon": jnp.asarray(1.0 / (1.0 - self.gamma))}
 
 
-agent = SAC("Pendulum-v1", gamma=0.95, learning_starts=200, extensions=(EffectiveHorizon(),))
+agent = SAC(
+    "Pendulum-v1", gamma=0.95, learning_starts=200, extensions=(EffectiveHorizon(),)
+)
 logging = LoggingConfig(log_frequency=500, backends=())
 _, evaluations = agent.train(seed=0, n_timesteps=1000, logging_config=logging)
 print(evaluations["Debug/effective horizon"])  # [[20. 20.]]

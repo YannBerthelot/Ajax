@@ -62,6 +62,16 @@ def _unflatten(names: tuple, values: Sequence[Any]) -> Evaluations:
 jax.tree_util.register_pytree_node(Evaluations, _flatten, _unflatten)
 
 
+def summary(scores: Sequence[float], unit: str) -> str:
+    """The mean return of ``scores``, with their range when several."""
+    text = f"return {np.mean(scores):.1f}"
+    if len(scores) > 1:
+        text += (
+            f" (min {min(scores):.1f}, max {max(scores):.1f} over {len(scores)} {unit})"
+        )
+    return text
+
+
 class ProgressPrinter:
     """Prints a run's progress: a first line when training starts, one per
     evaluation, one at the end.
@@ -71,7 +81,9 @@ class ProgressPrinter:
     train side by side, so an evaluation is one line, their mean return and
     its range, printed once every member's has come; else (a Gymnasium
     environment, one seed after another) each member's evaluation is a line
-    of its own. ``write`` and ``clock`` are the print and the timer.
+    of its own. ``groups``: each member's group (a sweep's configuration);
+    with more than one, an evaluation's line is followed by one per group.
+    ``write`` and ``clock`` are the print and the timer.
     """
 
     def __init__(
@@ -82,8 +94,10 @@ class ProgressPrinter:
         together: bool = True,
         write: Callable[[str], None] = print,
         clock: Callable[[], float] = time.perf_counter,
+        groups: Sequence[str] | None = None,
     ) -> None:
         self.title, self.labels = title, list(labels)
+        self.groups = list(groups) if groups and len(set(groups)) > 1 else []
         self.end_timestep, self.together = int(end_timestep), together
         self.write, self.clock = write, clock
         self.started = clock()
@@ -113,17 +127,16 @@ class ProgressPrinter:
 
     def line(self, step: int, scores: list, label: Any) -> None:
         elapsed = self.clock() - self.started
-        text = (
-            f"{step:>11,} / {self.end_timestep:,} steps | return {np.mean(scores):.1f}"
-        )
-        if len(scores) > 1:
-            text += (
-                f" (min {min(scores):.1f}, max {max(scores):.1f}"
-                f" over {len(scores)} seeds)"
-            )
+        text = f"{step:>11,} / {self.end_timestep:,} steps | "
+        text += summary(scores, "runs" if self.groups else "seeds")
         if label is not None:
             text += f" | {label}"
         self.write(f"{text} | {elapsed:.1f} s")
+        if len(self.groups) != len(scores):
+            return
+        for group in dict.fromkeys(self.groups):
+            own = [s for s, g in zip(scores, self.groups, strict=True) if g == group]
+            self.write(f"{'':>14}{group}: {summary(own, 'seeds')}")
 
     def close(self) -> None:
         self.write(f"Done in {self.clock() - self.started:.1f} s.")
@@ -137,13 +150,15 @@ def run_logging(
     end_timestep: int,
     together: bool,
     iteration_steps: int = 1,
+    groups: Sequence[str] | None = None,
 ) -> tuple[Any, Any]:
     """train's ``logging_config`` as the call runs it, and the printer to
     close at its end (None unless the default prints): a LoggingConfig or
     None as given; ``"default"`` becomes about ten evaluations
     (:func:`default_log_frequency`) with a started :class:`ProgressPrinter`
     and no backend, or None for a call of
-    no step (one that only builds the state)."""
+    no step (one that only builds the state). ``groups``: each member's
+    configuration in a sweep, for the printer."""
     if not isinstance(logging_config, str):
         return logging_config, None
     if logging_config != "default":
@@ -158,6 +173,7 @@ def run_logging(
         [f"seed {seed}" for seed in seeds],
         end_timestep,
         together=together,
+        groups=groups,
     )
     printer.start()
     config = LoggingConfig(

@@ -155,12 +155,16 @@ differently, so do not expect identical numbers across machines.
 with every seed:
 
 ```python
-state, _ = agent.train(
+state, evaluations = agent.train(
     seed=[1, 2],
     n_timesteps=2_000,
     sweep={"actor_learning_rate": [1e-4, 3e-4], "tau": [0.005, 0.02]},
 )
 agent.members[0]  # {'seed': 1, 'actor_learning_rate': 0.0001, 'tau': 0.005}
+
+# Each configuration with its rows, one per seed: here returns is (2, evaluations).
+for configuration, returns in agent.by_configuration(evaluations.returns):
+    print(configuration, "final return", returns[:, -1].mean())
 ```
 
 A dict of value lists trains its grid, here 4 configurations, so 8 members;
@@ -178,8 +182,9 @@ network sizes, `n_envs`, `batch_size` or `buffer_size`, takes one `train`
 call per value. Each member keeps its own replay buffer, so memory grows with
 the members.
 
-With a `logging_config`, each member is a logged run of its own, with its
-values in its run config. A sweep continues from its state with the same
+Without a `logging_config`, each evaluation prints a line for all the runs
+and one per configuration under it. With one, each member is a logged run
+of its own, with its values in its run config. A sweep continues from its state with the same
 `seed` and `sweep`.
 
 ### Parallel environments
@@ -316,7 +321,9 @@ def pd_expert(obs):
 agent = TD3("Pendulum-v1", learning_starts=0)  # online: update from the first step
 data = record(pd_expert, agent.env_args, jax.random.PRNGKey(0), n_steps=1_000)
 logging = LoggingConfig(log_frequency=500, backends=())
-state, offline = agent.train_offline(data, n_updates=1_000, seed=[0], logging_config=logging)
+state, offline = agent.train_offline(
+    data, n_updates=1_000, seed=[0], logging_config=logging
+)
 print(offline["timestep"])  # [[ 500 1000]]: updates done
 state, online = agent.train(seed=[0], n_timesteps=1_000, initial_state=state)
 ```

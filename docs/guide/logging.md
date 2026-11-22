@@ -34,8 +34,12 @@ logging = LoggingConfig(
 | `project_name`, `group_name` | `None` | with the deprecated flags: the W&B project and group |
 
 With `backends=()`, `train` still evaluates and returns the evaluations in
-memory: the quickest way to get learning curves. Without `backends`, each
-run writes TensorBoard event files under `./tensorboard/<run id>/`. Setting
+memory: the quickest way to get learning curves. A `LoggingConfig` built
+without the `backends` argument writes each run's TensorBoard event files
+under `./tensorboard/<run id>/`; the folder is named by the run id alone,
+without `run_name`. A `train` call given no `logging_config` writes no
+file: it prints a line per evaluation, which a `LoggingConfig` of yours
+does not. Setting
 a deprecated flag together with `backends` is refused.
 
 ### The run configuration
@@ -184,7 +188,9 @@ from ajax.logging import LoggingConfig
 
 agent = PPO("CartPole-v1", n_envs=8, n_steps=128)
 logging = LoggingConfig(log_frequency=4_096, backends=())
-state, evaluations = agent.train(seed=[0, 1], n_timesteps=16_384, logging_config=logging)
+state, evaluations = agent.train(
+    seed=[0, 1], n_timesteps=16_384, logging_config=logging
+)
 
 print(sorted(evaluations))  # every logged name
 print(evaluations["timestep"][0])  # [ 4096  8192 12288 16384]
@@ -328,7 +334,9 @@ class JsonLinesBackend:
         pass
 
 
-logging = LoggingConfig(log_frequency=5_000, backends=(JsonLinesBackend("evals.jsonl"),))
+logging = LoggingConfig(
+    log_frequency=5_000, backends=(JsonLinesBackend("evals.jsonl"),)
+)
 ```
 
 The backend runs in the logging worker (below), a process of its own: it

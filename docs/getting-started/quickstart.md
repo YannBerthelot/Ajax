@@ -142,7 +142,8 @@ print(returns.mean(axis=1))  # each seed's score
 ```
 
 To act in a loop of your own, `agent.predict(state, observation)` returns
-one seed's action for an observation, in the environment's units, and
+the first seed's action for an observation (`seed_index` picks another), in
+the environment's units, and
 `agent.policy(state)` carries a memory from step to step.
 [Train, evaluate, deploy](../guide/deploy.md) shows both.
 

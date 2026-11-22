@@ -123,18 +123,26 @@ def pd_expert(obs):
 
 
 # SAC writes 1,000 expert steps to its replay buffer before training.
-sac = SAC("Pendulum-v1", expert_policy=pd_expert, learning_starts=1_000,
-          extensions=(ExpertPrefill(n_steps=1_000),))
+sac = SAC(
+    "Pendulum-v1",
+    expert_policy=pd_expert,
+    learning_starts=1_000,
+    extensions=(ExpertPrefill(n_steps=1_000),),
+)
 logging = LoggingConfig(log_frequency=1_000, backends=())
 state, evaluations = sac.train(seed=0, n_timesteps=2_000, logging_config=logging)
 print(evaluations["Eval/expert bias"])  # the agent's return minus the expert's
 
 # TD3 clones the expert on 1,000 of its steps before training, then keeps
 # pulling its actor towards the expert's actions with an extra loss term.
-td3 = TD3("Pendulum-v1", learning_starts=1_000, extensions=(
-    CloningPretrain(pd_expert, n_steps=1_000, epochs=2),
-    ImitationLoss(pd_expert),
-))
+td3 = TD3(
+    "Pendulum-v1",
+    learning_starts=1_000,
+    extensions=(
+        CloningPretrain(pd_expert, n_steps=1_000, epochs=2),
+        ImitationLoss(pd_expert),
+    ),
+)
 state, _ = td3.train(seed=0, n_timesteps=2_000)
 ```
 
@@ -157,8 +165,14 @@ the other agents; `TDMPC2MultiTask` steps no environment while it trains.
 from ajax import DreamerV3
 
 # The smallest model and a low train ratio, for a first look on a CPU.
-agent = DreamerV3("CartPole-v1", model_size="1m", n_envs=4, train_ratio=32,
-                  batch_size=4, batch_length=16)
+agent = DreamerV3(
+    "CartPole-v1",
+    model_size="1m",
+    n_envs=4,
+    train_ratio=32,
+    batch_size=4,
+    batch_length=16,
+)
 state, _ = agent.train(seed=0, n_timesteps=1_000)
 ```
 
@@ -245,10 +259,12 @@ end-to-end JAX libraries, not beside these two.
   over devices ([Performance](../guide/performance.md)), but each seed
   trains on one: it has no `pmap` or sharding. Brax's training agents and
   Stoix train across devices ([Brax][brax-agents], [Stoix][stoix]).
-- **You want a hyperparameter sweep in one program.** Ajax compiles the
-  hyperparameters into the program, so each trial of a sweep compiles anew
-  ([Performance](../guide/performance.md)). Rejax vmaps over
-  hyperparameters as well as seeds ([README][rejax]).
+- **You want to sweep any hyperparameter of any agent in one program.**
+  `train(sweep=...)` trains several configurations in one program, but only
+  over the numbers an agent declares sweepable, and so far only SAC and PPO
+  declare any ([Training an agent](../guide/training.md#hyperparameter-sweeps)).
+  Any other trial compiles anew. Rejax vmaps over hyperparameters as well
+  as seeds ([README][rejax]).
 - **You want a mature, stable library.** SB3 describes itself as stable, with
   development focused on bug fixes and maintenance, and lists documentation,
   high code coverage and type hints among its features ([README][sb3]). It

@@ -33,8 +33,12 @@ from ajax.logging import LoggingConfig
 
 agent = PPO("CartPole-v1", n_envs=4, n_steps=128, batch_size=32)
 logging = LoggingConfig(log_frequency=4_096, backends=())
-state, evaluations = agent.train(seed=[1, 2], n_timesteps=20_480, logging_config=logging)
-print(evaluations["Eval/episodic mean reward"])  # one row per seed, one column per evaluation
+state, evaluations = agent.train(
+    seed=[1, 2], n_timesteps=20_480, logging_config=logging
+)
+print(
+    evaluations["Eval/episodic mean reward"]
+)  # one row per seed, one column per evaluation
 ```
 
 With memory, the update replays the rollout in contiguous chunks of
@@ -44,8 +48,14 @@ With memory, the update replays the rollout in contiguous chunks of
 from ajax import PPO
 from ajax.networks.memory import MemoryConfig
 
-agent = PPO("CartPole-v1", n_envs=4, n_steps=128, batch_size=32,
-            memory=MemoryConfig(kind="gru", hidden_size=32), bptt_length=32)
+agent = PPO(
+    "CartPole-v1",
+    n_envs=4,
+    n_steps=128,
+    batch_size=32,
+    memory=MemoryConfig(kind="gru", hidden_size=32),
+    bptt_length=32,
+)
 state, _ = agent.train(seed=0, n_timesteps=4_096)
 ```
 

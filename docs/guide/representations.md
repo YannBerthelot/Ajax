@@ -15,7 +15,9 @@ from ajax.logging import LoggingConfig
 probe = RepresentationProbe("runs/pendulum", probe_interval=1_000)
 agent = SAC("Pendulum-v1", extensions=(probe,))
 logging = LoggingConfig(log_frequency=1_000, backends=())
-state, evaluations = agent.train(seed=[0, 1], n_timesteps=10_000, logging_config=logging)
+state, evaluations = agent.train(
+    seed=[0, 1], n_timesteps=10_000, logging_config=logging
+)
 ```
 
 It adds nothing to a run that does not list it. A run that lists it trains as

@@ -28,7 +28,9 @@ What to know about it:
 - **It serves relaunches, not new trials.** A rerun of the same script, or
   a repeated or resumed trial, loads its program from the cache. A new trial
   of a hyperparameter sweep is a different program: its hyperparameters are
-  compiled in as constants, so it compiles from scratch. The budget, the
+  compiled in as constants, so it compiles from scratch. `train(sweep=...)`
+  avoids this for the fields it covers
+  ([Hyperparameter sweeps](training.md#hyperparameter-sweeps)). The budget, the
   agent's settings and the shapes are all part of the program.
 - **A logged run is cached from JAX 0.11.** The [logging worker](logging.md)
   is fed by a host callback, and JAX 0.10 never stores a program that

@@ -39,11 +39,18 @@ from ajax import DreamerV3
 from ajax.logging import LoggingConfig
 
 # The smallest preset and a low train ratio, for a quick look on a CPU.
-agent = DreamerV3("CartPole-v1", model_size="1m", n_envs=4, train_ratio=32,
-                  batch_size=4, batch_length=16)
+agent = DreamerV3(
+    "CartPole-v1",
+    model_size="1m",
+    n_envs=4,
+    train_ratio=32,
+    batch_size=4,
+    batch_length=16,
+)
 logging = LoggingConfig(log_frequency=1_000, backends=())
-state, evaluations = agent.train(seed=0, n_timesteps=2_000, num_episode_test=2,
-                                 logging_config=logging)
+state, evaluations = agent.train(
+    seed=0, n_timesteps=2_000, num_episode_test=2, logging_config=logging
+)
 print(evaluations["Train/episodic mean reward"])  # the score the paper reports
 print(evaluations["Eval/episodic mean reward"])
 ```
@@ -56,8 +63,14 @@ train ratio of 512, action repeat 2, and 500K environment frames, which is
 # doc: skip (the paper's full budget; benchmarks/world_models/paper_protocol.py runs it)
 from ajax import DreamerV3
 
-agent = DreamerV3("CheetahRun", model_size="12m", n_envs=16, train_ratio=512,
-                  action_repeat=2, episode_length=1000)
+agent = DreamerV3(
+    "CheetahRun",
+    model_size="12m",
+    n_envs=16,
+    train_ratio=512,
+    action_repeat=2,
+    episode_length=1000,
+)
 state, _ = agent.train(seed=0, n_timesteps=250_000)  # 500K env frames
 ```
 

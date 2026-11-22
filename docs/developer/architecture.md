@@ -176,11 +176,11 @@ from ajax import PPO
 agent = PPO("CartPole-v1", n_envs=2, n_steps=64)
 state, out = agent.train(seed=[0, 1], n_timesteps=512)
 
-print(out)                                # None: no logging config, no evaluation
-print(type(state).__name__)               # PPOState: the whole run, one pytree
-print(state.collector_state.timestep)     # [640 640]: env steps, every env counted
+print(out)  # None: no logging config, no evaluation
+print(type(state).__name__)  # PPOState: the whole run, one pytree
+print(state.collector_state.timestep)  # [640 640]: env steps, every env counted
 print(jax.tree.leaves(state.actor_state.params)[0].shape[0])  # 2: the seed axis
-print(agent.config["algo_name"], agent.config["n_steps"])     # PPO 64: the run config
+print(agent.config["algo_name"], agent.config["n_steps"])  # PPO 64: the run config
 ```
 
 The timestep reads 640, not 512, because an on-policy run always makes one

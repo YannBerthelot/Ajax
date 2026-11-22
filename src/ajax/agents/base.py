@@ -10,7 +10,13 @@ import numpy as np
 from gymnax import EnvParams
 
 from ajax.agents.devices import checked_devices, train_on_devices
-from ajax.agents.sweep import Sweep, member_row, member_values
+from ajax.agents.sweep import (
+    Sweep,
+    by_configuration,
+    configuration_label,
+    member_row,
+    member_values,
+)
 from ajax.agents.sweep import check as check_sweep
 from ajax.agents.sweep import configurations as sweep_configurations
 from ajax.controller import (
@@ -828,6 +834,7 @@ class ActorCritic:
             end,
             together=not in_python,
             iteration_steps=self.smallest_evaluation_spacing(),
+            groups=[configuration_label(configuration) for configuration, _ in pairs],
         )
         if isinstance(logging_config, LoggingConfig):
             logging_config = logging_config.with_agent_config(self.config)
@@ -925,6 +932,28 @@ class ActorCritic:
         jax.block_until_ready(result)
         stop_async_logging()
         return finished(result, printer)
+
+    def by_configuration(self, values: Any) -> list[tuple[dict, np.ndarray]]:
+        """The last train call's ``values``, a row per member (such as
+        ``evaluations.returns``), as ``(configuration, rows)`` pairs in the
+        sweep's order, each configuration's rows one per seed."""
+        return by_configuration(self.members, values)
+
+    def __repr__(self) -> str:
+        """The agent as the call that builds it: its class and the
+        arguments that differ from their defaults. An object (a prebuilt
+        environment, an extension) shows as its class."""
+        from ajax.checkpoint import agent_record  # it imports the agents' modules
+
+        record = agent_record(self)
+        shown = []
+        for name, parameter in inspect.signature(type(self)).parameters.items():
+            if name in record["arguments"]:
+                if record["arguments"][name] != parameter.default:
+                    shown.append(f"{name}={record['arguments'][name]!r}")
+            elif self.config.get(name) is not None:
+                shown.append(f"{name}=<{type(self.config[name]).__name__}>")
+        return f"{type(self).__name__}({', '.join(shown)})"
 
     def save(self, state: BaseAgentState, path: str) -> None:
         """Write ``state`` and this agent's class and plain constructor

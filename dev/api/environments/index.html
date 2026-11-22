@@ -2722,6 +2722,28 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#ajax.environments.gymnasium.rendered_frame" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        rendered_frame
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.gymnasium.frames_per_second" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        frames_per_second
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -4232,6 +4254,28 @@
     <span class="md-ellipsis">
       
         with_own_copies
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.gymnasium.rendered_frame" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        rendered_frame
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.gymnasium.frames_per_second" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        frames_per_second
       
     </span>
   </a>
@@ -5836,14 +5880,57 @@ with gymnax's interface. <code>"gymnasium:&lt;env_id&gt;"</code> builds one by i
 
 
 <a href="#ajax.environments.gymnasium.with_own_copies" class="headerlink" title="Permanent link">&para;</a></h3>
-<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">with_own_copies</span><span class="p">(</span><span class="n">env</span><span class="p">)</span>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">with_own_copies</span><span class="p">(</span><span class="n">env</span><span class="p">,</span> <span class="o">**</span><span class="n">make_overrides</span><span class="p">)</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
         <p><code>env</code> with every :class:<code>GymnasiumEnv</code> under its wrappers given a
 pool of its own, so that stepping it (evaluation does) leaves <code>env</code>'s
-episodes where they are. Other environments come back as they are.</p>
+episodes where they are. Other environments come back as they are.
+<code>make_overrides</code> replace the make arguments of the pool's copies
+(<code>render_mode="rgb_array"</code>, to draw them).</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="ajax.environments.gymnasium.rendered_frame" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">rendered_frame</span>
+
+
+<a href="#ajax.environments.gymnasium.rendered_frame" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">rendered_frame</span><span class="p">(</span><span class="n">env</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>The picture of <code>env</code>'s first copy where it stands, for a pool built
+with <code>render_mode="rgb_array"</code>.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="ajax.environments.gymnasium.frames_per_second" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">frames_per_second</span>
+
+
+<a href="#ajax.environments.gymnasium.frames_per_second" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">frames_per_second</span><span class="p">(</span><span class="n">env</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="mf">30.0</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>The speed <code>env</code>'s copies say they are drawn at (<code>render_fps</code>).</p>
 
 
     </div>

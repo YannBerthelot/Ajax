@@ -3207,7 +3207,7 @@ nothing.</p>
 <tr>
 <td><code>on_evaluation</code></td>
 <td><code>None</code></td>
-<td>a function called in the training process with each seed's evaluation, <code>on_evaluation(metrics, index)</code>; a backend logs in a process of its own</td>
+<td>a function called in the training process with each seed's evaluation, <code>on_evaluation(metrics, index)</code>, where <code>index</code> says which seed; within one evaluation the seeds' calls come in no fixed order; a backend logs in a process of its own</td>
 </tr>
 <tr>
 <td><code>folder</code></td>

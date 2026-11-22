@@ -5130,7 +5130,9 @@ rebuilt with <code>num_episodes</code> envs; evaluate a nominal system instead).
 
 
 <a href="#ajax.evaluate.policy_episode" class="headerlink" title="Permanent link">&para;</a></h3>
-<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">policy_episode</span><span class="p">(</span><span class="n">env_args</span><span class="p">,</span> <span class="n">parts</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">max_steps</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">policy_episode</span><span class="p">(</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">env_args</span><span class="p">,</span> <span class="n">parts</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">max_steps</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">snapshot</span><span class="o">=</span><span class="kc">None</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="p">)</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -5142,7 +5144,10 @@ the one ending the episode (whose state is already the next episode's),
 each with its leading axis of one env, and every step's reward. It
 stops at the episode's end, or after <code>max_steps</code> steps. The steps run
 one by one from Python, each compiled: the states are kept, which a
-compiled loop would have to hold for the longest episode possible.</p>
+compiled loop would have to hold for the longest episode possible.
+<code>snapshot(env, state)</code> replaces each kept state by what it returns,
+taken when the env stands there: a Gymnasium env's state lives in its
+simulator, which the next step moves.</p>
 
 
     </div>

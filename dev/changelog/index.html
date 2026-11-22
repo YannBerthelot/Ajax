@@ -3141,14 +3141,16 @@ PyPI as <code>ajax-rl</code>.</p>
   environment takes <code>agent.render(state, path, draw=my_draw)</code>, where
   <code>my_draw(env_state)</code> returns one picture. Both were refused before.</li>
 <li><strong>Sweeps on every agent of the shared loop.</strong> <code>train(sweep=...)</code> now
-  varies numbers on APO, ASAC, AVG, DAgger, DQN, IQL, PQN, REDQ, RVI-SAC,
+  varies numbers on APO, ASAC, AVG, CrossQ, DAgger, DQN, IQL, PQN, REDQ, RVI-SAC,
   TD3, TQC and UDRL as on SAC and PPO; <code>agent.sweepable_fields()</code> lists each
   agent's. A class declares the fields it defines (<code>sweepable</code>), a mixin its
   own, and an agent takes the union, less those it refuses with a reason
   (<code>unsweepable</code>). One test checks every declared field of every agent
-  against separate runs. Not yet: CrossQ, the world models and APG, and
-  fields whose optimiser or schedule is built with the agent (DQN's and
-  CrossQ's <code>learning_rate</code>, the exploration's <code>epsilon_decay_frac</code>).</li>
+  against separate runs, and against a sweep of the agent built with the
+  value: CrossQ's sweep rounds apart from a separate run too soon for the
+  first comparison. Not yet: the world models and APG, and fields whose
+  optimiser or schedule is built with the agent (DQN's and CrossQ's
+  <code>learning_rate</code>, the exploration's <code>epsilon_decay_frac</code>).</li>
 <li><strong>More checks</strong>, after a third newcomer trial:<ul>
 <li>an expert whose action drops its last axis is refused where Ajax
   first calls it, naming the expert and the axis (before, a

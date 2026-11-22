@@ -3427,11 +3427,14 @@ a list of dicts trains those configurations. The returned arrays have one
 leading row per member, configuration by configuration, each over the
 seeds, as <code>agent.members</code> lists them. Each member trains as a separate run
 of its configuration with its seed would, up to floating-point rounding, and
-the sweep compiles once.</p>
+the sweep compiles once. Rounding grows over a run as it does between two
+machines: on CrossQ, which has no target network to damp it, a member and
+its separate run can part visibly within a hundred updates, while the
+member stays equal to a sweep of the agent built with its values.</p>
 <p>Only the agent's sweepable fields can vary (<code>agent.sweepable_fields()</code>):
 numbers its training reads as numbers, such as SAC's learning rates, <code>gamma</code>
 and <code>tau</code>, or PPO's <code>ent_coef</code> and <code>clip_range</code>. Every agent on the shared
-training loop declares some, but CrossQ; <code>print(agent.sweepable_fields())</code>
+training loop declares some; <code>print(agent.sweepable_fields())</code>
 lists them, and a refused field's message gives the agent's reason where it
 has one. A setting that changes array shapes or the program, such as the
 network sizes, <code>n_envs</code>, <code>batch_size</code> or <code>buffer_size</code>, takes one <code>train</code>

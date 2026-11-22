@@ -3403,8 +3403,18 @@ and <code>train</code> runs all of them at once with <code>jax.vmap</code>: one 
 program, every seed in step. More seeds cost little extra time until the
 device is full (<a href="../performance/">Performance</a> has the measurements), so run
 the seeds you need in one call rather than one call per seed.</p>
-<p>Every array in the returned state has the seed axis first. Seed <code>i</code>'s part
-is <code>jax.tree.map(lambda x: x[i], state)</code>.</p>
+<p>Everything <code>train</code> returns has the seed axis first, whatever the number of
+seeds: with <code>seed=0</code>, <code>evaluations.returns</code> has shape <code>(1, evaluations)</code>, and
+that run's curve is <code>evaluations.returns[0]</code>. The shape does not depend on
+how the seed is written, so a script keeps working when one seed becomes
+several. The last line <code>train</code> prints gives the shape, and so does
+<code>print(evaluations)</code>. Seed <code>i</code>'s part of the state is
+<code>jax.tree.map(lambda x: x[i], state)</code>.</p>
+<p>To summarise several seeds, the scores of
+<a href="../comparing-agents/"><code>ajax.compare</code></a> take that array as it is
+(<code>final_return</code>, <code>last_third</code>, <code>auc</code>), and so do libraries that expect one
+row per run, such as <a href="https://github.com/google-research/rliable">rliable</a>
+for interquartile means and their intervals.</p>
 <p>The same seed on the same machine and library versions gives the same run.
 Two programs compiled apart, or on different hardware, may round
 differently, so do not expect identical numbers across machines.</p>

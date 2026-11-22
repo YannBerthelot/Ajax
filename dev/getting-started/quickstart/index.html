@@ -3047,7 +3047,8 @@ Here PPO learns CartPole with three seeds at once:</p>
 </code></pre></div>
 <p>It is a dict of every logged name to an array with one row per seed and one
 column per evaluation; <code>returns</code> and <code>timesteps</code> are its two most read
-entries. To choose when the evaluations come, or to log to TensorBoard or
+entries. One seed has its row too: after <code>train(seed=0)</code>, the run's curve is
+<code>evaluations.returns[0]</code>. To choose when the evaluations come, or to log to TensorBoard or
 Weights &amp; Biases, pass a <code>LoggingConfig</code> (<a href="../../guide/logging/">Logging</a>);
 <code>logging_config=None</code> trains with no evaluation and prints nothing, which is
 the fastest. <a href="../../guide/training/">Training an agent</a> has the details.</p>

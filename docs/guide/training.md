@@ -178,8 +178,10 @@ the sweep compiles once.
 
 Only the agent's sweepable fields can vary (`agent.sweepable_fields()`):
 numbers its training reads as numbers, such as SAC's learning rates, `gamma`
-and `tau`, or PPO's `ent_coef` and `clip_range`. So far only SAC and PPO
-declare any. A setting that changes array shapes or the program, such as the
+and `tau`, or PPO's `ent_coef` and `clip_range`. Every agent on the shared
+training loop declares some, but CrossQ; `print(agent.sweepable_fields())`
+lists them, and a refused field's message gives the agent's reason where it
+has one. A setting that changes array shapes or the program, such as the
 network sizes, `n_envs`, `batch_size` or `buffer_size`, takes one `train`
 call per value. Each member keeps its own replay buffer, so memory grows with
 the members.
@@ -188,6 +190,13 @@ Without a `logging_config`, each evaluation prints a line for all the runs
 and one per configuration under it. With one, each member is a logged run
 of its own, with its values in its run config. A sweep continues from its state with the same
 `seed` and `sweep`.
+
+An agent of your own declares the fields it adds in a `sweepable` class
+attribute, and takes those of its base classes with them (the temperature's
+come with `EntropyTemperature`); `unsweepable` refuses an inherited one, with
+the reason its message gives. A field belongs there once a member changing it
+trains as a separate run built with the value does, which
+`tests/agents/test_sweep_every_agent.py` checks for every declared field.
 
 ### Parallel environments
 

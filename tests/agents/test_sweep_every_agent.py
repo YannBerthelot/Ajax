@@ -31,10 +31,19 @@ from tests.test_exports import library_agents
 
 #: A separate run folds its Python numbers in double precision before XLA
 #: sees them; a member's are float32 throughout (tests/agents/test_sweep.py,
-#: which measured 6e-8 after about 100 updates of networks this size). The
-#: largest gap measured over these agents' fields was 9.5e-7; a field the
-#: member did not receive leaves 1e-3 or more.
+#: which measured 6e-8 after about 100 updates of networks this size), and a
+#: sweep's wider batch reorders float32 sums. Leaves of order 1 stay within
+#: 1e-6. Larger ones (an optimiser's moments, ASAC's termination penalty near
+#: 40) differ by one float32 step, which is 1.2e-7 of the value: hence the
+#: relative part, eight such steps. A field the member did not receive
+#: leaves 1e-3 or more.
 ROUNDING = 1e-6
+RELATIVE_ROUNDING = 1e-6
+
+#: The values that replace halving where half changes nothing in so short a
+#: run. PPO's clip_range: small enough to clip in the first updates
+#: (tests/agents/test_sweep.py uses the same).
+VALUES = {("PPO", "clip_range"): 0.001}
 
 #: The library agents without a row, and why.
 NO_ROW = {
@@ -64,13 +73,13 @@ def floating_leaves(state: Any) -> dict[str, np.ndarray]:
 
 def one_field_changes(agent: Any) -> tuple[list[str], list[dict[str, float]]]:
     """The agent's own values, then one configuration per sweepable field
-    with that field halved."""
+    with that field halved (or at its VALUES entry)."""
     names = sorted(agent.sweepable_fields())
     base = {name: float(getattr(agent, name)) for name in names}
     configurations = [base]
     for name in names:
         changed = dict(base)
-        changed[name] = base[name] / 2
+        changed[name] = VALUES.get((type(agent).__name__, name), base[name] / 2)
         configurations.append(changed)
     return names, configurations
 
@@ -131,6 +140,6 @@ def test_each_member_trains_as_its_separate_run(name: str) -> None:
                 swept[path][row],
                 leaf[0],
                 atol=ROUNDING,
-                rtol=0,
+                rtol=RELATIVE_ROUNDING,
                 err_msg=f"{name} {field} {path}",
             )

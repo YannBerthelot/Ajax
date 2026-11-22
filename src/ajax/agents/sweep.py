@@ -69,7 +69,8 @@ def check(
     refused = sorted(set(names).difference(sweepable))
     if not refused:
         return
-    own = [f" {name}: {reasons[name]}" for name in refused if name in (reasons or {})]
+    given = reasons or {}
+    own = [f" {name}: {given[name]}" for name in refused if name in given]
     allowed = ", ".join(sorted(sweepable)) or "none"
     raise ValueError(
         f"{agent_name} cannot sweep {', '.join(refused)} in one program: a"

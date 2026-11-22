@@ -66,7 +66,7 @@ class Comparison:
     n_timesteps: int
     eval_every: int  # 0: one evaluation, of the final policy
     solved: float | None
-    reference: str  # "sb3" | "purejaxql" | "brax": envs/<reference> pins it
+    reference: str  # "sb3" | "sbx" | "purejaxql" | "brax": envs/<reference> pins it
     reference_config: dict
     matched: dict
     source: str  # the reference's code
@@ -103,6 +103,16 @@ CARTPOLE = (
 PENDULUM = (
     "gymnax Pendulum-v1, a port of Gymnasium's Pendulum-v1 (200-step"
     " episodes); SB3 steps it through refcmp_sb3.gymnax_vec_env"
+)
+
+CARTPOLE_SBX = (
+    "gymnax CartPole-v1, a port of Gymnasium's CartPole-v1 (dynamics,"
+    " termination, 500-step limit); SBX steps it through"
+    " refcmp_sb3.gymnax_vec_env"
+)
+PENDULUM_SBX = (
+    "gymnax Pendulum-v1, a port of Gymnasium's Pendulum-v1 (200-step"
+    " episodes); SBX steps it through refcmp_sb3.gymnax_vec_env"
 )
 
 # purejaxql's PQN against Ajax's: its settings' Ajax names, and what no Ajax
@@ -666,5 +676,130 @@ COMPARISONS = {
             "network: ELU with LayerNorm and orthogonal(0.01) in Brax, ReLU in Ajax",
             "Adam eps: 1e-5 in Ajax, 1e-8 in the reference",
         ),
+    ),
+    # SBX (sbx-rl 0.28.0) on the tasks, budgets, evaluations and margins of
+    # the SB3 comparisons above, so the three implementations read side by
+    # side. SBX keeps SB3's settings and buffers; its networks and updates
+    # are its own, read at sbx/ppo and sbx/sac of that release.
+    "PPO-sbx": Comparison(
+        renames={"learning_rate": ("actor_learning_rate", "critic_learning_rate")},
+        # Ajax's value loss is vf_coef * 0.5 * MSE, SBX's vf_coef * MSE
+        # (ppo.py, critic_loss).
+        scale={"vf_coef": 2.0},
+        agent="PPO",
+        env_id="CartPole-v1",
+        n_timesteps=98 * 2048,  # 98 rollouts of 8 envs x 256 steps
+        eval_every=7 * 2048,
+        solved=475.0,
+        margin=25.0,  # 5% of 0-500
+        reference="sbx",
+        source="sbx-rl 0.28.0's PPO, MlpPolicy",
+        environment=CARTPOLE_SBX,
+        reference_config={
+            "n_envs": 8,
+            "n_steps": 256,
+            "batch_size": 256,
+            "n_epochs": 10,
+            "learning_rate": 3e-4,
+            "gamma": 0.99,
+            "gae_lambda": 0.95,
+            "clip_range": 0.2,
+            "ent_coef": 0.0,
+            "vf_coef": 0.5,
+            "max_grad_norm": 0.5,
+            "normalize_advantage": True,
+            "net_arch": {"pi": [64, 64], "vf": [64, 64]},
+        },
+        # SBX's hidden layers are flax's Dense, lecun_normal with zero
+        # biases, under tanh (its PPO's own activation); its Adam eps is
+        # 1e-5 (ppo/policies.py); it normalises neither observations nor
+        # rewards.
+        matched={
+            "n_envs": 8,
+            "n_steps": 256,
+            "num_minibatches": 8,
+            "n_epochs": 10,
+            "actor_learning_rate": 3e-4,
+            "critic_learning_rate": 3e-4,
+            "actor_architecture": ("64", "tanh", "64", "tanh"),
+            "critic_architecture": ("64", "tanh", "64", "tanh"),
+            "gamma": 0.99,
+            "gae_lambda": 0.95,
+            "clip_range": 0.2,
+            "ent_coef": 0.0,
+            "vf_coef": 1.0,
+            "max_grad_norm": 0.5,
+            "normalize_advantage": True,
+            "adam_eps": 1e-5,
+            "encoder_kernel_init": "lecun_normal()",
+            "normalize_observations": False,
+            "normalize_rewards": False,
+        },
+        unmatched=(
+            "output layers: lecun_normal in SBX (its ortho_init is off), an"
+            " orthogonal policy layer of gain 0.01 and value layer of gain 1"
+            " in Ajax",
+            "gradient clip: SBX clips each network's gradient at"
+            " max_grad_norm in its own optimiser; Ajax clips the two"
+            " together",
+            "value weight: SBX's vf_coef scales the loss of the critic's own"
+            " optimiser, which Adam's step mostly cancels; in Ajax it sets"
+            " the critic's share of the joint clip",
+        ),
+        defaults={"n_envs": 8, "n_steps": 256},
+    ),
+    "SAC-sbx": Comparison(
+        agent="SAC",
+        env_id="Pendulum-v1",
+        n_timesteps=20_000,
+        eval_every=1_000,
+        solved=-200.0,
+        reference="sbx",
+        source="sbx-rl 0.28.0's SAC, MlpPolicy",
+        environment=PENDULUM_SBX,
+        # The SB3 comparison's settings (RL Zoo's Pendulum-v1 SAC), which
+        # are SBX's defaults with a 1e-3 learning rate.
+        reference_config={
+            "learning_rate": 1e-3,
+            "buffer_size": 20_000,
+            "learning_starts": 100,
+            "batch_size": 256,
+            "tau": 0.005,
+            "gamma": 0.99,
+            "train_freq": 1,
+            "gradient_steps": 1,
+            "policy_delay": 1,
+            "ent_coef": "auto",
+            "net_arch": [256, 256],
+        },
+        matched={
+            "n_envs": 1,
+            "actor_learning_rate": 1e-3,
+            "critic_learning_rate": 1e-3,
+            "alpha_learning_rate": 1e-3,
+            "buffer_size": 20_000,
+            "learning_starts": 100,
+            "batch_size": 256,
+            "tau": 0.005,
+            "gamma": 0.99,
+            "alpha_init": 1.0,
+            "target_entropy_per_dim": -1.0,
+            "policy_update_start": 0,
+            "alpha_update_start": 0,
+            "actor_architecture": ("256", "relu", "256", "relu"),
+            "critic_architecture": ("256", "relu", "256", "relu"),
+        },
+        unmatched=(
+            "weight initialisation: Glorot-uniform kernels in Ajax"
+            " (softlearning's), flax's lecun_normal in SBX; zero biases in"
+            " both",
+            "update order: SBX steps the critics, moves the targets, steps"
+            " the actor, then the temperature on the entropy of the sample"
+            " the actor's loss drew before its step (sac.py, _train); Ajax"
+            " steps the critics, the actor on its own sample, then the"
+            " temperature on a fresh sample of the stepped actor",
+        ),
+        # The SB3 comparison's margin: 10% of the reference's mean there.
+        margin=14.0,
     ),
 }

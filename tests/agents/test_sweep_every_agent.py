@@ -40,10 +40,10 @@ from tests.test_exports import library_agents
 ROUNDING = 1e-6
 RELATIVE_ROUNDING = 1e-6
 
-#: The values that replace halving where half changes nothing in so short a
-#: run. PPO's clip_range: small enough to clip in the first updates
-#: (tests/agents/test_sweep.py uses the same).
-VALUES = {("PPO", "clip_range"): 0.001}
+#: The values that replace halving where half changes nothing
+#: (tests/agents/test_sweep.py uses the same two). PPO's ent_coef is 0 by
+#: default; its clip_range must be small enough to clip in so short a run.
+VALUES = {("PPO", "ent_coef"): 0.1, ("PPO", "clip_range"): 0.001}
 
 #: The library agents without a row, and why.
 NO_ROW = {

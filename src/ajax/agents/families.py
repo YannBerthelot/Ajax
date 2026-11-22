@@ -843,7 +843,10 @@ class DeclaredAgent(ActorCritic):
             )
         cached = getattr(self, "_predicting", None)
         if cached is None or cached[0] is not agent_state or cached[1] != seed_index:
-            policy = self.policy(agent_state, seed_index)
+            # Concrete also when predict is first called inside a traced
+            # function (record's rollout): the policy is kept across calls.
+            with jax.ensure_compile_time_eval():
+                policy = self.policy(agent_state, seed_index)
             if policy.has_memory:
                 raise ValueError(
                     f"{self.name}'s policy carries memory from one step to the"

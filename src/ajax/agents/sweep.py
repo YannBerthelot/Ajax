@@ -57,17 +57,26 @@ def configurations(sweep: Optional[Sweep]) -> list[dict[str, float]]:
     return found
 
 
-def check(agent_name: str, sweepable: frozenset[str], names: Sequence[str]) -> None:
-    """Refuse the fields outside the agent's sweepable ones, naming them."""
+def check(
+    agent_name: str,
+    sweepable: frozenset[str],
+    names: Sequence[str],
+    reasons: Optional[Mapping[str, str]] = None,
+) -> None:
+    """Refuse the fields outside the agent's sweepable ones, naming them,
+    with the agent's own reason (``ActorCritic.unsweepable``) where it
+    gives one."""
     refused = sorted(set(names).difference(sweepable))
-    if refused:
-        allowed = ", ".join(sorted(sweepable)) or "none"
-        raise ValueError(
-            f"{agent_name} cannot sweep {', '.join(refused)} in one program: a"
-            " sweep varies the numbers its training reads as numbers (here"
-            f" {allowed}). A setting that changes shapes or the program's"
-            " structure takes one train call per value."
-        )
+    if not refused:
+        return
+    own = [f" {name}: {reasons[name]}" for name in refused if name in (reasons or {})]
+    allowed = ", ".join(sorted(sweepable)) or "none"
+    raise ValueError(
+        f"{agent_name} cannot sweep {', '.join(refused)} in one program: a"
+        " sweep varies the numbers its training reads as numbers (here"
+        f" {allowed}). A setting that changes shapes or the program's"
+        f" structure takes one train call per value.{''.join(own)}"
+    )
 
 
 def member_row(configuration: Mapping[str, float], seed: int) -> dict[str, float]:

@@ -40,7 +40,7 @@ from __future__ import annotations
 
 import dataclasses
 from dataclasses import dataclass
-from typing import Any, Callable, Optional, Union
+from typing import Any, Callable, ClassVar, Optional, Union
 
 import distrax
 import jax
@@ -148,6 +148,18 @@ class UDRL(
     #: The gradient steps per iteration, each on a batch from the replay
     #: (Algorithm 3).
     n_updates_per_iter: int = 64
+
+    #: The numbers a sweep may vary in one program (ActorCritic.sweepable),
+    #: each checked against separate runs by tests/agents/test_sweep_every_agent.py.
+    sweepable: ClassVar[frozenset[str]] = frozenset(
+        {
+            "actor_learning_rate",
+            "command_return_boost",
+            "command_scale_h",
+            "command_scale_r",
+            "command_target_tau",
+        }
+    )
 
     def actor_critic_args(self) -> dict[str, Any]:
         # The critic built beside the actor is never trained. The LayerNorm

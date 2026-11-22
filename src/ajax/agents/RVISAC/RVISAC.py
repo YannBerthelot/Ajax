@@ -31,7 +31,7 @@ from __future__ import annotations
 
 import dataclasses
 from dataclasses import dataclass, field
-from typing import Any, Optional, Union
+from typing import Any, ClassVar, Optional, Union
 
 import jax
 import jax.numpy as jnp
@@ -145,6 +145,17 @@ class RVISAC(
     # None: 256 rows, or 64 windows with memory (RecurrentReplayAgent).
     batch_size: Optional[int] = None  # type: ignore[assignment]
     learning_starts: int = int(1e4)
+
+    #: The numbers a sweep may vary in one program (ActorCritic.sweepable),
+    #: each checked against separate runs by tests/agents/test_sweep_every_agent.py.
+    sweepable: ClassVar[frozenset[str]] = frozenset(
+        {
+            "actor_learning_rate",
+            "critic_learning_rate",
+            "reward_scale",
+            "tau",
+        }
+    )
 
     def actor_critic_args(self) -> dict[str, Any]:
         # The authors' initialisation (rvi_sac.py:54-89, modules.py:40-43,

@@ -150,6 +150,18 @@ class APO(
     # clip, as APO's official code (actor_critic_args).
     log_std_bounds: Optional[Tuple[float, float]] = None
 
+    #: The numbers a sweep may vary in one program (ActorCritic.sweepable),
+    #: each checked against separate runs by tests/agents/test_sweep_every_agent.py.
+    sweepable: ClassVar[frozenset[str]] = frozenset(
+        {
+            "actor_learning_rate",
+            "critic_learning_rate",
+            "gae_lambda",
+            "nu",
+            "vf_coef",
+        }
+    )
+
     def check(self) -> None:
         n_steps, batch_size = self.n_steps, self.batch_size
         samples = n_steps * self.n_envs

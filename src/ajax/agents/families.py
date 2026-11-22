@@ -355,6 +355,10 @@ class EntropyTemperature:
     alpha_init: float = 1.0
     target_entropy_per_dim: Schedule = -1.0
     alpha_update_start: int = 0
+    #: The numbers a sweep may vary (ActorCritic.sweepable).
+    sweepable: ClassVar[frozenset[str]] = frozenset(
+        {"alpha_learning_rate", "alpha_init", "target_entropy_per_dim"}
+    )
     #: Set on ReplayAgent.before_env_steps's copy alone.
     ignores_update_starts: ClassVar[bool] = False
     #: The timestep before which the loop calling this copy's update runs
@@ -1862,7 +1866,12 @@ class OwnReplayAgent(DeclaredAgent):
         # agent: a refused call leaves the agent as it was.
         found = sweep_configurations(sweep)
         if found:
-            check_sweep(type(self).__name__, self.sweepable_fields(), list(found[0]))
+            check_sweep(
+                type(self).__name__,
+                self.sweepable_fields(),
+                list(found[0]),
+                self.unsweepable,
+            )
         self.use_precision(precision, devices)
         start = 0
         if state is not None:

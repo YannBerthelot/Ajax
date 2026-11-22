@@ -24,7 +24,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from functools import partial
-from typing import Any, Callable, Optional, Tuple
+from typing import Any, Callable, ClassVar, Optional, Tuple
 
 import jax
 import jax.numpy as jnp
@@ -151,6 +151,16 @@ class PQN(
     #: The TD loss: None is compute_half_mse_td_loss, purejaxql's;
     #: make_huber_td_loss(delta) (from ajax.agents.critics) the Huber loss.
     td_loss_fn: Optional[Callable] = None
+
+    #: The numbers a sweep may vary in one program (ActorCritic.sweepable),
+    #: each checked against separate runs by tests/agents/test_sweep_every_agent.py.
+    sweepable: ClassVar[frozenset[str]] = frozenset(
+        {
+            "epsilon_start",
+            "learning_rate",
+            "reward_scale",
+        }
+    )
 
     def actor_critic_args(self) -> dict[str, Any]:
         # PQN has a single Q-network: both of ActorCritic's slots take it.

@@ -26,9 +26,11 @@ every critic read outside the critic loss.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from functools import partial
-from typing import Any, Optional
+from types import MappingProxyType
+from typing import Any, ClassVar, Optional
 
 import jax
 import jax.numpy as jnp
@@ -124,6 +126,17 @@ class CrossQ(
     buffer_size: int = int(1e6)
     batch_size: int = 256
     learning_starts: int = 5000
+
+    #: The temperature's numbers (EntropyTemperature) are refused: a CrossQ
+    #: member trained apart from its separate run by 1e-5 after 64 steps, ten
+    #: times the rounding the other agents show, and that is not explained.
+    unsweepable: ClassVar[Mapping[str, str]] = MappingProxyType(
+        dict.fromkeys(
+            ("alpha_learning_rate", "alpha_init", "target_entropy_per_dim"),
+            "a CrossQ member trained apart from its separate run by more than"
+            " rounding, which is not explained yet.",
+        )
+    )
 
     def actor_critic_args(self) -> dict[str, Any]:
         return {

@@ -148,9 +148,6 @@ class SAC(
         {
             "actor_learning_rate",
             "critic_learning_rate",
-            "alpha_learning_rate",
-            "alpha_init",
-            "target_entropy_per_dim",
             "gamma",
             "tau",
             "reward_scale",

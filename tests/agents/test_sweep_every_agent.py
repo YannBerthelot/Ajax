@@ -53,11 +53,17 @@ NO_ROW = {
     "TDMPC2MultiTask": "trains from a dataset, with its own train",
 }
 
+#: What a row is built with beyond the contract table's arguments. PPO: a
+#: second epoch, since the first has nothing to clip (the policy has not
+#: moved from the one that collected), so clip_range would reach nothing.
+BUILT_WITH: dict[str, dict[str, Any]] = {"PPO": {"n_epochs": 2}}
+
 SWEEPING = sorted(name for name, case in CASES.items() if case.cls.sweepable)
 
 
 def build(case: Case, **fields: Any) -> Any:
     kwargs = dict(case.kwargs)
+    kwargs.update(BUILT_WITH.get(case.cls.__name__, {}))
     kwargs.update(fields)
     return case.cls(case.envs[-1], **kwargs)
 

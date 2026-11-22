@@ -158,8 +158,16 @@ def redraw_c(key, state, params):
     return state.replace(c=jax.random.uniform(key, minval=-1.0, maxval=1.0))
 
 
+class Doubled(W.ObservationWrapper):
+    """ObservationWrapper is a base class: this one doubles the observations."""
+
+    def observation(self, obs):
+        return 2.0 * obs
+
+
 ROWS = {
     W.BinaryObservations: lambda: W.BinaryObservations(IdentityEnv()),
+    W.ObservationWrapper: lambda: Doubled(IdentityEnv()),
     W.FlattenObservationWrapper: lambda: W.FlattenObservationWrapper(IdentityEnv()),
     W.ClipAction: lambda: W.ClipAction(IdentityEnv()),
     W.InitialStateWrapper: lambda: W.InitialStateWrapper(IdentityEnv(), redraw_c),

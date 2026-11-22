@@ -14,7 +14,7 @@ the CHANGELOG's "Clearer errors and checks"):
     observation without a row per environment of its carry;
   - on a gymnax image environment, an agent without ``cnn_image_shape``
     warns, naming the shape, and one with another shape is refused;
-  - a budget below one rollout warns that the evaluations come back empty;
+  - a budget below one rollout warns that no evaluation is recorded;
   - a Gymnasium environment whose package Ajax's extra does not hold is
     not answered with that extra, and a ``mujoco:`` id without MuJoCo names
     the playground extra.
@@ -165,7 +165,7 @@ def test_the_environments_image_shape_and_plain_vectors_do_not_warn():
 def test_a_budget_below_one_rollout_warns_that_no_evaluation_comes():
     """One rollout is 2 x 64 = 128 steps, more than the 100 asked."""
     agent = PPO("CartPole-v1", n_envs=2, n_steps=64)
-    with pytest.warns(UserWarning, match="come back empty"):
+    with pytest.warns(UserWarning, match="no evaluation is recorded"):
         _, evaluations = agent.train(seed=0, n_timesteps=100)
     assert evaluations.returns.shape[1] == 0
 

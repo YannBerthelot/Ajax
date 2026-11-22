@@ -34,8 +34,7 @@ The next release is 0.6.0: the first item changes results.
     - image observations read by an MLP warn and name the
       `cnn_image_shape` to pass, and one in another order than the
       environment's (channels first) raises;
-    - a budget below one rollout warns that the evaluations come back
-      empty.
+    - a budget below one rollout warns that no evaluation is recorded.
 - **Docs:** where each source lists its environment ids, a hand-written
   loop for one environment with a recurrent policy, and PPO's rollout count
   corrected (Training).

@@ -81,6 +81,23 @@ The next release is 0.6.0: the first item changes results.
   `evaluations.returns`' layout and shape, `print(evaluations)` opens on it,
   and the quickstart and the training page show a single seed's curve as
   `evaluations.returns[0]`.
+- **Checks and messages**, after a fifth newcomer trial:
+    - a script that trains at its top level with a logging backend used to
+      lose its logs silently (the logging process failed on importing the
+      script): the run now warns that the logs are missing, and both
+      messages say to guard the entry point;
+    - `train` refuses a seed that is no integer (`seed=1.5` gave "'float'
+      object is not iterable"), a negative `n_timesteps` (it trained one
+      rollout) and `num_episode_test=0` (it returned NaN); `LoggingConfig`
+      refuses a `log_frequency` below 1 (it returned no evaluation);
+    - a `total_timesteps` below the call's steps says that `n_timesteps` is
+      what the call trains;
+    - `evaluate`, `render`, `predict` and `policy` refuse an integer or
+      `None` given as the state, showing the call;
+    - docs: where a one-network agent keeps its network and how to print
+      an agent's network shapes, a resumed call's new run ids, the agents
+      for image observations, and DQN's optimiser on the page for people
+      coming from SB3.
 - **More checks**, after a third newcomer trial:
     - an expert whose action drops its last axis is refused where Ajax
       first calls it, naming the expert and the axis (before, a

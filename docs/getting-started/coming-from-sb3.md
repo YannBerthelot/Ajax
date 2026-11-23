@@ -72,6 +72,11 @@ print(ported.clip_value_loss, ported.normalize_observations)  # False False
 ```
 
 The other agents have no such preset: pass the values of the SB3 column.
+DQN's optimiser is not an argument: Ajax's DQN steps with the authors'
+RMSProp ([its notes](../algorithms/dqn.md#notes)), so a DQN brought from SB3
+keeps that difference. An argument SB3 calls otherwise is refused with the
+closest Ajax names; `total_timesteps` exists in both and means another
+thing here: `train(n_timesteps=...)` is SB3's `learn(total_timesteps=...)`.
 
 ## The calls side by side
 

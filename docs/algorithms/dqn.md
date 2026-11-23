@@ -31,7 +31,8 @@ network).
 from ajax import DQN
 from ajax.logging import LoggingConfig
 
-# A short run: the default warm-up, CleanRL's, is 10,000 steps.
+# A short run that shows the call, too short to learn CartPole: the
+# default warm-up, CleanRL's, is 10,000 steps.
 agent = DQN("CartPole-v1", n_envs=4, learning_starts=1_000)
 logging = LoggingConfig(log_frequency=5_000, backends=())
 state, evaluations = agent.train(seed=[0, 1], n_timesteps=10_000, logging_config=logging)

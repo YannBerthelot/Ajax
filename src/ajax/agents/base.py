@@ -196,14 +196,35 @@ def run_horizon(
     ``start`` (its ``unit``): the run's ``total_timesteps``, by default the
     call's end, ``start + n_timesteps``. A horizon that ends before the call
     does is refused."""
+    if n_timesteps < 0:
+        raise ValueError(
+            f"n_timesteps={n_timesteps}: pass the number of {unit}s this call"
+            " trains, 0 or more."
+        )
     end = start + n_timesteps
     horizon = end if total_timesteps is None else int(total_timesteps)
     if horizon < end:
         raise ValueError(
             f"total_timesteps={horizon} ends before this call does: it "
-            f"trains from {unit} {start} for n_timesteps={n_timesteps}"
+            f"trains from {unit} {start} for n_timesteps={n_timesteps}."
+            " n_timesteps is what this call trains; total_timesteps is the"
+            " length of the whole run when several calls make it (resuming),"
+            " and is left out otherwise."
         )
     return horizon
+
+
+def checked_seeds(seed: Any) -> list[int]:
+    """``train``'s ``seed`` as the list of its integers; anything else is
+    refused here, before a float or a string fails deep in the run's setup."""
+    seeds = [seed] if np.ndim(seed) == 0 else list(seed)
+    for one in seeds:
+        if isinstance(one, bool) or not isinstance(one, (int, np.integer)):
+            raise TypeError(
+                f"seed={seed!r}: pass an integer, or a list of integers to"
+                " train one run per seed, such as seed=0 or seed=[0, 1, 2]."
+            )
+    return [int(one) for one in seeds]
 
 
 def with_shared_counters(state: Any, counters: dict[str, jax.Array]) -> Any:
@@ -852,9 +873,14 @@ class ActorCritic:
         (``ajax.logging.progress.Evaluations``: the dict of every logged
         name, with ``returns`` and ``timesteps``).
         """
-        if isinstance(seed, int):
-            seed = [seed]
+        seed = checked_seeds(seed)
         self._check_train_options(kwargs)
+        if num_episode_test < 1:
+            raise ValueError(
+                f"num_episode_test={num_episode_test}: an evaluation"
+                " averages at least one episode. Pass logging_config=None"
+                " for a run without evaluations."
+            )
 
         # ``agent.train()`` returns ``(state, out)``: accept either form.
         if isinstance(initial_state, tuple) and len(initial_state) == 2:

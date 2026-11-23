@@ -461,6 +461,11 @@ def _train_state(agent_state: Any) -> Any:
             "This is train's second value, the evaluations; pass the first,"
             " the state: state, evaluations = agent.train(...)."
         )
+    if agent_state is None or isinstance(agent_state, (int, float, str)):
+        raise TypeError(
+            f"{agent_state!r} is not a state: pass the state agent.train or"
+            " ajax.load returned, first, as in agent.evaluate(state, episodes=5)."
+        )
     return agent_state
 
 

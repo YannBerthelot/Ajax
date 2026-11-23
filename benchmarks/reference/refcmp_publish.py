@@ -137,7 +137,8 @@ def specs_page() -> str:
             f"`{k}={v!r}`" for k, v in spec.matched.items() if k not in copied
         )
         lines += ["", f"Ajax settings without a reference counterpart: {rest}.", ""]
-        lines += ["Not matched:", "", *[f"- {u}" for u in spec.unmatched], ""]
+        unmatched = spec.unmatched or ("nothing known",)
+        lines += ["Not matched:", "", *[f"- {u}" for u in unmatched], ""]
         if spec.deviations:
             lines += [
                 "Deviations found by the conformance checks (`tests/conformance`):",

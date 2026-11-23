@@ -13,6 +13,7 @@ the [specifications](specs.md) list, and the Ajax commit it ran.
 
 | Comparison | Spec, Ajax | Verdict | Margin | Seeds | Reference | Ajax | Difference | AdaStop | Resolution |
 |---|---|---|---|---|---|---|---|---|---|
+| DQN | v2, 00f4bef | inconclusive | ±25 | 96 | 243.7 | 245.9 | +2.26 [-46.4, +50.9] | none shown | 72 |
 | PPO | v3, 7d12582 | similar | ±25 | 96 | 493.8 | 496.1 | +2.22 [-5.12, +9.99] | none shown | 3.8 |
 | PPO-inverted_pendulum | v1, df60228 | similar | ±50 | 96 | 1000 | 1000 | +0 [+0, +0] | none shown | 0 |
 | PPO-sbx | v2, 7d12582 | similar | ±25 | 96 | 500 | 499.8 | -0.222 [-0.666, +0] | none shown | 0.0015 |
@@ -29,6 +30,8 @@ machines are not comparable.
 
 | Comparison | Side | Steps per second | CPU seconds per 1M steps | Compile seconds | Machine |
 |---|---|---|---|---|---|
+| DQN | sb3 | 1,216 | 3,254 | 2.4 | Intel(R) Xeon(R) Gold 6134 CPU @ 3.20GHz, 32 cores |
+| DQN | Ajax | 3,214 | 888 | 2.4 | Intel(R) Xeon(R) Gold 6134 CPU @ 3.20GHz, 32 cores |
 | PPO | sb3 | 10,402 | 401 | 1.7 | Intel(R) Xeon(R) Gold 6134 CPU @ 3.20GHz, 32 cores |
 | PPO | Ajax | 29,408 | 92 | 2.6 | Intel(R) Xeon(R) Gold 6134 CPU @ 3.20GHz, 32 cores |
 | PPO-inverted_pendulum | brax | 15,876 | 246 | 56.1 | Intel(R) Xeon(R) Processor @ 2.10GHz, 4 cores |
@@ -47,6 +50,8 @@ machines are not comparable.
 | TD3 | Ajax | 179 | 17,257 | 1.5 | Intel(R) Xeon(R) Processor @ 2.80GHz, 4 cores |
 
 ## Learning curves
+
+![DQN](DQN.svg)
 
 ![PPO](PPO.svg)
 

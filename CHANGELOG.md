@@ -61,6 +61,12 @@ The next release is 0.6.0: the first item changes results.
   Stable-Baselines3 was run again with the same setting written out
   (version 3), since its earlier record predates the clip being PPO's
   default.
+- **Ajax's DQN was run beside Stable-Baselines3's** on CartPole-v1 under
+  the reproduction protocol, set up as SB3's (Huber loss, one update per
+  step). No difference is shown at 96 seeds a side (243.7 against 245.9),
+  and the verdict is inconclusive: both end near half of the task's 500
+  and vary from seed to seed, so the interval is wider than the ±25 margin
+  (Reproduction, "Results"). The run does not cover DQN's own defaults.
 - **`agent.render` draws Gymnasium environments and your own.** A
   `gymnasium:` environment is saved as a GIF of its own pictures. Any other
   environment takes `agent.render(state, path, draw=my_draw)`, where

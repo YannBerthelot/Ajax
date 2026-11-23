@@ -160,12 +160,23 @@ def test_dqn_defaults_are_cleanrl_s():
     assert (agent.learning_rate, agent.gamma, agent.tau) == (2.5e-4, 0.99, 1.0)
 
 
+def test_dqn_on_vector_observations_steps_as_cleanrl_s_adam():
+    """CleanRL's dqn.py:148, optim.Adam(lr=2.5e-4) at torch's defaults:
+    betas (0.9, 0.999), eps 1e-8."""
+    agent = DQN(env_id="CartPole-v1")
+    for args in (agent.actor_optimizer_args, agent.critic_optimizer_args):
+        assert (args.optimizer, args.learning_rate) == ("adam", 2.5e-4)
+        assert (args.beta_1, args.beta_2, args.eps) == (0.9, 0.999, 1e-8)
+
+
 @pytest.mark.parametrize("batch_size", [32, 64])
-def test_dqn_steps_as_its_reference_optimiser(batch_size):
+def test_dqn_on_images_steps_as_its_authors_optimiser(batch_size):
     """google-deepmind/dqn @9d9b1d1 (NeuralQLearner.lua:265-277, run_gpu:25):
     centered RMSProp at lr 2.5e-4, both averages at 0.95, eps 0.01 on a
     gradient summed over the batch, so 0.01 / batch_size**2 on a mean."""
-    agent = DQN(env_id="CartPole-v1", batch_size=batch_size)
+    agent = DQN(
+        env_id="CartPole-v1", batch_size=batch_size, cnn_image_shape=(84, 84, 4)
+    )
     for args in (agent.actor_optimizer_args, agent.critic_optimizer_args):
         assert (args.optimizer, args.learning_rate, args.beta_2) == (
             "centered_rmsprop",
@@ -175,11 +186,25 @@ def test_dqn_steps_as_its_reference_optimiser(batch_size):
         assert args.eps == pytest.approx(0.01 / batch_size**2)
 
 
-def test_the_default_loss_clips_the_td_error_at_one():
+# TD errors of 3, -0.5 and -2 on three samples: the gradient of each loss
+# with respect to Q, times the batch size, worked by hand.
+Q_TAKEN, TD_TARGET = jnp.array([0.0, 0.0, 0.0]), jnp.array([3.0, -0.5, -2.0])
+
+
+def test_the_default_loss_on_vector_observations_is_the_squared_error():
+    """CleanRL's dqn.py:201, F.mse_loss: the mean of (Q - y)^2, whose
+    gradient per sample is 2 (Q - y), unclipped."""
+    loss = DQN(env_id="CartPole-v1").default_td_loss()
+    grad = jax.grad(loss)(Q_TAKEN, TD_TARGET) * Q_TAKEN.size
+    assert jnp.allclose(grad, jnp.array([-6.0, 1.0, 4.0]))
+
+
+def test_the_default_loss_on_images_clips_the_td_error_at_one():
     """Huber 1 (NeuralQLearner.lua:224-226, clip_delta=1): its gradient is
     the TD error clipped to [-1, 1]."""
-    q, target = jnp.array([0.0, 0.0, 0.0]), jnp.array([3.0, -0.5, -2.0])
-    grad = jax.grad(compute_huber_1_td_loss)(q, target) * q.size
+    loss = DQN(env_id="CartPole-v1", cnn_image_shape=(84, 84, 4)).default_td_loss()
+    assert loss is compute_huber_1_td_loss
+    grad = jax.grad(loss)(Q_TAKEN, TD_TARGET) * Q_TAKEN.size
     assert jnp.allclose(grad, jnp.array([-1.0, 0.5, 1.0]))
 
 

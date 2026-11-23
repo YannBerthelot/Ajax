@@ -54,7 +54,7 @@ The SB3 values are those of its 2.9.0 constructors.
 | PPO | `batch_size=64` gives 32 minibatches, whatever `n_envs` is | `batch_size` is a minibatch's size |
 | SAC | `learning_starts=10_000` random steps before the first update | 100 |
 | TD3 | `learning_starts=25_000`; learning rates `3e-4`; exploration noise 0.1 | 100; `1e-3`; no noise unless given |
-| DQN | CleanRL's vector-observation settings: RMSProp at `2.5e-4`, a replay of 10,000, batches of 128, an update every 10 steps, the target copied every 50 updates, `learning_starts=10_000`, epsilon decaying over half the run | Adam at `1e-4`, a replay of 1,000,000, batches of 32, an update every 4 steps, the target copied every 10,000 steps, `learning_starts=100`, epsilon decaying over a tenth of the run |
+| DQN | CleanRL's vector-observation settings: Adam at `2.5e-4`, the squared loss, a replay of 10,000, batches of 128, an update every 10 steps, the target copied every 50 updates, `learning_starts=10_000`, epsilon decaying over half the run | Adam at `1e-4`, the Huber loss, a replay of 1,000,000, batches of 32, an update every 4 steps, the target copied every 10,000 steps, `learning_starts=100`, epsilon decaying over a tenth of the run |
 
 A short run shows the warm-up most: SAC on 20,000 steps acts at random for
 the first half unless `learning_starts` is lowered.
@@ -72,9 +72,8 @@ print(ported.clip_value_loss, ported.normalize_observations)  # False False
 ```
 
 The other agents have no such preset: pass the values of the SB3 column.
-DQN's optimiser is not an argument: Ajax's DQN steps with the authors'
-RMSProp ([its notes](../algorithms/dqn.md#notes)), so a DQN brought from SB3
-keeps that difference. An argument SB3 calls otherwise is refused with the
+For DQN, SB3's Huber loss is `td_loss_fn=compute_huber_1_td_loss`
+([its notes](../algorithms/dqn.md#notes)). An argument SB3 calls otherwise is refused with the
 closest Ajax names; `total_timesteps` exists in both and means another
 thing here: `train(n_timesteps=...)` is SB3's `learn(total_timesteps=...)`.
 

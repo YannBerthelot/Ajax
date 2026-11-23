@@ -32,6 +32,7 @@ from flax import struct
 from ajax.agents.critics import (
     ValueAuxiliaries,
     compute_huber_1_td_loss,
+    compute_mse_td_loss,
     q_gradient_step,
     q_network_value_readers,
 )
@@ -126,9 +127,12 @@ class DQN(
     )
 
     @fe8d8a0, its Args at lines 47-71 and QNetwork at 95-99), the
-    classic-control reference, with Mnih et al.'s optimiser and Huber loss
-    (optimizer_settings, td_loss_fn), which google-deepmind/dqn @9d9b1d1
-    runs on Atari. Ajax counts the steps collected, CleanRL numbers them
+    classic-control reference, with its Adam and squared loss (dqn.py:148,
+    :201); on image observations (cnn_image_shape), Mnih et al.'s optimiser
+    and Huber loss (optimizer_settings, default_td_loss), which
+    google-deepmind/dqn @9d9b1d1 runs on Atari, where rewards are clipped
+    to [-1, 1]: on CartPole's unclipped rewards that loss does not learn.
+    Ajax counts the steps collected, CleanRL numbers them
     from 0 (global_step): an update and a refresh of Ajax's at its 10,500th
     step are CleanRL's at global_step 10,500, its 10,501st. Ajax also
     updates and refreshes at step 10,000, where CleanRL waits for
@@ -171,8 +175,9 @@ class DQN(
     #: and the values it bootstrapped there, which the extensions learning
     #: from the target read; a function may return the target alone.
     td_target_fn: Optional[Callable] = None
-    #: The TD loss: None is compute_huber_1_td_loss, the reference's TD-error
-    #: clip; compute_mse_td_loss (ajax.agents.critics) the squared error.
+    #: The TD loss: None is default_td_loss, the observation kind's
+    #: reference; compute_mse_td_loss and compute_huber_1_td_loss
+    #: (ajax.agents.critics) name either.
     td_loss_fn: Optional[Callable] = None
     #: The Q-network module: None is QNetwork; DuelingQNetwork
     #: (ajax.networks.q_networks) the dueling architecture.
@@ -201,13 +206,25 @@ class DQN(
         return args
 
     def optimizer_settings(self) -> dict[str, Any]:
-        # The reference's optimiser (NeuralQLearner.lua:265-277): centred
-        # RMSProp, both averages decaying at 0.95, eps 0.01 inside the square
-        # root of a gradient summed over the batch (:254). Ajax's TD loss
-        # averages over the batch, so the same step takes eps 0.01 /
+        # Vector observations: CleanRL's torch Adam at its defaults
+        # (dqn.py:148), eps 1e-8.
+        if self.cnn_image_shape is None:
+            return {"eps": 1e-8}
+        # Images: Mnih et al.'s optimiser (NeuralQLearner.lua:265-277):
+        # centred RMSProp, both averages decaying at 0.95, eps 0.01 inside
+        # the square root of a gradient summed over the batch (:254). Ajax's
+        # TD loss averages over the batch, so the same step takes eps 0.01 /
         # batch_size**2.
         eps = 0.01 / self.batch_size**2
         return {"optimizer": "centered_rmsprop", "beta_2": 0.95, "eps": eps}
+
+    def default_td_loss(self) -> Callable:
+        """The reference's TD loss: CleanRL's squared error on vector
+        observations (dqn.py:201); on images Mnih et al.'s TD error clipped
+        to [-1, 1] (NeuralQLearner.lua:232-236), the Huber loss of delta 1."""
+        if self.cnn_image_shape is None:
+            return compute_mse_td_loss
+        return compute_huber_1_td_loss
 
     def value_estimate(self) -> ValueEstimate:
         # The greedy policy's max_a Q(s, a), not a critic's Q at an actor's
@@ -290,7 +307,7 @@ class DQN(
             td_target_fn = compute_dqn_td_target
         td_loss_fn = self.td_loss_fn
         if td_loss_fn is None:
-            td_loss_fn = compute_huber_1_td_loss
+            td_loss_fn = self.default_td_loss()
         targeted: Any = td_target_fn(
             q_state=agent_state.actor_state,
             next_observations=next_observations,

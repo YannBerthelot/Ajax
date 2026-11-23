@@ -70,7 +70,10 @@ agent = TQC.preset("Hopper", "hopper", top_quantiles_to_drop_per_net=3)
 ```
 
 A preset is named after its task, not an environment id, so it applies to
-the gymnasium, Brax and Playground versions of the task alike. An unknown
+the gymnasium, Brax and Playground versions of the task alike. PPO also has
+one named after a library: `PPO.preset("SB3", env_id)` is Stable-Baselines3's
+PPO defaults in Ajax's names, for settings brought from SB3 or SBX
+([PPO, "Presets"](../algorithms/ppo.md#presets)). An unknown
 name raises and lists the agent's presets. Each agent module keeps its
 presets in a `PRESETS` table, each entry the values and where they come
 from:
@@ -93,7 +96,7 @@ preprocessing stay yours.
 | [DreamerV3](../algorithms/dreamerv3.md#presets) | `DMC` | `model_size`, `train_ratio`, `n_envs`, `action_repeat` | `configs.yaml` |
 | [DQN](../algorithms/dqn.md#presets) | `Atari` | `learning_rate`, `gamma`, `buffer_size`, `batch_size`, `learning_starts`, `train_frequency`, `target_update_interval`, `epsilon_start`, `epsilon_end`, `epsilon_decay_start`, `epsilon_decay_frac` | Mnih et al.'s `run_gpu` |
 | [IQL](../algorithms/iql.md#presets) | `AntMaze` | `expectile`, `temperature` | `antmaze_config.py` |
-| [PPO](../algorithms/ppo.md#presets) | `Atari` | `n_envs`, `n_steps`, `n_epochs`, `num_minibatches`, `actor_learning_rate`, `critic_learning_rate`, `clip_range`, `ent_coef`, `share_encoder` | ppo2's `defaults.py` |
+| [PPO](../algorithms/ppo.md#presets) | `Atari`, `SB3` | `n_envs`, `n_steps`, `batch_size`, `n_epochs`, `num_minibatches`, `actor_learning_rate`, `critic_learning_rate`, `gamma`, `gae_lambda`, `clip_range`, `clip_value_loss`, `normalize_advantage`, `ent_coef`, `vf_coef`, `max_grad_norm`, `adam_eps`, `normalize_observations`, `normalize_rewards`, `share_encoder` | ppo2's `defaults.py`; Stable-Baselines3's PPO defaults |
 | [PQN](../algorithms/pqn.md#presets) | `CartPole`, `Atari` | `architecture`, `n_envs`, `n_steps`, `n_epochs`, `num_minibatches`, `learning_rate`, `lr_linear_decay`, `epsilon_end`, `epsilon_decay_frac`, `q_lambda`, `reward_scale` | purejaxql's configs |
 | [REDQ](../algorithms/redq.md#presets) | `Hopper`, `HalfCheetah`, `Walker2d`, `Ant`, `Humanoid` | `target_entropy_per_dim` | MBPO's target entropies |
 | [TD3](../algorithms/td3.md#presets) | `D4RL` (TD3+BC) | `normalize_observations`, `extensions` | TD3_BC's `main.py` |

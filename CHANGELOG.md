@@ -20,6 +20,11 @@ The next release is 0.6.0: the first item changes results.
   `step` return trained on two kinds of observations, with no error
   (Environments, "Changing the observations"). The memory guide trains on
   a CartPole with hidden velocities built with it.
+- **New: `PPO.preset("SB3", env_id)`**, Stable-Baselines3's PPO defaults in
+  Ajax's names, for settings brought from SB3 or SBX. Ajax's PPO defaults
+  are ppo2's, which clip the value loss and normalise observations and
+  rewards; SB3 and SBX do neither. The PPO page lists the differences
+  ("Presets").
 - **Ajax's PPO and SAC were run beside SBX**, Stable-Baselines3's JAX
   version (0.28.0), under the reproduction protocol. Both are similar by
   the registered margin. On CartPole, SBX's PPO ends at 500 on every seed

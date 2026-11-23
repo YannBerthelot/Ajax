@@ -3435,6 +3435,9 @@ with every seed:</p>
 <a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a><span class="k">for</span> <span class="n">configuration</span><span class="p">,</span> <span class="n">returns</span> <span class="ow">in</span> <span class="n">agent</span><span class="o">.</span><span class="n">by_configuration</span><span class="p">(</span><span class="n">evaluations</span><span class="o">.</span><span class="n">returns</span><span class="p">):</span>
 <a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a>    <span class="nb">print</span><span class="p">(</span><span class="n">configuration</span><span class="p">,</span> <span class="s2">&quot;final return&quot;</span><span class="p">,</span> <span class="n">returns</span><span class="p">[:,</span> <span class="o">-</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">mean</span><span class="p">())</span>
 </code></pre></div>
+<p>To decide whether one configuration is better than another, give each one's
+per-seed scores to the tests of <a href="../comparing-agents/">Comparing agents</a>:
+<code>returns[:, -1]</code> above is one score per seed.</p>
 <p>A dict of value lists trains its grid, here 4 configurations, so 8 members;
 a list of dicts trains those configurations. The returned arrays have one
 leading row per member, configuration by configuration, each over the
@@ -3479,19 +3482,23 @@ The defaults differ by agent:</p>
 <tbody>
 <tr>
 <td>1</td>
-<td>SAC, ASAC, REDQ, CrossQ, TQC, TD3, IQL, AVG, DQN, UDRL, DAgger, TDMPC2</td>
-</tr>
-<tr>
-<td>4</td>
-<td>PPO, APO</td>
+<td>PPO, SAC, ASAC, RVI-SAC, REDQ, CrossQ, TQC, TD3, IQL, AVG, DQN, UDRL, DAgger, TD-MPC2</td>
 </tr>
 <tr>
 <td>8</td>
-<td>PQN, APG</td>
+<td>APG</td>
+</tr>
+<tr>
+<td>10</td>
+<td>APO</td>
 </tr>
 <tr>
 <td>16</td>
 <td>DreamerV3</td>
+</tr>
+<tr>
+<td>128</td>
+<td>PQN</td>
 </tr>
 </tbody>
 </table>

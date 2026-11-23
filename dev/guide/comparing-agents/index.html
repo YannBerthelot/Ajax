@@ -3174,7 +3174,7 @@ chosen metric is known well enough, or <code>max_seeds</code> have trained:</p>
 <a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>
 <a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="n">result</span> <span class="o">=</span> <span class="n">estimate</span><span class="p">(</span>
 <a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a>    <span class="k">lambda</span><span class="p">:</span> <span class="n">ajax</span><span class="o">.</span><span class="n">PPO</span><span class="p">(</span><span class="s2">&quot;CartPole-v1&quot;</span><span class="p">),</span>
-<a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a>    <span class="c1"># Whole rollouts (12 of PPO&#39;s 4 x 2,048 steps): a budget ending inside</span>
+<a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a>    <span class="c1"># Whole rollouts (48 of PPO&#39;s 2,048 steps): a budget ending inside</span>
 <a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a>    <span class="c1"># one leaves its last evaluation NaN.</span>
 <a id="__codelineno-3-13" name="__codelineno-3-13" href="#__codelineno-3-13"></a>    <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">98_304</span><span class="p">,</span>
 <a id="__codelineno-3-14" name="__codelineno-3-14" href="#__codelineno-3-14"></a>    <span class="n">eval_every</span><span class="o">=</span><span class="mi">8_192</span><span class="p">,</span>

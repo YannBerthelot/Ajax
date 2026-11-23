@@ -551,6 +551,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#the-defaults-are-the-originals" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The defaults are the original's
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#the-calls-side-by-side" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2925,6 +2936,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#the-defaults-are-the-originals" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The defaults are the original's
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#the-calls-side-by-side" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3022,6 +3044,70 @@ for each, with no callback to set up; <code>logging_config=None</code> turns bot
 pass <code>cnn_image_shape</code> to read them with a CNN encoder
 (<a href="../../guide/networks/#image-observations">Networks</a>); Ajax warns when
 images reach an MLP.</p>
+<h2 id="the-defaults-are-the-originals">The defaults are the original's<a class="headerlink" href="#the-defaults-are-the-originals" title="Permanent link">&para;</a></h2>
+<p>Ajax implements each algorithm as its paper or its authors' code does, and
+its defaults are theirs; each <a href="../../algorithms/">algorithm page</a> cites
+them. SB3 sets some of its own. So the same call does not train the same
+thing in both libraries, and settings brought from SB3 need the lines below.
+The SB3 values are those of its 2.9.0 constructors.</p>
+<table>
+<thead>
+<tr>
+<th>Agent</th>
+<th>Ajax, as the original</th>
+<th>SB3</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>PPO</td>
+<td>value loss clipped around the rollout's value (ppo2)</td>
+<td>not clipped</td>
+</tr>
+<tr>
+<td>PPO</td>
+<td>observations and rewards normalised (ppo2's MuJoCo run)</td>
+<td>as the environment gives them, unless wrapped in <code>VecNormalize</code></td>
+</tr>
+<tr>
+<td>PPO</td>
+<td><code>vf_coef</code> weighs half the squared error</td>
+<td>weighs the whole squared error: SB3's 0.5 is 1.0 here</td>
+</tr>
+<tr>
+<td>PPO</td>
+<td><code>batch_size=64</code> gives 32 minibatches, whatever <code>n_envs</code> is</td>
+<td><code>batch_size</code> is a minibatch's size</td>
+</tr>
+<tr>
+<td>SAC</td>
+<td><code>learning_starts=10_000</code> random steps before the first update</td>
+<td>100</td>
+</tr>
+<tr>
+<td>TD3</td>
+<td><code>learning_starts=25_000</code>; learning rates <code>3e-4</code>; exploration noise 0.1</td>
+<td>100; <code>1e-3</code>; no noise unless given</td>
+</tr>
+<tr>
+<td>DQN</td>
+<td>CleanRL's vector-observation settings: RMSProp at <code>2.5e-4</code>, a replay of 10,000, batches of 128, an update every 10 steps, the target copied every 50 updates, <code>learning_starts=10_000</code>, epsilon decaying over half the run</td>
+<td>Adam at <code>1e-4</code>, a replay of 1,000,000, batches of 32, an update every 4 steps, the target copied every 10,000 steps, <code>learning_starts=100</code>, epsilon decaying over a tenth of the run</td>
+</tr>
+</tbody>
+</table>
+<p>A short run shows the warm-up most: SAC on 20,000 steps acts at random for
+the first half unless <code>learning_starts</code> is lowered.</p>
+<p>For PPO, <code>PPO.preset("SB3", env_id)</code> sets SB3's defaults in one call, and
+<a href="../../algorithms/ppo/#presets">its page</a> says what stays yours to set (the
+number of minibatches with several environments) and what no option
+matches:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax</span><span class="w"> </span><span class="kn">import</span> <span class="n">PPO</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="n">ported</span> <span class="o">=</span> <span class="n">PPO</span><span class="o">.</span><span class="n">preset</span><span class="p">(</span><span class="s2">&quot;SB3&quot;</span><span class="p">,</span> <span class="s2">&quot;CartPole-v1&quot;</span><span class="p">,</span> <span class="n">n_envs</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">n_steps</span><span class="o">=</span><span class="mi">256</span><span class="p">,</span> <span class="n">num_minibatches</span><span class="o">=</span><span class="mi">32</span><span class="p">)</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="nb">print</span><span class="p">(</span><span class="n">ported</span><span class="o">.</span><span class="n">clip_value_loss</span><span class="p">,</span> <span class="n">ported</span><span class="o">.</span><span class="n">normalize_observations</span><span class="p">)</span>  <span class="c1"># False False</span>
+</code></pre></div>
+<p>The other agents have no such preset: pass the values of the SB3 column.</p>
 <h2 id="the-calls-side-by-side">The calls side by side<a class="headerlink" href="#the-calls-side-by-side" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
@@ -3054,17 +3140,17 @@ images reach an MLP.</p>
 </tr>
 <tr>
 <td><code>VecNormalize(venv)</code></td>
-<td><code>normalize_observations=True</code>, <code>normalize_rewards=True</code></td>
+<td><code>normalize_observations=True</code>, <code>normalize_rewards=True</code> (PPO's defaults; off by default elsewhere)</td>
 <td><a href="../../guide/environments/#normalisation">Environments</a></td>
 </tr>
 <tr>
 <td><code>policy_kwargs=dict(net_arch=[64, 64])</code></td>
-<td><code>actor_architecture=("64", "tanh", "64", "tanh")</code>, and <code>critic_architecture</code></td>
+<td><code>actor_architecture=("64", "tanh", "64", "tanh")</code>, and <code>critic_architecture</code>: each width is followed by its activation</td>
 <td><a href="../../guide/networks/">Networks</a></td>
 </tr>
 <tr>
 <td><code>learning_rate=3e-4</code></td>
-<td><code>actor_learning_rate=3e-4, critic_learning_rate=3e-4</code>: one per network</td>
+<td><code>actor_learning_rate=3e-4, critic_learning_rate=3e-4</code>: one per network, and <code>alpha_learning_rate</code> for SAC's temperature</td>
 <td><a href="../../algorithms/">Algorithms</a></td>
 </tr>
 <tr>
@@ -3110,17 +3196,17 @@ images reach an MLP.</p>
 </tbody>
 </table>
 <h2 id="act-with-the-trained-agent">Act with the trained agent<a class="headerlink" href="#act-with-the-trained-agent" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="c1"># doc: skip (Stable-Baselines3, for comparison)</span>
-<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="n">action</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">obs</span><span class="p">,</span> <span class="n">deterministic</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="c1"># doc: skip (Stable-Baselines3, for comparison)</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="n">action</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">obs</span><span class="p">,</span> <span class="n">deterministic</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 </code></pre></div>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">gymnax</span>
-<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="kn">import</span><span class="w"> </span><span class="nn">jax</span>
-<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>
-<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="n">env</span><span class="p">,</span> <span class="n">params</span> <span class="o">=</span> <span class="n">gymnax</span><span class="o">.</span><span class="n">make</span><span class="p">(</span><span class="s2">&quot;CartPole-v1&quot;</span><span class="p">)</span>
-<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="n">obs</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">env</span><span class="o">.</span><span class="n">reset</span><span class="p">(</span><span class="n">jax</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">PRNGKey</span><span class="p">(</span><span class="mi">0</span><span class="p">),</span> <span class="n">params</span><span class="p">)</span>
-<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>
-<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="n">action</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="n">obs</span><span class="p">)</span>  <span class="c1"># the first seed&#39;s policy</span>
-<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="nb">print</span><span class="p">(</span><span class="n">action</span><span class="p">)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">gymnax</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="kn">import</span><span class="w"> </span><span class="nn">jax</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="n">env</span><span class="p">,</span> <span class="n">params</span> <span class="o">=</span> <span class="n">gymnax</span><span class="o">.</span><span class="n">make</span><span class="p">(</span><span class="s2">&quot;CartPole-v1&quot;</span><span class="p">)</span>
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="n">obs</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">env</span><span class="o">.</span><span class="n">reset</span><span class="p">(</span><span class="n">jax</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">PRNGKey</span><span class="p">(</span><span class="mi">0</span><span class="p">),</span> <span class="n">params</span><span class="p">)</span>
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>
+<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="n">action</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="n">obs</span><span class="p">)</span>  <span class="c1"># the first seed&#39;s policy</span>
+<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="nb">print</span><span class="p">(</span><span class="n">action</span><span class="p">)</span>
 </code></pre></div>
 <p><code>predict</code> acts as the evaluation does: the most likely action of a discrete
 policy, the mean action of a continuous one. An agent whose policy carries
@@ -3129,19 +3215,19 @@ something between steps (a memory, a world model) refuses <code>predict</code>;
 (<a href="../../guide/deploy/">Train, evaluate, deploy</a>).</p>
 <h2 id="save-and-load">Save and load<a class="headerlink" href="#save-and-load" title="Permanent link">&para;</a></h2>
 <p><code>save</code> takes the state, and <code>load</code> returns the agent with it:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="c1"># doc: skip (Stable-Baselines3, for comparison)</span>
-<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="n">model</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="s2">&quot;ppo_cartpole&quot;</span><span class="p">)</span>
-<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="n">model</span> <span class="o">=</span> <span class="n">PPO</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="s2">&quot;ppo_cartpole&quot;</span><span class="p">)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="c1"># doc: skip (Stable-Baselines3, for comparison)</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="n">model</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="s2">&quot;ppo_cartpole&quot;</span><span class="p">)</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="n">model</span> <span class="o">=</span> <span class="n">PPO</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="s2">&quot;ppo_cartpole&quot;</span><span class="p">)</span>
 </code></pre></div>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
-<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="kn">import</span><span class="w"> </span><span class="nn">tempfile</span>
-<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>
-<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="n">path</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">tempfile</span><span class="o">.</span><span class="n">mkdtemp</span><span class="p">(),</span> <span class="s2">&quot;ppo_cartpole.pkl&quot;</span><span class="p">)</span>
-<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="n">agent</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="n">path</span><span class="p">)</span>
-<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>
-<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="c1"># Later, in another process.</span>
-<a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a><span class="n">agent</span><span class="p">,</span> <span class="n">state</span> <span class="o">=</span> <span class="n">PPO</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">path</span><span class="p">)</span>
-<a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a><span class="nb">print</span><span class="p">(</span><span class="n">agent</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="n">obs</span><span class="p">))</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="kn">import</span><span class="w"> </span><span class="nn">tempfile</span>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="n">path</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">tempfile</span><span class="o">.</span><span class="n">mkdtemp</span><span class="p">(),</span> <span class="s2">&quot;ppo_cartpole.pkl&quot;</span><span class="p">)</span>
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="n">agent</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="n">path</span><span class="p">)</span>
+<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a>
+<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="c1"># Later, in another process.</span>
+<a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a><span class="n">agent</span><span class="p">,</span> <span class="n">state</span> <span class="o">=</span> <span class="n">PPO</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">path</span><span class="p">)</span>
+<a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a><span class="nb">print</span><span class="p">(</span><span class="n">agent</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="n">obs</span><span class="p">))</span>
 </code></pre></div>
 <p>The file records the agent's plain arguments. Objects (a prebuilt
 environment, extensions) are passed to <code>load</code> again

@@ -3136,6 +3136,26 @@ PyPI as <code>ajax-rl</code>.</p>
   <code>step</code> return trained on two kinds of observations, with no error
   (Environments, "Changing the observations"). The memory guide trains on
   a CartPole with hidden velocities built with it.</li>
+<li><strong>An architecture of widths alone warns.</strong> <code>actor_architecture=[64, 64]</code>
+  (SB3's <code>net_arch</code> habit) built layers with no activation between them,
+  with no word; the agent now warns and shows the tuple to write.</li>
+<li><strong><code>agent.evaluate</code>, <code>predict</code>, <code>policy</code> and <code>save</code> name the argument
+  meant</strong>, as <code>render</code> and <code>train_offline</code> do.</li>
+<li><strong>A state from another agent or environment is refused saying so.</strong>
+  <code>evaluate</code>, <code>predict</code> and <code>render</code> gave flax's error about a parameter's
+  shape; they now say the state acts with the agent and environment that
+  trained it.</li>
+<li><strong>A <code>LoggingConfig</code> whose <code>log_frequency</code> is past the run's end warns.</strong>
+  Its default is 10,000 steps, so a shorter run with a <code>LoggingConfig</code> of
+  your own returned no evaluation, with no word.</li>
+<li><strong>The warning for a budget that is not whole iterations</strong> no longer says
+  the missing evaluation is NaN: the evaluations returned have no column
+  for it.</li>
+<li><strong>Docs: "Coming from Stable-Baselines3" says whose defaults Ajax keeps</strong>
+  (each algorithm's original) and lists, for PPO, SAC, TD3 and DQN, where
+  SB3's differ. The tables of default <code>n_envs</code> and default networks had
+  drifted from the code for PPO, APO, PQN, DQN and others; tests now hold
+  them to it.</li>
 <li><strong>Fixed: a logged run with <code>JSRLCurriculum</code> warned <code>invalid value
   encountered in cast</code>.</strong> The steps without an evaluation held NaN in place
   of JSRL's integer stage. No logged value changes.</li>

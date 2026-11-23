@@ -3525,7 +3525,7 @@ kept dipping after reaching 500; without it they stayed there, as SBX's did.</p>
 <li><strong><code>batch_size</code> sets the number of minibatches, not their size.</strong> Unless
   <code>num_minibatches</code> is positive, the rollout of <code>n_steps * n_envs</code> samples
   splits into <code>max(n_steps, batch_size) // min(n_steps, batch_size)</code>
-  minibatches. With the defaults that is 32 minibatches of 256 samples
+  minibatches. With the defaults that is 32 minibatches of 64 samples
   (<code>batch_size * n_envs</code>). This differs from Stable-Baselines3, where
   <code>batch_size</code> is the minibatch size.</li>
 <li><strong>Shuffling.</strong> Every epoch draws a new split of the rollout into

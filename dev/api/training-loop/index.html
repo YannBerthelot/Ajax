@@ -4975,7 +4975,7 @@ PriorData), an offline dataset's, then one per tick, none offline.</p>
 <code>per_iteration</code> env steps (<code>unit</code> names them): the iterations
 stop at a multiple of it, not at the call's end, so the run trains
 another number of steps than asked and an evaluation due at that end
-never happens (its row stays NaN).</p>
+never happens: the evaluations returned hold no column for it.</p>
 
 
     </div>

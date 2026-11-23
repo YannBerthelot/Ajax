@@ -16,6 +16,7 @@ the review of 2026-11-14 found on three pages.
 from __future__ import annotations
 
 import ast
+import dataclasses
 import inspect
 import re
 from typing import Callable
@@ -148,11 +149,13 @@ def _default_rows(page: str, header: str) -> list:
 
 
 def _defaults(field: str) -> dict:
-    return {
-        agent.__name__: agent.__dataclass_fields__[field].default
-        for agent in library_agents()
-        if field in getattr(agent, "__dataclass_fields__", {})
-    }
+    found = {}
+    for agent in library_agents():
+        if dataclasses.is_dataclass(agent):
+            for declared in dataclasses.fields(agent):
+                if declared.name == field:
+                    found[agent.__name__] = declared.default
+    return found
 
 
 def test_the_n_envs_table_states_each_agents_default():

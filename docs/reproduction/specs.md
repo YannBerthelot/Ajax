@@ -81,7 +81,7 @@ Not matched:
 - std, computed from the observation on both sides: softplus(x) + 0.001 in Brax, exp(x) clipped to [-20, 2] in Ajax; its weights start lecun_uniform in Brax, zero in Ajax
 - the value head's initialisation (lecun_uniform in Brax)
 
-## DQN, version 1
+## DQN, version 2
 
 Ajax's DQN against stable-baselines3's DQN, MlpPolicy.
 
@@ -89,8 +89,8 @@ Ajax's DQN against stable-baselines3's DQN, MlpPolicy.
 - Budget: 100,000 steps per seed.
 - Evaluation: 10 episodes of the deterministic policy, every 5,000 steps; a seed's score is the last one's mean return.
 - AdaStop: n = 4, K = 24, alpha = 0.05.
-- Margin: none registered yet.
-- Spec hash: `74aef7221269ae79`.
+- Margin: ±25.
+- Spec hash: `af56e616898f3977`.
 - Reproduce: `uv run python benchmarks/reference/refcmp_protocol.py run DQN --cache DIR`
 
 | Reference setting | Value | Ajax setting | Value |
@@ -100,7 +100,7 @@ Ajax's DQN against stable-baselines3's DQN, MlpPolicy.
 | `learning_starts` | `1000` | `learning_starts` | `1000` |
 | `batch_size` | `64` | `batch_size` | `64` |
 | `gamma` | `0.99` | `gamma` | `0.99` |
-| `train_freq` | `1` | - |  |
+| `train_freq` | `1` | `train_frequency` | `1` |
 | `gradient_steps` | `1` | `n_gradient_steps` | `1` |
 | `target_update_interval` | `500` | `target_update_interval` | `500` |
 | `exploration_fraction` | `0.2` | `epsilon_decay_frac` | `0.2` |
@@ -113,8 +113,7 @@ Ajax settings without a reference counterpart: `n_envs=1`, `tau=1.0`, `architect
 
 Not matched:
 
-- weight initialisation (torch default vs Ajax's)
-- Adam eps: 1e-5 in Ajax, 1e-8 in the reference
+- nothing known
 
 ## SAC, version 2
 

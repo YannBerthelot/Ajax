@@ -104,6 +104,7 @@ environment, with the reference's settings, up to 96 seeds a side:
 <!-- reproduction-summary:start -->
 | Agent | Task | Reference | Reference's return | Ajax's return | Verdict | Reference's CPU s per 1M steps | Ajax's |
 |---|---|---|---|---|---|---|---|
+| DQN | CartPole-v1 | Stable-Baselines3 | 243.7 | 245.9 | inconclusive | 3,254 | 888 |
 | PPO | CartPole-v1 | Stable-Baselines3 | 493.8 | 496.1 | similar | 401 | 92 |
 | PPO | CartPole-v1 | SBX | 500 | 499.8 | similar | 377 | 93 |
 | PPO | inverted_pendulum | Brax | 1000 | 1000 | similar | 246 | 225 |
@@ -118,7 +119,7 @@ A return is the mean at the end of training. "Similar" means the interval of
 the difference lies inside a margin registered before the runs;
 "inconclusive" means it does not, without the returns being shown different.
 CPU seconds are for one run, both sides of a row on the same machine: a
-32-core Xeon for the PPO rows on CartPole and the SBX rows, a 4-core one
+32-core Xeon for the DQN row, the PPO rows on CartPole and the SBX rows, a 4-core one
 for the others.
 
 <p align="center">

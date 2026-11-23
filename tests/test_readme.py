@@ -156,6 +156,7 @@ def test_the_memory_table_says_which_agents_take_memory():
 # The README's reproduction table: each row's (agent, task, reference) and the
 # comparison of docs/reproduction/results.md it reports.
 REPRODUCTION_ROWS = {
+    ("DQN", "CartPole-v1", "Stable-Baselines3"): "DQN",
     ("PPO", "CartPole-v1", "Stable-Baselines3"): "PPO",
     ("PPO", "CartPole-v1", "SBX"): "PPO-sbx",
     ("PPO", "inverted_pendulum", "Brax"): "PPO-inverted_pendulum",

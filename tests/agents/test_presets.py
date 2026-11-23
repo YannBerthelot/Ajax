@@ -201,6 +201,33 @@ REFERENCE = {
         "ent_coef": 0.01,
         "share_encoder": True,
     },
+    # DLR-RM/stable-baselines3 2.9.0, PPO.__init__ (ppo/ppo.py:84-95):
+    # learning_rate 3e-4 (one optimiser over both networks), n_steps 2048,
+    # batch_size 64, n_epochs 10, gamma 0.99, gae_lambda 0.95, clip_range
+    # 0.2, clip_range_vf None (no value clip), normalize_advantage True,
+    # ent_coef 0.0, vf_coef 0.5, max_grad_norm 0.5; Adam's eps 1e-5
+    # (common/policies.py:472). Its value loss is vf_coef * MSE (:244) and
+    # Ajax's vf_coef * 0.5 * MSE, so 0.5 there is 2 * 0.5 here. It
+    # normalises observations and rewards only through a VecNormalize
+    # wrapper, which its PPO does not add.
+    ("PPO", "SB3"): {
+        "n_steps": 2048,
+        "batch_size": 64,
+        "n_epochs": 10,
+        "actor_learning_rate": 3e-4,
+        "critic_learning_rate": 3e-4,
+        "gamma": 0.99,
+        "gae_lambda": 0.95,
+        "clip_range": 0.2,
+        "clip_value_loss": False,
+        "normalize_advantage": True,
+        "ent_coef": 0.0,
+        "vf_coef": 2 * 0.5,
+        "max_grad_norm": 0.5,
+        "adam_eps": 1e-5,
+        "normalize_observations": False,
+        "normalize_rewards": False,
+    },
     # mttga/purejaxql@47af6d7 config/alg/pqn_cartpole.yaml: NUM_ENVS 32,
     # NUM_STEPS 64, EPS_FINISH 0.2, EPS_DECAY 0.2, NUM_MINIBATCHES 16,
     # NUM_EPOCHS 4, HIDDEN_SIZE 256 x NUM_LAYERS 2, LR 0.0001,

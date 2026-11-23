@@ -109,7 +109,37 @@ PRESETS = {
             "share_encoder": True,
         },
         "openai/baselines@ea25b9e ppo2/defaults.py:15-22",
-    )
+    ),
+    # Another library's conventions, not a task of ppo2's: Stable-Baselines3's
+    # PPO defaults (2.9.0, ppo/ppo.py:84-95) in Ajax's names. It does not
+    # clip the value loss (clip_range_vf=None, :234-236), normalises nothing
+    # without a VecNormalize wrapper, and puts vf_coef 0.5 on the whole
+    # squared error (:244), which is 1.0 on Ajax's half. Its minibatches of
+    # 64, orthogonal layers (common/policies.py:616-621) and Adam eps
+    # (:472) are Ajax's defaults, written out so that a default changing
+    # later leaves the preset as SB3. Not matched: SB3 steps torch's Adam,
+    # Ajax's PPO TensorFlow 1's (networks.utils.scale_by_tf1_adam).
+    "SB3": Preset(
+        {
+            "n_steps": 2048,
+            "batch_size": 64,
+            "n_epochs": 10,
+            "actor_learning_rate": 3e-4,
+            "critic_learning_rate": 3e-4,
+            "gamma": 0.99,
+            "gae_lambda": 0.95,
+            "clip_range": 0.2,
+            "clip_value_loss": False,
+            "normalize_advantage": True,
+            "ent_coef": 0.0,
+            "vf_coef": 1.0,
+            "max_grad_norm": 0.5,
+            "adam_eps": 1e-5,
+            "normalize_observations": False,
+            "normalize_rewards": False,
+        },
+        "DLR-RM/stable-baselines3 2.9.0 ppo/ppo.py:84-95, :234-244",
+    ),
 }
 
 

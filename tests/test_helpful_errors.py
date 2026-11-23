@@ -30,10 +30,19 @@ the CHANGELOG's "Clearer errors and checks"):
     a step of its own is refused naming ``episode_keys=False``, and builds
     that way;
   - (docs/guide/checkpoints.md) a resumed run continues the same whatever
-    seeds the resuming call names.
+    seeds the resuming call names;
+  - (the CHANGELOG's "after a fifth newcomer trial") ``train`` refuses a
+    seed that is no integer, a negative ``n_timesteps`` and an evaluation
+    of no episode; a ``total_timesteps`` below the call's steps says which
+    of the two is the call's; ``LoggingConfig`` refuses a ``log_frequency``
+    below 1; ``evaluate`` refuses what is no state, showing the call;
+  - (docs/guide/logging.md, "Guard your script's entry point") a script
+    that trains at its top level with a backend still trains, and is told
+    that its logs are missing and to guard its entry point.
 """
 
 import importlib.util
+import subprocess
 import sys
 import warnings
 
@@ -410,3 +419,62 @@ def test_a_resumed_run_continues_the_same_whatever_seeds_the_call_names():
     assert len(same) == len(others)
     for kept, renamed in zip(same, others, strict=True):
         np.testing.assert_array_equal(kept, renamed)
+
+
+@pytest.mark.parametrize("seed", [1.5, "0", [0, 1.0], True])
+def test_train_refuses_a_seed_that_is_no_integer_showing_what_to_pass(seed):
+    with pytest.raises(TypeError, match=r"seed=0 or seed=\[0, 1, 2\]"):
+        PPO("CartPole-v1").train(seed=seed, n_timesteps=64, logging_config=None)
+
+
+@pytest.mark.parametrize("agent", [PPO("CartPole-v1"), SAC("Pendulum-v1")])
+def test_train_refuses_a_negative_budget(agent):
+    with pytest.raises(ValueError, match="n_timesteps=-5"):
+        agent.train(seed=0, n_timesteps=-5, logging_config=None)
+
+
+def test_a_total_below_the_calls_steps_says_which_one_the_call_trains():
+    with pytest.raises(ValueError, match="n_timesteps is what this call trains"):
+        PPO("CartPole-v1").train(seed=0, total_timesteps=4_096)
+
+
+def test_train_refuses_an_evaluation_of_no_episode():
+    with pytest.raises(ValueError, match="num_episode_test=0"):
+        PPO("CartPole-v1").train(seed=0, n_timesteps=64, num_episode_test=0)
+
+
+@pytest.mark.parametrize("log_frequency", [0, -10])
+def test_a_log_frequency_below_one_is_refused(log_frequency):
+    with pytest.raises(ValueError, match="log_frequency"):
+        LoggingConfig(log_frequency=log_frequency, backends=())
+    assert LoggingConfig(log_frequency=1, backends=()).log_frequency == 1
+
+
+@pytest.mark.parametrize("not_a_state", [5, None, "state"])
+def test_evaluate_refuses_what_is_no_state_showing_the_call(not_a_state):
+    with pytest.raises(TypeError, match=r"agent\.evaluate\(state, episodes=5\)"):
+        PPO("CartPole-v1").evaluate(not_a_state)
+
+
+UNGUARDED = """
+from ajax import PPO
+from ajax.logging import LoggingConfig, TensorBoardBackend
+
+logging = LoggingConfig(log_frequency=32, backends=(TensorBoardBackend(r"{folder}"),))
+agent = PPO("CartPole-v1", n_envs=2, n_steps=16)
+state, evaluations = agent.train(seed=0, n_timesteps=64, logging_config=logging)
+print("trained", evaluations.returns.shape)
+"""
+
+
+@pytest.mark.slow
+def test_an_unguarded_script_trains_and_is_told_its_logs_are_missing(tmp_path):
+    script = tmp_path / "unguarded.py"
+    script.write_text(UNGUARDED.format(folder=tmp_path / "logs"))
+    run = subprocess.run(
+        [sys.executable, str(script)], capture_output=True, text=True, timeout=600
+    )
+    assert run.returncode == 0, run.stderr
+    assert "trained (1, 2)" in run.stdout
+    assert "logs are missing" in run.stderr
+    assert 'if __name__ == "__main__":' in run.stderr

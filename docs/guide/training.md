@@ -279,7 +279,20 @@ The logged names are listed in [Logging](logging.md).
 networks, their optimisers and parameters), `collector_state` (the
 environments, the replay buffer, the step counter `timestep`), the random
 keys (`rng` for training, `eval_rng` for evaluation), the evaluation count
-`n_logs`, and each extension's state.
+`n_logs`, and each extension's state. An agent with one network keeps it
+in `actor_state`: DQN's and PQN's Q-network is there, and their
+`critic_state` holds no parameters. To see the networks an agent built,
+print the shapes of their parameters (the first axis is the seeds'):
+
+```python
+import jax
+
+from ajax import PPO
+
+agent = PPO("CartPole-v1", actor_architecture=("32", "relu", "32", "relu"))
+state, _ = agent.train(seed=0, n_timesteps=2_048, logging_config=None)
+print(jax.tree.map(lambda array: array.shape, state.actor_state.params))
+```
 
 ## Continuing a run
 

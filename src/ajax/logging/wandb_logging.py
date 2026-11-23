@@ -82,6 +82,12 @@ class LoggingConfig:
     on_evaluation: Any = struct.field(pytree_node=False, default=None)
 
     def __post_init__(self) -> None:
+        if self.log_frequency < 1:
+            raise ValueError(
+                f"log_frequency={self.log_frequency}: pass the number of"
+                " environment steps between two evaluations, 1 or more. A run"
+                " without evaluations is train(logging_config=None)."
+            )
         if self.sweep:
             # stacklevel 3: the caller of LoggingConfig(...), past __init__.
             warnings.warn(
@@ -247,6 +253,14 @@ def _logging_worker(q: Any) -> None:
         _call(backend, "close")
 
 
+UNGUARDED_SCRIPT = (
+    "Ajax's logging runs in a process of its own, which imports your script:"
+    " a script that trains at its top level then trains again inside it, and"
+    " the run's logs are lost. Put the training under"
+    ' `if __name__ == "__main__":`.'
+)
+
+
 def start_async_logging() -> None:
     """Spawn the logging process (once; no-op if already running)."""
     global _log_queue, _log_process, _pending_init_msgs
@@ -259,19 +273,40 @@ def start_async_logging() -> None:
         _log_process = _mp_ctx.Process(
             target=_logging_worker, args=(_log_queue,), daemon=True
         )
-        _log_process.start()
-        if _old is None:
-            os.environ.pop("JAX_PLATFORMS", None)
-        else:
-            os.environ["JAX_PLATFORMS"] = _old
+        try:
+            _log_process.start()
+        except RuntimeError as error:
+            # Python refuses a process started while another is being
+            # imported: this is the worker, importing a script that trains
+            # at its top level.
+            raise RuntimeError(UNGUARDED_SCRIPT) from error
+        finally:
+            _restore_platforms(_old)
         for msg in _pending_init_msgs:
             _log_queue.put(msg)
         _pending_init_msgs.clear()
 
 
+def _restore_platforms(old: Optional[str]) -> None:
+    """JAX_PLATFORMS as it was before the worker started."""
+    if old is None:
+        os.environ.pop("JAX_PLATFORMS", None)
+    else:
+        os.environ["JAX_PLATFORMS"] = old
+
+
 def stop_async_logging() -> None:
     """Drain the queue, then stop the logging process."""
     global _log_queue, _log_process, _pending_init_msgs
+    if _log_process is not None and _log_process.exitcode not in (None, 0):
+        # The worker died before its poison pill: nothing it held was written.
+        warnings.warn(
+            f"The logging process stopped early (exit code"
+            f" {_log_process.exitcode}): this run's logs are missing or"
+            f" incomplete; train's evaluations are whole. {UNGUARDED_SCRIPT}",
+            UserWarning,
+            stacklevel=2,
+        )
     if _log_process is not None and _log_process.is_alive() and _log_queue is not None:
         _log_queue.put(None)  # poison pill
         try:

@@ -261,7 +261,9 @@ lists them, and `train(..., on_ids_ready=callback)` hands them to
 !!! warning "Guard your script's entry point"
     The logging worker is a separate Python process started with `spawn`,
     which imports your script again. A script that trains at the top level
-    then tries to train a second time inside the worker, and the run hangs.
+    then tries to train a second time inside the worker, which stops with
+    an error: training goes on and `train` returns its evaluations, but the
+    backends write nothing, and Ajax warns that the logs are missing.
     Put the training under `if __name__ == "__main__":`, as below.
 
 ```python

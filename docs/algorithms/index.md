@@ -125,6 +125,12 @@ give [PPO](ppo.md), [SAC](sac.md), [TD3](td3.md), [REDQ](redq.md),
 [ASAC](asac.md) or [APG](apg.md) a `memory=`. [DreamerV3](dreamerv3.md) is
 recurrent already.
 
+**The observation is an image.** [PPO](ppo.md), [DQN](dqn.md),
+[PQN](pqn.md) and [UDRL](udrl.md) read images through a convolutional
+encoder ([Image observations](../guide/networks.md#image-observations)); all
+four take discrete actions, and PPO and UDRL continuous ones too. The other agents,
+DreamerV3 included, read vector observations only.
+
 **You have an expert controller** (a PID, a hand-written policy): SAC has the
 most expert support, and it alone folds the `action` phase, which lets the
 expert act during collection. SAC, TD3, REDQ and APO can clone the expert

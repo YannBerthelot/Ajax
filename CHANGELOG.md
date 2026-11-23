@@ -25,6 +25,13 @@ The next release is 0.6.0: the first item changes results.
   with no word; the agent now warns and shows the tuple to write.
 - **`agent.evaluate`, `predict`, `policy` and `save` name the argument
   meant**, as `render` and `train_offline` do.
+- **A state from another agent or environment is refused saying so.**
+  `evaluate`, `predict` and `render` gave flax's error about a parameter's
+  shape; they now say the state acts with the agent and environment that
+  trained it.
+- **The warning for a budget that is not whole iterations** no longer says
+  the missing evaluation is NaN: the evaluations returned have no column
+  for it.
 - **Docs: "Coming from Stable-Baselines3" says whose defaults Ajax keeps**
   (each algorithm's original) and lists, for PPO, SAC, TD3 and DQN, where
   SB3's differ. The tables of default `n_envs` and default networks had

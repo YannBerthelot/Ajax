@@ -143,6 +143,31 @@ def test_a_seed_the_state_does_not_hold_is_refused(trained):
         agent.policy(state, seed_index=2)
 
 
+def test_a_state_trained_on_another_environment_is_refused_saying_so(trained):
+    """The state is CartPole's (observations of 4 numbers); Acrobot gives 6.
+    Left to flax, the error names a parameter's shape and not the state."""
+    _, state = trained
+    other = PPO("Acrobot-v1", n_envs=2, n_steps=16)
+    with pytest.raises(ValueError, match="cannot act with this state.*trained it"):
+        other.evaluate(state, episodes=1)
+    with pytest.raises(ValueError, match="cannot act with this state"):
+        other.predict(state, np.zeros(6, np.float32))
+
+
+def test_a_budget_off_whole_rollouts_returns_only_the_evaluations_that_ran():
+    """100 steps hold 3 rollouts of 2 envs x 16 steps (96). The warning says
+    the evaluation due at 100 does not happen; the evaluations returned hold
+    no empty column for it."""
+    agent = PPO("CartPole-v1", n_envs=2, n_steps=16)
+    with pytest.warns(UserWarning, match=r"timestep 100 does not happen\."):
+        _, evaluations = agent.train(
+            seed=0, n_timesteps=100, logging_config=LoggingConfig(backends=())
+        )
+    returns = np.asarray(evaluations.returns)
+    assert returns.shape[1] >= 1
+    assert not np.isnan(returns).any()
+
+
 def test_the_evaluations_are_refused_where_the_state_goes(trained):
     agent, _ = trained
     with pytest.raises(TypeError, match="the state"):

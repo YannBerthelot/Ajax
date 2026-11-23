@@ -464,14 +464,14 @@ class TrainLoop:
         ``per_iteration`` env steps (``unit`` names them): the iterations
         stop at a multiple of it, not at the call's end, so the run trains
         another number of steps than asked and an evaluation due at that end
-        never happens (its row stays NaN)."""
+        never happens: the evaluations returned hold no column for it."""
         if self.budget % per_iteration:
             end = self.start_timestep + self.budget
             message = (
                 f"n_timesteps={self.budget} is not a multiple of the"
                 f" {per_iteration} env steps of one iteration ({unit}): the run"
                 f" stops at a multiple of {per_iteration}, so an evaluation due"
-                f" at timestep {end} does not happen (NaN)."
+                f" at timestep {end} does not happen."
                 f" Pass a multiple of {per_iteration}."
             )
             if self.start_timestep + per_iteration > self.total_timesteps:

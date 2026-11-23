@@ -8,6 +8,10 @@ one.
 A task goes by the name its reference gives it ("Hopper", "AntMaze",
 "Atari"), not by an env id: one task has ids in gymnasium, brax and
 playground.
+
+A table may also hold another library's conventions under the library's
+name (PPO's "SB3"): that library's defaults in Ajax's names, for someone
+bringing settings from it.
 """
 
 from __future__ import annotations
@@ -24,10 +28,10 @@ class Preset:
 
     Args:
         overrides: The agent's fields its reference sets for the task. A
-            table gives each of its presets the same fields, the ones the
-            reference varies across its tasks, even where a value equals the
-            default: a default that changes later leaves the preset as its
-            reference.
+            table gives the presets of one reference the same fields, the
+            ones the reference varies across its tasks, even where a value
+            equals the default: a default that changes later leaves the
+            preset as its reference.
         citation: Where the values come from (repo@commit, file:line).
     """
 

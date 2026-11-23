@@ -464,10 +464,9 @@ def _make_no_op(extra_eval_metrics=None, choosers=False):
             shape_tree = jax.eval_shape(
                 extra_eval_metrics, agent_state, jax.random.PRNGKey(0)
             )
-            extras_nan = jax.tree_util.tree_map(
-                lambda s: jnp.full(s.shape, jnp.nan, s.dtype), shape_tree
-            )
-            fake_metrics_to_log.update(extras_nan)
+            # Not NaN in an integer metric (JSRL's stage): NaN has no
+            # integer form, and casting it warns.
+            fake_metrics_to_log.update(unevaluated(shape_tree))
         return fake_metrics_to_log
 
     return no_op

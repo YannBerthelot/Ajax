@@ -276,6 +276,35 @@ def test_train_refuses_a_keyword_it_does_not_take_naming_the_one_meant(agent):
     assert "logging_config" in str(refusal.value)
 
 
+# render and train_offline name the agent, not the class that defines the
+# method, and say which arguments they take. Both refuse before using what
+# they were given, so None stands for the state and the dataset.
+def test_render_refuses_a_keyword_it_does_not_take_naming_the_one_meant():
+    agent = PPO("CartPole-v1")
+    with pytest.raises(
+        TypeError, match=r"PPO\.render has no argument 'max_step'"
+    ) as refusal:
+        agent.render(None, "episode.gif", max_step=10)
+    assert "max_steps" in str(refusal.value)
+
+
+def test_render_without_a_state_says_what_it_needs():
+    agent = PPO("CartPole-v1")
+    with pytest.raises(TypeError, match=r"PPO\.render needs agent_state, path"):
+        agent.render()
+    with pytest.raises(TypeError, match=r"PPO\.render needs agent_state:"):
+        agent.render(path="episode.gif")
+
+
+def test_train_offline_refuses_a_keyword_it_does_not_take_naming_the_one_meant():
+    agent = SAC("Pendulum-v1")
+    with pytest.raises(
+        TypeError, match=r"SAC\.train_offline has no argument 'n_update'"
+    ) as refusal:
+        agent.train_offline(None, n_update=5)
+    assert "n_updates" in str(refusal.value)
+
+
 def test_a_dataset_from_another_environment_is_refused_saying_so():
     """Four rows of two-column observations, for Pendulum's three."""
     two_columns = np.zeros((4, 2), np.float32)

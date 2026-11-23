@@ -51,7 +51,7 @@ agent = DQN(
     "CartPole-v1",
     td_target_fn=compute_double_dqn_td_target,  # Double DQN
     q_network_cls=DuelingQNetwork,               # dueling heads
-    td_loss_fn=compute_mse_td_loss,              # squared error instead of Huber
+    td_loss_fn=compute_mse_td_loss,              # the squared error, named
 )
 state, _ = agent.train(seed=0, n_timesteps=2_000)
 ```
@@ -59,13 +59,14 @@ state, _ = agent.train(seed=0, n_timesteps=2_000)
 ## Key hyperparameters
 
 Defaults are read from DQN's fields: on vector observations, those of
-CleanRL's `dqn.py` (vwxyzjn/cleanrl `fe8d8a0`), with the authors' optimiser
-and loss (see Notes).
+CleanRL's `dqn.py` (vwxyzjn/cleanrl `fe8d8a0`), its Adam and squared loss
+included; on image observations the optimiser and loss are the authors'
+(see Notes).
 
 | Argument | Default | What it does |
 | --- | --- | --- |
 | `n_envs` | `1` | parallel environments |
-| `learning_rate` | `2.5e-4` | step size of centered RMSProp (see Notes) |
+| `learning_rate` | `2.5e-4` | step size of Adam (of centered RMSProp on images, see Notes) |
 | `architecture` | `("120", "relu", "84", "relu")` | hidden layers of the Q-network |
 | `gamma` | `0.99` | discount |
 | `buffer_size` | `10_000` | replay capacity |
@@ -83,7 +84,7 @@ and loss (see Notes).
 | `normalize_observations`, `normalize_rewards` | `False` | running normalisation |
 | `reward_normalization_gamma` | `None` | with `normalize_rewards`, the discount of the return whose spread divides the rewards: `gamma` if None, 0 for the single reward's |
 | `td_target_fn` | `None` | the target; `None` is vanilla DQN, `compute_double_dqn_td_target` is Double DQN |
-| `td_loss_fn` | `None` | the loss; `None` is the Huber loss with delta 1, `compute_mse_td_loss` the squared error |
+| `td_loss_fn` | `None` | the loss; `None` is the squared error on vector observations and the Huber loss with delta 1 on images (see Notes) |
 | `q_network_cls` | `None` | the network; `None` is `QNetwork`, `DuelingQNetwork` the dueling one |
 | `cnn_image_shape`, `cnn_extra_obs_dim`, `cnn_spec` | `None`, `0`, `None` | convolutional encoder for flat image observations; `None` builds the reference network (see Notes) |
 | `episode_length`, `action_repeat` | `None`, `1` | simulator steps per episode (1,000 when `None`) and per agent step, on Brax and Playground |
@@ -125,8 +126,9 @@ reward clipping are the environment's.
   its steps from 0: an update or refresh at Ajax's 10,500th step is
   CleanRL's at `global_step` 10,500, its 10,501st. Ajax also updates and
   refreshes at step 10,000, where CleanRL waits for `global_step >
-  learning_starts`. CleanRL's Adam and squared loss give way to the authors'
-  optimiser and Huber loss (below).
+  learning_starts`. On CartPole-v1 these defaults reach a return near 500
+  within CleanRL's 500,000 steps; a run of a few thousand steps is still in
+  its warm-up.
 - **Exploration.** Epsilon decays linearly with the training fraction (the
   timestep over the run's total), from `epsilon_start` to `epsilon_end`
   over `epsilon_decay_frac` of the run, starting at step
@@ -134,11 +136,16 @@ reward clipping are the environment's.
   every action is uniform. Evaluation is greedy.
 - **Time limits.** A transition cut by a time limit bootstraps on its final
   observation; only a termination stops the bootstrap.
-- **Loss.** The default is the Huber loss with delta 1, whose gradient is
-  the TD error clipped to [-1, 1], as the original DQN clips it.
-  `make_huber_td_loss(delta)` sets another delta; `compute_mse_td_loss` is the
-  squared error.
-- **Optimiser.** The authors' centered RMSProp (Graves 2013): each step is
+- **Loss.** On vector observations, the squared error, as CleanRL. On
+  images (`cnn_image_shape`), the Huber loss with delta 1, whose gradient is
+  the TD error clipped to [-1, 1], as the original DQN clips it on Atari's
+  rewards, themselves clipped to [-1, 1]. On unclipped rewards that loss
+  learns poorly: with it, CartPole-v1 stays near a return of 10.
+  `td_loss_fn` sets either: `compute_mse_td_loss`, `compute_huber_1_td_loss`
+  or `make_huber_td_loss(delta)`.
+- **Optimiser.** On vector observations, Adam at torch's defaults (eps
+  `1e-8`), as CleanRL. On images, the authors' centered RMSProp (Graves
+  2013): each step is
   the gradient over `sqrt(E[g^2] - E[g]^2 + eps)`, both averages decaying
   at 0.95. Their eps is 0.01 on a gradient summed over the batch; on Ajax's
   mean loss the same step takes `eps = 0.01 / batch_size**2`.

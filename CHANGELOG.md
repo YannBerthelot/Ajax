@@ -98,6 +98,15 @@ The next release is 0.6.0: the first item changes results.
       an agent's network shapes, a resumed call's new run ids, the agents
       for image observations, and DQN's optimiser on the page for people
       coming from SB3.
+- **DQN's default optimiser and loss on vector observations are CleanRL's**
+  (default change): Adam at eps `1e-8` and the squared error, as the
+  `dqn.py` its other defaults come from. They were the authors' centered
+  RMSProp and Huber loss, which the authors run on Atari's clipped rewards:
+  with them the default did not learn CartPole-v1 (a return near 10 after
+  500,000 steps on four seeds, where CleanRL's code and the new default
+  reach 500). On image observations (`cnn_image_shape`) the authors'
+  optimiser and loss stay. To keep the earlier loss, pass
+  `td_loss_fn=compute_huber_1_td_loss` (`ajax.agents.critics`).
 - **More checks**, after a third newcomer trial:
     - an expert whose action drops its last axis is refused where Ajax
       first calls it, naming the expert and the axis (before, a

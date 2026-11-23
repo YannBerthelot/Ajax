@@ -20,6 +20,10 @@ The next release is 0.6.0: the first item changes results.
   `step` return trained on two kinds of observations, with no error
   (Environments, "Changing the observations"). The memory guide trains on
   a CartPole with hidden velocities built with it.
+- **`agent.render` and `agent.train_offline` name the argument meant.** A
+  keyword neither takes is refused in the agent's name with the closest
+  names (`PPO.render has no argument 'max_step'. Did you mean max_steps?`),
+  and a call without the state says what the method needs.
 - **Ajax's PPO and SAC were run beside SBX**, Stable-Baselines3's JAX
   version (0.28.0), under the reproduction protocol. Both are similar by
   the registered margin. On CartPole, SBX's PPO ends at 500 on every seed

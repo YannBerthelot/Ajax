@@ -1794,10 +1794,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#ppo-version-2" class="md-nav__link">
+  <a href="#ppo-version-3" class="md-nav__link">
     <span class="md-ellipsis">
       
-        PPO, version 2
+        PPO, version 3
       
     </span>
   </a>
@@ -1882,10 +1882,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#ppo-sbx-version-1" class="md-nav__link">
+  <a href="#ppo-sbx-version-2" class="md-nav__link">
     <span class="md-ellipsis">
       
-        PPO-sbx, version 1
+        PPO-sbx, version 2
       
     </span>
   </a>
@@ -2947,10 +2947,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#ppo-version-2" class="md-nav__link">
+  <a href="#ppo-version-3" class="md-nav__link">
     <span class="md-ellipsis">
       
-        PPO, version 2
+        PPO, version 3
       
     </span>
   </a>
@@ -3035,10 +3035,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#ppo-sbx-version-1" class="md-nav__link">
+  <a href="#ppo-sbx-version-2" class="md-nav__link">
     <span class="md-ellipsis">
       
-        PPO-sbx, version 1
+        PPO-sbx, version 2
       
     </span>
   </a>
@@ -3086,7 +3086,7 @@
 <code>benchmarks/reference/refcmp_specs.py</code>, which a test keeps it equal to.
 Each comparison is set before its runs and changed only as a new
 version (see the <a href="../protocol/">protocol</a>).</p>
-<h2 id="ppo-version-2">PPO, version 2<a class="headerlink" href="#ppo-version-2" title="Permanent link">&para;</a></h2>
+<h2 id="ppo-version-3">PPO, version 3<a class="headerlink" href="#ppo-version-3" title="Permanent link">&para;</a></h2>
 <p>Ajax's PPO against stable-baselines3's PPO, MlpPolicy.</p>
 <ul>
 <li>Environment: gymnax CartPole-v1, a port of Gymnasium's CartPole-v1 (dynamics, termination, 500-step limit); SB3 steps it through refcmp_sb3.gymnax_vec_env.</li>
@@ -3094,7 +3094,7 @@ version (see the <a href="../protocol/">protocol</a>).</p>
 <li>Evaluation: 10 episodes of the deterministic policy, every 14,336 steps; a seed's score is the last one's mean return.</li>
 <li>AdaStop: n = 4, K = 24, alpha = 0.05.</li>
 <li>Margin: ±25.</li>
-<li>Spec hash: <code>ab1379d3e1e9ebb6</code>.</li>
+<li>Spec hash: <code>4c713858f5fdf9f4</code>.</li>
 <li>Reproduce: <code>uv run python benchmarks/reference/refcmp_protocol.py run PPO --cache DIR</code></li>
 </ul>
 <table>
@@ -3187,8 +3187,11 @@ version (see the <a href="../protocol/">protocol</a>).</p>
 </tr>
 </tbody>
 </table>
-<p>Ajax settings without a reference counterpart: <code>num_minibatches=8</code>, <code>actor_architecture=('64', 'tanh', '64', 'tanh')</code>, <code>critic_architecture=('64', 'tanh', '64', 'tanh')</code>, <code>adam_eps=1e-05</code>, <code>encoder_kernel_init='orthogonal(1.4142135623730951)'</code>.</p>
+<p>Ajax settings without a reference counterpart: <code>num_minibatches=8</code>, <code>actor_architecture=('64', 'tanh', '64', 'tanh')</code>, <code>critic_architecture=('64', 'tanh', '64', 'tanh')</code>, <code>adam_eps=1e-05</code>, <code>encoder_kernel_init='orthogonal(1.4142135623730951)'</code>, <code>normalize_observations=False</code>, <code>normalize_rewards=False</code>, <code>clip_value_loss=False</code>.</p>
 <p>Not matched:</p>
+<ul>
+<li>Adam: Ajax's PPO steps TensorFlow 1's form (ppo2's), which adds eps before the bias correction; SB3 steps the usual one</li>
+</ul>
 <h2 id="ppo-inverted_pendulum-version-2">PPO-inverted_pendulum, version 2<a class="headerlink" href="#ppo-inverted_pendulum-version-2" title="Permanent link">&para;</a></h2>
 <p>Ajax's PPO against brax.training.agents.ppo, with Brax's settings for inverted_pendulum (notebooks/training.ipynb) but the length.</p>
 <ul>
@@ -4040,7 +4043,7 @@ version (see the <a href="../protocol/">protocol</a>).</p>
 <li>network: ELU with LayerNorm and orthogonal(0.01) in Brax, ReLU in Ajax</li>
 <li>Adam eps: 1e-5 in Ajax, 1e-8 in the reference</li>
 </ul>
-<h2 id="ppo-sbx-version-1">PPO-sbx, version 1<a class="headerlink" href="#ppo-sbx-version-1" title="Permanent link">&para;</a></h2>
+<h2 id="ppo-sbx-version-2">PPO-sbx, version 2<a class="headerlink" href="#ppo-sbx-version-2" title="Permanent link">&para;</a></h2>
 <p>Ajax's PPO against sbx-rl 0.28.0's PPO, MlpPolicy.</p>
 <ul>
 <li>Environment: gymnax CartPole-v1, a port of Gymnasium's CartPole-v1 (dynamics, termination, 500-step limit); SBX steps it through refcmp_sb3.gymnax_vec_env.</li>
@@ -4048,7 +4051,7 @@ version (see the <a href="../protocol/">protocol</a>).</p>
 <li>Evaluation: 10 episodes of the deterministic policy, every 14,336 steps; a seed's score is the last one's mean return.</li>
 <li>AdaStop: n = 4, K = 24, alpha = 0.05.</li>
 <li>Margin: ±25.</li>
-<li>Spec hash: <code>6c5bc5baa1d55368</code>.</li>
+<li>Spec hash: <code>13af23980087f01a</code>.</li>
 <li>Reproduce: <code>uv run python benchmarks/reference/refcmp_protocol.py run PPO-sbx --cache DIR</code></li>
 </ul>
 <table>
@@ -4141,12 +4144,13 @@ version (see the <a href="../protocol/">protocol</a>).</p>
 </tr>
 </tbody>
 </table>
-<p>Ajax settings without a reference counterpart: <code>num_minibatches=8</code>, <code>actor_architecture=('64', 'tanh', '64', 'tanh')</code>, <code>critic_architecture=('64', 'tanh', '64', 'tanh')</code>, <code>adam_eps=1e-05</code>, <code>encoder_kernel_init='lecun_normal()'</code>, <code>normalize_observations=False</code>, <code>normalize_rewards=False</code>.</p>
+<p>Ajax settings without a reference counterpart: <code>num_minibatches=8</code>, <code>actor_architecture=('64', 'tanh', '64', 'tanh')</code>, <code>critic_architecture=('64', 'tanh', '64', 'tanh')</code>, <code>adam_eps=1e-05</code>, <code>encoder_kernel_init='lecun_normal()'</code>, <code>normalize_observations=False</code>, <code>normalize_rewards=False</code>, <code>clip_value_loss=False</code>.</p>
 <p>Not matched:</p>
 <ul>
 <li>output layers: lecun_normal in SBX (its ortho_init is off), an orthogonal policy layer of gain 0.01 and value layer of gain 1 in Ajax</li>
 <li>gradient clip: SBX clips each network's gradient at max_grad_norm in its own optimiser; Ajax clips the two together</li>
 <li>value weight: SBX's vf_coef scales the loss of the critic's own optimiser, which Adam's step mostly cancels; in Ajax it sets the critic's share of the joint clip</li>
+<li>Adam: Ajax's PPO steps TensorFlow 1's form (ppo2's), which adds eps before the bias correction; SBX steps the usual one</li>
 </ul>
 <h2 id="sac-sbx-version-1">SAC-sbx, version 1<a class="headerlink" href="#sac-sbx-version-1" title="Permanent link">&para;</a></h2>
 <p>Ajax's SAC against sbx-rl 0.28.0's SAC, MlpPolicy.</p>

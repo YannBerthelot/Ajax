@@ -3465,7 +3465,11 @@ each extension names in its <code>action_slot</code>:</p>
   moving average. <code>"random"</code> is the paper's JSRL-Random: <code>h</code> drawn uniformly
   from those stages each episode. <code>"time"</code> is Ajax's own and not the paper's:
   <code>h</code> falls linearly to 0 at <code>decay_frac</code> of training, whatever the
-  performance.</li>
+  performance.
+  With <code>"performance"</code>, <code>h</code> stays at the horizon until the first evaluation,
+  after <code>eval_every</code> steps (10,000 by default), which always passes. A run
+  shorter than that logs <code>jsrl/expert_frac</code> at 1.0 throughout: the expert
+  drives every step. On a short run, lower <code>eval_every</code>.</li>
 <li><strong>After it</strong> (<code>"post_warmup"</code>): <code>ValueBox</code>, which lets the expert act
   wherever its value exceeds a threshold that rises over training. The
   step that enters this region ends the agent's episode in the stored

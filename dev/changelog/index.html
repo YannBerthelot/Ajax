@@ -3136,6 +3136,13 @@ PyPI as <code>ajax-rl</code>.</p>
   <code>step</code> return trained on two kinds of observations, with no error
   (Environments, "Changing the observations"). The memory guide trains on
   a CartPole with hidden velocities built with it.</li>
+<li><strong>Fixed: a logged run with <code>JSRLCurriculum</code> warned <code>invalid value
+  encountered in cast</code>.</strong> The steps without an evaluation held NaN in place
+  of JSRL's integer stage. No logged value changes.</li>
+<li><strong><code>agent.render</code> and <code>agent.train_offline</code> name the argument meant.</strong> A
+  keyword neither takes is refused in the agent's name with the closest
+  names (<code>PPO.render has no argument 'max_step'. Did you mean max_steps?</code>),
+  and a call without the state says what the method needs.</li>
 <li><strong>New: <code>PPO.preset("SB3", env_id)</code></strong>, Stable-Baselines3's PPO defaults in
   Ajax's names, for settings brought from SB3 or SBX. Ajax's PPO defaults
   are ppo2's, which clip the value loss and normalise observations and

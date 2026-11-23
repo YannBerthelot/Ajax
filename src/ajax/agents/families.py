@@ -45,6 +45,7 @@ from gymnax import EnvParams
 from ajax.agents import update_steps
 from ajax.agents.base import (
     ActorCritic,
+    named_arguments,
     release_replaced,
     run_horizon,
     shared_counters,
@@ -783,6 +784,7 @@ class DeclaredAgent(ActorCritic):
         ]
         return jnp.stack(rows)
 
+    @named_arguments
     def render(
         self,
         agent_state: Any,

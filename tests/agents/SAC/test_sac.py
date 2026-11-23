@@ -1,3 +1,5 @@
+import warnings
+
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -7,6 +9,7 @@ import ajax.agents.SAC.SAC as sac_module
 from ajax.agents.SAC.SAC import SAC
 from ajax.extensions.expert import ExpertGains, JSRLCurriculum
 from ajax.extensions.observe import ExpertActionInput, ExpertStateInput
+from ajax.logging.wandb_logging import LoggingConfig
 from ajax.networks.networks import get_initialized_actor_critic
 from ajax.state import Transition
 from tests.agents.test_option_smoke import Expert, stateless_expert
@@ -105,6 +108,27 @@ def test_jsrl_curriculum_counts_the_episode_steps_it_reads():
         seed=0, n_timesteps=12, logging_config=None
     )
     assert plain.collector_state.step_in_episode is None
+
+
+def test_logging_an_integer_metric_casts_no_nan():
+    """JSRL logs its stage, an integer. A step without an evaluation holds a
+    placeholder for every logged metric; a NaN one cast to the stage's type
+    warned "invalid value encountered in cast" on every logged JSRL run."""
+    agent = SAC(
+        env_id="Pendulum-v1",
+        expert_policy=stateless_expert,
+        learning_starts=8,
+        extensions=(JSRLCurriculum(),),
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", RuntimeWarning)
+        _, evaluations = agent.train(
+            seed=0,
+            n_timesteps=24,
+            logging_config=LoggingConfig(log_frequency=12, backends=()),
+        )
+    # No evaluation of the combined policy before eval_every steps: stage 0.
+    np.testing.assert_array_equal(np.asarray(evaluations["jsrl/stage"]), 0)
 
 
 def test_jsrl_flags_the_steps_its_expert_takes():

@@ -239,6 +239,10 @@ each extension names in its `action_slot`:
   from those stages each episode. `"time"` is Ajax's own and not the paper's:
   `h` falls linearly to 0 at `decay_frac` of training, whatever the
   performance.
+  With `"performance"`, `h` stays at the horizon until the first evaluation,
+  after `eval_every` steps (10,000 by default), which always passes. A run
+  shorter than that logs `jsrl/expert_frac` at 1.0 throughout: the expert
+  drives every step. On a short run, lower `eval_every`.
 - **After it** (`"post_warmup"`): `ValueBox`, which lets the expert act
   wherever its value exceeds a threshold that rises over training. The
   step that enters this region ends the agent's episode in the stored

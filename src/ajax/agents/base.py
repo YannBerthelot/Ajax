@@ -2,8 +2,8 @@ import copy
 import difflib
 import inspect
 from collections.abc import Iterable, Mapping, Sequence
-from functools import partial
-from typing import Any, Callable, ClassVar, Optional, Tuple, Union
+from functools import partial, wraps
+from typing import Any, Callable, ClassVar, Optional, Tuple, TypeVar, Union, cast
 
 import jax
 import jax.numpy as jnp
@@ -70,6 +70,9 @@ def run_config(
     return config
 
 
+_Method = TypeVar("_Method", bound=Callable[..., Any])
+
+
 def unknown_argument(owner: str, name: str, known: Iterable[str]) -> str:
     """The message for an argument ``owner`` (an agent, or one of its
     methods) does not take: the arguments holding its name (learning_rate:
@@ -83,6 +86,36 @@ def unknown_argument(owner: str, name: str, known: Iterable[str]) -> str:
     return (
         f"{owner} has no argument {name!r}.{meant} help({owner}) lists its arguments."
     )
+
+
+def named_arguments(method: _Method) -> _Method:
+    """``method`` refusing a keyword it does not take, or a call without an
+    argument it needs, in the agent's name (PPO.render, not the class that
+    defines it) and with the names it takes; Python's own message has
+    neither."""
+    signature = inspect.signature(method)
+    names = [name for name in signature.parameters if name != "self"]
+    required = [
+        name
+        for name in names
+        if signature.parameters[name].default is inspect.Parameter.empty
+    ]
+
+    @wraps(method)
+    def call(self: Any, *args: Any, **kwargs: Any) -> Any:
+        owner = f"{type(self).__name__}.{method.__name__}"
+        for name in kwargs:
+            if name not in names:
+                raise TypeError(unknown_argument(owner, name, names))
+        missing = [name for name in required[len(args) :] if name not in kwargs]
+        if missing:
+            raise TypeError(
+                f"{owner} needs {', '.join(missing)}: {owner}({', '.join(names)})."
+                f" help({owner}) describes them."
+            )
+        return method(self, *args, **kwargs)
+
+    return cast(_Method, call)
 
 
 def _seed_by_seed(train: Callable, keys: jax.Array, index: jax.Array) -> Any:
@@ -1032,6 +1065,7 @@ class ActorCritic:
 
         return load(path, cls, train_options, **arguments)
 
+    @named_arguments
     def train_offline(
         self,
         dataset: Any,

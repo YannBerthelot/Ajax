@@ -3107,7 +3107,12 @@ matches:</p>
 <a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="n">ported</span> <span class="o">=</span> <span class="n">PPO</span><span class="o">.</span><span class="n">preset</span><span class="p">(</span><span class="s2">&quot;SB3&quot;</span><span class="p">,</span> <span class="s2">&quot;CartPole-v1&quot;</span><span class="p">,</span> <span class="n">n_envs</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">n_steps</span><span class="o">=</span><span class="mi">256</span><span class="p">,</span> <span class="n">num_minibatches</span><span class="o">=</span><span class="mi">32</span><span class="p">)</span>
 <a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="nb">print</span><span class="p">(</span><span class="n">ported</span><span class="o">.</span><span class="n">clip_value_loss</span><span class="p">,</span> <span class="n">ported</span><span class="o">.</span><span class="n">normalize_observations</span><span class="p">)</span>  <span class="c1"># False False</span>
 </code></pre></div>
-<p>The other agents have no such preset: pass the values of the SB3 column.</p>
+<p>The other agents have no such preset: pass the values of the SB3 column.
+DQN's optimiser is not an argument: Ajax's DQN steps with the authors'
+RMSProp (<a href="../../algorithms/dqn/#notes">its notes</a>), so a DQN brought from SB3
+keeps that difference. An argument SB3 calls otherwise is refused with the
+closest Ajax names; <code>total_timesteps</code> exists in both and means another
+thing here: <code>train(n_timesteps=...)</code> is SB3's <code>learn(total_timesteps=...)</code>.</p>
 <h2 id="the-calls-side-by-side">The calls side by side<a class="headerlink" href="#the-calls-side-by-side" title="Permanent link">&para;</a></h2>
 <table>
 <thead>

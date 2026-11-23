@@ -3197,6 +3197,25 @@ PyPI as <code>ajax-rl</code>.</p>
   <code>evaluations.returns</code>' layout and shape, <code>print(evaluations)</code> opens on it,
   and the quickstart and the training page show a single seed's curve as
   <code>evaluations.returns[0]</code>.</li>
+<li><strong>Checks and messages</strong>, after a fifth newcomer trial:<ul>
+<li>a script that trains at its top level with a logging backend used to
+  lose its logs silently (the logging process failed on importing the
+  script): the run now warns that the logs are missing, and both
+  messages say to guard the entry point;</li>
+<li><code>train</code> refuses a seed that is no integer (<code>seed=1.5</code> gave "'float'
+  object is not iterable"), a negative <code>n_timesteps</code> (it trained one
+  rollout) and <code>num_episode_test=0</code> (it returned NaN); <code>LoggingConfig</code>
+  refuses a <code>log_frequency</code> below 1 (it returned no evaluation);</li>
+<li>a <code>total_timesteps</code> below the call's steps says that <code>n_timesteps</code> is
+  what the call trains;</li>
+<li><code>evaluate</code>, <code>render</code>, <code>predict</code> and <code>policy</code> refuse an integer or
+  <code>None</code> given as the state, showing the call;</li>
+<li>docs: where a one-network agent keeps its network and how to print
+  an agent's network shapes, a resumed call's new run ids, the agents
+  for image observations, and DQN's optimiser on the page for people
+  coming from SB3.</li>
+</ul>
+</li>
 <li><strong>More checks</strong>, after a third newcomer trial:<ul>
 <li>an expert whose action drops its last axis is refused where Ajax
   first calls it, naming the expert and the axis (before, a

@@ -3093,7 +3093,8 @@ of that width; a name adds an activation:</p>
 <a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a><span class="n">state</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">seed</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">2_048</span><span class="p">)</span>
 </code></pre></div>
 <p>The activations are <code>relu</code>, <code>tanh</code>, <code>leaky_relu</code>, <code>swish</code>, <code>silu</code> and <code>mish</code>;
-a callable works too. <code>"layernorm"</code> adds a LayerNorm where it stands, so
+a callable works too. Another name is refused when training starts, with
+that list. <code>"layernorm"</code> adds a LayerNorm where it stands, so
 <code>("256", "layernorm", "relu", "256", "layernorm", "relu")</code> is RLPD's critic
 (Ball et al., 2023). The agent adds its output heads after the hidden
 layers: the policy's mean and standard deviation, the value, the Q-values.

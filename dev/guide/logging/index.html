@@ -3632,7 +3632,9 @@ lists them, and <code>train(..., on_ids_ready=callback)</code> hands them to
 <p class="admonition-title">Guard your script's entry point</p>
 <p>The logging worker is a separate Python process started with <code>spawn</code>,
 which imports your script again. A script that trains at the top level
-then tries to train a second time inside the worker, and the run hangs.
+then tries to train a second time inside the worker, which stops with
+an error: training goes on and <code>train</code> returns its evaluations, but the
+backends write nothing, and Ajax warns that the logs are missing.
 Put the training under <code>if __name__ == "__main__":</code>, as below.</p>
 </div>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">json</span>

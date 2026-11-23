@@ -3171,6 +3171,10 @@ the steps the whole run does.</p>
   into calls of whole rollouts ends where one call does
   (<a href="../training/#continuing-a-run">Continuing a run</a>); otherwise it may end
   elsewhere.</li>
+<li><strong>A resumed call logs as new runs.</strong> Each <code>train</code> call opens a run per
+  seed with a new run id, so a run made of two calls leaves two TensorBoard
+  folders (or W&amp;B runs) per seed; their steps continue, and each run's
+  <code>config.json</code> records its seed.</li>
 <li><strong>APG restarts its optimiser on a resume</strong> by default, which its staged
   curriculum relies on: its learning-rate schedule then spans each call.
   Pass <code>reset_optimizer_on_resume=False</code> to <code>train</code> to keep it. The kept

@@ -3142,6 +3142,11 @@ networks: <a href="avg/">AVG</a>.</p>
 give <a href="ppo/">PPO</a>, <a href="sac/">SAC</a>, <a href="td3/">TD3</a>, <a href="redq/">REDQ</a>,
 <a href="asac/">ASAC</a> or <a href="apg/">APG</a> a <code>memory=</code>. <a href="dreamerv3/">DreamerV3</a> is
 recurrent already.</p>
+<p><strong>The observation is an image.</strong> <a href="ppo/">PPO</a>, <a href="dqn/">DQN</a>,
+<a href="pqn/">PQN</a> and <a href="udrl/">UDRL</a> read images through a convolutional
+encoder (<a href="../guide/networks/#image-observations">Image observations</a>); all
+four take discrete actions, and PPO and UDRL continuous ones too. The other agents,
+DreamerV3 included, read vector observations only.</p>
 <p><strong>You have an expert controller</strong> (a PID, a hand-written policy): SAC has the
 most expert support, and it alone folds the <code>action</code> phase, which lets the
 expert act during collection. SAC, TD3, REDQ and APO can clone the expert

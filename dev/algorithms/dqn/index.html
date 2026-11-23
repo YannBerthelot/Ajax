@@ -1541,6 +1541,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#ajax.agents.DQN.DQN.DQN.default_td_loss" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        default_td_loss
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#ajax.agents.DQN.DQN.DQN.make_epsilon_schedule" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3152,6 +3163,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#ajax.agents.DQN.DQN.DQN.default_td_loss" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        default_td_loss
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#ajax.agents.DQN.DQN.DQN.make_epsilon_schedule" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3341,14 +3363,15 @@ network).</p>
 <a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>    <span class="s2">&quot;CartPole-v1&quot;</span><span class="p">,</span>
 <a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>    <span class="n">td_target_fn</span><span class="o">=</span><span class="n">compute_double_dqn_td_target</span><span class="p">,</span>  <span class="c1"># Double DQN</span>
 <a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>    <span class="n">q_network_cls</span><span class="o">=</span><span class="n">DuelingQNetwork</span><span class="p">,</span>               <span class="c1"># dueling heads</span>
-<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a>    <span class="n">td_loss_fn</span><span class="o">=</span><span class="n">compute_mse_td_loss</span><span class="p">,</span>              <span class="c1"># squared error instead of Huber</span>
+<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a>    <span class="n">td_loss_fn</span><span class="o">=</span><span class="n">compute_mse_td_loss</span><span class="p">,</span>              <span class="c1"># the squared error, named</span>
 <a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="p">)</span>
 <a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a><span class="n">state</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">seed</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">2_000</span><span class="p">)</span>
 </code></pre></div>
 <h2 id="key-hyperparameters">Key hyperparameters<a class="headerlink" href="#key-hyperparameters" title="Permanent link">&para;</a></h2>
 <p>Defaults are read from DQN's fields: on vector observations, those of
-CleanRL's <code>dqn.py</code> (vwxyzjn/cleanrl <code>fe8d8a0</code>), with the authors' optimiser
-and loss (see Notes).</p>
+CleanRL's <code>dqn.py</code> (vwxyzjn/cleanrl <code>fe8d8a0</code>), its Adam and squared loss
+included; on image observations the optimiser and loss are the authors'
+(see Notes).</p>
 <table>
 <thead>
 <tr>
@@ -3366,7 +3389,7 @@ and loss (see Notes).</p>
 <tr>
 <td><code>learning_rate</code></td>
 <td><code>2.5e-4</code></td>
-<td>step size of centered RMSProp (see Notes)</td>
+<td>step size of Adam (of centered RMSProp on images, see Notes)</td>
 </tr>
 <tr>
 <td><code>architecture</code></td>
@@ -3456,7 +3479,7 @@ and loss (see Notes).</p>
 <tr>
 <td><code>td_loss_fn</code></td>
 <td><code>None</code></td>
-<td>the loss; <code>None</code> is the Huber loss with delta 1, <code>compute_mse_td_loss</code> the squared error</td>
+<td>the loss; <code>None</code> is the squared error on vector observations and the Huber loss with delta 1 on images (see Notes)</td>
 </tr>
 <tr>
 <td><code>q_network_cls</code></td>
@@ -3514,8 +3537,9 @@ reward clipping are the environment's.</p>
   its steps from 0: an update or refresh at Ajax's 10,500th step is
   CleanRL's at <code>global_step</code> 10,500, its 10,501st. Ajax also updates and
   refreshes at step 10,000, where CleanRL waits for <code>global_step &gt;
-  learning_starts</code>. CleanRL's Adam and squared loss give way to the authors'
-  optimiser and Huber loss (below).</li>
+  learning_starts</code>. On CartPole-v1 these defaults reach a return near 500
+  within CleanRL's 500,000 steps; a run of a few thousand steps is still in
+  its warm-up.</li>
 <li><strong>Exploration.</strong> Epsilon decays linearly with the training fraction (the
   timestep over the run's total), from <code>epsilon_start</code> to <code>epsilon_end</code>
   over <code>epsilon_decay_frac</code> of the run, starting at step
@@ -3523,11 +3547,16 @@ reward clipping are the environment's.</p>
   every action is uniform. Evaluation is greedy.</li>
 <li><strong>Time limits.</strong> A transition cut by a time limit bootstraps on its final
   observation; only a termination stops the bootstrap.</li>
-<li><strong>Loss.</strong> The default is the Huber loss with delta 1, whose gradient is
-  the TD error clipped to [-1, 1], as the original DQN clips it.
-  <code>make_huber_td_loss(delta)</code> sets another delta; <code>compute_mse_td_loss</code> is the
-  squared error.</li>
-<li><strong>Optimiser.</strong> The authors' centered RMSProp (Graves 2013): each step is
+<li><strong>Loss.</strong> On vector observations, the squared error, as CleanRL. On
+  images (<code>cnn_image_shape</code>), the Huber loss with delta 1, whose gradient is
+  the TD error clipped to [-1, 1], as the original DQN clips it on Atari's
+  rewards, themselves clipped to [-1, 1]. On unclipped rewards that loss
+  learns poorly: with it, CartPole-v1 stays near a return of 10.
+  <code>td_loss_fn</code> sets either: <code>compute_mse_td_loss</code>, <code>compute_huber_1_td_loss</code>
+  or <code>make_huber_td_loss(delta)</code>.</li>
+<li><strong>Optimiser.</strong> On vector observations, Adam at torch's defaults (eps
+  <code>1e-8</code>), as CleanRL. On images, the authors' centered RMSProp (Graves
+  2013): each step is
   the gradient over <code>sqrt(E[g^2] - E[g]^2 + eps)</code>, both averages decaying
   at 0.95. Their eps is 0.01 on a gradient summed over the batch; on Ajax's
   mean loss the same step takes <code>eps = 0.01 / batch_size**2</code>.</li>
@@ -3671,9 +3700,12 @@ Q-network trained by TD against a periodically refreshed target network
     }
 )</p>
 <p>@fe8d8a0, its Args at lines 47-71 and QNetwork at 95-99), the
-classic-control reference, with Mnih et al.'s optimiser and Huber loss
-(optimizer_settings, td_loss_fn), which google-deepmind/dqn @9d9b1d1
-runs on Atari. Ajax counts the steps collected, CleanRL numbers them
+classic-control reference, with its Adam and squared loss (dqn.py:148,
+:201); on image observations (cnn_image_shape), Mnih et al.'s optimiser
+and Huber loss (optimizer_settings, default_td_loss), which
+google-deepmind/dqn @9d9b1d1 runs on Atari, where rewards are clipped
+to [-1, 1]: on CartPole's unclipped rewards that loss does not learn.
+Ajax counts the steps collected, CleanRL numbers them
 from 0 (global_step): an update and a refresh of Ajax's at its 10,500th
 step are CleanRL's at global_step 10,500, its 10,501st. Ajax also
 updates and refreshes at step 10,000, where CleanRL waits for
@@ -3700,6 +3732,28 @@ steps collected before the first update (ReplayAgent).</p>
 
 
 
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="ajax.agents.DQN.DQN.DQN.default_td_loss" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">default_td_loss</span>
+
+
+<a href="#ajax.agents.DQN.DQN.DQN.default_td_loss" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">default_td_loss</span><span class="p">()</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>The reference's TD loss: CleanRL's squared error on vector
+observations (dqn.py:201); on images Mnih et al.'s TD error clipped
+to [-1, 1] (NeuralQLearner.lua:232-236), the Huber loss of delta 1.</p>
+
+
+    </div>
+
+</div>
 
 <div class="doc doc-object doc-function">
 

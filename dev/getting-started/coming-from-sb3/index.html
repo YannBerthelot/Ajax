@@ -3091,8 +3091,8 @@ The SB3 values are those of its 2.9.0 constructors.</p>
 </tr>
 <tr>
 <td>DQN</td>
-<td>CleanRL's vector-observation settings: RMSProp at <code>2.5e-4</code>, a replay of 10,000, batches of 128, an update every 10 steps, the target copied every 50 updates, <code>learning_starts=10_000</code>, epsilon decaying over half the run</td>
-<td>Adam at <code>1e-4</code>, a replay of 1,000,000, batches of 32, an update every 4 steps, the target copied every 10,000 steps, <code>learning_starts=100</code>, epsilon decaying over a tenth of the run</td>
+<td>CleanRL's vector-observation settings: Adam at <code>2.5e-4</code>, the squared loss, a replay of 10,000, batches of 128, an update every 10 steps, the target copied every 50 updates, <code>learning_starts=10_000</code>, epsilon decaying over half the run</td>
+<td>Adam at <code>1e-4</code>, the Huber loss, a replay of 1,000,000, batches of 32, an update every 4 steps, the target copied every 10,000 steps, <code>learning_starts=100</code>, epsilon decaying over a tenth of the run</td>
 </tr>
 </tbody>
 </table>
@@ -3108,9 +3108,8 @@ matches:</p>
 <a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="nb">print</span><span class="p">(</span><span class="n">ported</span><span class="o">.</span><span class="n">clip_value_loss</span><span class="p">,</span> <span class="n">ported</span><span class="o">.</span><span class="n">normalize_observations</span><span class="p">)</span>  <span class="c1"># False False</span>
 </code></pre></div>
 <p>The other agents have no such preset: pass the values of the SB3 column.
-DQN's optimiser is not an argument: Ajax's DQN steps with the authors'
-RMSProp (<a href="../../algorithms/dqn/#notes">its notes</a>), so a DQN brought from SB3
-keeps that difference. An argument SB3 calls otherwise is refused with the
+For DQN, SB3's Huber loss is <code>td_loss_fn=compute_huber_1_td_loss</code>
+(<a href="../../algorithms/dqn/#notes">its notes</a>). An argument SB3 calls otherwise is refused with the
 closest Ajax names; <code>total_timesteps</code> exists in both and means another
 thing here: <code>train(n_timesteps=...)</code> is SB3's <code>learn(total_timesteps=...)</code>.</p>
 <h2 id="the-calls-side-by-side">The calls side by side<a class="headerlink" href="#the-calls-side-by-side" title="Permanent link">&para;</a></h2>

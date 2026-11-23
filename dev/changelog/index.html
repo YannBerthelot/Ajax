@@ -3216,6 +3216,15 @@ PyPI as <code>ajax-rl</code>.</p>
   coming from SB3.</li>
 </ul>
 </li>
+<li><strong>DQN's default optimiser and loss on vector observations are CleanRL's</strong>
+  (default change): Adam at eps <code>1e-8</code> and the squared error, as the
+  <code>dqn.py</code> its other defaults come from. They were the authors' centered
+  RMSProp and Huber loss, which the authors run on Atari's clipped rewards:
+  with them the default did not learn CartPole-v1 (a return near 10 after
+  500,000 steps on four seeds, where CleanRL's code and the new default
+  reach 500). On image observations (<code>cnn_image_shape</code>) the authors'
+  optimiser and loss stay. To keep the earlier loss, pass
+  <code>td_loss_fn=compute_huber_1_td_loss</code> (<code>ajax.agents.critics</code>).</li>
 <li><strong>More checks</strong>, after a third newcomer trial:<ul>
 <li>an expert whose action drops its last axis is refused where Ajax
   first calls it, naming the expert and the axis (before, a

@@ -20,6 +20,9 @@ The next release is 0.6.0: the first item changes results.
   `step` return trained on two kinds of observations, with no error
   (Environments, "Changing the observations"). The memory guide trains on
   a CartPole with hidden velocities built with it.
+- **Fixed: a logged run with `JSRLCurriculum` warned `invalid value
+  encountered in cast`.** The steps without an evaluation held NaN in place
+  of JSRL's integer stage. No logged value changes.
 - **`agent.render` and `agent.train_offline` name the argument meant.** A
   keyword neither takes is refused in the agent's name with the closest
   names (`PPO.render has no argument 'max_step'. Did you mean max_steps?`),

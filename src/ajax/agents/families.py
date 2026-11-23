@@ -35,11 +35,12 @@ import inspect
 import warnings
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import KW_ONLY, dataclass
-from functools import partial
-from typing import Any, ClassVar, Optional, Self, Union
+from functools import partial, wraps
+from typing import Any, ClassVar, Optional, Self, TypeVar, Union, cast
 
 import jax
 import jax.numpy as jnp
+from flax.errors import ScopeParamShapeError
 from gymnax import EnvParams
 
 from ajax.agents import update_steps
@@ -50,6 +51,7 @@ from ajax.agents.base import (
     run_horizon,
     shared_counters,
     unknown_argument,
+    warn_widths_without_activation,
 )
 from ajax.agents.loop import LOOP_PHASES, Evaluation, TrainLoop
 from ajax.agents.presets import presets_of
@@ -462,6 +464,31 @@ def _train_state(agent_state: Any) -> Any:
     return agent_state
 
 
+_Acting = TypeVar("_Acting", bound=Callable[..., Any])
+
+
+def acts_with_its_own_state(method: _Acting) -> _Acting:
+    """``method`` saying so when the state it is given was trained by another
+    agent or on another environment: its networks then meet inputs of
+    another shape, which flax reports as a parameter of the wrong shape
+    without naming the state."""
+
+    @wraps(method)
+    def call(self: Any, *args: Any, **kwargs: Any) -> Any:
+        try:
+            return method(self, *args, **kwargs)
+        except ScopeParamShapeError as error:
+            raise ValueError(
+                f"{self.name} cannot act with this state: its networks read"
+                " inputs of another shape than this agent's environment gives"
+                f" ({str(error).split(' (http')[0]}) A state acts with the"
+                " agent and the environment that trained it: pass the one this"
+                " agent's train or load returned."
+            ) from error
+
+    return cast("_Acting", call)
+
+
 @dataclass(eq=False, repr=False)
 class DeclaredAgent(ActorCritic):
     """An agent whose constructor is its fields' (keyword-only but
@@ -527,6 +554,9 @@ class DeclaredAgent(ActorCritic):
                 " gamma, the discount its value estimate reads."
             )
         self.check()
+        for name in sorted(names):
+            if name.endswith("architecture"):
+                warn_widths_without_activation(self.name, name, getattr(self, name))
         shared = {
             name: getattr(self, name) for name in ACTOR_CRITIC_ARGS.intersection(names)
         }
@@ -737,6 +767,7 @@ class DeclaredAgent(ActorCritic):
         gamma, reward_scale = (getattr(self, name, 1.0) for name in DISCOUNT_FIELDS)
         return ValueEstimate(value, gamma, reward_scale)
 
+    @named_arguments
     def policy(self, agent_state: Any, seed_index: int = 0) -> Policy:
         """The policy of seed seed_index of agent_state (train's state, or
         its (state, out)), acting in the environment's units exactly as the
@@ -751,6 +782,8 @@ class DeclaredAgent(ActorCritic):
         one_seed = jax.tree.map(lambda leaf: leaf[seed_index], agent_state)
         return Policy(self.policy_parts(), one_seed)
 
+    @named_arguments
+    @acts_with_its_own_state
     def evaluate(
         self, agent_state: Any, episodes: int = 10, seed: int = 0
     ) -> jax.Array:
@@ -785,6 +818,7 @@ class DeclaredAgent(ActorCritic):
         return jnp.stack(rows)
 
     @named_arguments
+    @acts_with_its_own_state
     def render(
         self,
         agent_state: Any,
@@ -834,6 +868,8 @@ class DeclaredAgent(ActorCritic):
             recurrent=self.network_args.memory is not None,
         )
 
+    @named_arguments
+    @acts_with_its_own_state
     def predict(
         self,
         agent_state: Any,

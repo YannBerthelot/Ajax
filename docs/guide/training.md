@@ -183,6 +183,10 @@ for configuration, returns in agent.by_configuration(evaluations.returns):
     print(configuration, "final return", returns[:, -1].mean())
 ```
 
+To decide whether one configuration is better than another, give each one's
+per-seed scores to the tests of [Comparing agents](comparing-agents.md):
+`returns[:, -1]` above is one score per seed.
+
 A dict of value lists trains its grid, here 4 configurations, so 8 members;
 a list of dicts trains those configurations. The returned arrays have one
 leading row per member, configuration by configuration, each over the
@@ -225,10 +229,11 @@ The defaults differ by agent:
 
 | `n_envs` default | Agents |
 | --- | --- |
-| 1 | SAC, ASAC, REDQ, CrossQ, TQC, TD3, IQL, AVG, DQN, UDRL, DAgger, TDMPC2 |
-| 4 | PPO, APO |
-| 8 | PQN, APG |
+| 1 | PPO, SAC, ASAC, RVI-SAC, REDQ, CrossQ, TQC, TD3, IQL, AVG, DQN, UDRL, DAgger, TD-MPC2 |
+| 8 | APG |
+| 10 | APO |
 | 16 | DreamerV3 |
+| 128 | PQN |
 
 ### Evaluation
 

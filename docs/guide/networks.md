@@ -32,6 +32,9 @@ a callable works too. `"layernorm"` adds a LayerNorm where it stands, so
 layers: the policy's mean and standard deviation, the value, the Q-values.
 DQN and PQN take a single `architecture` for their Q-network.
 
+Widths alone, as SB3's `net_arch=[64, 64]`, leave the layers without an
+activation between them; Ajax warns and shows the tuple to write.
+
 `print(agent)` shows the agent as the call that builds it, with every
 argument that differs from its default, so a setting that did not reach the
 agent is missing from it. `agent.config` is the dict of all of them.
@@ -40,11 +43,12 @@ Each agent's default follows its paper or reference implementation:
 
 | Default | Agents |
 | --- | --- |
-| `("256", "relu", "256", "relu")` | SAC, ASAC, REDQ, TD3 |
+| `("256", "relu", "256", "relu")` | SAC, ASAC, RVI-SAC, REDQ, TQC, TD3, IQL |
 | `("256", "leaky_relu", "256", "leaky_relu")` | AVG |
-| `("128", "tanh", "128", "tanh")` | PPO |
-| `("64", "tanh", "64", "tanh")` | APO |
-| `("128", "relu", "128", "relu")` | DQN, PQN, UDRL, APG (its controller) |
+| `("64", "tanh", "64", "tanh")` | PPO, APO |
+| `("32", "tanh", "32", "tanh")` | DAgger |
+| `("128", "relu", "128", "relu")` | PQN, UDRL, APG (its controller) |
+| `("120", "relu", "84", "relu")` | DQN |
 
 DreamerV3 and TD-MPC2 build their own networks to their papers'
 specifications: see [World models](world-models.md).

@@ -143,6 +143,42 @@ def test_a_seed_the_state_does_not_hold_is_refused(trained):
         agent.policy(state, seed_index=2)
 
 
+def test_a_state_trained_on_another_environment_is_refused_saying_so(trained):
+    """The state is CartPole's (observations of 4 numbers); Acrobot gives 6.
+    Left to flax, the error names a parameter's shape and not the state."""
+    _, state = trained
+    other = PPO("Acrobot-v1", n_envs=2, n_steps=16)
+    with pytest.raises(ValueError, match="cannot act with this state.*trained it"):
+        other.evaluate(state, episodes=1)
+    with pytest.raises(ValueError, match="cannot act with this state"):
+        other.predict(state, np.zeros(6, np.float32))
+
+
+def test_a_budget_off_whole_rollouts_returns_only_the_evaluations_that_ran():
+    """100 steps hold 3 rollouts of 2 envs x 16 steps (96). Evaluations are
+    due at 50 and 100: the first runs at the rollout's end past 50, and the
+    warning says the one due at 100 does not happen. The evaluations
+    returned hold the one that ran and no empty column for the other."""
+    agent = PPO("CartPole-v1", n_envs=2, n_steps=16)
+    logging = LoggingConfig(log_frequency=50, backends=())
+    with pytest.warns(UserWarning, match=r"timestep 100 does not happen\."):
+        _, evaluations = agent.train(seed=0, n_timesteps=100, logging_config=logging)
+    returns = np.asarray(evaluations.returns)
+    assert returns.shape == (1, 1)
+    assert not np.isnan(returns).any()
+
+
+def test_a_log_frequency_past_the_runs_end_warns_that_nothing_is_evaluated():
+    """LoggingConfig evaluates every 10,000 steps unless told otherwise; a
+    64-step run then returns no evaluation. The warning says what to pass."""
+    agent = PPO("CartPole-v1", n_envs=2, n_steps=16)
+    with pytest.warns(UserWarning, match=r"log_frequency=10000.*at most 64"):
+        _, evaluations = agent.train(
+            seed=0, n_timesteps=64, logging_config=LoggingConfig(backends=())
+        )
+    assert np.asarray(evaluations.returns).shape == (1, 0)
+
+
 def test_the_evaluations_are_refused_where_the_state_goes(trained):
     agent, _ = trained
     with pytest.raises(TypeError, match="the state"):
@@ -294,6 +330,35 @@ def test_render_without_a_state_says_what_it_needs():
         agent.render()
     with pytest.raises(TypeError, match=r"PPO\.render needs agent_state:"):
         agent.render(path="episode.gif")
+
+
+def test_evaluate_refuses_a_keyword_it_does_not_take_naming_the_one_meant():
+    """SB3's evaluate_policy takes n_eval_episodes; Ajax's evaluate, episodes."""
+    agent = PPO("CartPole-v1")
+    with pytest.raises(
+        TypeError, match=r"PPO\.evaluate has no argument 'n_eval_episodes'"
+    ) as refusal:
+        agent.evaluate(None, n_eval_episodes=5)
+    assert "episodes" in str(refusal.value)
+    with pytest.raises(TypeError, match=r"PPO\.evaluate needs agent_state"):
+        agent.evaluate(episodes=5)
+
+
+# An architecture names an activation after each width. Widths alone (SB3's
+# net_arch=[64, 64]) build layers that compose to one linear map, so the
+# agent warns and shows the tuple to write.
+@pytest.mark.parametrize("widths", [[64, 64], ("64", "64")])
+def test_widths_without_activations_warn_showing_the_tuple_to_write(widths):
+    with pytest.warns(UserWarning, match="no activation") as caught:
+        PPO("CartPole-v1", actor_architecture=widths)
+    assert 'actor_architecture=("64", "tanh", "64", "tanh")' in str(caught[0].message)
+
+
+def test_an_architecture_with_activations_does_not_warn():
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UserWarning)
+        PPO("CartPole-v1", actor_architecture=("32", "relu", "32", "relu"))
+        PPO("CartPole-v1", actor_architecture=("32",))  # one layer: nothing between
 
 
 def test_train_offline_refuses_a_keyword_it_does_not_take_naming_the_one_meant():

@@ -1,6 +1,7 @@
 import copy
 import difflib
 import inspect
+import warnings
 from collections.abc import Iterable, Mapping, Sequence
 from functools import partial, wraps
 from typing import Any, Callable, ClassVar, Optional, Tuple, TypeVar, Union, cast
@@ -116,6 +117,24 @@ def named_arguments(method: _Method) -> _Method:
         return method(self, *args, **kwargs)
 
     return cast(_Method, call)
+
+
+def warn_widths_without_activation(owner: str, name: str, layers: Any) -> None:
+    """Warn of an architecture that lists widths only, as SB3's
+    ``net_arch=[64, 64]`` does: Ajax names each layer's activation after its
+    width, and without one the layers compose to a single linear map."""
+    if not isinstance(layers, (tuple, list)) or len(layers) < 2:
+        return
+    if not all(str(layer).isnumeric() for layer in layers):
+        return
+    named = ", ".join(f'"{layer}", "tanh"' for layer in layers)
+    warnings.warn(
+        f"{owner}({name}={layers!r}) lists widths only, so its layers have no"
+        " activation between them and act as one linear layer. Name an"
+        f" activation after each width, as {name}=({named}).",
+        UserWarning,
+        stacklevel=4,
+    )
 
 
 def _seed_by_seed(train: Callable, keys: jax.Array, index: jax.Array) -> Any:
@@ -1044,6 +1063,7 @@ class ActorCritic:
                 shown.append(f"{name}=<{type(self.config[name]).__name__}>")
         return f"{type(self).__name__}({', '.join(shown)})"
 
+    @named_arguments
     def save(self, state: BaseAgentState, path: str) -> None:
         """Write ``state`` and this agent's class and plain constructor
         arguments to ``path``, for :meth:`load` to build both again

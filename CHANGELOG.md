@@ -20,6 +20,26 @@ The next release is 0.6.0: the first item changes results.
   `step` return trained on two kinds of observations, with no error
   (Environments, "Changing the observations"). The memory guide trains on
   a CartPole with hidden velocities built with it.
+- **An architecture of widths alone warns.** `actor_architecture=[64, 64]`
+  (SB3's `net_arch` habit) built layers with no activation between them,
+  with no word; the agent now warns and shows the tuple to write.
+- **`agent.evaluate`, `predict`, `policy` and `save` name the argument
+  meant**, as `render` and `train_offline` do.
+- **A state from another agent or environment is refused saying so.**
+  `evaluate`, `predict` and `render` gave flax's error about a parameter's
+  shape; they now say the state acts with the agent and environment that
+  trained it.
+- **A `LoggingConfig` whose `log_frequency` is past the run's end warns.**
+  Its default is 10,000 steps, so a shorter run with a `LoggingConfig` of
+  your own returned no evaluation, with no word.
+- **The warning for a budget that is not whole iterations** no longer says
+  the missing evaluation is NaN: the evaluations returned have no column
+  for it.
+- **Docs: "Coming from Stable-Baselines3" says whose defaults Ajax keeps**
+  (each algorithm's original) and lists, for PPO, SAC, TD3 and DQN, where
+  SB3's differ. The tables of default `n_envs` and default networks had
+  drifted from the code for PPO, APO, PQN, DQN and others; tests now hold
+  them to it.
 - **Fixed: a logged run with `JSRLCurriculum` warned `invalid value
   encountered in cast`.** The steps without an evaluation held NaN in place
   of JSRL's integer stage. No logged value changes.

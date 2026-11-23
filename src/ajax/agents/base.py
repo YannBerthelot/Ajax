@@ -875,9 +875,9 @@ class ActorCritic:
         """
         seed = checked_seeds(seed)
         self._check_train_options(kwargs)
-        if kwargs.get("num_episode_test", 1) < 1:
+        if num_episode_test < 1:
             raise ValueError(
-                f"num_episode_test={kwargs['num_episode_test']}: an evaluation"
+                f"num_episode_test={num_episode_test}: an evaluation"
                 " averages at least one episode. Pass logging_config=None"
                 " for a run without evaluations."
             )

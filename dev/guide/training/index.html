@@ -3278,7 +3278,10 @@ in a preset, named after the task:</p>
 <a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="n">agent</span> <span class="o">=</span> <span class="n">TQC</span><span class="o">.</span><span class="n">preset</span><span class="p">(</span><span class="s2">&quot;Hopper&quot;</span><span class="p">,</span> <span class="s2">&quot;hopper&quot;</span><span class="p">,</span> <span class="n">top_quantiles_to_drop_per_net</span><span class="o">=</span><span class="mi">3</span><span class="p">)</span>
 </code></pre></div>
 <p>A preset is named after its task, not an environment id, so it applies to
-the gymnasium, Brax and Playground versions of the task alike. An unknown
+the gymnasium, Brax and Playground versions of the task alike. PPO also has
+one named after a library: <code>PPO.preset("SB3", env_id)</code> is Stable-Baselines3's
+PPO defaults in Ajax's names, for settings brought from SB3 or SBX
+(<a href="../../algorithms/ppo/#presets">PPO, "Presets"</a>). An unknown
 name raises and lists the agent's presets. Each agent module keeps its
 presets in a <code>PRESETS</code> table, each entry the values and where they come
 from:</p>
@@ -3332,9 +3335,9 @@ preprocessing stay yours.</p>
 </tr>
 <tr>
 <td><a href="../../algorithms/ppo/#presets">PPO</a></td>
-<td><code>Atari</code></td>
-<td><code>n_envs</code>, <code>n_steps</code>, <code>n_epochs</code>, <code>num_minibatches</code>, <code>actor_learning_rate</code>, <code>critic_learning_rate</code>, <code>clip_range</code>, <code>ent_coef</code>, <code>share_encoder</code></td>
-<td>ppo2's <code>defaults.py</code></td>
+<td><code>Atari</code>, <code>SB3</code></td>
+<td><code>n_envs</code>, <code>n_steps</code>, <code>batch_size</code>, <code>n_epochs</code>, <code>num_minibatches</code>, <code>actor_learning_rate</code>, <code>critic_learning_rate</code>, <code>gamma</code>, <code>gae_lambda</code>, <code>clip_range</code>, <code>clip_value_loss</code>, <code>normalize_advantage</code>, <code>ent_coef</code>, <code>vf_coef</code>, <code>max_grad_norm</code>, <code>adam_eps</code>, <code>normalize_observations</code>, <code>normalize_rewards</code>, <code>share_encoder</code></td>
+<td>ppo2's <code>defaults.py</code>; Stable-Baselines3's PPO defaults</td>
 </tr>
 <tr>
 <td><a href="../../algorithms/pqn/#presets">PQN</a></td>

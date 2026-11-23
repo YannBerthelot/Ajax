@@ -3471,6 +3471,55 @@ epochs, learning rates <code>2.5e-4</code>, <code>clip_range=0.1</code>, <code>e
 network shared by the actor and the critic. The learning rate stays constant,
 as the defaults keep MuJoCo's. Atari's frame skip, frame stack and reward
 clipping are the environment's.</p>
+<p><code>PPO.preset("SB3", env_id)</code> is for settings brought from Stable-Baselines3
+or SBX: it is SB3's PPO defaults (2.9.0, <code>ppo/ppo.py:84-95</code>) in Ajax's names.
+Ajax's own defaults follow OpenAI Baselines' ppo2, which differs from SB3 in
+three ways that change results, and the preset sets each to SB3's:</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>Ajax's default (ppo2)</th>
+<th>SB3 and SBX</th>
+<th>The preset sets</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Value loss</td>
+<td>clipped around the rollout's value</td>
+<td>not clipped (<code>clip_range_vf=None</code>)</td>
+<td><code>clip_value_loss=False</code></td>
+</tr>
+<tr>
+<td>Observations and rewards</td>
+<td>normalised (ppo2's <code>VecNormalize</code>)</td>
+<td>as the environment gives them</td>
+<td><code>normalize_observations=False</code>, <code>normalize_rewards=False</code></td>
+</tr>
+<tr>
+<td><code>vf_coef</code></td>
+<td>weighs half the squared error</td>
+<td>weighs the whole squared error</td>
+<td><code>vf_coef=1.0</code> for SB3's 0.5</td>
+</tr>
+</tbody>
+</table>
+<p>On CartPole, with SBX's settings but Ajax's value-loss clip left on, returns
+kept dipping after reaching 500; without it they stayed there, as SBX's did.</p>
+<p>Three things stay yours to set or cannot be matched:</p>
+<ul>
+<li><strong>Minibatches.</strong> SB3's <code>batch_size=64</code> is a minibatch's size. In Ajax it
+  gives 32 minibatches whatever <code>n_envs</code> is (see Notes), which is SB3's 64
+  samples with one environment only. With <code>n_envs=N</code>, pass
+  <code>num_minibatches=n_steps * N // 64</code> for minibatches of 64.</li>
+<li><strong>SBX's networks.</strong> SBX starts its layers as flax does
+  (<code>encoder_kernel_init="lecun_normal()"</code> matches the hidden ones) and clips
+  each network's gradient on its own; Ajax, as SB3, starts them orthogonal
+  and clips the two together.</li>
+<li><strong>Adam.</strong> Ajax's PPO steps TensorFlow 1's form of Adam, as ppo2; SB3 and
+  SBX step the usual one. The two differ over the first few thousand steps.</li>
+</ul>
 <h2 id="notes">Notes<a class="headerlink" href="#notes" title="Permanent link">&para;</a></h2>
 <ul>
 <li><strong><code>batch_size</code> sets the number of minibatches, not their size.</strong> Unless

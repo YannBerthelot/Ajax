@@ -309,7 +309,14 @@ COMPARISONS = {
         defaults={"n_envs": 2048, "n_steps": 80, "episode_length": 1000},
     ),
     "DQN": Comparison(
+        # Version 2, before any protocol run. Ajax's DQN now updates every
+        # 10 steps by default (CleanRL's), so SB3's one update per step is
+        # written out; its default optimiser on vector observations is Adam
+        # at eps 1e-8 and its layers start as torch's nn.Linear, which are
+        # SB3's, so neither is unmatched any more. The margin is registered.
+        version=2,
         renames={
+            "train_freq": "train_frequency",
             "gradient_steps": "n_gradient_steps",
             "exploration_initial_eps": "epsilon_start",
             "exploration_final_eps": "epsilon_end",
@@ -320,11 +327,12 @@ COMPARISONS = {
         n_timesteps=100_000,
         eval_every=5_000,
         solved=475.0,
+        margin=25.0,  # 5% of 0-500
         reference="sb3",
         source="stable-baselines3's DQN, MlpPolicy",
         environment=CARTPOLE,
-        # One gradient step per env step, the only cadence Ajax's DQN has
-        # (SB3's train_freq=1, gradient_steps=1); targets are copied every
+        # One gradient step per env step on both sides (SB3's train_freq=1,
+        # gradient_steps=1); targets are copied every
         # 500 steps, which SB3 counts in env steps and Ajax in gradient
         # steps: the same here after warm-up.
         reference_config={
@@ -349,6 +357,7 @@ COMPARISONS = {
             "learning_starts": 1_000,
             "batch_size": 64,
             "gamma": 0.99,
+            "train_frequency": 1,
             "n_gradient_steps": 1,
             "target_update_interval": 500,
             "tau": 1.0,
@@ -359,10 +368,6 @@ COMPARISONS = {
             "architecture": ("128", "relu", "128", "relu"),
             "td_loss": "huber",  # SB3's smooth_l1_loss; Ajax's default is squared
         },
-        unmatched=(
-            "weight initialisation (torch default vs Ajax's)",
-            "Adam eps: 1e-5 in Ajax, 1e-8 in the reference",
-        ),
     ),
     "SAC": Comparison(
         # Version 2, before any protocol run. Ajax's SAC now has SB3's Adam

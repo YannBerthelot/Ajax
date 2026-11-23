@@ -34,10 +34,13 @@ The next release is 0.6.0: the first item changes results.
   ("Presets").
 - **Ajax's PPO and SAC were run beside SBX**, Stable-Baselines3's JAX
   version (0.28.0), under the reproduction protocol. Both are similar by
-  the registered margin. On CartPole, SBX's PPO ends at 500 on every seed
-  and Ajax's at 489.4 on average, a difference AdaStop detects at 28 seeds
-  a side; four Ajax seeds end between 414 and 461, and the cause is not
-  traced (Reproduction, "Results").
+  the registered margin, with no difference shown at 96 seeds a side
+  (Reproduction, "Results"). A first PPO run left Ajax's value-loss clip
+  on, which SBX does not have, and ended lower (489.4 against 500); the
+  comparison's second version turns it off. The PPO comparison with
+  Stable-Baselines3 was run again with the same setting written out
+  (version 3), since its earlier record predates the clip being PPO's
+  default.
 - **`agent.render` draws Gymnasium environments and your own.** A
   `gymnasium:` environment is saved as a GIF of its own pictures. Any other
   environment takes `agent.render(state, path, draw=my_draw)`, where

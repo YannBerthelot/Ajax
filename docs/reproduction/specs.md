@@ -5,7 +5,7 @@ Written by `benchmarks/reference/refcmp_publish.py specs` from
 Each comparison is set before its runs and changed only as a new
 version (see the [protocol](protocol.md)).
 
-## PPO, version 2
+## PPO, version 3
 
 Ajax's PPO against stable-baselines3's PPO, MlpPolicy.
 
@@ -14,7 +14,7 @@ Ajax's PPO against stable-baselines3's PPO, MlpPolicy.
 - Evaluation: 10 episodes of the deterministic policy, every 14,336 steps; a seed's score is the last one's mean return.
 - AdaStop: n = 4, K = 24, alpha = 0.05.
 - Margin: ±25.
-- Spec hash: `ab1379d3e1e9ebb6`.
+- Spec hash: `4c713858f5fdf9f4`.
 - Reproduce: `uv run python benchmarks/reference/refcmp_protocol.py run PPO --cache DIR`
 
 | Reference setting | Value | Ajax setting | Value |
@@ -33,10 +33,11 @@ Ajax's PPO against stable-baselines3's PPO, MlpPolicy.
 | `net_arch` | `{'pi': [64, 64], 'vf': [64, 64]}` | - |  |
 | `activation` | `'tanh'` | - |  |
 
-Ajax settings without a reference counterpart: `num_minibatches=8`, `actor_architecture=('64', 'tanh', '64', 'tanh')`, `critic_architecture=('64', 'tanh', '64', 'tanh')`, `adam_eps=1e-05`, `encoder_kernel_init='orthogonal(1.4142135623730951)'`.
+Ajax settings without a reference counterpart: `num_minibatches=8`, `actor_architecture=('64', 'tanh', '64', 'tanh')`, `critic_architecture=('64', 'tanh', '64', 'tanh')`, `adam_eps=1e-05`, `encoder_kernel_init='orthogonal(1.4142135623730951)'`, `normalize_observations=False`, `normalize_rewards=False`, `clip_value_loss=False`.
 
 Not matched:
 
+- Adam: Ajax's PPO steps TensorFlow 1's form (ppo2's), which adds eps before the bias correction; SB3 steps the usual one
 
 ## PPO-inverted_pendulum, version 2
 
@@ -305,7 +306,7 @@ Not matched:
 - network: ELU with LayerNorm and orthogonal(0.01) in Brax, ReLU in Ajax
 - Adam eps: 1e-5 in Ajax, 1e-8 in the reference
 
-## PPO-sbx, version 1
+## PPO-sbx, version 2
 
 Ajax's PPO against sbx-rl 0.28.0's PPO, MlpPolicy.
 
@@ -314,7 +315,7 @@ Ajax's PPO against sbx-rl 0.28.0's PPO, MlpPolicy.
 - Evaluation: 10 episodes of the deterministic policy, every 14,336 steps; a seed's score is the last one's mean return.
 - AdaStop: n = 4, K = 24, alpha = 0.05.
 - Margin: ±25.
-- Spec hash: `6c5bc5baa1d55368`.
+- Spec hash: `13af23980087f01a`.
 - Reproduce: `uv run python benchmarks/reference/refcmp_protocol.py run PPO-sbx --cache DIR`
 
 | Reference setting | Value | Ajax setting | Value |
@@ -333,13 +334,14 @@ Ajax's PPO against sbx-rl 0.28.0's PPO, MlpPolicy.
 | `normalize_advantage` | `True` | `normalize_advantage` | `True` |
 | `net_arch` | `{'pi': [64, 64], 'vf': [64, 64]}` | - |  |
 
-Ajax settings without a reference counterpart: `num_minibatches=8`, `actor_architecture=('64', 'tanh', '64', 'tanh')`, `critic_architecture=('64', 'tanh', '64', 'tanh')`, `adam_eps=1e-05`, `encoder_kernel_init='lecun_normal()'`, `normalize_observations=False`, `normalize_rewards=False`.
+Ajax settings without a reference counterpart: `num_minibatches=8`, `actor_architecture=('64', 'tanh', '64', 'tanh')`, `critic_architecture=('64', 'tanh', '64', 'tanh')`, `adam_eps=1e-05`, `encoder_kernel_init='lecun_normal()'`, `normalize_observations=False`, `normalize_rewards=False`, `clip_value_loss=False`.
 
 Not matched:
 
 - output layers: lecun_normal in SBX (its ortho_init is off), an orthogonal policy layer of gain 0.01 and value layer of gain 1 in Ajax
 - gradient clip: SBX clips each network's gradient at max_grad_norm in its own optimiser; Ajax clips the two together
 - value weight: SBX's vf_coef scales the loss of the critic's own optimiser, which Adam's step mostly cancels; in Ajax it sets the critic's share of the joint clip
+- Adam: Ajax's PPO steps TensorFlow 1's form (ppo2's), which adds eps before the bias correction; SBX steps the usual one
 
 ## SAC-sbx, version 1
 

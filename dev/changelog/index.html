@@ -3177,6 +3177,12 @@ PyPI as <code>ajax-rl</code>.</p>
   Stable-Baselines3 was run again with the same setting written out
   (version 3), since its earlier record predates the clip being PPO's
   default.</li>
+<li><strong>Ajax's DQN was run beside Stable-Baselines3's</strong> on CartPole-v1 under
+  the reproduction protocol, set up as SB3's (Huber loss, one update per
+  step). No difference is shown at 96 seeds a side (243.7 against 245.9),
+  and the verdict is inconclusive: both end near half of the task's 500
+  and vary from seed to seed, so the interval is wider than the ±25 margin
+  (Reproduction, "Results"). The run does not cover DQN's own defaults.</li>
 <li><strong><code>agent.render</code> draws Gymnasium environments and your own.</strong> A
   <code>gymnasium:</code> environment is saved as a GIF of its own pictures. Any other
   environment takes <code>agent.render(state, path, draw=my_draw)</code>, where

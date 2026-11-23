@@ -2371,3 +2371,25 @@ _GOLDEN.update(
         },
     }
 )
+# Re-recorded on Linux x86 CPU (flanders) once DQN on vector observations
+# stepped as CleanRL's dqn.py: Adam at eps 1e-8 on the squared error (were
+# centered RMSProp on the Huber loss). Relative shifts (actor, target): DQN
+# -0.19%, -0.14%; DQN-dueling-nudge -0.33%, -0.22%; the unused critic copy,
+# the update count and the nudge are unchanged.
+_GOLDEN.update(
+    {
+        "DQN": {
+            "actor": 8.627391815185547,
+            "critic": 8.621588706970215,
+            "target": 8.624855041503906,
+            "n_updates": 11.0,
+        },
+        "DQN-dueling-nudge": {
+            "actor": 9.089839935302734,
+            "critic": 9.092710494995117,
+            "target": 9.089208602905273,
+            "n_updates": 11.0,
+            "nudge": 0.8379592299461365,
+        },
+    }
+)

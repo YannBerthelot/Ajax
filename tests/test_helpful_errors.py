@@ -170,11 +170,11 @@ def test_a_budget_off_whole_rollouts_returns_only_the_evaluations_that_ran():
 
 def test_a_log_frequency_past_the_runs_end_warns_that_nothing_is_evaluated():
     """LoggingConfig evaluates every 10,000 steps unless told otherwise; a
-    640-step run then returns no evaluation. The warning says what to pass."""
+    64-step run then returns no evaluation. The warning says what to pass."""
     agent = PPO("CartPole-v1", n_envs=2, n_steps=16)
-    with pytest.warns(UserWarning, match=r"log_frequency=10000.*at most 640"):
+    with pytest.warns(UserWarning, match=r"log_frequency=10000.*at most 64"):
         _, evaluations = agent.train(
-            seed=0, n_timesteps=640, logging_config=LoggingConfig(backends=())
+            seed=0, n_timesteps=64, logging_config=LoggingConfig(backends=())
         )
     assert np.asarray(evaluations.returns).shape == (1, 0)
 

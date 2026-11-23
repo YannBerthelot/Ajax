@@ -29,6 +29,9 @@ The next release is 0.6.0: the first item changes results.
   `evaluate`, `predict` and `render` gave flax's error about a parameter's
   shape; they now say the state acts with the agent and environment that
   trained it.
+- **A `LoggingConfig` whose `log_frequency` is past the run's end warns.**
+  Its default is 10,000 steps, so a shorter run with a `LoggingConfig` of
+  your own returned no evaluation, with no word.
 - **The warning for a budget that is not whole iterations** no longer says
   the missing evaluation is NaN: the evaluations returned have no column
   for it.

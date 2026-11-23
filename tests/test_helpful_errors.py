@@ -155,17 +155,28 @@ def test_a_state_trained_on_another_environment_is_refused_saying_so(trained):
 
 
 def test_a_budget_off_whole_rollouts_returns_only_the_evaluations_that_ran():
-    """100 steps hold 3 rollouts of 2 envs x 16 steps (96). The warning says
-    the evaluation due at 100 does not happen; the evaluations returned hold
-    no empty column for it."""
+    """100 steps hold 3 rollouts of 2 envs x 16 steps (96). Evaluations are
+    due at 50 and 100: the first runs at the rollout's end past 50, and the
+    warning says the one due at 100 does not happen. The evaluations
+    returned hold the one that ran and no empty column for the other."""
     agent = PPO("CartPole-v1", n_envs=2, n_steps=16)
+    logging = LoggingConfig(log_frequency=50, backends=())
     with pytest.warns(UserWarning, match=r"timestep 100 does not happen\."):
-        _, evaluations = agent.train(
-            seed=0, n_timesteps=100, logging_config=LoggingConfig(backends=())
-        )
+        _, evaluations = agent.train(seed=0, n_timesteps=100, logging_config=logging)
     returns = np.asarray(evaluations.returns)
-    assert returns.shape[1] >= 1
+    assert returns.shape == (1, 1)
     assert not np.isnan(returns).any()
+
+
+def test_a_log_frequency_past_the_runs_end_warns_that_nothing_is_evaluated():
+    """LoggingConfig evaluates every 10,000 steps unless told otherwise; a
+    640-step run then returns no evaluation. The warning says what to pass."""
+    agent = PPO("CartPole-v1", n_envs=2, n_steps=16)
+    with pytest.warns(UserWarning, match=r"log_frequency=10000.*at most 640"):
+        _, evaluations = agent.train(
+            seed=0, n_timesteps=640, logging_config=LoggingConfig(backends=())
+        )
+    assert np.asarray(evaluations.returns).shape == (1, 0)
 
 
 def test_the_evaluations_are_refused_where_the_state_goes(trained):

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import threading
 import time
+import warnings
 from collections.abc import Mapping, Sequence
 from typing import Any, Callable
 
@@ -186,6 +187,16 @@ def run_logging(
     no step (one that only builds the state). ``groups``: each member's
     configuration in a sweep, for the printer."""
     if not isinstance(logging_config, str):
+        frequency = getattr(logging_config, "log_frequency", None)
+        if frequency is not None and 0 < end_timestep < frequency:
+            warnings.warn(
+                f"log_frequency={frequency} is past this run's last timestep"
+                f" ({end_timestep}): no evaluation happens, and the evaluations"
+                " come back empty. Pass LoggingConfig(log_frequency=...) of at"
+                f" most {end_timestep}.",
+                UserWarning,
+                stacklevel=3,
+            )
         return logging_config, None
     if logging_config != "default":
         raise ValueError(

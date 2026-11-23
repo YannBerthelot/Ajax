@@ -154,7 +154,11 @@ COMPARISONS = {
         # both networks at 1.0 on top of each one's own clip at 0.5, so never
         # bound: each network was clipped on its own. Version 2 runs PPO's
         # one clip over both networks at 0.5, as SB3 clips its optimiser.
-        version=2,
+        # Version 3 writes out what version 2 ran implicitly, at 1adddad,
+        # before Ajax's PPO took ppo2's defaults: no value-loss clip (SB3's
+        # clip_range_vf is None) and no normalisation of observations or
+        # rewards (SB3 has none without VecNormalize).
+        version=3,
         renames={"learning_rate": ("actor_learning_rate", "critic_learning_rate")},
         # Ajax's value loss is vf_coef * 0.5 * MSE, SB3's vf_coef * MSE.
         scale={"vf_coef": 2.0},
@@ -201,7 +205,14 @@ COMPARISONS = {
             "max_grad_norm": 0.5,
             "adam_eps": 1e-5,
             "encoder_kernel_init": "orthogonal(1.4142135623730951)",
+            "normalize_observations": False,
+            "normalize_rewards": False,
+            "clip_value_loss": False,
         },
+        unmatched=(
+            "Adam: Ajax's PPO steps TensorFlow 1's form (ppo2's), which adds"
+            " eps before the bias correction; SB3 steps the usual one",
+        ),
         defaults={"n_envs": 8, "n_steps": 256},
     ),
     "PPO-inverted_pendulum": Comparison(
@@ -682,6 +693,10 @@ COMPARISONS = {
     # side. SBX keeps SB3's settings and buffers; its networks and updates
     # are its own, read at sbx/ppo and sbx/sac of that release.
     "PPO-sbx": Comparison(
+        # Version 1 left Ajax's value-loss clip on (its default, ppo2's),
+        # which SBX does not have (clip_range_vf=None): Ajax's curves dipped
+        # after reaching 500 and SBX's did not. Version 2 turns it off.
+        version=2,
         renames={"learning_rate": ("actor_learning_rate", "critic_learning_rate")},
         # Ajax's value loss is vf_coef * 0.5 * MSE, SBX's vf_coef * MSE
         # (ppo.py, critic_loss).
@@ -734,6 +749,7 @@ COMPARISONS = {
             "encoder_kernel_init": "lecun_normal()",
             "normalize_observations": False,
             "normalize_rewards": False,
+            "clip_value_loss": False,
         },
         unmatched=(
             "output layers: lecun_normal in SBX (its ortho_init is off), an"
@@ -745,6 +761,8 @@ COMPARISONS = {
             "value weight: SBX's vf_coef scales the loss of the critic's own"
             " optimiser, which Adam's step mostly cancels; in Ajax it sets"
             " the critic's share of the joint clip",
+            "Adam: Ajax's PPO steps TensorFlow 1's form (ppo2's), which adds"
+            " eps before the bias correction; SBX steps the usual one",
         ),
         defaults={"n_envs": 8, "n_steps": 256},
     ),

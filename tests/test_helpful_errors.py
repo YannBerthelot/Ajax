@@ -296,6 +296,35 @@ def test_render_without_a_state_says_what_it_needs():
         agent.render(path="episode.gif")
 
 
+def test_evaluate_refuses_a_keyword_it_does_not_take_naming_the_one_meant():
+    """SB3's evaluate_policy takes n_eval_episodes; Ajax's evaluate, episodes."""
+    agent = PPO("CartPole-v1")
+    with pytest.raises(
+        TypeError, match=r"PPO\.evaluate has no argument 'n_eval_episodes'"
+    ) as refusal:
+        agent.evaluate(None, n_eval_episodes=5)
+    assert "episodes" in str(refusal.value)
+    with pytest.raises(TypeError, match=r"PPO\.evaluate needs agent_state"):
+        agent.evaluate(episodes=5)
+
+
+# An architecture names an activation after each width. Widths alone (SB3's
+# net_arch=[64, 64]) build layers that compose to one linear map, so the
+# agent warns and shows the tuple to write.
+@pytest.mark.parametrize("widths", [[64, 64], ("64", "64")])
+def test_widths_without_activations_warn_showing_the_tuple_to_write(widths):
+    with pytest.warns(UserWarning, match="no activation") as caught:
+        PPO("CartPole-v1", actor_architecture=widths)
+    assert 'actor_architecture=("64", "tanh", "64", "tanh")' in str(caught[0].message)
+
+
+def test_an_architecture_with_activations_does_not_warn():
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UserWarning)
+        PPO("CartPole-v1", actor_architecture=("32", "relu", "32", "relu"))
+        PPO("CartPole-v1", actor_architecture=("32",))  # one layer: nothing between
+
+
 def test_train_offline_refuses_a_keyword_it_does_not_take_naming_the_one_meant():
     agent = SAC("Pendulum-v1")
     with pytest.raises(

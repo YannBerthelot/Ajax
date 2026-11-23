@@ -20,6 +20,16 @@ The next release is 0.6.0: the first item changes results.
   `step` return trained on two kinds of observations, with no error
   (Environments, "Changing the observations"). The memory guide trains on
   a CartPole with hidden velocities built with it.
+- **An architecture of widths alone warns.** `actor_architecture=[64, 64]`
+  (SB3's `net_arch` habit) built layers with no activation between them,
+  with no word; the agent now warns and shows the tuple to write.
+- **`agent.evaluate`, `predict`, `policy` and `save` name the argument
+  meant**, as `render` and `train_offline` do.
+- **Docs: "Coming from Stable-Baselines3" says whose defaults Ajax keeps**
+  (each algorithm's original) and lists, for PPO, SAC, TD3 and DQN, where
+  SB3's differ. The tables of default `n_envs` and default networks had
+  drifted from the code for PPO, APO, PQN, DQN and others; tests now hold
+  them to it.
 - **Fixed: a logged run with `JSRLCurriculum` warned `invalid value
   encountered in cast`.** The steps without an evaluation held NaN in place
   of JSRL's integer stage. No logged value changes.

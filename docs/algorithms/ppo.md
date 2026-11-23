@@ -128,7 +128,7 @@ Three things stay yours to set or cannot be matched:
 - **`batch_size` sets the number of minibatches, not their size.** Unless
   `num_minibatches` is positive, the rollout of `n_steps * n_envs` samples
   splits into `max(n_steps, batch_size) // min(n_steps, batch_size)`
-  minibatches. With the defaults that is 32 minibatches of 256 samples
+  minibatches. With the defaults that is 32 minibatches of 64 samples
   (`batch_size * n_envs`). This differs from Stable-Baselines3, where
   `batch_size` is the minibatch size.
 - **Shuffling.** Every epoch draws a new split of the rollout into

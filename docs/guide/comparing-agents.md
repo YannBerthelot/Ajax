@@ -182,7 +182,7 @@ def final(evals):  # evals: train's evaluations, each (seeds, evaluations)
 
 result = estimate(
     lambda: ajax.PPO("CartPole-v1"),
-    # Whole rollouts (12 of PPO's 4 x 2,048 steps): a budget ending inside
+    # Whole rollouts (48 of PPO's 2,048 steps): a budget ending inside
     # one leaves its last evaluation NaN.
     n_timesteps=98_304,
     eval_every=8_192,

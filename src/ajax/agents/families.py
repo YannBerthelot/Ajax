@@ -50,6 +50,7 @@ from ajax.agents.base import (
     run_horizon,
     shared_counters,
     unknown_argument,
+    warn_widths_without_activation,
 )
 from ajax.agents.loop import LOOP_PHASES, Evaluation, TrainLoop
 from ajax.agents.presets import presets_of
@@ -527,6 +528,9 @@ class DeclaredAgent(ActorCritic):
                 " gamma, the discount its value estimate reads."
             )
         self.check()
+        for name in sorted(names):
+            if name.endswith("architecture"):
+                warn_widths_without_activation(self.name, name, getattr(self, name))
         shared = {
             name: getattr(self, name) for name in ACTOR_CRITIC_ARGS.intersection(names)
         }
@@ -737,6 +741,7 @@ class DeclaredAgent(ActorCritic):
         gamma, reward_scale = (getattr(self, name, 1.0) for name in DISCOUNT_FIELDS)
         return ValueEstimate(value, gamma, reward_scale)
 
+    @named_arguments
     def policy(self, agent_state: Any, seed_index: int = 0) -> Policy:
         """The policy of seed seed_index of agent_state (train's state, or
         its (state, out)), acting in the environment's units exactly as the
@@ -751,6 +756,7 @@ class DeclaredAgent(ActorCritic):
         one_seed = jax.tree.map(lambda leaf: leaf[seed_index], agent_state)
         return Policy(self.policy_parts(), one_seed)
 
+    @named_arguments
     def evaluate(
         self, agent_state: Any, episodes: int = 10, seed: int = 0
     ) -> jax.Array:
@@ -834,6 +840,7 @@ class DeclaredAgent(ActorCritic):
             recurrent=self.network_args.memory is not None,
         )
 
+    @named_arguments
     def predict(
         self,
         agent_state: Any,

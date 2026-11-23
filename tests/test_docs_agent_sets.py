@@ -15,6 +15,7 @@ the review of 2026-11-14 found on three pages.
 
 from __future__ import annotations
 
+import ast
 import inspect
 import re
 from typing import Callable
@@ -130,3 +131,48 @@ def test_the_presets_table_names_each_agents_presets_and_their_fields():
         if presets_of(agent)
     }
     assert stated == shipped
+
+
+# Two tables of docs/guide state defaults per agent. The contract is the
+# agents' own fields: a table row names a value and the agents whose default
+# it is, and every agent that has the field is in one row.
+def _default_rows(page: str, header: str) -> list:
+    """(value cell, agents) of the table of ``page`` whose header starts with
+    ``header``."""
+    table = (ROOT / "docs" / "guide" / page).read_text().split(header, 1)[1]
+    rows = []
+    for line in table.split("\n\n", 1)[0].splitlines()[2:]:
+        value, agents = (cell.strip() for cell in line.strip("|").split("|"))
+        rows.append((value, names_in(re.sub(r"\([^)]*\)", "", agents))))
+    return rows
+
+
+def _defaults(field: str) -> dict:
+    return {
+        agent.__name__: agent.__dataclass_fields__[field].default
+        for agent in library_agents()
+        if field in getattr(agent, "__dataclass_fields__", {})
+    }
+
+
+def test_the_n_envs_table_states_each_agents_default():
+    stated = {
+        agent: int(value)
+        for value, agents in _default_rows("training.md", "| `n_envs` default |")
+        for agent in agents
+    }
+    actual = _defaults("n_envs")
+    assert stated == {agent: actual[agent] for agent in stated}
+    assert set(stated) == {a for a, v in actual.items() if isinstance(v, int)}
+
+
+def test_the_architecture_table_states_each_agents_default():
+    stated = {
+        agent: ast.literal_eval(value.strip("`"))
+        for value, agents in _default_rows("networks.md", "| Default | Agents |")
+        for agent in agents
+    }
+    actual = _defaults("actor_architecture")
+    actual.update(_defaults("architecture"))
+    actual = {a: v for a, v in actual.items() if isinstance(v, tuple)}
+    assert stated == actual

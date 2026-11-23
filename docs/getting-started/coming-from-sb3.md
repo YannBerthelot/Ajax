@@ -38,6 +38,41 @@ pass `cnn_image_shape` to read them with a CNN encoder
 ([Networks](../guide/networks.md#image-observations)); Ajax warns when
 images reach an MLP.
 
+## The defaults are the original's
+
+Ajax implements each algorithm as its paper or its authors' code does, and
+its defaults are theirs; each [algorithm page](../algorithms/index.md) cites
+them. SB3 sets some of its own. So the same call does not train the same
+thing in both libraries, and settings brought from SB3 need the lines below.
+The SB3 values are those of its 2.9.0 constructors.
+
+| Agent | Ajax, as the original | SB3 |
+| --- | --- | --- |
+| PPO | value loss clipped around the rollout's value (ppo2) | not clipped |
+| PPO | observations and rewards normalised (ppo2's MuJoCo run) | as the environment gives them, unless wrapped in `VecNormalize` |
+| PPO | `vf_coef` weighs half the squared error | weighs the whole squared error: SB3's 0.5 is 1.0 here |
+| PPO | `batch_size=64` gives 32 minibatches, whatever `n_envs` is | `batch_size` is a minibatch's size |
+| SAC | `learning_starts=10_000` random steps before the first update | 100 |
+| TD3 | `learning_starts=25_000`; learning rates `3e-4`; exploration noise 0.1 | 100; `1e-3`; no noise unless given |
+| DQN | CleanRL's vector-observation settings: RMSProp at `2.5e-4`, a replay of 10,000, batches of 128, an update every 10 steps, the target copied every 50 updates, `learning_starts=10_000`, epsilon decaying over half the run | Adam at `1e-4`, a replay of 1,000,000, batches of 32, an update every 4 steps, the target copied every 10,000 steps, `learning_starts=100`, epsilon decaying over a tenth of the run |
+
+A short run shows the warm-up most: SAC on 20,000 steps acts at random for
+the first half unless `learning_starts` is lowered.
+
+For PPO, `PPO.preset("SB3", env_id)` sets SB3's defaults in one call, and
+[its page](../algorithms/ppo.md#presets) says what stays yours to set (the
+number of minibatches with several environments) and what no option
+matches:
+
+```python
+from ajax import PPO
+
+ported = PPO.preset("SB3", "CartPole-v1", n_envs=8, n_steps=256, num_minibatches=32)
+print(ported.clip_value_loss, ported.normalize_observations)  # False False
+```
+
+The other agents have no such preset: pass the values of the SB3 column.
+
 ## The calls side by side
 
 | In SB3 | In Ajax | Page |
@@ -46,9 +81,9 @@ images reach an MLP.
 | `model.learn(total_timesteps=N)` | `state, evaluations = agent.train(seed=[...], n_timesteps=N)` | [Training an agent](../guide/training.md#train) |
 | one model per seed | `seed=[0, 1, 2]`: every seed in one compiled program | [Performance](../guide/performance.md) |
 | `make_vec_env(env_id, n_envs=8)` | `PPO(env_id, n_envs=8)` | [Training an agent](../guide/training.md#parallel-environments) |
-| `VecNormalize(venv)` | `normalize_observations=True`, `normalize_rewards=True` | [Environments](../guide/environments.md#normalisation) |
-| `policy_kwargs=dict(net_arch=[64, 64])` | `actor_architecture=("64", "tanh", "64", "tanh")`, and `critic_architecture` | [Networks](../guide/networks.md) |
-| `learning_rate=3e-4` | `actor_learning_rate=3e-4, critic_learning_rate=3e-4`: one per network | [Algorithms](../algorithms/index.md) |
+| `VecNormalize(venv)` | `normalize_observations=True`, `normalize_rewards=True` (PPO's defaults; off by default elsewhere) | [Environments](../guide/environments.md#normalisation) |
+| `policy_kwargs=dict(net_arch=[64, 64])` | `actor_architecture=("64", "tanh", "64", "tanh")`, and `critic_architecture`: each width is followed by its activation | [Networks](../guide/networks.md) |
+| `learning_rate=3e-4` | `actor_learning_rate=3e-4, critic_learning_rate=3e-4`: one per network, and `alpha_learning_rate` for SAC's temperature | [Algorithms](../algorithms/index.md) |
 | `EvalCallback(eval_env, eval_freq=...)` | nothing: `train` evaluates and returns the evaluations; `LoggingConfig(log_frequency=...)` sets how often | [Logging](../guide/logging.md) |
 | `evaluate_policy(model, env, n_eval_episodes=10)` | `agent.evaluate(state, episodes=10)`, one row of returns per seed | [Quickstart](quickstart.md#use-the-trained-policy) |
 | `tensorboard_log="runs"` | `LoggingConfig(backends=(TensorBoardBackend("runs"),))` | [Logging](../guide/logging.md#backends) |

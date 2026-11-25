@@ -257,7 +257,10 @@ def _action_bounds(
     of ``env``'s continuous action box, or None for discrete actions.
 
     A dimension with an infinite bound gets ``(0, 1)``, as a ``[-1, 1]``
-    one. brax / playground actions live in ``[-1, 1]``. Per-env (batched)
+    one. brax / playground actions live in ``[-1, 1]``, unless the env
+    declares its own ``action_bounds`` ``(low, high)``, as the "mujoco:"
+    tasks do with Gymnasium's action space (each motor's ctrlrange).
+    Per-env (batched)
     gymnax params (``ajax.environments.system_class``) give each env its
     own box, ``[n_envs, *action_shape]``; ``n_envs``, the number of actions
     they apply to, must match.
@@ -265,8 +268,12 @@ def _action_bounds(
     if not check_if_environment_has_continuous_actions(env, env_params):
         return None
     if check_env_is_brax(env):
-        n_actions = get_action_dim(env)
-        return jnp.zeros(n_actions), jnp.ones(n_actions)
+        declared = getattr(get_raw_env(env), "action_bounds", None)
+        if declared is None:
+            n_actions = get_action_dim(env)
+            return jnp.zeros(n_actions), jnp.ones(n_actions)
+        low, high = (jnp.asarray(bound) for bound in declared)
+        return _centre_and_half_range(low, high)
 
     def box(params):
         space = env.action_space(params)
@@ -284,6 +291,12 @@ def _action_bounds(
         )
     else:
         low, high = jax.vmap(box)(env_params)
+    return _centre_and_half_range(low, high)
+
+
+def _centre_and_half_range(
+    low: jax.Array, high: jax.Array
+) -> tuple[jax.Array, jax.Array]:
     finite = jnp.isfinite(low) & jnp.isfinite(high)
     return (
         jnp.where(finite, (high + low) / 2, 0.0),
@@ -306,9 +319,10 @@ def agent_action_to_env(
     ``action_scale``).
     This is DreamerV3's ``ClipAction`` + ``NormalizeAction`` (a dimension
     with an infinite bound keeps the clipped action) and TD-MPC2's action
-    scaling. For ``[-1, 1]`` bounds -- every brax / playground env, gymnax
-    envs like MountainCarContinuous -- the map is exactly the clip, even
-    when the bounds are traced; gymnax Pendulum's torque is ``[-2, 2]``.
+    scaling. For ``[-1, 1]`` bounds -- brax / playground envs that declare
+    no ``action_bounds``, gymnax envs like MountainCarContinuous -- the map
+    is exactly the clip, even when the bounds are traced; gymnax Pendulum's
+    torque is ``[-2, 2]``, "mujoco:Pusher-v5"'s motors ``[-2, 2]``.
     Per-env (batched) gymnax params (``ajax.environments.system_class``)
     give per-env bounds: env ``e``'s action is mapped with its own system's
     bounds. Discrete actions pass through. Replay stores the agent's raw

@@ -70,6 +70,16 @@ class GymnasiumTask(mjx_env.MjxEnv):
         return self._mj_model.nu
 
     @property
+    def action_bounds(self) -> tuple[jax.Array, jax.Array]:
+        """Gymnasium's action space, (low, high): each motor's ctrlrange
+        (mujoco_env.py's _set_action_space). Ajax maps an agent's [-1, 1]
+        onto it; a motor without a control limit gets infinite bounds, which
+        Ajax leaves as [-1, 1]."""
+        limited = jnp.asarray(self._mj_model.actuator_ctrllimited, dtype=bool)
+        low, high = jnp.asarray(self._mj_model.actuator_ctrlrange).T
+        return jnp.where(limited, low, -jnp.inf), jnp.where(limited, high, jnp.inf)
+
+    @property
     def mj_model(self) -> mujoco.MjModel:
         return self._mj_model
 

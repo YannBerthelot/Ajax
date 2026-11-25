@@ -27,6 +27,7 @@ last episode of each env, whose steps get no gradient here (owner,
 
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import dataclass
 from typing import Any, ClassVar, Optional, Union
 
@@ -53,6 +54,7 @@ from ajax.environments.utils import check_if_environment_has_continuous_actions
 from ajax.networks.distributions import policy_entropy, recompute_log_prob
 from ajax.networks.networks import predict_value
 from ajax.networks.utils import TORCH_LINEAR
+from ajax.random_keys import derive_key
 from ajax.state import BaseAgentState, LoadedTrainState, Transition
 from ajax.types import Architecture, FloatOrCallable, InitializationFunction
 
@@ -96,10 +98,10 @@ class REINFORCE(
 
     n_envs: int = 1
     n_steps: int = 4000
-    #: One full-batch policy step per rollout (vpg.py:237-250); other values
-    #: are refused (check).
-    n_epochs: int = 1
-    num_minibatches: int = 1
+    #: Not keywords: one full-batch policy step per rollout (vpg.py:237-250);
+    #: a second pass would follow a policy that did not collect the rollout.
+    n_epochs: int = dataclasses.field(default=1, init=False)
+    num_minibatches: int = dataclasses.field(default=1, init=False)
     actor_learning_rate: FloatOrCallable = 3e-4
     critic_learning_rate: FloatOrCallable = 1e-3
     actor_architecture: Architecture = ("64", "tanh", "64", "tanh")
@@ -123,19 +125,15 @@ class REINFORCE(
         {"actor_learning_rate", "critic_learning_rate", "gamma", "gae_lambda"}
     )
 
-    def check(self) -> None:
-        if self.n_epochs != 1 or self.num_minibatches != 1:
-            raise ValueError(
-                "REINFORCE takes one full-batch policy step per rollout"
-                f" (n_epochs=1, num_minibatches=1); got n_epochs={self.n_epochs},"
-                f" num_minibatches={self.num_minibatches}. PPO reuses a rollout."
-            )
-
     def optimizer_settings(self) -> dict[str, Any]:
         return {"eps": 1e-8}  # torch.optim.Adam's default eps (vpg.py:231-232)
 
     def init(self, key: jax.Array, context: TrainContext) -> REINFORCEState:
-        training_key, init_key, collector_key, evaluation_key = jax.random.split(key, 4)
+        # Each stream by name (CONTRIBUTING.md, "Random keys"), as RVISAC's.
+        training_key, init_key, collector_key, evaluation_key = (
+            derive_key(key, name)
+            for name in ("updates", "networks", "collection", "evaluation")
+        )
         env_args = context.env_args
         actor_state, critic_state = context.make_actor_critic(
             init_key,

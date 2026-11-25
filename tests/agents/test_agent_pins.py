@@ -2403,8 +2403,8 @@ _GOLDEN.update(
 
 # REINFORCE's pin, recorded on Linux x86 CPU (bob) when the agent was added.
 _GOLDEN["REINFORCE"] = {
-    "actor": 8.877180099487305,
-    "critic": 7.20297384262085,
-    "target": 8.87569808959961,
+    "actor": 7.6761860847473145,
+    "critic": 8.163204193115234,
+    "target": 7.68051815032959,
     "n_updates": 2.0,
 }

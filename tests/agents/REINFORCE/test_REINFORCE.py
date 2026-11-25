@@ -203,6 +203,6 @@ def test_the_critic_trains_only_with_a_baseline(baseline: bool) -> None:
 @pytest.mark.parametrize("option", [{"n_epochs": 2}, {"num_minibatches": 2}])
 def test_more_than_one_policy_step_per_rollout_is_refused(option: dict) -> None:
     """Catches REINFORCE silently reusing a rollout, which its gradient
-    estimate does not allow (that is PPO)."""
-    with pytest.raises(ValueError, match="one full-batch policy step"):
+    estimate does not allow (that is PPO): neither is a keyword."""
+    with pytest.raises(TypeError):
         _agent(**option)

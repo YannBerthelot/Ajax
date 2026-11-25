@@ -1055,6 +1055,8 @@
       
         
       
+        
+      
     
     
     
@@ -1460,6 +1462,34 @@
     
   
     APO
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/reinforce/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    REINFORCE
   
 
     
@@ -3254,7 +3284,7 @@ follow <a href="../contributing/">Contributing</a> and
 and train function (<a href="../contributing/#adding-an-agent">Contributing</a>): a
 replay (<code>ReplayAgent</code>: SAC, TQC, REDQ, ASAC, CrossQ, TD3, IQL, DQN,
 DAgger), one update on each step as it comes (<code>IncrementalAgent</code>: AVG),
-rollouts (<code>OnPolicyAgent</code>: PPO, APO, PQN) or an iteration of its own
+rollouts (<code>OnPolicyAgent</code>: PPO, APO, REINFORCE, PQN) or an iteration of its own
 (<code>OwnIterationAgent</code>: UDRL's segment and replay of segments, APG's
 gradient step through a differentiable rollout; the agent writes
 <code>iterate</code>, <code>report</code> and <code>evaluation_metrics</code>, the loop resumes and logs) or rows in
@@ -3479,7 +3509,7 @@ agent at once. The probes check it end to end: a planted fault that runs
 </tr>
 <tr>
 <td><code>loop.on_policy(init, update, n_steps, ...)</code></td>
-<td>PPO, APO, PQN</td>
+<td>PPO, APO, REINFORCE, PQN</td>
 <td>an <code>n_steps</code> rollout per env from the agent state <code>agent_state_at_rollout_start</code>, then <code>update(agent_state, rollout, agent_state_at_rollout_start)</code></td>
 <td><code>budget // (n_envs * n_steps) + 1</code> rollouts</td>
 </tr>

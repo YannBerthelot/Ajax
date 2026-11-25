@@ -1170,6 +1170,8 @@
       
         
       
+        
+      
     
     
     
@@ -1575,6 +1577,34 @@
     
   
     APO
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/reinforce/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    REINFORCE
   
 
     
@@ -3165,7 +3195,7 @@ the steps the whole run does.</p>
 <ul>
 <li><strong>The seeds must stand at the same timestep.</strong> A state whose seeds
   disagree on the timestep cannot be resumed and raises an error.</li>
-<li><strong>On-policy agents train whole rollouts.</strong> PPO, APO and PQN train the
+<li><strong>On-policy agents train whole rollouts.</strong> PPO, APO, REINFORCE and PQN train the
   whole rollouts (<code>n_envs x n_steps</code> steps) a call's <code>n_timesteps</code> holds, at
   least one, and warn when it is not a whole number of them. A run split
   into calls of whole rollouts ends where one call does

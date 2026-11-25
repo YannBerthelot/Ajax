@@ -1055,6 +1055,8 @@
       
         
       
+        
+      
     
     
     
@@ -1460,6 +1462,34 @@
     
   
     APO
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/reinforce/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    REINFORCE
   
 
     
@@ -1897,6 +1927,28 @@
     <span class="md-ellipsis">
       
         SAC-sbx, version 1
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reinforce-version-1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        REINFORCE, version 1
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reinforce-pendulum-version-1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        REINFORCE-Pendulum, version 1
       
     </span>
   </a>
@@ -3050,6 +3102,28 @@
     <span class="md-ellipsis">
       
         SAC-sbx, version 1
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reinforce-version-1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        REINFORCE, version 1
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reinforce-pendulum-version-1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        REINFORCE-Pendulum, version 1
       
     </span>
   </a>
@@ -4245,6 +4319,163 @@ version (see the <a href="../protocol/">protocol</a>).</p>
 <ul>
 <li>weight initialisation: Glorot-uniform kernels in Ajax (softlearning's), flax's lecun_normal in SBX; zero biases in both</li>
 <li>update order: SBX steps the critics, moves the targets, steps the actor, then the temperature on the entropy of the sample the actor's loss drew before its step (sac.py, _train); Ajax steps the critics, the actor on its own sample, then the temperature on a fresh sample of the stepped actor</li>
+</ul>
+<h2 id="reinforce-version-1">REINFORCE, version 1<a class="headerlink" href="#reinforce-version-1" title="Permanent link">&para;</a></h2>
+<p>Ajax's REINFORCE against openai/spinningup@038665d spinup/algos/pytorch/vpg (vendored, unmodified), run by refcmp_spinup.py.</p>
+<ul>
+<li>Environment: gymnax CartPole-v1, a port of Gymnasium's CartPole-v1 (dynamics, termination, 500-step limit); vpg steps it through refcmp_spinup.OldGymEnv.</li>
+<li>Budget: 200,000 steps per seed.</li>
+<li>Evaluation: 10 episodes of the deterministic policy, every 20,000 steps; a seed's score is the last one's mean return.</li>
+<li>AdaStop: n = 4, K = 24, alpha = 0.05.</li>
+<li>Margin: ±25.</li>
+<li>Spec hash: <code>c4c27cd7acd2580b</code>.</li>
+<li>Reproduce: <code>uv run python benchmarks/reference/refcmp_protocol.py run REINFORCE --cache DIR</code></li>
+</ul>
+<table>
+<thead>
+<tr>
+<th>Reference setting</th>
+<th>Value</th>
+<th>Ajax setting</th>
+<th>Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>steps_per_epoch</code></td>
+<td><code>4000</code></td>
+<td><code>n_steps</code></td>
+<td><code>4000</code></td>
+</tr>
+<tr>
+<td><code>gamma</code></td>
+<td><code>0.99</code></td>
+<td><code>gamma</code></td>
+<td><code>0.99</code></td>
+</tr>
+<tr>
+<td><code>pi_lr</code></td>
+<td><code>0.0003</code></td>
+<td><code>actor_learning_rate</code></td>
+<td><code>0.0003</code></td>
+</tr>
+<tr>
+<td><code>vf_lr</code></td>
+<td><code>0.001</code></td>
+<td><code>critic_learning_rate</code></td>
+<td><code>0.001</code></td>
+</tr>
+<tr>
+<td><code>train_v_iters</code></td>
+<td><code>80</code></td>
+<td><code>value_steps</code></td>
+<td><code>80</code></td>
+</tr>
+<tr>
+<td><code>lam</code></td>
+<td><code>0.97</code></td>
+<td><code>gae_lambda</code></td>
+<td><code>0.97</code></td>
+</tr>
+<tr>
+<td><code>max_ep_len</code></td>
+<td><code>500</code></td>
+<td>-</td>
+<td></td>
+</tr>
+<tr>
+<td><code>hidden_sizes</code></td>
+<td><code>(64, 64)</code></td>
+<td>-</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<p>Ajax settings without a reference counterpart: <code>n_envs=1</code>, <code>baseline=True</code>, <code>normalize_advantage=True</code>, <code>actor_architecture=('64', 'tanh', '64', 'tanh')</code>, <code>critic_architecture=('64', 'tanh', '64', 'tanh')</code>, <code>normalize_observations=False</code>, <code>normalize_rewards=False</code>.</p>
+<p>Not matched:</p>
+<ul>
+<li>the advantages' normalisation: Ajax divides by their standard deviation plus 1e-8, vpg by the bare deviation</li>
+<li>processes: vpg's command line runs 4 MPI processes of 1,000 steps each; the runner calls vpg() itself, one process of 4,000 steps, its defaults</li>
+<li>evaluation: vpg has none; the runner's logger evaluates the deterministic policy (the most likely action, the Gaussian's mean) after every eval_every steps, as Ajax does</li>
+</ul>
+<h2 id="reinforce-pendulum-version-1">REINFORCE-Pendulum, version 1<a class="headerlink" href="#reinforce-pendulum-version-1" title="Permanent link">&para;</a></h2>
+<p>Ajax's REINFORCE against openai/spinningup@038665d spinup/algos/pytorch/vpg (vendored, unmodified), run by refcmp_spinup.py.</p>
+<ul>
+<li>Environment: gymnax Pendulum-v1, a port of Gymnasium's Pendulum-v1 (200-step episodes); vpg steps it through refcmp_spinup.OldGymEnv.</li>
+<li>Budget: 200,000 steps per seed.</li>
+<li>Evaluation: 10 episodes of the deterministic policy, every 20,000 steps; a seed's score is the last one's mean return.</li>
+<li>AdaStop: n = 4, K = 24, alpha = 0.05.</li>
+<li>Margin: ±80.</li>
+<li>Spec hash: <code>0fe0c87547c080f5</code>.</li>
+<li>Reproduce: <code>uv run python benchmarks/reference/refcmp_protocol.py run REINFORCE-Pendulum --cache DIR</code></li>
+</ul>
+<table>
+<thead>
+<tr>
+<th>Reference setting</th>
+<th>Value</th>
+<th>Ajax setting</th>
+<th>Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>steps_per_epoch</code></td>
+<td><code>4000</code></td>
+<td><code>n_steps</code></td>
+<td><code>4000</code></td>
+</tr>
+<tr>
+<td><code>gamma</code></td>
+<td><code>0.99</code></td>
+<td><code>gamma</code></td>
+<td><code>0.99</code></td>
+</tr>
+<tr>
+<td><code>pi_lr</code></td>
+<td><code>0.0003</code></td>
+<td><code>actor_learning_rate</code></td>
+<td><code>0.0003</code></td>
+</tr>
+<tr>
+<td><code>vf_lr</code></td>
+<td><code>0.001</code></td>
+<td><code>critic_learning_rate</code></td>
+<td><code>0.001</code></td>
+</tr>
+<tr>
+<td><code>train_v_iters</code></td>
+<td><code>80</code></td>
+<td><code>value_steps</code></td>
+<td><code>80</code></td>
+</tr>
+<tr>
+<td><code>lam</code></td>
+<td><code>0.97</code></td>
+<td><code>gae_lambda</code></td>
+<td><code>0.97</code></td>
+</tr>
+<tr>
+<td><code>max_ep_len</code></td>
+<td><code>200</code></td>
+<td>-</td>
+<td></td>
+</tr>
+<tr>
+<td><code>hidden_sizes</code></td>
+<td><code>(64, 64)</code></td>
+<td>-</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<p>Ajax settings without a reference counterpart: <code>n_envs=1</code>, <code>baseline=True</code>, <code>normalize_advantage=True</code>, <code>actor_architecture=('64', 'tanh', '64', 'tanh')</code>, <code>critic_architecture=('64', 'tanh', '64', 'tanh')</code>, <code>normalize_observations=False</code>, <code>normalize_rewards=False</code>.</p>
+<p>Not matched:</p>
+<ul>
+<li>the advantages' normalisation: Ajax divides by their standard deviation plus 1e-8, vpg by the bare deviation</li>
+<li>processes: vpg's command line runs 4 MPI processes of 1,000 steps each; the runner calls vpg() itself, one process of 4,000 steps, its defaults</li>
+<li>evaluation: vpg has none; the runner's logger evaluates the deterministic policy (the most likely action, the Gaussian's mean) after every eval_every steps, as Ajax does</li>
+<li>actions: Ajax clips its Gaussian sample to [-1, 1] and maps it onto the torque's [-2, 2], so its std counts twice in torque; vpg hands the raw sample to the env, which clips it at +-2</li>
 </ul>
 
 

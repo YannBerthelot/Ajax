@@ -1055,6 +1055,8 @@
       
         
       
+        
+      
     
     
     
@@ -1460,6 +1462,34 @@
     
   
     APO
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/reinforce/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    REINFORCE
   
 
     
@@ -7421,6 +7451,11 @@ notes on using it:</p>
 <td><a href="../../algorithms/apo/#api">APO</a></td>
 </tr>
 <tr>
+<td>REINFORCE</td>
+<td><code>ajax.agents.REINFORCE.REINFORCE.REINFORCE</code></td>
+<td><a href="../../algorithms/reinforce/#api">REINFORCE</a></td>
+</tr>
+<tr>
 <td>UDRL</td>
 <td><code>ajax.agents.UDRL.UDRL.UDRL</code></td>
 <td><a href="../../algorithms/udrl/#api">UDRL</a></td>
@@ -7458,7 +7493,7 @@ hyperparameters are the fields of a dataclass on a family of
 <code>ajax.agents.families</code>, which builds its constructor (keyword-only after
 <code>env_id</code>), run config and train function: a replay
 (<!-- agents: replay -->SAC, TQC, REDQ, ASAC, RVISAC, CrossQ, TD3, IQL, DQN, DAgger<!-- /agents -->: <code>ReplayAgent</code>), each
-step as it comes (AVG: <code>IncrementalAgent</code>), rollouts (PPO, APO, PQN:
+step as it comes (AVG: <code>IncrementalAgent</code>), rollouts (PPO, APO, REINFORCE, PQN:
 <code>OnPolicyAgent</code>) or an iteration of its own (UDRL, APG:
 <code>OwnIterationAgent</code>); <a href="../../algorithms/#agent-families">Agent families</a>
 lists them. Its fields are fixed once built:

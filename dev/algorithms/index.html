@@ -1057,6 +1057,8 @@
       
         
       
+        
+      
     
     
     
@@ -1462,6 +1464,34 @@
     
   
     APO
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="reinforce/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    REINFORCE
   
 
     
@@ -2859,7 +2889,7 @@
 
 
 <h1 id="algorithms">Algorithms<a class="headerlink" href="#algorithms" title="Permanent link">&para;</a></h1>
-<p>Ajax has nineteen agents, all exported from <code>ajax</code>. Each follows a published
+<p>Ajax has twenty agents, all exported from <code>ajax</code>. Each follows a published
 paper, and each page says where Ajax departs from it. Every agent takes an
 environment (<code>TDMPC2MultiTask</code>: a dataset, and environments to evaluate
 on), its own hyperparameters, <code>episode_length</code> and <code>action_repeat</code> (for
@@ -2984,6 +3014,14 @@ several seeds in a single compiled program with
 <td><code>on_target</code>, <code>critic_loss</code>, <code>actor_loss</code></td>
 </tr>
 <tr>
+<td><a href="reinforce/">REINFORCE</a></td>
+<td>on-policy policy gradient, one step per rollout</td>
+<td>Williams 1992</td>
+<td>both</td>
+<td>no</td>
+<td>none</td>
+</tr>
+<tr>
 <td><a href="udrl/">UDRL</a></td>
 <td>command-conditioned supervised learning</td>
 <td>Schmidhuber 2019 (<a href="https://arxiv.org/abs/1912.02875">arXiv:1912.02875</a>)</td>
@@ -3080,7 +3118,7 @@ from. The other pages use these names, and a family's class in
 </tr>
 <tr>
 <td>On-policy agents (<code>OnPolicyAgent</code>)</td>
-<td><!-- agents: on-policy -->PPO, APO, PQN<!-- /agents --></td>
+<td><!-- agents: on-policy -->PPO, APO, REINFORCE, PQN<!-- /agents --></td>
 <td>the rollout just collected, then discarded</td>
 </tr>
 <tr>

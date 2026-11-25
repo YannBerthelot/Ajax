@@ -1055,6 +1055,8 @@
       
         
       
+        
+      
     
     
     
@@ -1460,6 +1462,34 @@
     
   
     APO
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../algorithms/reinforce/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    REINFORCE
   
 
     
@@ -3134,6 +3164,15 @@ PyPI as <code>ajax-rl</code>.</p>
   <code>gymnasium:</code> tasks. The other six <code>mujoco:</code> tasks, whose motors take ±1,
   are unchanged, as are Playground's own environments. Upgrade: results
   recorded on those two tasks before this change are not comparable.</li>
+<li><strong>New: <code>REINFORCE</code>, the plain policy gradient</strong> (Williams, 1992), as
+  Spinning Up's Vanilla Policy Gradient runs it: one full-batch policy step
+  per rollout on GAE advantages of a learned baseline, then 80 critic
+  steps. <code>baseline=False</code> weights each step by its reward-to-go alone, and
+  <code>REINFORCE.preset("rtg_pg", env_id)</code> is Spinning Up's plain example.
+  Discrete and continuous actions; no memory yet. See
+  <a href="../algorithms/reinforce/">REINFORCE</a>. PPO's GAE moved to
+  <code>ajax.agents.returns.compute_gae</code>, which PPO, APO and REINFORCE share;
+  it was private (<code>_compute_gae</code>), so no public name changed.</li>
 <li><strong>New: <code>agent.render(state, path)</code> saves an episode of the trained
   policy as an animation</strong>: a GIF on the gymnax tasks gymnax draws, on
   MuJoCo Playground and on the <code>mujoco:</code> tasks, an interactive page on

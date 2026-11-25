@@ -1259,6 +1259,8 @@
       
         
       
+        
+      
     
     
     
@@ -1664,6 +1666,34 @@
     
   
     APO
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/reinforce/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    REINFORCE
   
 
     
@@ -3352,6 +3382,12 @@ preprocessing stay yours.</p>
 <td>MBPO's target entropies</td>
 </tr>
 <tr>
+<td><a href="../../algorithms/reinforce/#presets">REINFORCE</a></td>
+<td><code>rtg_pg</code></td>
+<td><code>baseline</code>, <code>normalize_advantage</code>, <code>gamma</code>, <code>n_steps</code>, <code>actor_architecture</code>, <code>actor_learning_rate</code></td>
+<td>Spinning Up's <code>2_rtg_pg.py</code></td>
+</tr>
+<tr>
 <td><a href="../../algorithms/td3/#presets">TD3</a></td>
 <td><code>D4RL</code> (TD3+BC)</td>
 <td><code>normalize_observations</code>, <code>extensions</code></td>
@@ -3390,7 +3426,7 @@ preprocessing stay yours.</p>
 <p><code>n_timesteps</code> counts environment steps summed over the <code>n_envs</code> copies. An
 off-policy agent collects one step in each copy per iteration, so 100,000
 steps with <code>n_envs=4</code> are 25,000 iterations. An on-policy agent (PPO, APO,
-PQN) collects a rollout of <code>n_steps</code> per copy per iteration and trains in
+REINFORCE, PQN) collects a rollout of <code>n_steps</code> per copy per iteration and trains in
 whole rollouts: it runs <code>n_timesteps // (n_envs * n_steps)</code> of them, and at
 least one. A budget that is not whole rollouts stops at the last whole one,
 with a warning; a budget below one rollout runs that one rollout and
@@ -3482,7 +3518,7 @@ The defaults differ by agent:</p>
 <tbody>
 <tr>
 <td>1</td>
-<td>PPO, SAC, ASAC, RVI-SAC, REDQ, CrossQ, TQC, TD3, IQL, AVG, DQN, UDRL, DAgger, TD-MPC2</td>
+<td>PPO, REINFORCE, SAC, ASAC, RVI-SAC, REDQ, CrossQ, TQC, TD3, IQL, AVG, DQN, UDRL, DAgger, TD-MPC2</td>
 </tr>
 <tr>
 <td>8</td>
@@ -3569,7 +3605,7 @@ training, such as DQN's epsilon decay, has already finished at the end of a
 first call. To split a run and keep the schedules of one call, pass the
 whole run's horizon to every call. A call whose <code>n_timesteps</code> would take it
 past the horizon is refused, so the last call trains the rest. An on-policy
-agent (PPO, APO, PQN) trains in whole rollouts of <code>n_envs x n_steps</code> steps,
+agent (PPO, APO, REINFORCE, PQN) trains in whole rollouts of <code>n_envs x n_steps</code> steps,
 as its original code does: give each call a whole number of them (8,192 is
 8 rollouts of 1,024 here) and the calls end where one call does. A budget
 that is not whole rollouts stops at the last whole one, with a warning; a

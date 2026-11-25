@@ -1055,6 +1055,8 @@
       
         
       
+        
+      
     
     
     
@@ -1460,6 +1462,34 @@
     
   
     APO
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/reinforce/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    REINFORCE
   
 
     
@@ -3216,7 +3246,7 @@ only its algorithm:</p>
   transition)</code> and folds the extensions' <code>post_update</code>. Before
   <code>learning_starts</code> the actions are uniform and the metrics have the
   update's structure, filled with NaN, which the logger drops.</li>
-<li><strong><code>loop.on_policy(init, update, n_steps, ...)</code></strong> (PPO, APO, PQN): each
+<li><strong><code>loop.on_policy(init, update, n_steps, ...)</code></strong> (PPO, APO, REINFORCE, PQN): each
   iteration collects an <code>n_steps</code> rollout per environment from the agent
   state <code>agent_state_at_rollout_start</code>, then runs <code>update(agent_state,
   rollout, agent_state_at_rollout_start)</code> and folds <code>post_update</code>. A
@@ -3376,7 +3406,7 @@ optimiser step), <code>compute_gradients</code> (a loss's gradients) and
 replay agent on <code>ReplayAgent</code>, as SAC, TQC, REDQ, ASAC, CrossQ, TD3, IQL,
 DQN and DAgger do (read <code>agents/IQL/IQL.py</code> first); an agent updating on
 each step as it comes, without a replay, on <code>IncrementalAgent</code>, as AVG
-does; an on-policy agent on <code>OnPolicyAgent</code>, as PPO, APO and PQN do (read
+does; an on-policy agent on <code>OnPolicyAgent</code>, as PPO, APO, REINFORCE and PQN do (read
 <code>agents/PPO/PPO.py</code> first, and the on-policy family below); an agent whose
 iteration is its own on <code>OwnIterationAgent</code>, as UDRL and APG do (the
 own-iteration family below); an agent storing rows in a replay of its own,

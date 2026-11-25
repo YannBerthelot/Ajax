@@ -16,8 +16,8 @@ import numpy as np
 import pytest
 
 from ajax import PPO, PQN
-from ajax.agents.PPO.PPO import _compute_gae
 from ajax.agents.PQN.PQN import compute_q_lambda_targets
+from ajax.agents.returns import compute_gae
 from ajax.extensions.base import Extension
 from ajax.networks.networks import predict_value
 from ajax.networks.q_networks import predict_q
@@ -47,7 +47,7 @@ class _PPOTargets(Extension):
             value(batch["observations"]),
             value(batch["next_observations"]),
         )
-        _, want = _compute_gae(
+        _, want = compute_gae(
             batch["rewards"],
             values,
             next_values,

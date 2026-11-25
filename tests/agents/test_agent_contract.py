@@ -40,6 +40,7 @@ from ajax.agents.IQL.IQL import IQL
 from ajax.agents.PPO.PPO import PPO
 from ajax.agents.PQN.PQN import PQN
 from ajax.agents.REDQ.REDQ import REDQ
+from ajax.agents.REINFORCE.REINFORCE import REINFORCE
 from ajax.agents.RVISAC.RVISAC import RVISAC
 from ajax.agents.SAC.SAC import SAC
 from ajax.agents.TD3.TD3 import TD3
@@ -185,6 +186,14 @@ CASES = {
         # over the whole rollout (with two envs, two would split in time).
         extended={"batch_size": 16},
     ),
+    "REINFORCE": Case(
+        REINFORCE,
+        {"actor_architecture": NET, "critic_architecture": NET, "n_steps": 16}
+        | {"value_steps": 2},
+        CONTINUOUS + DISCRETE,
+        rollout=16,
+        n_timesteps=128,
+    ),
     "DQN": Case(
         DQN,
         {
@@ -227,6 +236,7 @@ _PG = ("policy/approx_kl", "policy/grad_norm", "value/explained_variance")
 DIAGNOSTICS: dict[str, tuple[str, ...]] = {
     "PPO": (*_PG, "value/grad_norm"),
     "APO": (*_PG, "value/grad_norm", "value/value_bias", "value/average_reward"),
+    "REINFORCE": (*_PG, "value/grad_norm"),
     "DQN": ("policy/epsilon", "value/abs_td_error", "value/grad_norm"),
     "PQN": ("policy/epsilon", "value/abs_td_error", "value/grad_norm"),
     "SAC": ("policy/grad_norm", "value/grad_norm"),
@@ -504,7 +514,7 @@ def test_a_run_counts_the_evaluations_it_made(name: str, extended_run: Any) -> N
 #: the 128-row buffer (an unwritten row would read reward 0 for action 0).
 ON_THE_BOX = (
     *("APG", "APO", "ASAC", "AVG", "CrossQ"),
-    *("PPO", "REDQ", "RVISAC", "SAC", "TD3", "TQC", "UDRL"),
+    *("PPO", "REDQ", "REINFORCE", "RVISAC", "SAC", "TD3", "TQC", "UDRL"),
 )
 BOX = (-1.0, 3.0)  # centre 1, half-range 2
 WARM_UP = {"learning_starts": 64, "buffer_size": 128}
@@ -607,8 +617,8 @@ def test_a_world_model_acts_on_the_whole_box(name: str) -> None:
 
 #: Every agent on ActorCritic (TD-MPC2 multi-task, offline, builds no env).
 ACTOR_CRITICS = (
-    "APG APO ASAC AVG CrossQ DAgger DQN DreamerV3 IQL PPO PQN REDQ RVISAC SAC TD3 TDMPC2"
-    " TQC UDRL"
+    "APG APO ASAC AVG CrossQ DAgger DQN DreamerV3 IQL PPO PQN REDQ REINFORCE RVISAC SAC"
+    " TD3 TDMPC2 TQC UDRL"
 )
 
 
@@ -664,7 +674,7 @@ def test_no_agent_class_lets_its_seeds_update_unequally() -> None:
 #: papers do.
 CLIPS: dict[str, tuple[str, float | None]] = {
     **dict.fromkeys(
-        "AVG CrossQ DAgger DQN IQL REDQ RVISAC SAC TD3 TQC UDRL".split(),
+        "AVG CrossQ DAgger DQN IQL REDQ REINFORCE RVISAC SAC TD3 TQC UDRL".split(),
         ("max_grad_norm", None),
     ),
     # BobMak/asac @4b68862: every hparams/*/asac.yaml sets max_grad_norm 10.

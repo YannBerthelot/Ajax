@@ -66,7 +66,7 @@ class Comparison:
     n_timesteps: int
     eval_every: int  # 0: one evaluation, of the final policy
     solved: float | None
-    reference: str  # "sb3" | "sbx" | "purejaxql" | "brax": envs/<reference> pins it
+    reference: str  # "sb3" | "sbx" | "purejaxql" | "brax" | "spinup": envs/<reference>
     reference_config: dict
     matched: dict
     source: str  # the reference's code
@@ -146,6 +146,44 @@ AVG_DEVIATIONS = (
         where="vendor/gauthamvasan_avg/avg.py:186-187, :214",
         check=_AVG_CHECKS + "test_avg_hands_its_tanh_action_to_the_env_unscaled",
     ),
+)
+
+#: Spinning Up's VPG (vendor/openai_spinningup) against Ajax's REINFORCE, which
+#: takes its defaults: the settings both name, the Ajax keyword of each.
+SPINUP_RENAMES = {
+    "steps_per_epoch": "n_steps",
+    "pi_lr": "actor_learning_rate",
+    "vf_lr": "critic_learning_rate",
+    "train_v_iters": "value_steps",
+    "lam": "gae_lambda",
+}
+SPINUP_MATCHED = {
+    "n_envs": 1,
+    "n_steps": 4000,
+    "gamma": 0.99,
+    "actor_learning_rate": 3e-4,
+    "critic_learning_rate": 1e-3,
+    "value_steps": 80,
+    "gae_lambda": 0.97,
+    "baseline": True,
+    "normalize_advantage": True,
+    "actor_architecture": ("64", "tanh", "64", "tanh"),
+    "critic_architecture": ("64", "tanh", "64", "tanh"),
+    "normalize_observations": False,
+    "normalize_rewards": False,
+}
+SPINUP_UNMATCHED = (
+    "the advantages' normalisation: Ajax divides by their standard deviation"
+    " plus 1e-8, vpg by the bare deviation",
+    "processes: vpg's command line runs 4 MPI processes of 1,000 steps each;"
+    " the runner calls vpg() itself, one process of 4,000 steps, its defaults",
+    "evaluation: vpg has none; the runner's logger evaluates the deterministic"
+    " policy (the most likely action, the Gaussian's mean) after every"
+    " eval_every steps, as Ajax does",
+)
+SPINUP_SOURCE = (
+    "openai/spinningup@038665d spinup/algos/pytorch/vpg (vendored, unmodified),"
+    " run by refcmp_spinup.py"
 )
 
 COMPARISONS = {
@@ -824,5 +862,66 @@ COMPARISONS = {
         ),
         # The SB3 comparison's margin: 10% of the reference's mean there.
         margin=14.0,
+    ),
+    "REINFORCE": Comparison(
+        renames=SPINUP_RENAMES,
+        agent="REINFORCE",
+        env_id="CartPole-v1",
+        n_timesteps=50 * 4000,  # vpg's 50 epochs of 4,000 steps
+        eval_every=5 * 4000,
+        solved=475.0,
+        margin=25.0,  # 5% of 0-500
+        reference="spinup",
+        source=SPINUP_SOURCE,
+        environment="gymnax CartPole-v1, a port of Gymnasium's CartPole-v1"
+        " (dynamics, termination, 500-step limit); vpg steps it through"
+        " refcmp_spinup.OldGymEnv",
+        reference_config={
+            "steps_per_epoch": 4000,
+            "gamma": 0.99,
+            "pi_lr": 3e-4,
+            "vf_lr": 1e-3,
+            "train_v_iters": 80,
+            "lam": 0.97,
+            # The env's time limit: vpg bootstraps there, as Ajax does at a
+            # truncation (its default 1000 would end the episode at 500 as a
+            # termination).
+            "max_ep_len": 500,
+            "hidden_sizes": (64, 64),
+        },
+        matched=SPINUP_MATCHED,
+        unmatched=SPINUP_UNMATCHED,
+    ),
+    "REINFORCE-Pendulum": Comparison(
+        renames=SPINUP_RENAMES,
+        agent="REINFORCE",
+        env_id="Pendulum-v1",
+        n_timesteps=50 * 4000,
+        eval_every=5 * 4000,
+        solved=-200.0,
+        # 5% of the range a return takes, about -1,600 (no torque at the
+        # bottom) to 0.
+        margin=80.0,
+        reference="spinup",
+        source=SPINUP_SOURCE,
+        environment="gymnax Pendulum-v1, a port of Gymnasium's Pendulum-v1"
+        " (200-step episodes); vpg steps it through refcmp_spinup.OldGymEnv",
+        reference_config={
+            "steps_per_epoch": 4000,
+            "gamma": 0.99,
+            "pi_lr": 3e-4,
+            "vf_lr": 1e-3,
+            "train_v_iters": 80,
+            "lam": 0.97,
+            "max_ep_len": 200,  # the env's time limit, as for CartPole
+            "hidden_sizes": (64, 64),
+        },
+        matched=SPINUP_MATCHED,
+        unmatched=(
+            *SPINUP_UNMATCHED,
+            "actions: Ajax clips its Gaussian sample to [-1, 1] and maps it onto"
+            " the torque's [-2, 2], so its std counts twice in torque; vpg hands"
+            " the raw sample to the env, which clips it at +-2",
+        ),
     ),
 }

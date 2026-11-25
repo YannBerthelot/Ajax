@@ -41,7 +41,7 @@ compares Ajax with SB3, SBX, PureJaxRL, Brax, Stoix, Rejax, TorchRL and
 Tianshou, including
 when to use them instead.
 
-Ajax has nineteen agents, from SAC and PPO to DreamerV3 and TD-MPC2. Each
+Ajax has twenty agents, from SAC and PPO to DreamerV3 and TD-MPC2. Each
 implements a published paper, and its page lists where it departs from it.
 Several seeds train side by side in one program, on a CPU or a GPU. Research
 features (learning from an expert, exploration rules, diagnostics) are

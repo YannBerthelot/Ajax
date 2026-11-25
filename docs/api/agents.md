@@ -25,6 +25,7 @@ notes on using it:
 | PQN | `ajax.agents.PQN.PQN.PQN` | [PQN](../algorithms/pqn.md#api) |
 | PPO | `ajax.agents.PPO.PPO.PPO` | [PPO](../algorithms/ppo.md#api) |
 | APO | `ajax.agents.APO.APO.APO` | [APO](../algorithms/apo.md#api) |
+| REINFORCE | `ajax.agents.REINFORCE.REINFORCE.REINFORCE` | [REINFORCE](../algorithms/reinforce.md#api) |
 | UDRL | `ajax.agents.UDRL.UDRL.UDRL` | [UDRL](../algorithms/udrl.md#api) |
 | DAgger | `ajax.agents.DAgger.DAgger.DAgger` | [DAgger](../algorithms/dagger.md#api) |
 | APG | `ajax.agents.APG.APG.APG` | [APG](../algorithms/apg.md#api) |
@@ -39,7 +40,7 @@ hyperparameters are the fields of a dataclass on a family of
 `ajax.agents.families`, which builds its constructor (keyword-only after
 `env_id`), run config and train function: a replay
 (<!-- agents: replay -->SAC, TQC, REDQ, ASAC, RVISAC, CrossQ, TD3, IQL, DQN, DAgger<!-- /agents -->: `ReplayAgent`), each
-step as it comes (AVG: `IncrementalAgent`), rollouts (PPO, APO, PQN:
+step as it comes (AVG: `IncrementalAgent`), rollouts (PPO, APO, REINFORCE, PQN:
 `OnPolicyAgent`) or an iteration of its own (UDRL, APG:
 `OwnIterationAgent`); [Agent families](../algorithms/index.md#agent-families)
 lists them. Its fields are fixed once built:

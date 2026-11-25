@@ -374,3 +374,66 @@ Not matched:
 
 - weight initialisation: Glorot-uniform kernels in Ajax (softlearning's), flax's lecun_normal in SBX; zero biases in both
 - update order: SBX steps the critics, moves the targets, steps the actor, then the temperature on the entropy of the sample the actor's loss drew before its step (sac.py, _train); Ajax steps the critics, the actor on its own sample, then the temperature on a fresh sample of the stepped actor
+
+## REINFORCE, version 1
+
+Ajax's REINFORCE against openai/spinningup@038665d spinup/algos/pytorch/vpg (vendored, unmodified), run by refcmp_spinup.py.
+
+- Environment: gymnax CartPole-v1, a port of Gymnasium's CartPole-v1 (dynamics, termination, 500-step limit); vpg steps it through refcmp_spinup.OldGymEnv.
+- Budget: 200,000 steps per seed.
+- Evaluation: 10 episodes of the deterministic policy, every 20,000 steps; a seed's score is the last one's mean return.
+- AdaStop: n = 4, K = 24, alpha = 0.05.
+- Margin: ±25.
+- Spec hash: `c4c27cd7acd2580b`.
+- Reproduce: `uv run python benchmarks/reference/refcmp_protocol.py run REINFORCE --cache DIR`
+
+| Reference setting | Value | Ajax setting | Value |
+|---|---|---|---|
+| `steps_per_epoch` | `4000` | `n_steps` | `4000` |
+| `gamma` | `0.99` | `gamma` | `0.99` |
+| `pi_lr` | `0.0003` | `actor_learning_rate` | `0.0003` |
+| `vf_lr` | `0.001` | `critic_learning_rate` | `0.001` |
+| `train_v_iters` | `80` | `value_steps` | `80` |
+| `lam` | `0.97` | `gae_lambda` | `0.97` |
+| `max_ep_len` | `500` | - |  |
+| `hidden_sizes` | `(64, 64)` | - |  |
+
+Ajax settings without a reference counterpart: `n_envs=1`, `baseline=True`, `normalize_advantage=True`, `actor_architecture=('64', 'tanh', '64', 'tanh')`, `critic_architecture=('64', 'tanh', '64', 'tanh')`, `normalize_observations=False`, `normalize_rewards=False`.
+
+Not matched:
+
+- the advantages' normalisation: Ajax divides by their standard deviation plus 1e-8, vpg by the bare deviation
+- processes: vpg's command line runs 4 MPI processes of 1,000 steps each; the runner calls vpg() itself, one process of 4,000 steps, its defaults
+- evaluation: vpg has none; the runner's logger evaluates the deterministic policy (the most likely action, the Gaussian's mean) after every eval_every steps, as Ajax does
+
+## REINFORCE-Pendulum, version 1
+
+Ajax's REINFORCE against openai/spinningup@038665d spinup/algos/pytorch/vpg (vendored, unmodified), run by refcmp_spinup.py.
+
+- Environment: gymnax Pendulum-v1, a port of Gymnasium's Pendulum-v1 (200-step episodes); vpg steps it through refcmp_spinup.OldGymEnv.
+- Budget: 200,000 steps per seed.
+- Evaluation: 10 episodes of the deterministic policy, every 20,000 steps; a seed's score is the last one's mean return.
+- AdaStop: n = 4, K = 24, alpha = 0.05.
+- Margin: ±80.
+- Spec hash: `0fe0c87547c080f5`.
+- Reproduce: `uv run python benchmarks/reference/refcmp_protocol.py run REINFORCE-Pendulum --cache DIR`
+
+| Reference setting | Value | Ajax setting | Value |
+|---|---|---|---|
+| `steps_per_epoch` | `4000` | `n_steps` | `4000` |
+| `gamma` | `0.99` | `gamma` | `0.99` |
+| `pi_lr` | `0.0003` | `actor_learning_rate` | `0.0003` |
+| `vf_lr` | `0.001` | `critic_learning_rate` | `0.001` |
+| `train_v_iters` | `80` | `value_steps` | `80` |
+| `lam` | `0.97` | `gae_lambda` | `0.97` |
+| `max_ep_len` | `200` | - |  |
+| `hidden_sizes` | `(64, 64)` | - |  |
+
+Ajax settings without a reference counterpart: `n_envs=1`, `baseline=True`, `normalize_advantage=True`, `actor_architecture=('64', 'tanh', '64', 'tanh')`, `critic_architecture=('64', 'tanh', '64', 'tanh')`, `normalize_observations=False`, `normalize_rewards=False`.
+
+Not matched:
+
+- the advantages' normalisation: Ajax divides by their standard deviation plus 1e-8, vpg by the bare deviation
+- processes: vpg's command line runs 4 MPI processes of 1,000 steps each; the runner calls vpg() itself, one process of 4,000 steps, its defaults
+- evaluation: vpg has none; the runner's logger evaluates the deterministic policy (the most likely action, the Gaussian's mean) after every eval_every steps, as Ajax does
+- actions: Ajax clips its Gaussian sample to [-1, 1] and maps it onto the torque's [-2, 2], so its std counts twice in torque; vpg hands the raw sample to the env, which clips it at +-2

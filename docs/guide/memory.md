@@ -50,7 +50,7 @@ task. Without `memory`, the same agent cannot tell which way the pole moves.
 | SAC, ASAC, RVISAC, REDQ, TD3, TQC | `memory=`, trained on replayed sequences |
 | APG | `memory=`, trained through the simulator |
 | DreamerV3 | built in: its world model is recurrent; `memory=` raises an error |
-| AVG, CrossQ, DQN, PQN, APO, IQL, UDRL, DAgger, TDMPC2, TDMPC2MultiTask | none; `memory=` raises an error |
+| AVG, CrossQ, DQN, PQN, APO, REINFORCE, IQL, UDRL, DAgger, TDMPC2, TDMPC2MultiTask | none; `memory=` raises an error |
 
 ## The kinds
 

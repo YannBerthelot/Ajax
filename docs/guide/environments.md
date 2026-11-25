@@ -552,7 +552,7 @@ The logged returns stay in the environment's units. Evaluation normalises
 observations with the training statistics, frozen, and never normalises
 rewards.
 
-The agents learning from the rollout they just collected (PPO, APO, PQN and
+The agents learning from the rollout they just collected (PPO, APO, REINFORCE, PQN and
 AVG) store each observation normalised with the statistics of its
 collection, which count it: the rollout holds what the actor saw, as
 openai/baselines ppo2's `VecNormalize` keeps it. The statistics live in

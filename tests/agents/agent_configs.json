@@ -609,6 +609,50 @@
    "weight_decay": 0.0
   }
  },
+ "REINFORCE": {
+  "config": {
+   "action_repeat": 1,
+   "actor_architecture": [
+    "64",
+    "tanh",
+    "64",
+    "tanh"
+   ],
+   "actor_learning_rate": 0.0003,
+   "algo_name": "REINFORCE",
+   "baseline": true,
+   "critic_architecture": [
+    "64",
+    "tanh",
+    "64",
+    "tanh"
+   ],
+   "critic_learning_rate": 0.001,
+   "encoder_kernel_init": "torch_linear",
+   "env_id": "fast",
+   "env_params": null,
+   "episode_length": null,
+   "expose_recent_rollout": false,
+   "extensions": [],
+   "gae_lambda": 0.97,
+   "gamma": 0.99,
+   "log_std_init": -0.5,
+   "log_std_state_independent": true,
+   "logits_kernel_init": "torch_linear",
+   "max_grad_norm": null,
+   "mean_kernel_init": "torch_linear",
+   "n_envs": 1,
+   "n_steps": 4000,
+   "normalize_advantage": true,
+   "normalize_observations": false,
+   "normalize_rewards": false,
+   "observation_clip": null,
+   "reward_normalization_gamma": null,
+   "value_kernel_init": "torch_linear",
+   "value_steps": 80,
+   "weight_decay": 0.0
+  }
+ },
  "RVISAC": {
   "config": {
    "action_repeat": 1,

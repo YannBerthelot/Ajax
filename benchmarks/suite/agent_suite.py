@@ -108,6 +108,13 @@ BENCHMARKS = {
         n_envs=10,
     ),
     "PPO": cheetah("one env, as the PPO paper's MuJoCo runs", n_envs=1),
+    "REINFORCE": cheetah(
+        "one env of 4,000-step rollouts, Spinning Up's vpg() defaults: 256"
+        " rollouts (2^20 is no whole number of them), evaluated every 8",
+        budget=256 * 4000,
+        eval_every=8 * 4000,
+        n_envs=1,
+    ),
     # Replay latents in host memory give the same numbers and cut GPU memory
     # from about 8.7 to 0.7 GB per seed, so 10 seeds fit one job (PR #426).
     "DreamerV3": cheetah(

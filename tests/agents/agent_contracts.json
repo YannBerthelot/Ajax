@@ -858,6 +858,41 @@
   "supports_memory": true,
   "trains_batch_norm": false
  },
+ "REINFORCE": {
+  "capabilities": [
+   "actor",
+   "discounted",
+   "obs_networks",
+   "policy_density",
+   "v_critic"
+  ],
+  "extension_context": [
+   "env_args"
+  ],
+  "make_train": "ajax.agents.families:OnPolicyAgent.make_train",
+  "name": "REINFORCE",
+  "per_seed_update_counts": false,
+  "phase_batch_keys": {},
+  "pretrain_context": [
+   "env_args",
+   "seed_index"
+  ],
+  "replays_transitions": false,
+  "stores_expert_actions": false,
+  "supported_buffer_fields": [],
+  "supported_extension_phases": [
+   "action",
+   "eval_action",
+   "eval_metrics",
+   "observe",
+   "post_update",
+   "pretrain",
+   "track_memory"
+  ],
+  "supports_batched_env_params": false,
+  "supports_memory": false,
+  "trains_batch_norm": false
+ },
  "RVISAC": {
   "capabilities": [
    "actor",

@@ -210,6 +210,19 @@ REFERENCE = {
     # Ajax's vf_coef * 0.5 * MSE, so 0.5 there is 2 * 0.5 here. It
     # normalises observations and rewards only through a VecNormalize
     # wrapper, which its PPO does not add.
+    # openai/spinningup @038665d, spinup/examples/pytorch/pg_math/2_rtg_pg.py:
+    # train(env_name, hidden_sizes=[32], lr=1e-2, epochs=50, batch_size=5000)
+    # (:24-25), a tanh MLP (:9), one Adam (:55) on the logits net alone (no
+    # baseline), weights reward_to_go(ep_rews) (:17-22, undiscounted), the
+    # raw weights in the loss (:50-52, no normalisation).
+    ("REINFORCE", "rtg_pg"): {
+        "baseline": False,
+        "normalize_advantage": False,
+        "gamma": 1.0,
+        "n_steps": 5000,
+        "actor_architecture": ("32", "tanh"),
+        "actor_learning_rate": 1e-2,
+    },
     ("PPO", "SB3"): {
         "n_steps": 2048,
         "batch_size": 64,

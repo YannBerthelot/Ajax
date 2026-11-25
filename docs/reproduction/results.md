@@ -19,6 +19,8 @@ the [specifications](specs.md) list, and the Ajax commit it ran.
 | PPO-sbx | v2, 7d12582 | similar | ±25 | 96 | 500 | 499.8 | -0.222 [-0.666, +0] | none shown | 0.0015 |
 | PQN | v3, c2b3318 | similar | ±25 | 96 | 498 | 499 | +1.04 [-1.95, +4.29] | none shown | 0.011 |
 | PQN-Asterix | v1, f1c5012 | inconclusive | ±0.115 | 96 | 2.292 | 2.455 | +0.162 [+0.0287, +0.298] | none shown | 0.2 |
+| REINFORCE | v1, eb466d8 | similar | ±25 | 96 | 150.1 | 145 | -5.17 [-20.8, +11.2] | none shown | 25 |
+| REINFORCE-Pendulum | v1, eb466d8 | inconclusive | ±80 | 40 | -1195 | -1143 | +52.3 [+16.5, +89.1] | Ajax larger | 37 |
 | SAC | v2, 340ed65 | similar | ±14 | 96 | -146.7 | -148 | -1.25 [-7.92, +5.35] | none shown | 9.4 |
 | SAC-sbx | v1, 8341743 | similar | ±14 | 96 | -147.2 | -148.5 | -1.28 [-8.16, +5.48] | none shown | 9.6 |
 | TD3 | v2, da495af | similar | ±14 | 96 | -148.9 | -144.2 | +4.63 [-2.8, +12] | none shown | 12 |
@@ -42,6 +44,10 @@ machines are not comparable.
 | PQN | Ajax | 25,134 | 96 | 1.3 | Intel(R) Xeon(R) Processor @ 2.80GHz, 4 cores |
 | PQN-Asterix | purejaxql | 31,759 | 63 | 13.6 | Intel(R) Xeon(R) Processor @ 2.10GHz, 4 cores |
 | PQN-Asterix | Ajax | 33,435 | 61 | 11.9 | Intel(R) Xeon(R) Processor @ 2.10GHz, 4 cores |
+| REINFORCE | spinup | 6,186 | 639 | 0.7 | AMD EPYC 9454 48-Core Processor, 192 cores |
+| REINFORCE | Ajax | 24,862 | 226 | 1.8 | AMD EPYC 9454 48-Core Processor, 192 cores |
+| REINFORCE-Pendulum | spinup | 6,431 | 619 | 0.9 | AMD EPYC 9454 48-Core Processor, 192 cores |
+| REINFORCE-Pendulum | Ajax | 26,823 | 218 | 2.4 | AMD EPYC 9454 48-Core Processor, 192 cores |
 | SAC | sb3 | 164 | 23,620 | 4.8 | Intel(R) Xeon(R) Processor @ 2.80GHz, 4 cores |
 | SAC | Ajax | 227 | 13,242 | 1.4 | Intel(R) Xeon(R) Processor @ 2.80GHz, 4 cores |
 | SAC-sbx | sbx | 520 | 32,163 | 6.4 | Intel(R) Xeon(R) Gold 6134 CPU @ 3.20GHz, 32 cores |
@@ -62,6 +68,10 @@ machines are not comparable.
 ![PQN](PQN.svg)
 
 ![PQN-Asterix](PQN-Asterix.svg)
+
+![REINFORCE](REINFORCE.svg)
+
+![REINFORCE-Pendulum](REINFORCE-Pendulum.svg)
 
 ![SAC](SAC.svg)
 

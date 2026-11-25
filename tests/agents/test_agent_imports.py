@@ -39,7 +39,7 @@ PARENT = {
 }
 #: What a parent's paper defines, which its descendants may import.
 EQUATIONS = {
-    "PPO": {"clipped_surrogate", "_compute_gae"},
+    "PPO": {"clipped_surrogate"},
     "SAC": {
         "sample_next_actions",
         "compute_td_target",

@@ -162,6 +162,8 @@ REPRODUCTION_ROWS = {
     ("PPO", "inverted_pendulum", "Brax"): "PPO-inverted_pendulum",
     ("PQN", "CartPole-v1", "purejaxql"): "PQN",
     ("PQN", "Asterix-MinAtar", "purejaxql"): "PQN-Asterix",
+    ("REINFORCE", "CartPole-v1", "Spinning Up"): "REINFORCE",
+    ("REINFORCE", "Pendulum-v1", "Spinning Up"): "REINFORCE-Pendulum",
     ("SAC", "Pendulum-v1", "Stable-Baselines3"): "SAC",
     ("SAC", "Pendulum-v1", "SBX"): "SAC-sbx",
     ("TD3", "Pendulum-v1", "Stable-Baselines3"): "TD3",

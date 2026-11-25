@@ -27,8 +27,8 @@ pytest.importorskip("mujoco_playground")
 gymnasium = pytest.importorskip("gymnasium")
 
 from ajax.environments.create import build_env_from_id  # noqa: E402
-from ajax.environments.utils import agent_action_to_env  # noqa: E402
 from ajax.environments.mujoco.tasks import TASKS, make  # noqa: E402
+from ajax.environments.utils import agent_action_to_env  # noqa: E402
 from ajax.evaluate import setup_environment  # noqa: E402
 
 STEPS = 40
@@ -261,12 +261,16 @@ def test_inverted_double_pendulum_draws_normal_velocities_of_scale_0_1():
 def test_an_agents_action_spans_gymnasiums_action_space(task_id):
     space = gymnasium.make(task_id).action_space
     env, env_params = build_env_from_id(f"mujoco:{task_id}")
-    agent = jnp.stack([-jnp.ones(space.shape), jnp.zeros(space.shape), jnp.ones(space.shape)])
+    agent = jnp.stack(
+        [-jnp.ones(space.shape), jnp.zeros(space.shape), jnp.ones(space.shape)]
+    )
 
     executed = np.asarray(agent_action_to_env(agent, env, env_params))
 
     np.testing.assert_allclose(executed[0], space.low, rtol=0, atol=1e-6)
-    np.testing.assert_allclose(executed[1], (space.low + space.high) / 2, rtol=0, atol=1e-6)
+    np.testing.assert_allclose(
+        executed[1], (space.low + space.high) / 2, rtol=0, atol=1e-6
+    )
     np.testing.assert_allclose(executed[2], space.high, rtol=0, atol=1e-6)
 
 

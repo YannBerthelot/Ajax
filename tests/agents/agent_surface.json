@@ -498,6 +498,7 @@
 "ajax.agents.reset_cost:step_reset_cost",
 "ajax.agents.reset_cost:step_reset_critic",
 "ajax.agents.reset_cost:update_reset_target",
+"ajax.agents.returns:compute_gae",
 "ajax.agents.sweep:Sweep",
 "ajax.agents.sweep:check",
 "ajax.agents.sweep:configurations",

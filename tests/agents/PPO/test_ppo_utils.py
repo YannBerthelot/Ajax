@@ -9,7 +9,7 @@ from ajax.agents.minibatch import (
     get_minibatches_preserving_time,
     get_sequence_minibatches,
 )
-from ajax.agents.PPO.PPO import _compute_gae
+from ajax.agents.returns import compute_gae
 from ajax.networks.distributions import Squash, policy_entropy
 
 G, L = 0.99, 0.95
@@ -61,7 +61,7 @@ def test_compute_gae(rewards, values, next_values, terminateds, truncateds, adva
     """The advantages on hand-computed recursions; the returns are the
     advantages plus the values."""
     values = jnp.array(values)
-    got, returns = _compute_gae(
+    got, returns = compute_gae(
         rewards=jnp.array(rewards),
         values=values,
         next_values=jnp.array(next_values),

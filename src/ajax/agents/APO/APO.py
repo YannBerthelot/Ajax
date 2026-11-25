@@ -11,7 +11,7 @@ function below, or PPO's::
          to the rollout's means)
     A_t = GAE(gamma = 1, lambda) of the differential TD error
           r_t - rho + V(s_{t+1}) - V(s_t), cut at every episode end
-                                                            PPO's _compute_gae
+                                                                returns.compute_gae
     for each of n_epochs, for each minibatch of shuffled single steps:
         L = clipped surrogate - ent_coef H(pi)           compute_policy_loss
             + vf_coef 0.5 (V(s_t) - (V_targ - nu b))^2    compute_value_loss
@@ -49,7 +49,8 @@ from ajax.agents.minibatch import (
     resolve_num_minibatches,
     run_epochs,
 )
-from ajax.agents.PPO.PPO import _compute_gae, clipped_surrogate
+from ajax.agents.PPO.PPO import clipped_surrogate
+from ajax.agents.returns import compute_gae
 from ajax.agents.update_steps import (
     apply_gradients_clipped_together,
     compute_gradients,
@@ -289,7 +290,7 @@ class APO(
         ends = jnp.maximum(rollout.terminated, rollout.truncated)
         # A time-out as gym's TimeLimit flags it: the limit hit, no termination.
         valid = 1.0 - rollout.truncated * (1.0 - rollout.terminated)
-        gae, value_targets = _compute_gae(
+        gae, value_targets = compute_gae(
             rewards=rollout.reward - average_reward,
             values=values,
             next_values=next_values,

@@ -46,7 +46,7 @@ Each agent's default follows its paper or reference implementation:
 | --- | --- |
 | `("256", "relu", "256", "relu")` | SAC, ASAC, RVI-SAC, REDQ, TQC, TD3, IQL |
 | `("256", "leaky_relu", "256", "leaky_relu")` | AVG |
-| `("64", "tanh", "64", "tanh")` | PPO, APO |
+| `("64", "tanh", "64", "tanh")` | PPO, APO, REINFORCE |
 | `("32", "tanh", "32", "tanh")` | DAgger |
 | `("128", "relu", "128", "relu")` | PQN, UDRL, APG (its controller) |
 | `("120", "relu", "84", "relu")` | DQN |

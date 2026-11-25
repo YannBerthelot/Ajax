@@ -18,6 +18,15 @@ The next release is 0.6.0: the first item changes results.
   `gymnasium:` tasks. The other six `mujoco:` tasks, whose motors take ±1,
   are unchanged, as are Playground's own environments. Upgrade: results
   recorded on those two tasks before this change are not comparable.
+- **New: `REINFORCE`, the plain policy gradient** (Williams, 1992), as
+  Spinning Up's Vanilla Policy Gradient runs it: one full-batch policy step
+  per rollout on GAE advantages of a learned baseline, then 80 critic
+  steps. `baseline=False` weights each step by its reward-to-go alone, and
+  `REINFORCE.preset("rtg_pg", env_id)` is Spinning Up's plain example.
+  Discrete and continuous actions; no memory yet. See
+  [REINFORCE](docs/algorithms/reinforce.md). PPO's GAE moved to
+  `ajax.agents.returns.compute_gae`, which PPO, APO and REINFORCE share;
+  it was private (`_compute_gae`), so no public name changed.
 - **New: `agent.render(state, path)` saves an episode of the trained
   policy as an animation**: a GIF on the gymnax tasks gymnax draws, on
   MuJoCo Playground and on the `mujoco:` tasks, an interactive page on

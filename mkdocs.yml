@@ -156,6 +156,7 @@ nav:
       - PQN: algorithms/pqn.md
       - PPO: algorithms/ppo.md
       - APO: algorithms/apo.md
+      - REINFORCE: algorithms/reinforce.md
       - UDRL: algorithms/udrl.md
       - DAgger: algorithms/dagger.md
       - APG: algorithms/apg.md

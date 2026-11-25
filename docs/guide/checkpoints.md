@@ -160,7 +160,7 @@ the steps the whole run does.
 
 - **The seeds must stand at the same timestep.** A state whose seeds
   disagree on the timestep cannot be resumed and raises an error.
-- **On-policy agents train whole rollouts.** PPO, APO and PQN train the
+- **On-policy agents train whole rollouts.** PPO, APO, REINFORCE and PQN train the
   whole rollouts (`n_envs x n_steps` steps) a call's `n_timesteps` holds, at
   least one, and warn when it is not a whole number of them. A run split
   into calls of whole rollouts ends where one call does

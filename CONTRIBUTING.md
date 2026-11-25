@@ -75,7 +75,7 @@ and picks one of two iterations:
   transition)` and folds the extensions' `post_update`. Before
   `learning_starts` the actions are uniform and the metrics have the
   update's structure, filled with NaN, which the logger drops.
-- **`loop.on_policy(init, update, n_steps, ...)`** (PPO, APO, PQN): each
+- **`loop.on_policy(init, update, n_steps, ...)`** (PPO, APO, REINFORCE, PQN): each
   iteration collects an `n_steps` rollout per environment from the agent
   state `agent_state_at_rollout_start`, then runs `update(agent_state,
   rollout, agent_state_at_rollout_start)` and folds `post_update`. A
@@ -205,7 +205,7 @@ A new agent `FOO` declares itself on a family of `agents/families.py`: a
 replay agent on `ReplayAgent`, as SAC, TQC, REDQ, ASAC, CrossQ, TD3, IQL,
 DQN and DAgger do (read `agents/IQL/IQL.py` first); an agent updating on
 each step as it comes, without a replay, on `IncrementalAgent`, as AVG
-does; an on-policy agent on `OnPolicyAgent`, as PPO, APO and PQN do (read
+does; an on-policy agent on `OnPolicyAgent`, as PPO, APO, REINFORCE and PQN do (read
 `agents/PPO/PPO.py` first, and the on-policy family below); an agent whose
 iteration is its own on `OwnIterationAgent`, as UDRL and APG do (the
 own-iteration family below); an agent storing rows in a replay of its own,

@@ -47,7 +47,7 @@ ROWS = [
     ),
     *(
         (name, env)
-        for name in "PPO APO UDRL DAgger DreamerV3".split()
+        for name in "PPO APO REINFORCE UDRL DAgger DreamerV3".split()
         for env in ("Pendulum-v1", "CartPole-v1")
     ),
     ("DQN", "CartPole-v1"),
@@ -77,6 +77,10 @@ MEMORY = "memory is not wired on this agent yet (batch network-reach)"
 DEFERRED = "memory on this agent has no published form (deferred)"
 PRIOR = "the agent's own replay is not handed to its pretraining yet"
 REWARD = "only PPO folds the reward phase (GAIL's AdversarialReward)"
+FIRST = (
+    "REINFORCE's first version takes no expert and folds no loss phase for"
+    " extensions yet"
+)
 WARMUP = (
     "TD-MPC2's own collector does not run the choose_warmup_action phase in its"
     " seed phase yet, and it takes no expert_policy"
@@ -113,7 +117,8 @@ FORM_GAPS = {
 GAPS: dict[str, dict[str, str]] = {
     MC: {
         "CriticBlend": "TD3 REDQ CrossQ AVG DQN PQN IQL",
-        "MCPretrain": "TD3 REDQ TQC CrossQ AVG PPO PPO/discrete DQN PQN IQL",
+        "MCPretrain": "TD3 REDQ TQC CrossQ AVG PPO PPO/discrete DQN PQN IQL"
+        " REINFORCE REINFORCE/discrete",
         "MCVarianceCorrection": "TD3 REDQ CrossQ IQL",
         "OnlineBC": "TD3 REDQ TQC CrossQ AVG IQL",
         "PhiRefresh": "TD3 REDQ TQC CrossQ DQN IQL",
@@ -167,15 +172,23 @@ GAPS: dict[str, dict[str, str]] = {
     LOGGED: dict.fromkeys(FEATURES[2:], "TDMPC2MultiTask"),
     CNN: {
         "cnn": "SAC TD3 REDQ TQC CrossQ ASAC RVISAC AVG APG APO APO/discrete DAgger"
-        " DAgger/discrete IQL"
+        " DAgger/discrete IQL REINFORCE REINFORCE/discrete"
     },
-    MEMORY: {"memory": "APO APO/discrete DQN PQN DAgger DAgger/discrete IQL"},
+    MEMORY: {
+        "memory": "APO APO/discrete DQN PQN DAgger DAgger/discrete IQL REINFORCE"
+        " REINFORCE/discrete"
+    },
     DEFERRED: {"memory": "AVG CrossQ UDRL UDRL/discrete"},
     WARMUP: {"ExpertWarmup": "TDMPC2"},
+    FIRST: dict.fromkeys(
+        "BiasVorePenalty BumplessTracking CloningPretrain ExpertStateInput"
+        " ImitationLoss".split(),
+        "REINFORCE REINFORCE/discrete",
+    ),
     ROLLOUT_REWARD: {"PreviousReward": "APG"},
     REWARD: {
         "AdversarialReward": "SAC TD3 REDQ TQC CrossQ ASAC RVISAC AVG APG APO UDRL DAgger"
-        " IQL DreamerV3"
+        " IQL DreamerV3 REINFORCE"
         " TDMPC2 TDMPC2MultiTask"
     },
     OWN_STORE: {
@@ -332,7 +345,7 @@ def columns() -> list[str]:
 
 def row_label(agent: str, env: str) -> str:
     discrete = env == "CartPole-v1" and agent in (
-        *("PPO", "APO", "UDRL", "DAgger", "DreamerV3"),
+        *("PPO", "APO", "REINFORCE", "UDRL", "DAgger", "DreamerV3"),
     )
     return f"{agent}/discrete" if discrete else agent
 

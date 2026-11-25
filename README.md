@@ -82,7 +82,7 @@ Complete scripts are in [`examples/`](examples/).
 
 ## Why Ajax
 
-Ajax has nineteen agents, each from a published paper. Compared with
+Ajax has twenty agents, each from a published paper. Compared with
 [Stable-Baselines3](https://github.com/DLR-RM/stable-baselines3) and
 [SBX](https://github.com/araffin/sbx), it offers:
 
@@ -135,14 +135,14 @@ and each one reproduces with one command ([specifications](docs/reproduction/spe
 ## Agents
 
 - **Off-policy actor-critic**: [SAC](docs/algorithms/sac.md), [TD3](docs/algorithms/td3.md), [REDQ](docs/algorithms/redq.md), [CrossQ](docs/algorithms/crossq.md) (batch-renormalised, no target networks), [TQC](docs/algorithms/tqc.md) (truncated quantile critics), [AVG](docs/algorithms/avg.md) (no replay), [ASAC](docs/algorithms/asac.md) and [RVISAC](docs/algorithms/rvisac.md) (RVI-SAC; average reward), [IQL](docs/algorithms/iql.md) (offline)
-- **On-policy**: [PPO](docs/algorithms/ppo.md), [APO](docs/algorithms/apo.md) (average reward)
+- **On-policy**: [PPO](docs/algorithms/ppo.md), [APO](docs/algorithms/apo.md) (average reward), [REINFORCE](docs/algorithms/reinforce.md) (the plain policy gradient)
 - **Value-based**: [DQN](docs/algorithms/dqn.md), [PQN](docs/algorithms/pqn.md)
 - **World models**: [DreamerV3](docs/algorithms/dreamerv3.md), [TDMPC2](docs/algorithms/tdmpc2.md), [TDMPC2MultiTask](docs/algorithms/tdmpc2.md) (multi-task, offline)
 - **Supervised**: [DAgger](docs/algorithms/dagger.md) (imitation of an expert), [UDRL](docs/algorithms/udrl.md) (command-conditioned)
 - **Differentiable simulation**: [APG](docs/algorithms/apg.md)
 
-DQN and PQN take discrete actions; PPO, APO, DAgger, UDRL and DreamerV3 take
-both; the others continuous ones. <!-- agents: offline -->SAC, TD3, REDQ, TQC, CrossQ, ASAC, RVI-SAC,
+DQN and PQN take discrete actions; PPO, APO, REINFORCE, DAgger, UDRL and
+DreamerV3 take both; the others continuous ones. <!-- agents: offline -->SAC, TD3, REDQ, TQC, CrossQ, ASAC, RVI-SAC,
 DQN, IQL and DAgger<!-- /agents --> also train offline (`train_offline`). Each name opens the agent's page, with its paper;
 the [compatibility table](docs/guide/compatibility.md) lists every extension
 per agent.

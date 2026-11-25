@@ -99,6 +99,7 @@ preprocessing stay yours.
 | [PPO](../algorithms/ppo.md#presets) | `Atari`, `SB3` | `n_envs`, `n_steps`, `batch_size`, `n_epochs`, `num_minibatches`, `actor_learning_rate`, `critic_learning_rate`, `gamma`, `gae_lambda`, `clip_range`, `clip_value_loss`, `normalize_advantage`, `ent_coef`, `vf_coef`, `max_grad_norm`, `adam_eps`, `normalize_observations`, `normalize_rewards`, `share_encoder` | ppo2's `defaults.py`; Stable-Baselines3's PPO defaults |
 | [PQN](../algorithms/pqn.md#presets) | `CartPole`, `Atari` | `architecture`, `n_envs`, `n_steps`, `n_epochs`, `num_minibatches`, `learning_rate`, `lr_linear_decay`, `epsilon_end`, `epsilon_decay_frac`, `q_lambda`, `reward_scale` | purejaxql's configs |
 | [REDQ](../algorithms/redq.md#presets) | `Hopper`, `HalfCheetah`, `Walker2d`, `Ant`, `Humanoid` | `target_entropy_per_dim` | MBPO's target entropies |
+| [REINFORCE](../algorithms/reinforce.md#presets) | `rtg_pg` | `baseline`, `normalize_advantage`, `gamma`, `n_steps`, `actor_architecture`, `actor_learning_rate` | Spinning Up's `2_rtg_pg.py` |
 | [TD3](../algorithms/td3.md#presets) | `D4RL` (TD3+BC) | `normalize_observations`, `extensions` | TD3_BC's `main.py` |
 | [TDMPC2](../algorithms/tdmpc2.md#presets) | `MuJoCo` | `discount_max`, `rho` | the latest code's `envs/mujoco.py` |
 | [TQC](../algorithms/tqc.md#presets) | `Hopper`, `HalfCheetah`, `Walker2d`, `Ant`, `Humanoid` | `top_quantiles_to_drop_per_net` | the authors' README |
@@ -127,7 +128,7 @@ state, out = agent.train(
 `n_timesteps` counts environment steps summed over the `n_envs` copies. An
 off-policy agent collects one step in each copy per iteration, so 100,000
 steps with `n_envs=4` are 25,000 iterations. An on-policy agent (PPO, APO,
-PQN) collects a rollout of `n_steps` per copy per iteration and trains in
+REINFORCE, PQN) collects a rollout of `n_steps` per copy per iteration and trains in
 whole rollouts: it runs `n_timesteps // (n_envs * n_steps)` of them, and at
 least one. A budget that is not whole rollouts stops at the last whole one,
 with a warning; a budget below one rollout runs that one rollout and
@@ -229,7 +230,7 @@ The defaults differ by agent:
 
 | `n_envs` default | Agents |
 | --- | --- |
-| 1 | PPO, SAC, ASAC, RVI-SAC, REDQ, CrossQ, TQC, TD3, IQL, AVG, DQN, UDRL, DAgger, TD-MPC2 |
+| 1 | PPO, REINFORCE, SAC, ASAC, RVI-SAC, REDQ, CrossQ, TQC, TD3, IQL, AVG, DQN, UDRL, DAgger, TD-MPC2 |
 | 8 | APG |
 | 10 | APO |
 | 16 | DreamerV3 |
@@ -316,7 +317,7 @@ training, such as DQN's epsilon decay, has already finished at the end of a
 first call. To split a run and keep the schedules of one call, pass the
 whole run's horizon to every call. A call whose `n_timesteps` would take it
 past the horizon is refused, so the last call trains the rest. An on-policy
-agent (PPO, APO, PQN) trains in whole rollouts of `n_envs x n_steps` steps,
+agent (PPO, APO, REINFORCE, PQN) trains in whole rollouts of `n_envs x n_steps` steps,
 as its original code does: give each call a whole number of them (8,192 is
 8 rollouts of 1,024 here) and the calls end where one call does. A budget
 that is not whole rollouts stops at the last whole one, with a warning; a

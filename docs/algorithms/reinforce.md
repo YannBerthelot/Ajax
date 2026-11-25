@@ -118,6 +118,10 @@ Both steps read the advantages and returns computed before either moves.
   `policy/approx_kl` is the one policy step's; the reference logs it before
   the step, where it is 0. The reference runs 4 processes of 1,000 steps by
   default from its command line; `n_envs=4, n_steps=1000` reproduces that.
+- **Against the reference.** On CartPole, over 200,000 steps and 96 seeds,
+  Ajax's final returns are similar to Spinning Up's VPG (within ±25). On
+  Pendulum neither learns at that budget; the comparison is inconclusive
+  ([Results](../reproduction/results.md)).
 
 ## API
 

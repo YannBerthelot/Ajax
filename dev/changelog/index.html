@@ -3124,6 +3124,16 @@ PyPI as <code>ajax-rl</code>.</p>
 <h2 id="unreleased">Unreleased<a class="headerlink" href="#unreleased" title="Permanent link">&para;</a></h2>
 <p>The next release is 0.6.0: the first item changes results.</p>
 <ul>
+<li><strong>Changes results: an agent's actions on <code>mujoco:InvertedPendulum-v5</code>
+  and <code>mujoco:Pusher-v5</code> now span Gymnasium's action space.</strong> Agents act
+  in [-1, 1], and on <code>mujoco:</code> tasks that went to the motors unscaled.
+  InvertedPendulum's motor takes ±3 and Pusher's take ±2, so agents
+  reached a third and a half of the range, and Pusher's control cost a
+  quarter of Gymnasium's largest. A task now declares its motor ranges
+  (<code>action_bounds</code>) and Ajax maps [-1, 1] onto them, as it does for
+  <code>gymnasium:</code> tasks. The other six <code>mujoco:</code> tasks, whose motors take ±1,
+  are unchanged, as are Playground's own environments. Upgrade: results
+  recorded on those two tasks before this change are not comparable.</li>
 <li><strong>New: <code>agent.render(state, path)</code> saves an episode of the trained
   policy as an animation</strong>: a GIF on the gymnax tasks gymnax draws, on
   MuJoCo Playground and on the <code>mujoco:</code> tasks, an interactive page on

@@ -2774,6 +2774,17 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#ajax.environments.mujoco.tasks.GymnasiumTask.action_bounds" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        action_bounds
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#ajax.environments.mujoco.tasks.GymnasiumTask.set_state" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4310,6 +4321,17 @@
   
     <nav class="md-nav" aria-label="GymnasiumTask">
       <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.mujoco.tasks.GymnasiumTask.action_bounds" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        action_bounds
+      
+    </span>
+  </a>
+  
+</li>
         
           <li class="md-nav__item">
   <a href="#ajax.environments.mujoco.tasks.GymnasiumTask.set_state" class="md-nav__link">
@@ -6025,6 +6047,33 @@ stream: a reset is a sample of the same initial-state distribution.</p>
 
 
 
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h4 id="ajax.environments.mujoco.tasks.GymnasiumTask.action_bounds" class="doc doc-heading">
+            <span class="doc doc-object-name doc-attribute-name">action_bounds</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-property"><code>property</code></small>
+  </span>
+
+<a href="#ajax.environments.mujoco.tasks.GymnasiumTask.action_bounds" class="headerlink" title="Permanent link">&para;</a></h4>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="n">action_bounds</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Gymnasium's action space, (low, high): each motor's ctrlrange
+(mujoco_env.py's _set_action_space). Ajax maps an agent's [-1, 1]
+onto it; a motor without a control limit gets infinite bounds, which
+Ajax leaves as [-1, 1].</p>
+
+    </div>
+
+</div>
 
 
 
@@ -9662,9 +9711,10 @@ with finite bounds <code>[low, high]</code>, mapped affinely onto them: <code>c 
 <code>action_scale</code>).
 This is DreamerV3's <code>ClipAction</code> + <code>NormalizeAction</code> (a dimension
 with an infinite bound keeps the clipped action) and TD-MPC2's action
-scaling. For <code>[-1, 1]</code> bounds -- every brax / playground env, gymnax
-envs like MountainCarContinuous -- the map is exactly the clip, even
-when the bounds are traced; gymnax Pendulum's torque is <code>[-2, 2]</code>.
+scaling. For <code>[-1, 1]</code> bounds -- brax / playground envs that declare
+no <code>action_bounds</code>, gymnax envs like MountainCarContinuous -- the map
+is exactly the clip, even when the bounds are traced; gymnax Pendulum's
+torque is <code>[-2, 2]</code>, "mujoco:Pusher-v5"'s motors <code>[-2, 2]</code>.
 Per-env (batched) gymnax params (<code>ajax.environments.system_class</code>)
 give per-env bounds: env <code>e</code>'s action is mapped with its own system's
 bounds. Discrete actions pass through. Replay stores the agent's raw

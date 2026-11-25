@@ -74,6 +74,12 @@ IMPLEMENTATIONS = {
         False,
         ("envs/purejaxql", "vendor/purejaxql", "refcmp_jax.py"),
     ),
+    "spinup": (
+        HERE / "envs" / "spinup",
+        "refcmp_spinup.py",
+        True,
+        ("envs/spinup", "vendor/openai_spinningup", "refcmp_spinup.py"),
+    ),
     "brax": (
         HERE / "envs" / "brax",
         "refcmp_brax.py",

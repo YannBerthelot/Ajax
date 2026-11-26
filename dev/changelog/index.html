@@ -3164,6 +3164,10 @@ PyPI as <code>ajax-rl</code>.</p>
   <code>gymnasium:</code> tasks. The other six <code>mujoco:</code> tasks, whose motors take ±1,
   are unchanged, as are Playground's own environments. Upgrade: results
   recorded on those two tasks before this change are not comparable.</li>
+<li><strong>The <code>playground</code> extra needs MuJoCo 3.7 or newer</strong> (was 3.6). MJX 3.6
+  passes <code>a_min</code> to <code>jnp.clip</code>, which JAX 0.10, Ajax's floor, no longer
+  accepts, so <code>"mujoco:"</code> and Playground tasks failed with <code>clip() got an
+  unexpected keyword argument 'a_min'</code> on an install at the floors.</li>
 <li><strong>New: <code>REINFORCE</code>, the plain policy gradient</strong> (Williams, 1992), as
   Spinning Up's Vanilla Policy Gradient runs it: one full-batch policy step
   per rollout on GAE advantages of a learned baseline, then 80 critic

@@ -149,7 +149,7 @@ requires-dist = [
     { name = "flax", specifier = ">=0.12.8" },
     { name = "gymnasium", extras = ["classic-control"], marker = "extra == 'render'", specifier = ">=1.3" },
     { name = "gymnasium", extras = ["mujoco"], marker = "extra == 'gymnasium'", specifier = ">=1.0" },
-    { name = "gymnasium-mjx", extras = ["playground"], marker = "extra == 'gymnasium-mjx'", git = "https://github.com/YannBerthelot/gymnasium-mjx.git?rev=280b43e811fc12f4776d32c83b507836baa91abf" },
+    { name = "gymnasium-mjx", extras = ["playground"], marker = "extra == 'gymnasium-mjx'", specifier = ">=0.3" },
     { name = "gymnax", specifier = ">=1.0.1,<2" },
     { name = "huggingface-hub", marker = "extra == 'reproduction'", specifier = ">=0.30,<2" },
     { name = "jax", specifier = ">=0.10.0" },
@@ -923,12 +923,16 @@ mujoco = [
 
 [[package]]
 name = "gymnasium-mjx"
-version = "0.2.0"
-source = { git = "https://github.com/YannBerthelot/gymnasium-mjx.git?rev=280b43e811fc12f4776d32c83b507836baa91abf#280b43e811fc12f4776d32c83b507836baa91abf" }
+version = "0.3.0"
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "jax" },
     { name = "mujoco" },
     { name = "mujoco-mjx" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/b9/d6/3bda7dbcf3844c569e9ed12fa1772c2db778c3237c0fdf00e914c1c910fa/gymnasium_mjx-0.3.0.tar.gz", hash = "sha256:72a29fd12b039390cd5ce48f2cd124e47b8f096cdbc12cca8726b47602371b4e", size = 27027, upload-time = "2026-11-26T17:04:45.471Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ab/da/09653f8931afa669b0ec837f40ef431ea67a99f226d1413498e163a0b1f4/gymnasium_mjx-0.3.0-py3-none-any.whl", hash = "sha256:ae72eac0ecb6d1c5de454b53ba4de750db88ac840f03ce71e9af26655da74c5f", size = 36047, upload-time = "2026-11-26T17:04:44.469Z" },
 ]
 
 [package.optional-dependencies]

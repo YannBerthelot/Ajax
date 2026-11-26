@@ -83,7 +83,7 @@ gymnasium = ["gymnasium[mujoco]>=1.0"]
 # Gymnasium's MuJoCo tasks on MJX ("mujoco:HalfCheetah-v5", ...), from the
 # gymnasium-mjx package: `uv sync --extra gymnasium-mjx`, or depend on
 # `ajax-rl[gymnasium-mjx]`.
-gymnasium-mjx = ["ajax-rl[playground]", "gymnasium-mjx[playground]>=0.2"]
+gymnasium-mjx = ["ajax-rl[playground]", "gymnasium-mjx[playground]>=0.3"]
 # agent.render's gymnax drawings (ajax.render): `uv sync --extra render`, or
 # depend on `ajax-rl[render]`. gymnax draws with matplotlib, and its classic
 # control tasks (CartPole, Pendulum, ...) through Gymnasium's drawings, which
@@ -166,11 +166,6 @@ adastop = { git = "https://github.com/TimotheeMathieu/adastop.git", rev = "07e71
 # TEMPORARY: this should be target-gym from PyPI. The expert benchmark needs
 # what main holds for 0.8.0; restore the PyPI pin once 0.8.0 ships.
 target-gym = { git = "https://github.com/YannBerthelot/TargetGym.git", rev = "1ac3a0927bcea352c35611a17df638ee051d46d1" }
-# TEMPORARY: this should be gymnasium-mjx from PyPI. Its adapter maps an
-# agent's [-1, 1] onto Gymnasium's action space from main's 280b43e on (the
-# Humanoids' motors span +-0.4); 0.2.0 passes the action through unscaled.
-# Raise the extra's floor to the first release that has it and drop this.
-gymnasium-mjx = { git = "https://github.com/YannBerthelot/gymnasium-mjx.git", rev = "280b43e811fc12f4776d32c83b507836baa91abf" }
 
 [tool.uv.build-backend]
 # The distribution is "ajax-rl" (on PyPI, "ajax" is another project); the

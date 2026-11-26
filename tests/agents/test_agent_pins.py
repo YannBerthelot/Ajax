@@ -669,5 +669,3 @@ def test_a_tiny_run_reproduces_its_recorded_fingerprint(name: str) -> None:
     for key, golden in _GOLDEN[name].items():
         rel = abs(got[key] - golden) / max(abs(golden), 1.0)
         assert rel < _TOL, f"{name} {key}: got {got[key]!r}, golden {golden!r}"
-
-

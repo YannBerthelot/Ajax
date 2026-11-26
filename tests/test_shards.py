@@ -3,6 +3,7 @@
 import os
 import subprocess
 import sys
+import textwrap
 
 from tests import shards
 
@@ -98,3 +99,42 @@ def test_file_times_are_summed_per_file_and_merged_into_the_known_ones(
         "tests/test_shards.py": 3.7,
         "tests/test_tiers.py": 3.0,
     }
+
+
+def test_tests_sharing_a_module_fixture_build_it_on_one_worker(tmp_path) -> None:
+    """Under --dist loadgroup, as CI's shards run, the tests reading one
+    module fixture go to one xdist worker, which builds it once; spread over
+    two workers it is built twice. Catches the groups no longer reaching
+    xdist (a mark added after xdist reads it, or under another name)."""
+    built = tmp_path / "built.txt"
+    module = tmp_path / "test_shared.py"
+    module.write_text(
+        textwrap.dedent(
+            f"""
+            import pytest
+
+            @pytest.fixture(scope="module")
+            def run():
+                with open({str(built)!r}, "a") as fh:
+                    fh.write("built\\n")
+
+            @pytest.mark.parametrize("i", range(8))
+            def test_reads_the_run(run, i):
+                pass
+            """
+        )
+    )
+    repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    cmd = [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider"]
+    cmd += ["-p", "tests.conftest", "-n", "2", "--dist", "loadgroup", str(module)]
+    subprocess.run(cmd, cwd=repo, check=True, capture_output=True)
+    assert built.read_text().splitlines() == ["built"]
+
+
+def test_a_grouped_tests_time_is_recorded_under_its_plain_node_id() -> None:
+    """xdist names a grouped test ``nodeid@group``; its recorded time must
+    keep the id --shard looks up, or every grouped test would count the
+    default second and the slow tier's shards would drift apart."""
+    name = "test_x[a]@tests/test_shards.py:a"
+    got = durations_script.nodeid("tests.test_shards", name)
+    assert got == "tests/test_shards.py::test_x[a]"

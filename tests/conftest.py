@@ -29,6 +29,7 @@ MAX_UPDATES = int(os.environ.get("AJAX_FAST_MAX_UPDATES", "128"))
 #: (reported, not failed).
 MAX_SECONDS = float(os.environ.get("AJAX_FAST_MAX_SECONDS", "30"))
 _START = pytest.StashKey[float]()
+_GROUP = pytest.StashKey[str]()
 #: The guard's state, test infrastructure only: the most updates a state the
 #: running test's train programs returned held, and the fast tests past a
 #: budget (reported by the process that writes the summary, under xdist too).
@@ -108,9 +109,43 @@ def pytest_addoption(parser: pytest.Parser) -> None:
     )
 
 
+def xdist_group(item: pytest.Item) -> Optional[str]:
+    """The worker group of a test that shares a run with others, for xdist's
+    ``--dist loadgroup`` (as CI runs): a group's tests go to one worker, which
+    builds the run once, where spread over the workers each would build it
+    again (on bob, 2026-11-26, the nine costliest such files took 285 s
+    grouped against 369 s spread, 4 workers). A test shares through the
+    module-scoped fixtures it uses (the group: its file and their names) or,
+    using none, through a run cached by its parameters: every probe under
+    tests/probing (a case's tests read one training) and the tests of a file
+    naming ``SHARED_RUNS = "case"``. Other tests spread as before."""
+    path = item.nodeid.split("::")[0]
+    # pytest's fixture closure: private, but pytest is pinned (dev group).
+    info = getattr(item, "_fixtureinfo", None)
+    defined = info.name2fixturedefs.items() if info is not None else ()
+    fixtures = sorted(n for n, defs in defined if defs and defs[-1].scope == "module")
+    if fixtures:
+        return f"{path}:{'+'.join(fixtures)}"
+    callspec = getattr(item, "callspec", None)
+    cached = getattr(getattr(item, "module", None), "SHARED_RUNS", "") == "case"
+    if callspec is not None and (cached or is_slow_tier(item.path.as_posix())):
+        return f"{path}:{callspec.id}"
+    return None
+
+
+def plain_nodeid(item: pytest.Item) -> str:
+    """The node id without the ``@group`` xdist appends under loadgroup."""
+    group = item.stash.get(_GROUP, "")
+    return item.nodeid.removesuffix(f"@{group}") if group else item.nodeid
+
+
 def pytest_itemcollected(item: pytest.Item) -> None:
     if is_slow_tier(item.path.as_posix()):
         item.add_marker(pytest.mark.slow)
+    group = xdist_group(item)
+    if group is not None:
+        item.stash[_GROUP] = group
+        item.add_marker(pytest.mark.xdist_group(group))
 
 
 @pytest.hookimpl(trylast=True)  # after -m and -k have deselected
@@ -123,7 +158,7 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list) -> None:
         raise pytest.UsageError(f"--shard {option}: need 1 <= I <= N")
     from tests import shards
 
-    nodeids = [i.nodeid for i in items]
+    nodeids = [plain_nodeid(i) for i in items]  # the recorded ids
     if config.getoption("--shard-by") == "file":
         picked = shards.assign_files(nodeids, shards.load(shards.FILE_DURATIONS), n)
     else:

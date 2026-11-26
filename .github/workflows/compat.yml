@@ -93,7 +93,7 @@ jobs:
           XLA_FLAGS: --xla_backend_optimization_level=0 --xla_llvm_disable_expensive_passes=true
         run: >-
           uv run --no-sync pytest tests -m "not slow"
-          --shard ${{ matrix.shard }}/4 --shard-by file -n ${{ matrix.workers }}
+          --shard ${{ matrix.shard }}/4 --shard-by file -n ${{ matrix.workers }} --dist loadgroup
           --ignore=tests/probing
           --ignore=tests/conformance
           --ignore=tests/agents/test_agent_pins.py

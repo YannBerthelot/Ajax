@@ -31,7 +31,7 @@ ci-precommit:  ## pre-commit on all files (ruff lint + ruff-format + mypy)
 
 ci-test:  ## The fast tier: tests not marked slow (conformance aside) + coverage >= 90, one worker per core
 	uv run coverage erase
-	$(CPU_ENV) $(FAST_XLA) uv run pytest -n auto --cov --cov-report= --cov-fail-under=0 -m "not slow" --ignore=tests/conformance
+	$(CPU_ENV) $(FAST_XLA) uv run pytest -n auto --dist loadgroup --cov --cov-report= --cov-fail-under=0 -m "not slow" --ignore=tests/conformance
 	uv run coverage report --fail-under=90
 
 ci-slow:  ## The slow tier: every test that trains (tests/probing and the tests marked slow), without coverage

@@ -23,7 +23,9 @@ PATH = os.path.join(ROOT, "tests", ".durations")
 
 def nodeid(classname: str, name: str) -> str:
     """junit's ``tests.agents.test_x[.TestClass]`` and ``test_y[...]`` back to
-    pytest's ``tests/agents/test_x.py[::TestClass]::test_y[...]``."""
+    pytest's ``tests/agents/test_x.py[::TestClass]::test_y[...]``, without the
+    ``@group`` xdist appends under ``--dist loadgroup`` (tests/conftest.py)."""
+    name = name.split("@tests/", 1)[0]
     parts = classname.split(".")
     for cut in range(len(parts), 0, -1):
         module = "/".join(parts[:cut]) + ".py"

@@ -77,6 +77,10 @@ jobs:
     needs: changed
     if: needs.changed.outputs.run == 'true'
     runs-on: ubuntu-latest
+    # actions: write lets compile-cache-save delete this job's older caches.
+    permissions:
+      contents: read
+      actions: write
     timeout-minutes: 90
     strategy:
       fail-fast: false

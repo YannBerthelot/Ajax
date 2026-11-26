@@ -17,7 +17,7 @@ help:  ## Show this help message
 # ---------------------------------------------------------------------------
 # Canonical local-CI -- mirrors .github/workflows/ci.yml (the pull-request
 # gate, `ci`) and slow.yml (the slow tier, `ci-slow`): the same commands, CPU
-# environment and markers. CI splits ci-test across four runners and only
+# environment and markers. CI splits ci-test across six runners and only
 # adds reporting flags (--durations, -v). Use these instead of ad-hoc
 # commands so the local checks match what merges.
 # ---------------------------------------------------------------------------

@@ -32,11 +32,14 @@ runs:
   steps:
     - id: key
       shell: bash
+      env:
+        JOB: ${{ inputs.job }}
+        RUN_ID: ${{ github.run_id }}
       run: |
         fingerprint=$(AJAX_NO_COMPILE_CACHE=1 uv run python -c "from ajax._compile_cache import cache_dir_for, host_fingerprint; print(cache_dir_for('', host_fingerprint()))")
-        echo "prefix=jax-${{ inputs.job }}-$fingerprint-" >> "$GITHUB_OUTPUT"
-        echo "key=jax-${{ inputs.job }}-$fingerprint-${{ github.run_id }}" >> "$GITHUB_OUTPUT"
-    - uses: actions/cache/restore@v6
+        echo "prefix=jax-$JOB-$fingerprint-" >> "$GITHUB_OUTPUT"
+        echo "key=jax-$JOB-$fingerprint-$RUN_ID" >> "$GITHUB_OUTPUT"
+    - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ~/.cache/ajax/jax_compile_cache
         key: ${{ steps.key.outputs.key }}

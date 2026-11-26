@@ -1,0 +1,19 @@
+# Enables GitHub's "Cite this repository" button. Keep in step with the
+# BibTeX block in README.md.
+cff-version: 1.2.0
+message: "If you use Ajax in your research, please cite it as below."
+title: "Ajax: Reinforcement Learning Agents in Jax"
+type: software
+authors:
+  - family-names: Berthelot
+    given-names: Yann
+repository-code: "https://github.com/YannBerthelot/Ajax"
+url: "https://github.com/YannBerthelot/Ajax"
+license: MIT
+year: 2025
+keywords:
+  - reinforcement-learning
+  - jax
+  - flax
+  - gymnax
+  - brax

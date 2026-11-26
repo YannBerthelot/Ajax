@@ -21,6 +21,12 @@ on:
   pull_request:
     types: [labeled]
 
+# Read-only by default (actions: read lists earlier slow runs); the report
+# jobs ask for issues and pull requests themselves.
+permissions:
+  contents: read
+  actions: read
+
 # Per pull request and label: adding another label starts a run that skips,
 # and must not cancel a slow run in progress.
 concurrency:
@@ -45,8 +51,9 @@ jobs:
       sha: ${{ steps.check.outputs.sha }}
       last_green: ${{ steps.check.outputs.last_green }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           sparse-checkout: .github/scripts
       - id: check
         env:
@@ -76,8 +83,9 @@ jobs:
       matrix:
         shard: [1, 2, 3, 4, 5, 6]
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           ref: ${{ needs.changed.outputs.sha }}
       - uses: ./.github/actions/setup
       - id: jax-cache
@@ -88,7 +96,7 @@ jobs:
           uv run pytest -m slow --shard ${{ matrix.shard }}/6 -v --durations=30
           --junitxml=junit-${{ matrix.shard }}.xml
       - if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: junit-${{ matrix.shard }}
           path: junit-${{ matrix.shard }}.xml
@@ -114,22 +122,25 @@ jobs:
       bisect: ${{ steps.report.outputs.bisect }}
       nodes: ${{ steps.report.outputs.nodes }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           ref: ${{ needs.changed.outputs.sha }}
           fetch-depth: 0
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: junit-*
           path: junit
       - id: report
         env:
           GH_TOKEN: ${{ github.token }}
+          RESULT: ${{ needs.slow.result }}
+          SHA: ${{ needs.changed.outputs.sha }}
+          LAST_GREEN: ${{ needs.changed.outputs.last_green }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: >-
           python3 .github/scripts/slow_report.py junit
-          --result "${{ needs.slow.result }}" --sha "${{ needs.changed.outputs.sha }}"
-          --last-green "${{ needs.changed.outputs.last_green }}"
-          --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          --result "$RESULT" --sha "$SHA" --last-green "$LAST_GREEN" --run-url "$RUN_URL"
 
   bisect:
     needs: [changed, report]
@@ -141,18 +152,22 @@ jobs:
       issues: write
       pull-requests: read
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           ref: ${{ needs.changed.outputs.sha }}
           fetch-depth: 0
       - uses: ./.github/actions/setup
       - id: bisect
-        run: >-
-          .github/scripts/slow_bisect.sh "${{ needs.changed.outputs.last_green }}"
-          ${{ needs.report.outputs.nodes }}
+        env:
+          LAST_GREEN: ${{ needs.changed.outputs.last_green }}
+          NODES: ${{ needs.report.outputs.nodes }}
+        # $NODES unquoted: one argument per test node.
+        run: .github/scripts/slow_bisect.sh "$LAST_GREEN" $NODES
       - env:
           GH_TOKEN: ${{ github.token }}
           RESULT: ${{ steps.bisect.outputs.result }}
+          ISSUE: ${{ needs.report.outputs.issue }}
         run: |
           if [ "$RESULT" = flaky ]; then
             note="The failing tests pass when re-run at the head: flaky, no bisect."
@@ -160,4 +175,4 @@ jobs:
             pr=$(gh pr list --state merged --search "$RESULT" --json number -q '.[0].number // empty')
             note="Bisect over the merges since the last green run: first bad commit $RESULT${pr:+ (#$pr)}."
           fi
-          gh issue comment "${{ needs.report.outputs.issue }}" --body "$note"
+          gh issue comment "$ISSUE" --body "$note"

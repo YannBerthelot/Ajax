@@ -314,14 +314,15 @@ def test_the_directory_keeps_to_its_budget() -> None:
     35 for APO's, 21 for DAgger's, 24 for DQN's, 33 for PQN's, 84 for the
     shared encoder's. 44 for the source files that had no fault (2026-11-15).
     124 for RLPD's and CHEQ's cells and their two faults; 6 for options' faults.
-    14 for REINFORCE's cells and five faults (2026-11-25)."""
+    14 for REINFORCE's cells and five faults (2026-11-25); 6 for its resume
+    check and this note (2026-11-26)."""
     cmd = ["git", "ls-files", "--cached", "--others", "--exclude-standard"]
     out = subprocess.run(
         [*cmd, "tests/probing"], cwd=faults.REPO, capture_output=True, text=True
     )
     files = [f for f in out.stdout.split() if f.count("/") == 2 or "/faults/" in f]
     total = sum(_lines(os.path.join(faults.REPO, f)) for f in files)
-    assert total <= 9331, total
+    assert total <= 9337, total
 
 
 def test_every_fault_names_the_fast_tests_that_catch_it() -> None:

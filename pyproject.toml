@@ -22,7 +22,10 @@ dependencies = [
     # Floors only: a cap is added after a known break, with its reason.
     # A capped flax (<0.11) next to an uncapped JAX once broke pip installs:
     # flax 0.10 calls a function JAX 0.11 removed. flax 0.12.8 needs JAX 0.10.
-    "jax>=0.10.0",
+    # JAX 0.11 since 2026-11-26: on JAX 0.10's CPU backend a pinned_host
+    # placement stays in device memory (DreamerV3's host-kept latents did
+    # nothing), and jaxlib 0.10 at XLA level 0 took minutes per MJX step.
+    "jax>=0.11.0",
     "flax>=0.12.8",
     # Exactly the packages Ajax imports: each is declared rather than left
     # to the packages that pull it in, and nothing else is. Brax and MuJoCo
@@ -42,7 +45,7 @@ dependencies = [
 [project.optional-dependencies]
 # CUDA (NVIDIA GPUs, Linux only): `uv sync --extra cuda`, or depend on
 # `ajax-rl[cuda]`. Without it JAX runs on the CPU.
-cuda = ["jax[cuda]>=0.10.0; sys_platform == 'linux'"]
+cuda = ["jax[cuda]>=0.11.0; sys_platform == 'linux'"]
 # ajax.compare.estimate's confidence sequence: `uv sync --extra compare`, or
 # depend on `ajax-rl[compare]`. From the commit in [tool.uv.sources].
 compare = ["adastop"]
@@ -63,7 +66,7 @@ brax = ["brax>=0.14.2"]
 # gymnasium-mjx's C-matching contacts hold. Its wheels for Python 3.14 start
 # at 3.8.
 # The floor is 3.7: MJX 3.6 calls jnp.clip(a_min=...), which the JAX that
-# Ajax's own floor (0.10) allows no longer accepts (the Compatibility job's
+# Ajax's floor then allowed (0.10) no longer accepts (the Compatibility job's
 # floors failed on it, 2026-11-26).
 # mujoco-mjx (the "mujoco:" tasks import mujoco.mjx) keeps mujoco's range: from
 # 4.0 it requires mujoco-core, which MuJoCo 4 split out of mujoco, instead of

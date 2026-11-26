@@ -20,9 +20,13 @@ The next release is 0.6.0: the first item changes results.
   `gymnasium:` tasks. The other six `mujoco:` tasks, whose motors take ±1,
   are unchanged, as are Playground's own environments. Upgrade: results
   recorded on those two tasks before this change are not comparable.
+- **Ajax needs JAX 0.11 or newer** (was 0.10). On JAX 0.10's CPU backend
+  DreamerV3's latents kept on the host stayed in device memory, and jaxlib
+  0.10 at XLA's optimisation level 0 took minutes per MJX step on Pusher.
+  Upgrade: `pip install -U "jax>=0.11"` (or `"jax[cuda]>=0.11"`).
 - **The `playground` extra needs MuJoCo 3.7 or newer** (was 3.6). MJX 3.6
-  passes `a_min` to `jnp.clip`, which JAX 0.10, Ajax's floor, no longer
-  accepts, so `"mujoco:"` and Playground tasks failed with `clip() got an
+  passes `a_min` to `jnp.clip`, which JAX 0.10, then Ajax's floor, no
+  longer accepts, so `"mujoco:"` and Playground tasks failed with `clip() got an
   unexpected keyword argument 'a_min'` on an install at the floors.
 - **New: `REINFORCE`, the plain policy gradient** (Williams, 1992), as
   Spinning Up's Vanilla Policy Gradient runs it: one full-batch policy step

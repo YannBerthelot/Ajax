@@ -3709,10 +3709,11 @@ CounterExt</code>. The benchmark scripts the tests import are on the path throug
 running experiment; elsewhere set <code>JAX_PLATFORMS=cpu</code> while a GPU is busy.</p>
 <p><strong>CI</strong> (<a href="https://github.com/YannBerthelot/Ajax/blob/main/.github/workflows/ci.yml">.github/workflows/ci.yml</a>) runs the fast
 tier on CPU for every pull request and push to <code>main</code>: <em>Pre-commit</em>; <em>Tests</em>
-(four shards: the tests not marked slow, the probing harness's checks among
-them, under coverage, a pytest-xdist worker per vCPU, at XLA's optimisation
+(six shards: the tests not marked slow, the probing harness's checks among
+them, under coverage on Python 3.14, which measures branches through
+<code>sys.monitoring</code> at almost no cost, a pytest-xdist worker per vCPU, at XLA's optimisation
 level 0 since these programs are tiny; the shards split the test files by
-recorded time, <code>--shard I/4 --shard-by file</code>, <code>tests/.file_durations</code>,
+recorded time, <code>--shard I/6 --shard-by file</code>, <code>tests/.file_durations</code>,
 <code>make file-durations</code>, and a file without a time still lands in one);
 <em>Coverage</em> (the shards
 combined, at least 90%); <em>Conformance</em> (each agent's training step against
@@ -3723,8 +3724,9 @@ come on one CPU model, so a job finds main's compile cache (JAX keys it by
 the CPU).</p>
 <p>The <em>Slow tier</em> workflow (<a href="https://github.com/YannBerthelot/Ajax/blob/main/.github/workflows/slow.yml">slow.yml</a>) runs
 everything that trains (<code>pytest -m slow</code>) on x86, the platform most users
-train on, in six shards by recorded duration (<code>--shard I/N</code>,
-<code>tests/.durations</code>, <code>make durations</code>): daily on main when main changed, by
+train on, in six shards by recorded duration (<code>--shard I/N --shard-by group</code>,
+<code>tests/.durations</code>, <code>make durations</code>), with a probe case's tests on one shard
+and one of its two xdist workers, since they read one cached training: daily on main when main changed, by
 hand, and on a pull request each time the label <code>run-slow-tier</code> is added. A
 pull request that changes how an agent trains gets the label before it
 merges. A red run on main opens an issue, and bisects the merges since the
@@ -3787,7 +3789,7 @@ lock.</p>
   twice without the lock: at the newest versions allowed, on the newest
   Python, and with every direct dependency at its floor
   (<code>uv sync --resolution lowest-direct</code>), on the oldest. Each runs split
-  across four runners by file, as CI's test shards are.</li>
+  across six runners by file, from the recorded times CI's test shards use.</li>
 <li><strong>The lock is refreshed monthly</strong> by Dependabot
   (<a href="https://github.com/YannBerthelot/Ajax/blob/main/.github/dependabot.yml">dependabot.yml</a>), the JAX stack in one pull
   request.</li>

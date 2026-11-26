@@ -3591,12 +3591,12 @@ runs on CPU for every pull request and every push to <code>main</code>:</p>
 <td>ruff lint, ruff-format and mypy on every file</td>
 </tr>
 <tr>
-<td>Tests (4 shards)</td>
-<td>the tests not marked slow (the probing harness's checks among them), conformance excluded, under coverage, a pytest-xdist worker per vCPU, at XLA optimisation level 0, on arm64 runners. The shards split the test files by recorded time (<code>--shard I/4 --shard-by file</code>, <code>tests/.file_durations</code>); a file without a recorded time still lands in one, so a new test file always runs somewhere</td>
+<td>Tests (6 shards)</td>
+<td>the tests not marked slow (the probing harness's checks among them), conformance excluded, under coverage, a pytest-xdist worker per vCPU, at XLA optimisation level 0, on arm64 runners. The shards split the test files by recorded time (<code>--shard I/6 --shard-by file</code>, <code>tests/.file_durations</code>); a file without a recorded time still lands in one, so a new test file always runs somewhere</td>
 </tr>
 <tr>
 <td>Coverage</td>
-<td>the four shards' data combined; fails below 90%</td>
+<td>the six shards' data combined; fails below 90%</td>
 </tr>
 <tr>
 <td>Conformance</td>
@@ -3613,7 +3613,8 @@ runs on CPU for every pull request and every push to <code>main</code>:</p>
 </tbody>
 </table>
 <p>The <em>Slow tier</em> workflow (<a href="https://github.com/YannBerthelot/Ajax/blob/main/.github/workflows/slow.yml"><code>slow.yml</code></a>)
-runs the slow tier in six shards: daily on <code>main</code> when it changed, by hand,
+runs the slow tier in six shards of two xdist workers, a probe case's tests
+on one worker (they read one cached training): daily on <code>main</code> when it changed, by hand,
 and on a pull request each time the label <code>run-slow-tier</code> is added. A red run
 on <code>main</code> opens an issue and, when that is cheap, bisects the merges since
 the last green run. The <em>Release</em> workflow tags a version only once the slow

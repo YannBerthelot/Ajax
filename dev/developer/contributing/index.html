@@ -3786,7 +3786,8 @@ lock.</p>
   slow every Monday, and on pull requests that change the dependencies,
   twice without the lock: at the newest versions allowed, on the newest
   Python, and with every direct dependency at its floor
-  (<code>uv sync --resolution lowest-direct</code>), on the oldest.</li>
+  (<code>uv sync --resolution lowest-direct</code>), on the oldest. Each runs split
+  across four runners by file, as CI's test shards are.</li>
 <li><strong>The lock is refreshed monthly</strong> by Dependabot
   (<a href="https://github.com/YannBerthelot/Ajax/blob/main/.github/dependabot.yml">dependabot.yml</a>), the JAX stack in one pull
   request.</li>
@@ -3801,6 +3802,8 @@ lock.</p>
   version), on main's head. Each job needs the one before it:<ul>
 <li><em>check</em>: the CHANGELOG entry, pyproject's version, no tag yet;</li>
 <li><em>slow</em>: the slow tier green on that commit, run first if needed;</li>
+<li><em>compat</em>: the Compatibility jobs (newest and floors) green on that
+  commit, run each time;</li>
 <li><em>package</em> (<a href="https://github.com/YannBerthelot/Ajax/blob/main/.github/workflows/package.yml">package.yml</a>): the wheel
   and the sdist built once and checked, then the wheel installed in
   fresh environments outside the checkout, on Python 3.12 and 3.14:

@@ -6,6 +6,9 @@ CI jobs and their xdist workers. A test missing from ``tests/.durations``
 counts ``DEFAULT`` seconds; refresh the file from CI's junit reports with
 ``make durations``.
 
+The slow tier splits by group (``--shard-by group``, ``assign_groups``): a
+probe case's tests stay together.
+
 The fast tier splits by file (``--shard-by file``, ``assign_files``): a
 module's tests share its runs (module fixtures), which every shard holding
 one of them would build again. Its times are per file, in
@@ -43,6 +46,21 @@ def assign(
         shard[nodeid] = best
         loads[best] += durations.get(nodeid, default)
     return [shard[i] for i in nodeids]
+
+
+def assign_groups(
+    nodeids: list[str], groups: list[str], durations: dict[str, float], n: int
+) -> list[int]:
+    """The shard of each node id when the tests of a group (``groups``, one
+    per node id: the slow tier's probe cases, tests/conftest.py) stay
+    together: a probe's tests read one cached training, which a shard holding
+    one of them trains again (2026-11-26: 1,075 s of 6,726 s of probes). A
+    group counts its tests' recorded seconds."""
+    seconds: dict[str, float] = {}
+    for nodeid, group in zip(nodeids, groups, strict=True):
+        seconds[group] = seconds.get(group, 0.0) + durations.get(nodeid, DEFAULT)
+    shard = dict(zip(seconds, assign(list(seconds), seconds, n), strict=True))
+    return [shard[group] for group in groups]
 
 
 def assign_files(nodeids: list[str], durations: dict[str, float], n: int) -> list[int]:

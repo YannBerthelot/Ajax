@@ -216,7 +216,8 @@ runs on CPU for every pull request and every push to `main`:
 | Lint and Test | passes only when every job above passed; the one check branch protection requires |
 
 The *Slow tier* workflow ([`slow.yml`](../../.github/workflows/slow.yml))
-runs the slow tier in six shards: daily on `main` when it changed, by hand,
+runs the slow tier in six shards of two xdist workers, a probe case's tests
+on one worker (they read one cached training): daily on `main` when it changed, by hand,
 and on a pull request each time the label `run-slow-tier` is added. A red run
 on `main` opens an issue and, when that is cheap, bisects the merges since
 the last green run. The *Release* workflow tags a version only once the slow

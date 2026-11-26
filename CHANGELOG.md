@@ -19,6 +19,10 @@ The next release is 0.6.0: the first item changes results.
   other six tasks, whose motors take ±1, are unchanged, as are
   Playground's own environments. Upgrade: results
   recorded on those two tasks before this change are not comparable.
+- **The `playground` extra needs MuJoCo 3.7 or newer** (was 3.6). MJX 3.6
+  passes `a_min` to `jnp.clip`, which JAX 0.10, Ajax's floor, no longer
+  accepts, so `"mujoco:"` and Playground tasks failed with `clip() got an
+  unexpected keyword argument 'a_min'` on an install at the floors.
 - **New: `REINFORCE`, the plain policy gradient** (Williams, 1992), as
   Spinning Up's Vanilla Policy Gradient runs it: one full-batch policy step
   per rollout on GAE advantages of a learned baseline, then 80 critic

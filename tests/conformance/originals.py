@@ -5,13 +5,17 @@ A recorder writes, per recorded state, ``in.*`` (the state), the update's own dr
 after one update from it in float32 and in float64 (``f32.*``, ``f64.*``), whose difference is the
 rounding the check tolerates. CI keeps the records while the vendored originals, the recorders and the
 recorders' env locks stay the same (``AJAX_CONFORMANCE_RECORDS``, under a cache key that hashes them);
-unset, every session records them. The originals CI cannot run (benchmarks/reference/envs/torch14:
+unset, every session records them. Each original's records carry a hash of their own inputs
+(:func:`inputs_hash`): on a cache miss CI restores the last records and only the originals whose
+inputs changed record again. The originals CI cannot run (benchmarks/reference/envs/torch14:
 torch 1.4 has no arm64 wheels) are recorded locally and their records committed
 (tests/conformance/records, :func:`committed`).
 """
 
+import hashlib
 import os
 import pathlib
+import re
 import subprocess
 
 import numpy as np
@@ -29,6 +33,32 @@ JAX_OFFLINE_ENV = (
 )
 
 
+def inputs_hash(recorder: str, project: str, root: pathlib.Path = REPO) -> str:
+    """What a recorder's records depend on: the script, the helper modules of
+    benchmarks/reference it imports (and theirs), the vendored originals it
+    names and its env's lock. One key over every original's inputs re-recorded
+    all eleven when one changed (2026-11-25: Conformance 7 to 16 min)."""
+    ref = root / "benchmarks" / "reference"
+    files, todo = [], [ref / recorder]
+    while todo:
+        path = todo.pop()
+        if path in files:
+            continue
+        files.append(path)
+        text = path.read_text()
+        for helper in sorted(ref.glob("*.py")):
+            if re.search(rf"^\s*(from|import) {helper.stem}\b", text, re.M):
+                todo.append(helper)
+    script = (ref / recorder).read_text()
+    for vendor in sorted(p for p in (ref / "vendor").iterdir() if p.name in script):
+        files += sorted(p for p in vendor.rglob("*") if p.is_file())
+    digest = hashlib.sha256()
+    for path in [*files, root / project / "uv.lock"]:
+        digest.update(path.relative_to(root).as_posix().encode())
+        digest.update(path.read_bytes())
+    return digest.hexdigest()[:16]
+
+
 def recorded(
     name: str,
     recorder: str,
@@ -40,7 +70,8 @@ def recorded(
     recorded now in ``project``'s env, under the kept directory or else in ``scratch``."""
     out = REPO / KEPT / name if KEPT else scratch
     marker = out / "envs"  # written last: unfinished records are never taken
-    if marker.is_file() and marker.read_text() == " ".join(envs):
+    made_from = " ".join([*envs, inputs_hash(recorder, project)])
+    if marker.is_file() and marker.read_text() == made_from:
         return out
     for env_id in envs:
         script = f"benchmarks/reference/{recorder}"
@@ -49,7 +80,7 @@ def recorded(
             REPO / project, JAX_PLATFORMS="cpu", CUDA_VISIBLE_DEVICES=""
         )
         subprocess.run([*command, env_id, str(out)], cwd=REPO, env=cpu, check=True)
-    marker.write_text(" ".join(envs))
+    marker.write_text(made_from)
     return out
 
 

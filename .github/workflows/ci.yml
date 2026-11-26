@@ -161,13 +161,16 @@ jobs:
       # The records of the originals that run in their own envs (PyTorch;
       # CrossQ's authors' jax, flax and SB3; ASAC's SB3 2.4; ReBRAC's flax), kept while the vendored
       # originals, their recorders and their envs' locks stay the same. On a
-      # miss the tests build those envs and record them (CPU-only torch
-      # wheels), and a push to main saves them, as for the compile cache.
+      # miss the last records are restored and only the originals whose own
+      # inputs changed record again (tests/conformance/originals.py,
+      # inputs_hash), building their envs (CPU-only torch wheels); a push to
+      # main saves them, as for the compile cache.
       - id: records
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .cache/conformance
           key: conformance-records-${{ hashFiles('benchmarks/reference/vendor/**', 'benchmarks/reference/conformance_*.py', 'benchmarks/reference/envs/torch/uv.lock', 'benchmarks/reference/envs/crossq/uv.lock', 'benchmarks/reference/envs/asac/uv.lock', 'benchmarks/reference/envs/jax_offline/uv.lock') }}
+          restore-keys: conformance-records-
       - run: uv run pytest tests/conformance -v --durations=30
         env:
           AJAX_CONFORMANCE_RECORDS: .cache/conformance

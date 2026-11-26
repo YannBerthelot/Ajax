@@ -209,8 +209,8 @@ runs on CPU for every pull request and every push to `main`:
 | Job | What it runs |
 | --- | --- |
 | Pre-commit | ruff lint, ruff-format and mypy on every file |
-| Tests (4 shards) | the tests not marked slow (the probing harness's checks among them), conformance excluded, under coverage, a pytest-xdist worker per vCPU, at XLA optimisation level 0, on arm64 runners. The shards split the test files by recorded time (`--shard I/4 --shard-by file`, `tests/.file_durations`); a file without a recorded time still lands in one, so a new test file always runs somewhere |
-| Coverage | the four shards' data combined; fails below 90% |
+| Tests (6 shards) | the tests not marked slow (the probing harness's checks among them), conformance excluded, under coverage, a pytest-xdist worker per vCPU, at XLA optimisation level 0, on arm64 runners. The shards split the test files by recorded time (`--shard I/6 --shard-by file`, `tests/.file_durations`); a file without a recorded time still lands in one, so a new test file always runs somewhere |
+| Coverage | the six shards' data combined; fails below 90% |
 | Conformance | `tests/conformance`: one training step of each agent that has a check against its original implementation (above) |
 | Docs | `mkdocs build --strict` with the `docs` group alone: a broken link, a page left out of the navigation or a docstring naming a parameter the signature lacks fails it |
 | Lint and Test | passes only when every job above passed; the one check branch protection requires |

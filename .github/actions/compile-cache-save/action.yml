@@ -1,11 +1,21 @@
 name: Save the JAX compile cache
 description: >-
   Prune the JAX compile cache to 500 MB, least recently used entries first,
-  then save it under the key compile-cache returned.
+  save it under the key compile-cache returned, then delete this job's older
+  entries.
 
 # The cache's one size bound, applied once per job (see compile-cache): at
 # most 500 MB per job and push to main, so the restored caches do not grow
-# without end; GitHub evicts the oldest caches past the repository's quota.
+# without end.
+#
+# Each save is a new entry (the key ends in the run id) and compile-cache
+# restores only the newest, so the older entries of the same job are never
+# read again. They still count against the repository's 10 GB, past which
+# GitHub evicts the least recently used: on 2026-11-26 10.4 GB were in use,
+# 2.1 GB of it saved by each push to main, and the slow tier's caches were
+# evicted between its daily runs. The last step deletes the job's entries
+# from earlier runs only (a smaller run id), so two runs saving at once never
+# delete each other's. The calling job needs `actions: write`.
 inputs:
   key:
     description: compile-cache's key output.
@@ -23,3 +33,15 @@ runs:
       with:
         path: ~/.cache/ajax/jax_compile_cache
         key: ${{ inputs.key }}
+    - name: Delete this job's older compile caches
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        GH_REPO: ${{ github.repository }}
+        KEY: ${{ inputs.key }}
+      run: |
+        run_id="${KEY##*-}"
+        gh cache list --key "${KEY%-*}-" --limit 100 --json key --jq '.[].key' |
+          while read -r old; do
+            if [ "${old##*-}" -lt "$run_id" ]; then gh cache delete "$old"; fi
+          done

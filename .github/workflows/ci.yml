@@ -49,23 +49,27 @@ jobs:
           key: pre-commit-${{ runner.os }}-${{ hashFiles('.pre-commit-config.yaml') }}
       - run: uv run pre-commit run --all-files
 
-  # The tests not marked slow, under coverage, split across four runners by
-  # file from the recorded times (tests/.file_durations, `pytest --shard I/4
+  # The tests not marked slow, under coverage, split across six runners by
+  # file from the recorded times (tests/.file_durations, `pytest --shard I/6
   # --shard-by file`): a file's tests stay on one runner, so its shared runs
   # are built once, and a file without a recorded time still lands in a
-  # shard. Before, shards 1 and 2 named directories and shard 3 ran the
-  # rest, which had grown to half of the work (15.7 min against 6.6 and
-  # 9.2 at 3e0cbbec). tests/conftest.py marks tests/probing slow but for the
+  # shard. Six, not four, since 2026-11-26: the four shards took 9-10 min
+  # with a warm cache and 12-16 min when a change missed it (PR #400); six
+  # are modelled at about 6.5 and 10 min for 3 more runner-minutes a run. tests/conftest.py marks tests/probing slow but for the
   # harness's checks, which run here; conformance (tests/conformance) has
   # its own job.
   tests:
     name: Tests (shard ${{ matrix.shard }})
     runs-on: ubuntu-24.04-arm
+    # actions: write lets compile-cache-save delete this job's older caches.
+    permissions:
+      contents: read
+      actions: write
     timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2, 3, 4, 5, 6]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -74,7 +78,7 @@ jobs:
       - id: jax-cache
         uses: ./.github/actions/compile-cache
         with:
-          job: tests-${{ matrix.shard }}of4
+          job: tests-${{ matrix.shard }}of6
       # XLA's optimisation level 0 (the Makefile's FAST_XLA): these tests
       # check logic on tiny programs, so compiling fast matters more than
       # the code it makes (about 30% off a cold shard, measured by the
@@ -88,7 +92,7 @@ jobs:
           # pytest-cov merges the workers' data into .coverage; the
           # Coverage job combines the shards' and checks the floor (a shard
           # alone covers less, so pytest-cov must not check it).
-          uv run pytest -m "not slow" --shard ${{ matrix.shard }}/4 \
+          uv run pytest -m "not slow" --shard ${{ matrix.shard }}/6 \
             --shard-by file -n auto --cov --cov-report= \
             --cov-fail-under=0 --ignore=tests/conformance \
             --durations=30 --junitxml=junit-fast-${{ matrix.shard }}.xml
@@ -139,6 +143,10 @@ jobs:
   conformance:
     name: Conformance
     runs-on: ubuntu-24.04-arm
+    # actions: write lets compile-cache-save delete this job's older caches.
+    permissions:
+      contents: read
+      actions: write
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

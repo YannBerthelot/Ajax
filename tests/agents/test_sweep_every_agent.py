@@ -45,6 +45,11 @@ RELATIVE_ROUNDING = 1e-6
 #: to compare, each with the measurement: a sweep of two equal
 #: configurations against the separate run, no field changed.
 ROUNDS_APART = {
+    "AVG": (
+        "1.4e-6 on the pendulum's theta_dot (6.8e-7 relative) within 64 steps"
+        " on an AMD EPYC 9454, against CI's 1e-6 allowance once alpha_init"
+        " changes (3.5e-6); other x86 runners stayed inside it (2026-11-26)"
+    ),
     "CrossQ": (
         "8e-6 on moments of order 10 within 24 steps, and 0.5 by 96 steps at"
         " gamma 0.495, where the member and a sweep of the agent built at"

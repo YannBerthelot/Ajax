@@ -535,7 +535,8 @@ running experiment; elsewhere set `JAX_PLATFORMS=cpu` while a GPU is busy.
 **CI** ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs the fast
 tier on CPU for every pull request and push to `main`: *Pre-commit*; *Tests*
 (six shards: the tests not marked slow, the probing harness's checks among
-them, under coverage, a pytest-xdist worker per vCPU, at XLA's optimisation
+them, under coverage on Python 3.14, which measures branches through
+`sys.monitoring` at almost no cost, a pytest-xdist worker per vCPU, at XLA's optimisation
 level 0 since these programs are tiny; the shards split the test files by
 recorded time, `--shard I/6 --shard-by file`, `tests/.file_durations`,
 `make file-durations`, and a file without a time still lands in one);

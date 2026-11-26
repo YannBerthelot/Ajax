@@ -26,9 +26,9 @@ pytest.importorskip("mujoco_playground")
 pytest.importorskip("gymnasium_mjx")
 gymnasium = pytest.importorskip("gymnasium")
 
-from ajax.environments.create import build_env_from_id
-from ajax.environments.utils import agent_action_to_env
-from ajax.evaluate import setup_environment
+from ajax.environments.create import build_env_from_id  # noqa: E402
+from ajax.environments.utils import agent_action_to_env  # noqa: E402
+from ajax.evaluate import setup_environment  # noqa: E402
 
 
 @pytest.mark.parametrize(
@@ -59,10 +59,10 @@ def test_the_evaluation_rebuild_keeps_the_task_and_its_time_limit():
     assert evaluation_env.episode_length == 50
 
 
-# Humanoid: +-0.4 per motor; Pusher: +-2; InvertedPendulum: +-3. Each
-# differs from [-1, 1], so a missing mapping shows; gymnasium-mjx's own
-# tests check every task's bounds.
-@pytest.mark.parametrize("task_id", ["Humanoid-v5", "Pusher-v5", "InvertedPendulum-v5"])
+# Pusher's motors take +-2 and InvertedPendulum's +-3, so a missing mapping
+# shows; gymnasium-mjx's own tests check every task's bounds (the Humanoids'
+# +-0.4 included), and its adapter does the mapping for all of them.
+@pytest.mark.parametrize("task_id", ["Pusher-v5", "InvertedPendulum-v5"])
 def test_an_agents_action_drives_the_motors_across_gymnasiums_action_space(task_id):
     space = gymnasium.make(task_id).action_space
     env, env_params = build_env_from_id(f"mujoco:{task_id}", n_envs=3)
@@ -74,8 +74,9 @@ def test_an_agents_action_drives_the_motors_across_gymnasiums_action_space(task_
     state = env.step(state, agent_action_to_env(agent_actions, env, env_params))
 
     ctrl = np.asarray(state.data.ctrl)
+    centre = (space.low + space.high) / 2
     np.testing.assert_allclose(ctrl[0], space.low, rtol=0, atol=1e-6)
-    np.testing.assert_allclose(ctrl[1], (space.low + space.high) / 2, rtol=0, atol=1e-6)
+    np.testing.assert_allclose(ctrl[1], centre, rtol=0, atol=1e-6)
     np.testing.assert_allclose(ctrl[2], space.high, rtol=0, atol=1e-6)
 
 

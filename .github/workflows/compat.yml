@@ -71,6 +71,10 @@ jobs:
     # in, and a lock from another mode is out of date to `--locked`.
     env:
       UV_RESOLUTION: ${{ matrix.resolution }}
+      # And on the matrix's Python: uv takes the interpreter from
+      # .python-version (3.12) over the one setup-python installs, so until
+      # 2026-11-26 the newest versions ran on 3.12 ("Using CPython 3.12.13").
+      UV_PYTHON: ${{ matrix.python }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

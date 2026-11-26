@@ -62,18 +62,21 @@ brax = ["brax>=0.14.2"]
 # holds; see ajax.environments.create). MuJoCo stays below 3.16, where
 # gymnasium-mjx's C-matching contacts hold. Its wheels for Python 3.14 start
 # at 3.8.
+# The floor is 3.7: MJX 3.6 calls jnp.clip(a_min=...), which the JAX that
+# Ajax's own floor (0.10) allows no longer accepts (the Compatibility job's
+# floors failed on it, 2026-11-26).
 # mujoco-mjx (the "mujoco:" tasks import mujoco.mjx) keeps mujoco's range: from
 # 4.0 it requires mujoco-core, which MuJoCo 4 split out of mujoco, instead of
 # mujoco, so nothing stopped a resolver pairing it with mujoco 3, whose files
 # then clash with mujoco-core's and `import mujoco` fails.
 playground = [
     "ajax-rl[brax]",
-    "mujoco>=3.6,<3.16",
+    "mujoco>=3.7,<3.16",
     "mujoco>=3.8; python_version >= '3.14'",
     # [warp]: the warp-lang this MJX release was built against (Playground
     # pulls warp-lang in, and MJX imports it when present; 3.15 with
     # warp-lang 1.12 fails at import).
-    "mujoco-mjx[warp]>=3.6,<3.16",
+    "mujoco-mjx[warp]>=3.7,<3.16",
     "playground>=0.2.0,<0.3",
 ]
 # Gymnasium environments, stepped in Python ("gymnasium:HalfCheetah-v5", ...,

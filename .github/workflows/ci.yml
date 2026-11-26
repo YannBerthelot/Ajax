@@ -88,12 +88,13 @@ jobs:
           XLA_FLAGS: --xla_backend_optimization_level=0 --xla_llvm_disable_expensive_passes=true
         run: |
           # One xdist worker per vCPU (Compile preview, arm64: 4 workers cut
-          # a cold compile-heavy subset by 44-47%, with level 0 more).
+          # a cold compile-heavy subset by 44-47%, with level 0 more); tests
+          # sharing a run go to one worker (loadgroup, tests/conftest.py).
           # pytest-cov merges the workers' data into .coverage; the
           # Coverage job combines the shards' and checks the floor (a shard
           # alone covers less, so pytest-cov must not check it).
           uv run pytest -m "not slow" --shard ${{ matrix.shard }}/6 \
-            --shard-by file -n auto --cov --cov-report= \
+            --shard-by file -n auto --dist loadgroup --cov --cov-report= \
             --cov-fail-under=0 --ignore=tests/conformance \
             --durations=30 --junitxml=junit-fast-${{ matrix.shard }}.xml
           mv .coverage ".coverage.shard-${{ matrix.shard }}"

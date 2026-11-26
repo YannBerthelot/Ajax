@@ -35,7 +35,7 @@ ci-test:  ## The fast tier: tests not marked slow (conformance aside) + coverage
 	uv run coverage report --fail-under=90
 
 ci-slow:  ## The slow tier: every test that trains (tests/probing and the tests marked slow), without coverage
-	$(CPU_ENV) uv run pytest -m slow
+	$(CPU_ENV) uv run pytest -m slow -n 2 --dist loadgroup
 
 ci-probe:  ## Cross-agent probing tests (the known-answer probes)
 	$(CPU_ENV) uv run pytest tests/probing

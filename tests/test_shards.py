@@ -138,3 +138,15 @@ def test_a_grouped_tests_time_is_recorded_under_its_plain_node_id() -> None:
     name = "test_x[a]@tests/test_shards.py:a"
     got = durations_script.nodeid("tests.test_shards", name)
     assert got == "tests/test_shards.py::test_x[a]"
+
+
+def test_a_groups_tests_share_a_shard_and_groups_go_longest_first() -> None:
+    """--shard-by group, as the slow tier splits: a probe case's tests read
+    one cached training, and a shard holding one of them alone would train
+    it again. Groups: p (6 + 4 = 10), q (5), r (3 + 3 = 6), and s alone
+    (unknown: 1). Longest first: p -> 0, r -> 1, q -> 1 (6 below 10),
+    s -> 0 (10 below 11). Loads 11 and 11."""
+    ids = ["a", "b", "c", "d", "e", "f"]
+    groups = ["p", "q", "p", "r", "r", "s"]
+    seconds = {"a": 6.0, "b": 5.0, "c": 4.0, "d": 3.0, "e": 3.0}
+    assert shards.assign_groups(ids, groups, seconds, 2) == [0, 1, 0, 1, 1, 0]

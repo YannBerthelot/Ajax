@@ -103,9 +103,9 @@ def pytest_addoption(parser: pytest.Parser) -> None:
     )
     parser.addoption(
         "--shard-by",
-        choices=("test", "file"),
+        choices=("test", "file", "group"),
         default="test",
-        help="what --shard splits: tests, or files whose tests stay together",
+        help="what --shard splits: tests, files or xdist groups whose tests stay together",
     )
 
 
@@ -161,6 +161,9 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list) -> None:
     nodeids = [plain_nodeid(i) for i in items]  # the recorded ids
     if config.getoption("--shard-by") == "file":
         picked = shards.assign_files(nodeids, shards.load(shards.FILE_DURATIONS), n)
+    elif config.getoption("--shard-by") == "group":
+        groups = [i.stash.get(_GROUP, nodeid) for i, nodeid in zip(items, nodeids, strict=True)]
+        picked = shards.assign_groups(nodeids, groups, shards.load(), n)
     else:
         picked = shards.assign(nodeids, shards.load(), n)
     mine = [s == index - 1 for s in picked]

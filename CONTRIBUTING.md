@@ -549,8 +549,9 @@ the CPU).
 
 The *Slow tier* workflow ([slow.yml](.github/workflows/slow.yml)) runs
 everything that trains (`pytest -m slow`) on x86, the platform most users
-train on, in six shards by recorded duration (`--shard I/N`,
-`tests/.durations`, `make durations`): daily on main when main changed, by
+train on, in six shards by recorded duration (`--shard I/N --shard-by group`,
+`tests/.durations`, `make durations`), with a probe case's tests on one shard
+and one of its two xdist workers, since they read one cached training: daily on main when main changed, by
 hand, and on a pull request each time the label `run-slow-tier` is added. A
 pull request that changes how an agent trains gets the label before it
 merges. A red run on main opens an issue, and bisects the merges since the

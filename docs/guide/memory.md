@@ -7,12 +7,30 @@ between the hidden layers and the output heads. Ajax carries the memory from
 step to step, resets it when an episode ends, and replays it correctly in
 training.
 
+The example hides CartPole's two velocities, which the policy must then
+work out from successive positions
+([how the wrapper works](environments.md#changing-the-observations)):
+
 ```python
+import gymnax
+import jax.numpy as jnp
+
 from ajax import PPO
 from ajax.networks.memory import MemoryConfig
+from ajax.wrappers import ObservationWrapper
 
+
+class HideVelocities(ObservationWrapper):
+    """CartPole showing positions only: both velocities read zero."""
+
+    def observation(self, obs):
+        return obs * jnp.array([1.0, 0.0, 1.0, 0.0])
+
+
+env, params = gymnax.make("CartPole-v1")
 agent = PPO(
-    "CartPole-v1",
+    HideVelocities(env),
+    env_params=params,
     n_envs=8,
     n_steps=128,
     memory=MemoryConfig(kind="gru", hidden_size=32),
@@ -20,6 +38,9 @@ agent = PPO(
 )
 state, _ = agent.train(seed=0, n_timesteps=4_096)
 ```
+
+Four thousand steps show the calls; give it tens of thousands to learn the
+task. Without `memory`, the same agent cannot tell which way the pole moves.
 
 ## Which agents
 
@@ -29,7 +50,7 @@ state, _ = agent.train(seed=0, n_timesteps=4_096)
 | SAC, ASAC, RVISAC, REDQ, TD3, TQC | `memory=`, trained on replayed sequences |
 | APG | `memory=`, trained through the simulator |
 | DreamerV3 | built in: its world model is recurrent; `memory=` raises an error |
-| AVG, CrossQ, DQN, PQN, APO, IQL, UDRL, DAgger, TDMPC2, TDMPC2MultiTask | none; `memory=` raises an error |
+| AVG, CrossQ, DQN, PQN, APO, REINFORCE, IQL, UDRL, DAgger, TDMPC2, TDMPC2MultiTask | none; `memory=` raises an error |
 
 ## The kinds
 
@@ -175,7 +196,8 @@ positive, otherwise `max(n_steps, batch_size) // min(n_steps, batch_size)`
 
 ## Off-policy: sequence replay
 
-The replay agents (SAC, ASAC, REDQ, TD3, TQC, RVI-SAC) store whole
+Six of the [replay agents](../algorithms/index.md#agent-families)
+(<!-- agents: sequence-replay -->SAC, ASAC, REDQ, TD3, TQC, RVI-SAC<!-- /agents -->) store whole
 trajectories and learn from contiguous sequences, as Ni et al. (2022) do,
 with R2D2's burn-in and stored state as options (Kapturowski et al., 2019):
 

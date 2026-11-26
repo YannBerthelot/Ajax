@@ -7,6 +7,10 @@ the world models share. See [Networks](../guide/networks.md) and
 
 ::: ajax.networks.networks
 
+::: ajax.networks.sharing
+
+::: ajax.networks.values
+
 ::: ajax.networks.distributions
 
 ::: ajax.networks.utils

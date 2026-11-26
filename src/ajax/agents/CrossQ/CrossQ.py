@@ -26,9 +26,11 @@ every critic read outside the critic loss.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from functools import partial
-from typing import Any, Optional
+from types import MappingProxyType
+from typing import Any, ClassVar, Optional
 
 import jax
 import jax.numpy as jnp
@@ -124,6 +126,22 @@ class CrossQ(
     buffer_size: int = int(1e6)
     batch_size: int = 256
     learning_starts: int = 5000
+
+    #: The numbers a sweep may vary in one program (ActorCritic.sweepable),
+    #: with the temperature's from EntropyTemperature. A CrossQ sweep rounds
+    #: apart from separate runs sooner than the other agents' (its moments
+    #: are of order 10, and no target network damps a difference), so
+    #: tests/agents/test_sweep_every_agent.py checks each against a sweep of
+    #: the agent built with the value.
+    sweepable: ClassVar[frozenset[str]] = frozenset({"gamma", "reward_scale"})
+    unsweepable: ClassVar[Mapping[str, str]] = MappingProxyType(
+        {
+            "alpha_learning_rate": (
+                "CrossQ steps its temperature at the actor's rate unless given"
+                " one (None), and a sweep varies numbers."
+            ),
+        }
+    )
 
     def actor_critic_args(self) -> dict[str, Any]:
         return {

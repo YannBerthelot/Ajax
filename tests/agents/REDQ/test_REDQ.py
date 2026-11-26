@@ -32,7 +32,7 @@ def test_the_first_update_reads_redqs_first_temperature(monkeypatch):
     kw = {"actor_architecture": NET, "critic_architecture": NET, "num_critics": 2}
     agent = REDQ("Pendulum-v1", num_critic_updates=2, learning_starts=4, **kw)
     assert agent.network_args.squash_log_det_eps == 1e-6
-    state, _ = agent.train(seed=0, n_timesteps=6)
+    state, _ = agent.train(seed=0, n_timesteps=6, logging_config=None)
     updates = len(actor)  # an actor step per update, after its two critic steps
     assert updates >= 2 and len(targets) == 2 * updates
     first, later = sorted(targets)[:2] + sorted(actor)[:1], sorted(targets)[2:]

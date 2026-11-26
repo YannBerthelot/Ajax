@@ -13,6 +13,7 @@ it uses. The [user guide](../guide/extensions.md) shows how to use them and
 ::: ajax.extensions.target_mods
 
 ::: ajax.extensions.adversarial
+
 ::: ajax.extensions.offline
 
 ::: ajax.extensions.retained
@@ -21,12 +22,20 @@ it uses. The [user guide](../guide/extensions.md) shows how to use them and
 
 ::: ajax.extensions.porl
 
+::: ajax.extensions.structure
+
 ::: ajax.extensions.exploration
 
 ::: ajax.extensions.ensemble
 
 ::: ajax.extensions.annealing
 
+::: ajax.extensions.centering
+
+::: ajax.extensions.reset_cost
+
 ::: ajax.extensions.instrumentation
 
 ::: ajax.extensions.observe
+
+::: ajax.extensions.representation

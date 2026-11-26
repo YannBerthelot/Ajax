@@ -25,7 +25,7 @@ temporal structure without eligibility traces or RTRL.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any, Callable, ClassVar
 
 import jax
 import jax.numpy as jnp
@@ -95,6 +95,18 @@ class AVG(
     beta_2: float = 0.999
     num_critics: int = 1
     learning_starts: int = 0
+
+    #: The numbers a sweep may vary in one program (ActorCritic.sweepable),
+    #: each checked against separate runs by tests/agents/test_sweep_every_agent.py.
+    sweepable: ClassVar[frozenset[str]] = frozenset(
+        {
+            "actor_learning_rate",
+            "alpha_init",
+            "critic_learning_rate",
+            "gamma",
+            "reward_scale",
+        }
+    )
 
     def actor_critic_args(self) -> dict[str, Any]:
         args: dict[str, Any] = {

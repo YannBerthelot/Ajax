@@ -7,7 +7,7 @@ can sample, so it never reports full before buffer_size // n_envs rows per
 env. The sizing changes no number: the rows written, and every other leaf,
 equal those of the same run on a replay of another length. A resumed run
 grows the ring to the uninterrupted run's, so two calls give that run's
-state. The rows written before training (ExpertPrefill, PriorData, an
+state, and frees the shorter ring it replaces. The rows written before training (ExpertPrefill, PriorData, an
 offline dataset) count. A 0-step skeleton keeps the smallest ring and
 restores a longer one.
 
@@ -56,6 +56,7 @@ def build(name: str, buffer_size: int, **options: Any) -> Any:
 def train(agent: Any, ticks: int, **options: Any) -> Any:
     """One seed's state after ticks ticks, on the host: a state passed as
     initial_state may be donated."""
+    options.setdefault("logging_config", None)
     state, _ = agent.train(
         seed=[0], n_timesteps=N_ENVS * ticks, num_episode_test=1, **options
     )
@@ -135,6 +136,27 @@ def test_a_run_writes_and_reads_the_rows_of_a_replay_of_another_length(
     assert_equal(leaves(sized, replay=False), leaves(bound, replay=False))
 
 
+def test_a_resume_frees_the_replay_it_grows() -> None:
+    """Catches a resumed run that keeps the shorter replay of the state it is
+    given alive beside the grown one for the whole call: late in a run
+    resumed chunk by chunk, as the benchmark suite runs, the replay would
+    take twice its memory. A resume donates the state it is given, so the
+    replay it replaces is freed as it starts."""
+    agent = build("SAC", HUGE)
+    options = {
+        "seed": [0],
+        "num_episode_test": 1,
+        "n_timesteps": N_ENVS * TICKS,
+        "logging_config": None,
+    }
+    total = {"total_timesteps": 2 * N_ENVS * TICKS}
+    given, _ = agent.train(**options, **total)
+    shorter = given.collector_state.buffer_state.experience
+    state, _ = agent.train(**options, **total, initial_state=given)
+    assert ring(state) == 2 * TICKS + 1
+    assert [field for field, values in shorter.items() if not values.is_deleted()] == []
+
+
 def test_a_resumed_run_grows_its_ring_into_the_uninterrupted_runs(sac: dict) -> None:
     assert ring(sac["half"]) == TICKS + 1
     assert ring(sac["resumed"]) == ring(sac["whole"]) == 2 * TICKS + 1
@@ -193,7 +215,7 @@ def test_a_skeleton_restores_and_resumes_a_longer_ring(sac: dict, tmp_path) -> N
     agent, half = sac["agent"], sac["half"]
     path = str(tmp_path / "half.pkl")
     save_checkpoint(half, path)
-    skeleton, _ = agent.train(seed=[0], n_timesteps=0)
+    skeleton, _ = agent.train(seed=[0], n_timesteps=0, logging_config=None)
     assert ring(skeleton) == 8 // N_ENVS + 1 < ring(half)  # the rows to sample
     assert_equal(leaves(restore_into(skeleton, path)), leaves(half))
     loaded = load_checkpoint(agent, path)

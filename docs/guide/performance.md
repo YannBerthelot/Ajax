@@ -28,7 +28,9 @@ What to know about it:
 - **It serves relaunches, not new trials.** A rerun of the same script, or
   a repeated or resumed trial, loads its program from the cache. A new trial
   of a hyperparameter sweep is a different program: its hyperparameters are
-  compiled in as constants, so it compiles from scratch. The budget, the
+  compiled in as constants, so it compiles from scratch. `train(sweep=...)`
+  avoids this for the fields it covers
+  ([Hyperparameter sweeps](training.md#hyperparameter-sweeps)). The budget, the
   agent's settings and the shapes are all part of the program.
 - **A logged run is cached from JAX 0.11.** The [logging worker](logging.md)
   is fed by a host callback, and JAX 0.10 never stores a program that
@@ -71,6 +73,71 @@ hyperparameter sweeps (wide networks, critic ensembles), going from 20 to 50
 seeds made the time per seed and step worse for several method and
 environment pairs, by up to 81%. Measure your own configuration before
 settling on a seed count.
+
+## Seeds over several devices
+
+Once one device is busy, `train(devices=...)` splits the seeds (or a
+sweep's configurations over the seeds) over several: each device trains a
+consecutive slice of them at the same time, and the results come back in
+the usual order, on the first device.
+
+```python
+import jax
+from ajax import PPO
+
+agent = PPO("Pendulum-v1", n_envs=2, n_steps=8)
+state, out = agent.train(seed=range(4), n_timesteps=64, devices=jax.devices())
+```
+
+Each seed trains as it does on one device, but for rounding, which a long
+run can amplify, as a change of the seed count does on one device. Each replay
+buffer lives on the device that trains its seed, so the memory is split
+too. A slice of another size is another program to compile: a number of
+seeds the devices divide compiles once per device at most. One run is
+never spread over devices: its environments and its updates stay on one.
+A Gymnasium environment and an `evaluation_device` take no `devices`.
+
+## bfloat16
+
+`train(precision=...)` runs the networks' layers in bfloat16 (mixed
+precision): the parameters, gradients and optimiser stay float32, each
+layer computes in bfloat16 with its products summed in float32, and every
+network returns float32, so the heads of the shared networks,
+distributions, log-probabilities, losses, targets and normalisers stay
+float32.
+
+```python
+from ajax import PPO
+
+agent = PPO("Pendulum-v1", n_envs=2, n_steps=8)
+state, out = agent.train(seed=0, n_timesteps=64, precision="auto")
+print(agent.config["precision"])  # float32 on a CPU
+```
+
+- `"float32"`: as before. `None`, the default, is the agent's original
+  code's precision: float32 for every agent. DreamerV3's original computes
+  in bfloat16 (deviation D4 in the world-model deviations).
+- `"bfloat16"`: bfloat16 even where the hardware has no bfloat16 units,
+  with a warning: there XLA emulates it, no faster than float32 (about
+  equal on an RTX 2080 Ti, slower on a CPU).
+- `"auto"`: bfloat16 where every device of the run has bfloat16 units (an
+  NVIDIA GPU of compute capability 8.0 or more, Ampere on, or a TPU), else
+  float32: older GPUs and CPUs, so tests and CPU runs never change.
+
+The run config records what the run computed in (`precision`). The
+parameters are float32 either way, so a run may resume in another
+precision. bfloat16 changes the numbers: it keeps about three significant
+digits.
+
+What reaches bfloat16: the shared networks' observation encoders (the
+hidden layers before any memory; image encoders and memory cells stay
+float32), PQN's and APG's hidden layers, TD-MPC2's world model and policy
+prior, and DreamerV3's model, recurrent state and stored latents (half the
+replay, without loss). On bob's L40S (2026-11-20, float32 and bfloat16
+alternating in one process, HalfCheetah on MuJoCo Warp), environment steps
+per second were 1.51x for DreamerV3 (4 seeds), 1.18x for TD-MPC2 and 1.03x
+for SAC, and 0.93x for PPO, whose 64-wide layers are too small to gain:
+the gain follows the size of the networks and batches.
 
 ## Parallel environments
 

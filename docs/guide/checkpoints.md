@@ -19,8 +19,47 @@ state, _ = agent.train(seed=[0, 1], n_timesteps=1_000, initial_state=state)
 print(state.collector_state.timestep)  # [2000 2000]
 ```
 
-Pass the same seeds in every call. The call may reuse the memory of the
-state you pass in, so read or save what you need from it first.
+Pass the same seeds in every call. The state carries each run's random
+streams, so a resumed run continues the same whatever seeds the call names;
+they only name the runs in the logs and in `agent.members`, and `train` cannot
+tell that they changed. A different number of seeds is refused. The call may
+reuse the memory of the state you pass in, so read or save what you need from
+it first.
+
+## Save and load an agent
+
+`agent.save` writes the state together with the agent's class and its
+arguments, and `load` gives both back, so the loading script does not build
+the agent again:
+
+```python
+import os
+import tempfile
+
+import ajax
+from ajax import PPO
+
+agent = PPO("CartPole-v1", n_envs=8, n_steps=128, gamma=0.98)
+state, _ = agent.train(seed=[0, 1], n_timesteps=2_048)
+path = os.path.join(tempfile.mkdtemp(), "ppo_cartpole.pkl")
+agent.save(state, path)
+
+# Later, in another process.
+agent, state = ajax.load(path)  # or PPO.load(path), which refuses another class's file
+print(agent.gamma)  # 0.98
+state, _ = agent.train(seed=[0, 1], n_timesteps=2_048, initial_state=state)
+```
+
+The file stores the arguments that are plain values: ids, numbers, strings,
+architectures, a memory configuration. An argument that is an object (a
+prebuilt environment, extensions, an expert policy) is not stored: `load`
+refuses, naming it, until you pass it again, as in
+`ajax.load(path, extensions=(...,))`. Any other argument given to `load`
+replaces the stored one. `train_options` goes to the 0-step `train` call
+that rebuilds the state ([below](#across-processes)).
+
+The file is also a checkpoint: `load_checkpoint` and `restore_into` read it.
+Like any checkpoint it is a pickle, so load only files you trust.
 
 ## Across processes
 
@@ -72,7 +111,9 @@ print(state.collector_state.timestep)  # [2000 2000]
 ```
 
 The file is a pickle. Load only checkpoints you trust, since unpickling can
-run code.
+run code. Arrays of 16 MiB or more (a large replay) are stored after the
+pickle stream, and a restore copies each one once, from the file to where
+the state keeps it: a resume holds no second copy of the replay.
 
 ## What a resume keeps
 
@@ -119,12 +160,16 @@ the steps the whole run does.
 
 - **The seeds must stand at the same timestep.** A state whose seeds
   disagree on the timestep cannot be resumed and raises an error.
-- **On-policy agents train whole rollouts.** PPO, APO and PQN train the
+- **On-policy agents train whole rollouts.** PPO, APO, REINFORCE and PQN train the
   whole rollouts (`n_envs x n_steps` steps) a call's `n_timesteps` holds, at
   least one, and warn when it is not a whole number of them. A run split
   into calls of whole rollouts ends where one call does
   ([Continuing a run](training.md#continuing-a-run)); otherwise it may end
   elsewhere.
+- **A resumed call logs as new runs.** Each `train` call opens a run per
+  seed with a new run id, so a run made of two calls leaves two TensorBoard
+  folders (or W&B runs) per seed; their steps continue, and each run's
+  `config.json` records its seed.
 - **APG restarts its optimiser on a resume** by default, which its staged
   curriculum relies on: its learning-rate schedule then spans each call.
   Pass `reset_optimizer_on_resume=False` to `train` to keep it. The kept

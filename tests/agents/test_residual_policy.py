@@ -45,7 +45,9 @@ def _agent(name: str, residual: ResidualPolicy, **extra: Any) -> Any:
 
 def _residual_run(name: str, n_timesteps: int, **extra: Any) -> tuple:
     agent = _agent(name, ResidualPolicy(scale=0.0), **extra)
-    return agent.train(seed=0, n_timesteps=n_timesteps)[0], CASES[name]
+    return agent.train(seed=0, n_timesteps=n_timesteps, logging_config=None)[0], CASES[
+        name
+    ]
 
 
 @pytest.mark.parametrize("name", REPLAY)
@@ -70,7 +72,9 @@ def test_the_warm_up_explores_around_the_expert(name):
     [-1, 1] at scale 0.25 execute within 0.25 of the expert's 0.5. A bug
     dropping the expert executes uniform actions, far outside that band."""
     steps = CASES[name].kwargs["learning_starts"]
-    state = _agent(name, ResidualPolicy(scale=0.25)).train(seed=0, n_timesteps=steps)[0]
+    state = _agent(name, ResidualPolicy(scale=0.25)).train(
+        seed=0, n_timesteps=steps, logging_config=None
+    )[0]
     rows = state.collector_state.buffer_state.experience
     action = np.asarray(rows["action"])[..., : steps // 2, 0]
     assert np.abs(action - 0.5).max() <= 0.25 + 1e-6
@@ -81,7 +85,7 @@ def _untrained_actions(name: str, residual: ResidualPolicy) -> np.ndarray:
     """The untrained policy's actions on four observations, in Pendulum's
     units."""
     agent = _agent(name, residual)
-    policy = agent.policy(agent.train(seed=0, n_timesteps=0))
+    policy = agent.policy(agent.train(seed=0, n_timesteps=0, logging_config=None))
     obs = jax.random.normal(jax.random.PRNGKey(0), (4, 3))
     return np.asarray(policy.act(obs, policy.reset(4))[0])
 
@@ -100,7 +104,7 @@ def test_a_zero_start_leaves_tds_target_actor_equal_to_its_actor():
     """TD3 bootstraps on its target actor: left random, the first targets
     read another policy than the one acting."""
     agent = _agent("TD3", ResidualPolicy(zero_start=True))
-    actor = agent.train(seed=0, n_timesteps=0)[0].actor_state
+    actor = agent.train(seed=0, n_timesteps=0, logging_config=None)[0].actor_state
     jax.tree.map(np.testing.assert_array_equal, actor.params, actor.target_params)
 
 
@@ -133,7 +137,9 @@ def test_the_replay_can_store_the_residual_for_the_critics(name):
     transitions. At scale 0 Pendulum still receives the expert's torque,
     while the rows hold the residuals, none of them the expert's action."""
     steps = CASES[name].n_timesteps
-    state = _agent(name, READS_RESIDUAL).train(seed=0, n_timesteps=steps)[0]
+    state = _agent(name, READS_RESIDUAL).train(
+        seed=0, n_timesteps=steps, logging_config=None
+    )[0]
     np.testing.assert_allclose(
         np.asarray(state.collector_state.env_state.last_u), 1.0, rtol=1e-6
     )
@@ -149,8 +155,12 @@ def test_the_critics_read_the_residual_and_the_actor_learns_through_it():
     moves. A bug mapping the critics' input back to the executed action would
     freeze it."""
     steps = CASES["TD3"].n_timesteps
-    trained = _agent("TD3", READS_RESIDUAL).train(seed=0, n_timesteps=steps)[0]
-    untrained = _agent("TD3", READS_RESIDUAL).train(seed=0, n_timesteps=0)[0]
+    trained = _agent("TD3", READS_RESIDUAL).train(
+        seed=0, n_timesteps=steps, logging_config=None
+    )[0]
+    untrained = _agent("TD3", READS_RESIDUAL).train(
+        seed=0, n_timesteps=0, logging_config=None
+    )[0]
     moved = jax.tree.map(
         lambda a, b: not np.array_equal(a, b),
         trained.actor_state.params,
@@ -178,13 +188,13 @@ def test_expert_actions_cannot_meet_critics_reading_residuals(extension):
             expert_policy=_one,
             extensions=(READS_RESIDUAL, extension),
             **CASES["SAC"].kwargs,
-        ).train(seed=0, n_timesteps=8)
+        ).train(seed=0, n_timesteps=8, logging_config=None)
 
 
 @pytest.mark.parametrize("name", ["PPO", "APO"])
 def test_a_state_value_critic_has_no_action_to_read(name):
     with pytest.raises(MissingCapability, match="q_critic"):
-        _agent(name, READS_RESIDUAL).train(seed=0, n_timesteps=8)
+        _agent(name, READS_RESIDUAL).train(seed=0, n_timesteps=8, logging_config=None)
 
 
 @pytest.mark.parametrize("name", ["PPO", "APO"])
@@ -228,7 +238,9 @@ def test_udrl_executes_the_residual_and_keeps_its_own_action():
         expert_policy=_one,
         extensions=(ResidualPolicy(scale=0.0),),
     )
-    state, _ = agent.train(seed=0, n_timesteps=32, num_episode_test=1)
+    state, _ = agent.train(
+        seed=0, n_timesteps=32, num_episode_test=1, logging_config=None
+    )
     last_u = np.asarray(state.collector_state.env_state.last_u)
     np.testing.assert_allclose(last_u, 1.0, rtol=1e-6)
     assert not np.allclose(np.asarray(state.buffer.actions), 0.5)
@@ -255,11 +267,23 @@ def test_apg_differentiates_through_the_residual():
             expert_policy=half,
             extensions=(ResidualPolicy(scale=scale),),
         )
-        return agent.train(seed=0, n_timesteps=n_timesteps)[0].actor_state.params
+        return agent.train(seed=0, n_timesteps=n_timesteps, logging_config=None)[
+            0
+        ].actor_state.params
 
+    # Two runs build their first parameters in two compiled programs, which
+    # can differ in float32's last digits (seen: 2.8e-7 relative, about two
+    # steps of float32, on the newest dependencies). "Stays" allows 1e-6;
+    # "learns" asks for a move ten times beyond it.
     start = run(0.0, 0)
-    jax.tree.map(np.testing.assert_array_equal, run(0.0, 32), start)
-    moved = jax.tree.map(lambda a, b: bool((a != b).any()), run(1.0, 32), start)
+    jax.tree.map(
+        lambda a, b: np.testing.assert_allclose(a, b, rtol=1e-6, atol=1e-8),
+        run(0.0, 32),
+        start,
+    )
+    moved = jax.tree.map(
+        lambda a, b: not np.allclose(a, b, rtol=1e-5, atol=1e-7), run(1.0, 32), start
+    )
     assert any(jax.tree.leaves(moved))
 
 
@@ -267,7 +291,9 @@ def _initial(name: str) -> Any:
     """The agent's untrained state on Pendulum, its seed axis dropped."""
     case = CASES[name]
     agent = case.cls(env_id="Pendulum-v1", n_envs=2, **case.kwargs)
-    return jax.tree.map(lambda x: x[0], agent.train(seed=0, n_timesteps=0)[0])
+    return jax.tree.map(
+        lambda x: x[0], agent.train(seed=0, n_timesteps=0, logging_config=None)[0]
+    )
 
 
 def _put(a: jax.Array, a_expert: Any) -> jax.Array:

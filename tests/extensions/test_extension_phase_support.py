@@ -454,7 +454,7 @@ def test_each_agent_declares_the_context_it_gives(name: str) -> None:
     env = "CartPole-v1" if name in ("DQN", "PQN", "UDRL") else "Pendulum-v1"
     agent = agent_cls(env, extensions=[ContextSpy()])
     with pytest.raises(_Reached) as reached:
-        agent.train(seed=[0], n_timesteps=8192)
+        agent.train(seed=[0], n_timesteps=8192, logging_config=None)
     bound, filled = reached.value.args
     assert bound == agent_cls.extension_context
     assert filled == agent_cls.pretrain_context

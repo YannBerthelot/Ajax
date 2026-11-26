@@ -261,7 +261,9 @@ def fill_replay(buffer_state: Any, data: TransitionDataset) -> Any:
     for k, x in schema.items():
         if rows[k].shape[1:] != x.shape[2:]:
             raise ValueError(
-                f"replay {k} rows {x.shape[2:]}, dataset {rows[k].shape[1:]}"
+                f"replay {k} rows {x.shape[2:]}, dataset {rows[k].shape[1:]}:"
+                " the dataset's rows do not fit this agent's environment (was"
+                " it recorded in another one?)"
             )
     n = len(data.reward)
     if n % n_envs:

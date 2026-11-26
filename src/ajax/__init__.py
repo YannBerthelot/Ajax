@@ -17,6 +17,7 @@ from ajax.agents.IQL.IQL import IQL  # noqa: E402
 from ajax.agents.PPO.PPO import PPO  # noqa: E402
 from ajax.agents.PQN.PQN import PQN  # noqa: E402
 from ajax.agents.REDQ.REDQ import REDQ  # noqa: E402
+from ajax.agents.REINFORCE.REINFORCE import REINFORCE  # noqa: E402
 from ajax.agents.RVISAC.RVISAC import RVISAC  # noqa: E402
 from ajax.agents.SAC.SAC import SAC  # noqa: E402
 from ajax.agents.TD3.TD3 import TD3  # noqa: E402
@@ -24,6 +25,10 @@ from ajax.agents.TDMPC2.TDMPC2 import TDMPC2  # noqa: E402
 from ajax.agents.TDMPC2.TDMPC2MultiTask import TDMPC2MultiTask  # noqa: E402
 from ajax.agents.TQC.TQC import TQC  # noqa: E402
 from ajax.agents.UDRL.UDRL import UDRL  # noqa: E402
+
+# ajax.load(path): the agent and state that agent.save wrote. Not in __all__,
+# which lists the agents.
+from ajax.checkpoint import load  # noqa: E402, F401
 
 __all__ = [
     "APG",
@@ -35,6 +40,7 @@ __all__ = [
     "PPO",
     "PQN",
     "REDQ",
+    "REINFORCE",
     "RVISAC",
     "SAC",
     "TD3",

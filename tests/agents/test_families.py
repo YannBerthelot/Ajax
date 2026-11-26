@@ -368,7 +368,7 @@ def test_an_incremental_agent_updates_on_each_step_after_learning_starts():
     agent = IncrementalToy("Pendulum-v1", n_envs=2)
     assert agent.network_args.penultimate_normalization
     assert agent.uniform_steps() == 0 and Toy("Pendulum-v1").uniform_steps() == 0
-    state, _ = agent.train(seed=0, n_timesteps=12)
+    state, _ = agent.train(seed=0, n_timesteps=12, logging_config=None)
     assert (np.asarray(state.seen).tolist(), np.asarray(state.n_updates).tolist()) == (
         [6],
         [4],
@@ -399,7 +399,9 @@ def test_an_on_policy_agent_runs_its_update_on_each_rollout() -> None:
         and context.buffer is None
     )
     assert agent.init(jax.random.PRNGKey(0), context).collector_state.timestep == 0
-    state, _ = agent.train(seed=0, n_timesteps=8)  # two whole rollouts of 4
+    state, _ = agent.train(
+        seed=0, n_timesteps=8, logging_config=None
+    )  # two whole rollouts of 4
     assert np.asarray(state.n_updates).tolist() == [2]  # one seed
     with pytest.raises(ValueError, match="cannot train offline"):
         agent.train_offline(dataset=None, n_updates=1)
@@ -455,7 +457,7 @@ class OwnToy(OwnIterationAgent):
     def report(self, agent_state, aux):
         return {"timestep": aux["timestep"], "Train/updates": agent_state.n_updates}
 
-    def evaluate(self, agent_state, key, context, num_episode_test):
+    def evaluation_metrics(self, agent_state, key, context, num_episode_test):
         return {"Eval/episodes": jnp.asarray(num_episode_test, jnp.float32)}
 
     def count_iteration_steps(self, context):
@@ -493,19 +495,22 @@ def test_an_own_iteration_agent_runs_its_iterations_on_the_loop() -> None:
     _, out = stacked.train(0, 12, logging_config=logging)
     assert np.asarray(out["aux"]["timestep"]).tolist() == [[4, 8, 12]]
     assert np.asarray(out["evaluations"]["timestep"]).tolist() == [[-1, 8, -1]]
-    _, out = stacked.train(0, 12)
+    _, out = stacked.train(0, 12, logging_config=None)
     assert out["evaluations"] is None and out["aux"]["timestep"].shape == (1, 3)
 
     def counts(state: Any) -> list[int]:  # one seed's resumes and updates
         return [int(state.resumes[0]), int(state.n_updates[0])]
 
-    assert counts(agent.train(0, 4, restart=True)[0]) == [0, 1]
+    assert counts(agent.train(0, 4, restart=True, logging_config=None)[0]) == [0, 1]
     # A resume donates the state it is given: read each before the next call.
-    state, _ = agent.train(0, 4, initial_state=state, restart=True)
+    state, _ = agent.train(0, 4, initial_state=state, restart=True, logging_config=None)
     assert counts(state) == [1, 4]
-    assert counts(agent.train(0, 4, initial_state=state)[0]) == [1, 5]
+    assert counts(agent.train(0, 4, initial_state=state, logging_config=None)[0]) == [
+        1,
+        5,
+    ]
     with pytest.raises(TypeError, match="OwnToy.train takes no n_iterations"):
-        agent.train(0, 4, n_iterations=1)
+        agent.train(0, 4, n_iterations=1, logging_config=None)
     with pytest.raises(ValueError, match="cannot train offline"):
         agent.train_offline(dataset=None, n_updates=1)
 
@@ -562,7 +567,7 @@ class ReplayToy(OwnReplayAgent):
     def report(self, agent_state, aux):
         return {"timestep": agent_state.collector_state.timestep}
 
-    def evaluate(self, agent_state, key, context, num_episode_test):
+    def evaluation_metrics(self, agent_state, key, context, num_episode_test):
         return {"Eval/replay": jnp.asarray(context.buffer, jnp.float32)}
 
     def make_after_log(self):
@@ -592,14 +597,14 @@ def test_an_own_replay_agent_runs_its_ticks_on_a_replay_sized_per_call() -> None
     counts = [state.stored, state.n_updates, state.restarts]
     assert [int(count[0]) for count in counts] == [12, 3, 1]  # odd ticks 1, 3, 5
     # A resume donates the state it is given: read each before the next call.
-    state, _ = agent.train(0, 8, initial_state=state)
+    state, _ = agent.train(0, 8, initial_state=state, logging_config=None)
     assert agent.prepared == (6, 10) and agent.checked == 10
     assert [int(state.stored[0]), int(state.n_updates[0])] == [20, 5]  # 7, 9
     with pytest.raises(ValueError, match="ends before this call does"):
-        agent.train(0, 4, initial_state=state, total_timesteps=22)
+        agent.train(0, 4, initial_state=state, total_timesteps=22, logging_config=None)
     assert agent.prepared == (6, 10)
     with pytest.warns(UserWarning, match="n_envs"):
-        agent.train(0, 5)
+        agent.train(0, 5, logging_config=None)
     with pytest.raises(ValueError, match="cannot train offline"):
         agent.train_offline(dataset=None, n_updates=1)
 

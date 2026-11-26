@@ -255,7 +255,7 @@ def test_the_evaluation_draws_from_the_key_it_is_handed(cartpole, monkeypatch):
     agent, key = cartpole.agent, jax.random.PRNGKey(3)
     _, context = agent.make_context(ROWS)
     state = jax.tree.map(lambda x: x[0], cartpole.state)
-    agent.evaluate(state, key, context=context, num_episode_test=1)
+    agent.evaluation_metrics(state, key, context=context, num_episode_test=1)
     np.testing.assert_array_equal(keys, [key])
     assert len(states) == 1 and states[0] is state
 
@@ -360,15 +360,18 @@ def test_resume_continues_the_schedule_and_matches_an_uninterrupted_run(
     agent's stream; the logging of the uninterrupted run does not touch the
     training state)."""
     agent = cartpole_agent(extensions=[CounterExt(), MetricExt()])
-    half = agent.train(seed=SEEDS, n_timesteps=ROWS // 2)
+    half = agent.train(seed=SEEDS, n_timesteps=ROWS // 2, logging_config=None)
     assert half[0].replay_state.obs.shape == (2, N_ENVS, 60, 4)
     assert agent.resume_iteration_offset(half[0]) == ROWS // 2 // N_ENVS
     path = str(tmp_path / "half.pkl")
     save_checkpoint(half, path)
     resumer = cartpole_agent(extensions=[CounterExt(), MetricExt()])
-    skeleton = resumer.train(seed=SEEDS, n_timesteps=0)
+    skeleton = resumer.train(seed=SEEDS, n_timesteps=0, logging_config=None)
     state, _ = resumer.train(
-        seed=SEEDS, n_timesteps=ROWS // 2, initial_state=restore_into(skeleton, path)
+        seed=SEEDS,
+        n_timesteps=ROWS // 2,
+        initial_state=restore_into(skeleton, path),
+        logging_config=None,
     )
     full = cartpole.state
     assert resumer.replay_rows_per_env == 100
@@ -391,14 +394,15 @@ def test_resume_continues_the_schedule_and_matches_an_uninterrupted_run(
     # as much as a lost optimizer does, which the counts above catch.
     two_ticks = 2 * N_ENVS  # rows
     short_resumer = cartpole_agent(extensions=[CounterExt(), MetricExt()])
-    short_skeleton = short_resumer.train(seed=SEEDS, n_timesteps=0)
+    short_skeleton = short_resumer.train(seed=SEEDS, n_timesteps=0, logging_config=None)
     short, _ = short_resumer.train(
         seed=SEEDS,
         n_timesteps=two_ticks,
         initial_state=restore_into(short_skeleton, path),
+        logging_config=None,
     )
     whole, _ = cartpole_agent(extensions=[CounterExt(), MetricExt()]).train(
-        seed=SEEDS, n_timesteps=ROWS // 2 + two_ticks
+        seed=SEEDS, n_timesteps=ROWS // 2 + two_ticks, logging_config=None
     )
     for ours, theirs in zip(
         jax.tree.leaves(_compared(short)),
@@ -480,6 +484,46 @@ def test_each_call_resolves_its_ring():
         resolve(agent, N_ENVS * 10, _resumable(50, 40))
 
 
+def test_a_run_naming_its_horizon_holds_the_whole_runs_ring_from_its_first_chunk():
+    """Catches a run in chunks that grows its ring at every chunk: XLA's
+    pinned host pool keeps the shorter ring beside the longer one, each
+    rounded up to a power of two, and a 10-seed run of 1M steps would have
+    ended near 260 GB of host memory. A call naming the run's horizon
+    (total_timesteps) sizes the ring for it: the capacity's 100 rows per
+    env from the first chunk, which has seen 60, and no growth after."""
+    agent = cartpole_agent()
+    first, _ = agent.train(
+        seed=SEEDS, n_timesteps=ROWS // 2, total_timesteps=ROWS, logging_config=None
+    )
+    assert first.replay_state.obs.shape == (2, N_ENVS, 100, 4)
+    state, _ = agent.train(
+        seed=SEEDS,
+        n_timesteps=ROWS // 2,
+        total_timesteps=ROWS,
+        initial_state=first,
+        logging_config=None,
+    )
+    assert state.replay_state.obs.shape == (2, N_ENVS, 100, 4)
+
+
+def test_a_resume_frees_the_rings_it_grows():
+    """Catches a resumed run that keeps the shorter rings of the state it is
+    given alive beside the grown ones for the whole call: the last chunk of a
+    10-seed benchmark run would hold its replay twice in host memory, 75 GB
+    beside 80 GB. A resume donates the state it is given, so the rings it
+    replaces are freed as it starts."""
+    agent = cartpole_agent(replay_on_host=True)
+    given, _ = agent.train(seed=SEEDS, n_timesteps=ROWS // 2, logging_config=None)
+    shorter = given.replay_state
+    state, _ = agent.train(
+        seed=SEEDS, n_timesteps=N_ENVS * 8, initial_state=given, logging_config=None
+    )
+    # 60 rows per env seen, then 8 more: a 68-row ring, under the capacity's 100.
+    assert state.replay_state.obs.shape == (2, N_ENVS, 68, 4)
+    assert is_on_host(state.replay_state.deter)
+    assert shorter.deter.is_deleted() and shorter.obs.is_deleted()
+
+
 def test_a_resumed_ring_goes_where_the_option_keeps_the_latents():
     """Host-side, no training: under replay_on_host, prepare_replay grows a
     host-memory deter ring in place and moves a device one to the host;
@@ -541,7 +585,7 @@ def test_latents_kept_on_the_host_train_as_on_the_device(cartpole):
 def pendulum():
     # One update (train_ratio 1/16): the run checks the stored actions.
     agent = DreamerV3("Pendulum-v1", n_envs=2, train_ratio=0.0625, **TINY)
-    state, _ = agent.train(seed=0, n_timesteps=400)
+    state, _ = agent.train(seed=0, n_timesteps=400, logging_config=None)
     return SimpleNamespace(agent=agent, state=state)
 
 
@@ -602,7 +646,7 @@ def test_playground_cartpole_with_action_repeat():
         train_ratio=0.0625,  # one update: the run checks the rows and the logs
         **TINY,
     )
-    state, _ = agent.train(seed=0, n_timesteps=200)
+    state, _ = agent.train(seed=0, n_timesteps=200, logging_config=None)
     replay = jax.tree.map(lambda x: x[0], state.replay_state)
     rows = np.arange(100)
     np.testing.assert_array_equal(
@@ -663,13 +707,16 @@ def test_the_config_is_built_from_the_constructor_arguments():
     """``from_arguments`` takes ``model_size`` and the fields the arguments
     name, ignoring the others; the constructor names every field, with the
     field's default (the widths: None, the preset's), so none silently
-    keeps its default."""
+    keeps its default. ``compute_dtype`` is ``train(precision=...)``'s, not
+    the constructor's: precision is how a run computes (ajax.precision)."""
     from ajax.agents.DreamerV3.state import DreamerV3Config
 
     got = DreamerV3Config.from_arguments({"model_size": "1m", "lam": 0.9, "n_envs": 4})
     assert got == DreamerV3Config.from_model_size("1m", lam=0.9)
     parameters = inspect.signature(DreamerV3).parameters
     for field in dataclasses.fields(DreamerV3Config):
+        if field.name == "compute_dtype":
+            continue
         default = parameters[field.name].default
         assert default is None if field.name in WIDTHS else default == field.default
 

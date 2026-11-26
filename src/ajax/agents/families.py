@@ -32,20 +32,31 @@ from __future__ import annotations
 import copy
 import dataclasses
 import inspect
+import warnings
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import KW_ONLY, dataclass
-from functools import partial
-from typing import Any, ClassVar, Optional, Self, Union
+from functools import partial, wraps
+from typing import Any, ClassVar, Optional, Self, TypeVar, Union, cast
 
 import jax
 import jax.numpy as jnp
+from flax.errors import ScopeParamShapeError
 from gymnax import EnvParams
 
 from ajax.agents import update_steps
-from ajax.agents.base import ActorCritic, run_horizon, shared_counters
+from ajax.agents.base import (
+    ActorCritic,
+    named_arguments,
+    release_replaced,
+    run_horizon,
+    shared_counters,
+    unknown_argument,
+    warn_widths_without_activation,
+)
 from ajax.agents.loop import LOOP_PHASES, Evaluation, TrainLoop
 from ajax.agents.presets import presets_of
 from ajax.agents.recurrent import (
+    NI_FEATURES,
     NI_LAYOUT,
     NI_MEMORY_INITS,
     NI_MEMORY_WIDTH,
@@ -54,6 +65,7 @@ from ajax.agents.recurrent import (
     replayed_window,
     stored_actor_carry_dim,
     unsupported_recurrent_options,
+    with_features,
 )
 
 # Imported under another name: ReplayAgent's own hook is make_replay_buffer.
@@ -79,10 +91,15 @@ from ajax.controller import (
 )
 from ajax.environments.interaction import init_collector_state
 from ajax.environments.row_collector import resume_tick
-from ajax.environments.utils import get_state_action_shapes
-from ajax.evaluate import ValueEstimate
+from ajax.environments.utils import (
+    get_env_type,
+    get_raw_env,
+    get_state_action_shapes,
+    steps_in_python,
+)
+from ajax.evaluate import ValueEstimate, policy_returns
 from ajax.extensions.base import Extension, ExtensionStack, holds_expert
-from ajax.extensions.observe import PreviousAction, PreviousReward
+from ajax.logging.progress import Evaluations
 from ajax.networks.memory import (
     MemoryConfig,
     parse_memory_config,
@@ -95,6 +112,8 @@ from ajax.networks.networks import (
     state_value,
 )
 from ajax.policy import Policy, PolicyParts, evaluation_policy
+from ajax.random_keys import split_by_index
+from ajax.render import animation_suffix, render_episode
 from ajax.schedule import Schedule, at
 from ajax.state import (
     AlphaConfig,
@@ -295,9 +314,11 @@ class EncoderSharing:
     Args:
         share_encoder: One encoder (the MLP or CNN, and the memory block) for
             the actor and the critic (NetworkConfig.share_encoder): the
-            critic owns it, both losses train it and the critic's optimiser
-            steps it, at critic_learning_rate. False: each network has its
-            own. None: what the agent's reference code does
+            critic owns it and the critic's optimiser steps it, at
+            critic_learning_rate. PPO and APO train it with both losses
+            (one step down their sum); an agent with a Q-critic with the
+            critic's loss alone, its actor reading it detached. False: each
+            network has its own. None: what the agent's reference code does
             (reference_share_encoder).
     """
 
@@ -337,6 +358,10 @@ class EntropyTemperature:
     alpha_init: float = 1.0
     target_entropy_per_dim: Schedule = -1.0
     alpha_update_start: int = 0
+    #: The numbers a sweep may vary (ActorCritic.sweepable).
+    sweepable: ClassVar[frozenset[str]] = frozenset(
+        {"alpha_learning_rate", "alpha_init", "target_entropy_per_dim"}
+    )
     #: Set on ReplayAgent.before_env_steps's copy alone.
     ignores_update_starts: ClassVar[bool] = False
     #: The timestep before which the loop calling this copy's update runs
@@ -412,6 +437,63 @@ class PolicyUpdateStart:
         return self.policy_update_start > 0
 
 
+def _agents_acting_in(action_space: str) -> list[str]:
+    """The names of Ajax's agents acting in ``action_space``."""
+    import ajax  # ajax imports this module: resolved at call time
+
+    agents = [getattr(ajax, name) for name in ajax.__all__]
+    return sorted(
+        agent.__name__
+        for agent in agents
+        if isinstance(agent, type)
+        and issubclass(agent, DeclaredAgent)
+        and agent.action_space in (action_space, "any")
+    )
+
+
+def _train_state(agent_state: Any) -> Any:
+    """The state of train's (state, evaluations), or of the state itself;
+    the evaluations alone are refused, since no policy is in them."""
+    if isinstance(agent_state, tuple) and len(agent_state) == 2:
+        agent_state = agent_state[0]
+    if isinstance(agent_state, Evaluations):
+        raise TypeError(
+            "This is train's second value, the evaluations; pass the first,"
+            " the state: state, evaluations = agent.train(...)."
+        )
+    if agent_state is None or isinstance(agent_state, (int, float, str)):
+        raise TypeError(
+            f"{agent_state!r} is not a state: pass the state agent.train or"
+            " ajax.load returned, first, as in agent.evaluate(state, episodes=5)."
+        )
+    return agent_state
+
+
+_Acting = TypeVar("_Acting", bound=Callable[..., Any])
+
+
+def acts_with_its_own_state(method: _Acting) -> _Acting:
+    """``method`` saying so when the state it is given was trained by another
+    agent or on another environment: its networks then meet inputs of
+    another shape, which flax reports as a parameter of the wrong shape
+    without naming the state."""
+
+    @wraps(method)
+    def call(self: Any, *args: Any, **kwargs: Any) -> Any:
+        try:
+            return method(self, *args, **kwargs)
+        except ScopeParamShapeError as error:
+            raise ValueError(
+                f"{self.name} cannot act with this state: its networks read"
+                " inputs of another shape than this agent's environment gives"
+                f" ({str(error).split(' (http')[0]}) A state acts with the"
+                " agent and the environment that trained it: pass the one this"
+                " agent's train or load returned."
+            ) from error
+
+    return cast("_Acting", call)
+
+
 @dataclass(eq=False, repr=False)
 class DeclaredAgent(ActorCritic):
     """An agent whose constructor is its fields' (keyword-only but
@@ -450,6 +532,18 @@ class DeclaredAgent(ActorCritic):
     #: The action spaces the algorithm acts in: "continuous", "discrete", "any".
     action_space: ClassVar[str] = "continuous"
 
+    def __new__(cls, *_positional: Any, **kwargs: Any) -> Self:
+        # Python's own TypeError names an unknown argument and nothing else.
+        parameters = inspect.signature(cls.__init__).parameters
+        open_ended = any(
+            parameter.kind is inspect.Parameter.VAR_KEYWORD
+            for parameter in parameters.values()
+        )
+        for name in kwargs:
+            if name not in parameters and not open_ended:
+                raise TypeError(unknown_argument(cls.__name__, name, parameters))
+        return super().__new__(cls)
+
     def __post_init__(self) -> None:
         # The run config the loggers record: the call, before any check.
         self.config = {
@@ -465,6 +559,9 @@ class DeclaredAgent(ActorCritic):
                 " gamma, the discount its value estimate reads."
             )
         self.check()
+        for name in sorted(names):
+            if name.endswith("architecture"):
+                warn_widths_without_activation(self.name, name, getattr(self, name))
         shared = {
             name: getattr(self, name) for name in ACTOR_CRITIC_ARGS.intersection(names)
         }
@@ -494,8 +591,11 @@ class DeclaredAgent(ActorCritic):
         if self.action_space != "any" and self.env_args.continuous != (
             self.action_space == "continuous"
         ):
+            found = "continuous" if self.env_args.continuous else "discrete"
             raise ValueError(
                 f"{self.name} only supports {self.action_space} action spaces."
+                f" This environment's actions are {found}; the agents acting"
+                f" in them: {', '.join(_agents_acting_in(found))}."
             )
         settings = self.optimizer_settings()
         self.actor_optimizer_args = self.actor_optimizer_args.replace(**settings)
@@ -510,7 +610,34 @@ class DeclaredAgent(ActorCritic):
             self.network_args = self.network_args.replace(share_encoder=share_encoder)
         self._build_family()
         self.setup()
+        self._check_image_encoder()
         object.__setattr__(self, "_built", True)
+
+    def _check_image_encoder(self) -> None:
+        """Says when a gymnax environment's image observations are read
+        without the CNN encoder, which nothing turns on by itself, and
+        refuses an image shape other than the environment's."""
+        env = self.env_args.env
+        if not isinstance(self, ImageObservations) or get_env_type(env) != "gymnax":
+            return
+        raw = get_raw_env(env)
+        image = tuple(raw.observation_space(raw.default_params).shape)
+        if len(image) != 3:
+            return
+        if self.cnn_image_shape is None:
+            warnings.warn(
+                f"The observations are images of shape {image}, read here by an"
+                " MLP on the flattened image. Pass"
+                f" cnn_image_shape={image} to read them with a CNN encoder.",
+                UserWarning,
+                stacklevel=4,
+            )
+        elif self.cnn_extra_obs_dim == 0 and tuple(self.cnn_image_shape) != image:
+            raise ValueError(
+                f"cnn_image_shape={tuple(self.cnn_image_shape)}, but the"
+                f" environment's images have shape {image} (height, width,"
+                f" channels): pass cnn_image_shape={image}."
+            )
 
     def __setattr__(self, name: str, value: Any) -> None:
         # Fixed once built (owner, 2026-10-24), so what trains is what the
@@ -645,14 +772,93 @@ class DeclaredAgent(ActorCritic):
         gamma, reward_scale = (getattr(self, name, 1.0) for name in DISCOUNT_FIELDS)
         return ValueEstimate(value, gamma, reward_scale)
 
+    @named_arguments
     def policy(self, agent_state: Any, seed_index: int = 0) -> Policy:
         """The policy of seed seed_index of agent_state (train's state, or
         its (state, out)), acting in the environment's units exactly as the
         agent's evaluation acts (ajax.policy.Policy)."""
-        if isinstance(agent_state, tuple) and len(agent_state) == 2:
-            agent_state = agent_state[0]
+        agent_state = _train_state(agent_state)
+        seeds = int(jax.tree.leaves(agent_state)[0].shape[0])
+        if not 0 <= seed_index < seeds:
+            raise IndexError(
+                f"seed_index={seed_index}, but the state holds {seeds} seed(s):"
+                f" 0 to {seeds - 1}."
+            )
         one_seed = jax.tree.map(lambda leaf: leaf[seed_index], agent_state)
         return Policy(self.policy_parts(), one_seed)
+
+    @named_arguments
+    @acts_with_its_own_state
+    def evaluate(
+        self, agent_state: Any, episodes: int = 10, seed: int = 0
+    ) -> jax.Array:
+        """The return of ``episodes`` fresh episodes of each member's trained
+        policy: a row per member of agent_state (train's state, or its
+        (state, out)), a column per episode. The policy acts as
+        agent.policy does, exactly as the agent's evaluation acts; ``seed``
+        draws the episodes' starts. On a Gymnasium environment the episodes
+        step in Python, a member after another. Its mean over a row is that
+        member's score::
+
+            state, _ = agent.train(seed=[0, 1], n_timesteps=50_000)
+            agent.evaluate(state).mean(axis=1)
+        """
+        agent_state = _train_state(agent_state)
+        build = self.policy_parts()
+        members = int(jax.tree.leaves(agent_state)[0].shape[0])
+        keys = split_by_index(jax.random.PRNGKey(seed), members)
+
+        def one_member(state: Any, key: jax.Array) -> jax.Array:
+            return policy_returns(self.env_args, build(state), episodes, key)[0]
+
+        if not steps_in_python(self.env_args.env):
+            return jax.jit(jax.vmap(one_member))(agent_state, keys)
+        # A Gymnasium environment steps in Python on one pool of copies:
+        # the members run one after another, as they train.
+        run = jax.jit(one_member)
+        rows = [
+            run(jax.tree.map(lambda leaf, m=member: leaf[m], agent_state), keys[member])
+            for member in range(members)
+        ]
+        return jnp.stack(rows)
+
+    @named_arguments
+    @acts_with_its_own_state
+    def render(
+        self,
+        agent_state: Any,
+        path: Any,
+        seed_index: int = 0,
+        seed: int = 0,
+        max_steps: Optional[int] = None,
+        draw: Optional[Callable[[Any], Any]] = None,
+    ) -> str:
+        """Saves one fresh episode of seed seed_index's trained policy as an
+        animation at ``path``, and returns the path. The policy acts as in
+        agent.evaluate; ``seed`` draws the episode's start, and
+        ``max_steps`` cuts a long episode short. The file is a ``.gif``, or
+        an ``.html`` page on Brax (ajax.render.animation_suffix)::
+
+            state, _ = agent.train(seed=0, n_timesteps=50_000)
+            agent.render(state, "cartpole.gif")
+
+        ``draw`` draws an environment Ajax has no drawing for, such as one
+        of your own: a function from one environment state (its own
+        fields, without a leading axis) to a ``(height, width, 3)``
+        picture, 8-bit or floats in [0, 1]. Given, it is what draws."""
+        path = str(path)
+        suffix = animation_suffix(self.env_args.env, draw)
+        if not path.lower().endswith(suffix):
+            raise ValueError(
+                f"An episode of this environment is saved as a {suffix} file:"
+                f" pass a path ending in {suffix}, not {path!r}."
+            )
+        policy = self.policy(agent_state, seed_index)
+        parts = policy.build(policy.agent_state)
+        render_episode(
+            self.env_args, parts, jax.random.PRNGKey(seed), path, max_steps, draw
+        )
+        return path
 
     def policy_parts(self) -> Callable[[Any], PolicyParts]:
         """How the agent acts on one seed's state: as the shared evaluation
@@ -667,6 +873,8 @@ class DeclaredAgent(ActorCritic):
             recurrent=self.network_args.memory is not None,
         )
 
+    @named_arguments
+    @acts_with_its_own_state
     def predict(
         self,
         agent_state: Any,
@@ -686,7 +894,10 @@ class DeclaredAgent(ActorCritic):
             )
         cached = getattr(self, "_predicting", None)
         if cached is None or cached[0] is not agent_state or cached[1] != seed_index:
-            policy = self.policy(agent_state, seed_index)
+            # Concrete also when predict is first called inside a traced
+            # function (record's rollout): the policy is kept across calls.
+            with jax.ensure_compile_time_eval():
+                policy = self.policy(agent_state, seed_index)
             if policy.has_memory:
                 raise ValueError(
                     f"{self.name}'s policy carries memory from one step to the"
@@ -699,6 +910,15 @@ class DeclaredAgent(ActorCritic):
         policy = self._predicting[2]
         observation = jnp.asarray(observation)
         obs_shape, _ = get_state_action_shapes(self.env_args.env)
+        rank = len(obs_shape)
+        sized = all(isinstance(size, int) for size in obs_shape)
+        own = observation.shape[max(observation.ndim - rank, 0) :]
+        if sized and (own != tuple(obs_shape) or observation.ndim > rank + 1):
+            raise ValueError(
+                f"observation has shape {observation.shape}; this environment's"
+                f" have shape {tuple(obs_shape)}: pass one, or a batch with a"
+                " row per env."
+            )
         single = observation.ndim == len(obs_shape)
         batch = observation[None] if single else observation
         action, _ = policy.act(batch, policy.reset(batch.shape[0]))
@@ -1112,7 +1332,9 @@ class RecurrentReplayAgent(ReplayAgent):
     the agent's actor_critic_args takes). They read the previous action and
     the previous reward, so a run with memory observes both: PreviousAction
     and PreviousReward join its extensions where it has none of them (owner,
-    2026-11-13: on by default, as Ni et al.'s networks read them).
+    2026-11-13: on by default, as Ni et al.'s networks read them). The
+    family names neither: reference_features and reference_layout do, and a
+    subclass overrides the two together.
 
     Its batch_size counts rows without memory, windows with it; None is
     256 rows (each agent's reference's) or Ni et al.'s 64 windows. The
@@ -1147,13 +1369,27 @@ class RecurrentReplayAgent(ReplayAgent):
             self.memory = with_reference_defaults(
                 parse_memory_config(self.memory), NI_MEMORY_INITS, NI_MEMORY_WIDTH
             )
-            self.extensions = with_ni_features(self.extensions)
+            self.extensions = with_features(self.extensions, self.reference_features())
         super().__post_init__()
 
     def _build_family(self) -> None:
         if self.memory is not None:
-            self.network_args = self.network_args.replace(**NI_LAYOUT)
+            self.network_args = self.network_args.replace(**self.reference_layout())
         super()._build_family()
+
+    def reference_features(self) -> tuple[Extension, ...]:
+        """The observation features a run with memory observes, each added
+        where its extensions have none of the kind: those reference_layout's
+        memory reads (Ni et al.'s previous action and previous reward). A
+        subclass returning none also returns a reference_layout embedding
+        none; a Q-critic's memory then reads the previous action the replay
+        appends (ajax.agents.recurrent.previous_actions)."""
+        return NI_FEATURES
+
+    def reference_layout(self) -> dict[str, Any]:
+        """The NetworkConfig fields of the networks with memory (Ni et
+        al.'s layout); {} keeps the agent's own."""
+        return NI_LAYOUT
 
     def make_replay_buffer(self) -> BufferType:
         return make_recurrent_replay_buffer(
@@ -1172,14 +1408,10 @@ class RecurrentReplayAgent(ReplayAgent):
 
 
 def with_ni_features(extensions: Sequence[Extension]) -> tuple[Extension, ...]:
-    """extensions with the features Ni et al.'s recurrent networks read,
-    the previous action and the previous reward (PreviousAction,
-    PreviousReward), each appended where none is there."""
-    kept = tuple(extensions)
-    for feature in (PreviousAction(), PreviousReward()):
-        if not any(isinstance(extension, type(feature)) for extension in kept):
-            kept = (*kept, feature)
-    return kept
+    """Deprecated: with_features(extensions, NI_FEATURES)
+    (ajax.agents.recurrent). Kept while the name is on the agents' recorded
+    surface (CLAUDE.md, refactoring rule 10: expand, then contract)."""
+    return with_features(extensions, NI_FEATURES)
 
 
 @dataclass(kw_only=True, eq=False, repr=False)
@@ -1321,6 +1553,10 @@ class OnPolicyAgent(DeclaredAgent):
     extension_context = frozenset({"env_args"})
     keeps_last_rollout = True
 
+    def smallest_evaluation_spacing(self) -> int:
+        """A rollout: n_steps in each env."""
+        return self.env_args.n_envs * self.n_steps
+
     def init(self, key: jax.Array, context: TrainContext) -> Any:
         """A fresh agent state, on the agent's own key layout."""
         raise NotImplementedError
@@ -1407,7 +1643,7 @@ class OwnIterationAgent(DeclaredAgent):
 
     An agent writes init, iterate (applying the extensions' post_update
     where its order puts it), report (the training metrics an evaluation
-    logs), evaluate and count_iteration_steps. It may take options per train
+    logs), evaluation_metrics and count_iteration_steps. It may take options per train
     call (configure_call), and return every iteration's output instead of
     the evaluations (returns_iterations, make_iteration_output). It takes no
     dataset: train_offline refuses it.
@@ -1436,7 +1672,7 @@ class OwnIterationAgent(DeclaredAgent):
         """The training metrics an evaluation logs, timestep included."""
         raise NotImplementedError
 
-    def evaluate(
+    def evaluation_metrics(
         self,
         agent_state: Any,
         key: jax.Array,
@@ -1515,7 +1751,9 @@ class OwnIterationAgent(DeclaredAgent):
             metrics=self.report,
             every=loop.log_frequency and max(loop.log_frequency // steps, 1),
             evaluate=partial(
-                self.evaluate, context=context, num_episode_test=num_episode_test
+                self.evaluation_metrics,
+                context=context,
+                num_episode_test=num_episode_test,
             ),
         )
 
@@ -1557,7 +1795,7 @@ class OwnReplayAgent(DeclaredAgent):
     tick of the rows it counted, and each env copy may carry its own system.
 
     An agent writes prepare_replay, init, collect, count_updates, update,
-    report and evaluate; it may count its ticks (count_ticks), restart what
+    report and evaluation_metrics; it may count its ticks (count_ticks), restart what
     it logs after each log (make_after_log) and check a call (check_run).
     """
 
@@ -1570,9 +1808,11 @@ class OwnReplayAgent(DeclaredAgent):
     def prepare_replay(
         self, start_tick: int, end_tick: int, agent_state: Any
     ) -> tuple[Any, Any]:
-        """The replay of a call training from tick start_tick to end_tick,
-        and the state it resumes from (None for a fresh run), its replay
-        moved into that replay's shapes. The agent records the sizes."""
+        """The replay of a call training from tick start_tick, holding the
+        rows the run writes up to tick end_tick (its horizon's, or start_tick
+        for a 0-tick call), and the state it resumes from (None for a fresh
+        run), its replay moved into that replay's shapes. The agent records
+        the sizes."""
         raise NotImplementedError
 
     def init(self, key: jax.Array, context: TrainContext) -> Any:
@@ -1602,7 +1842,7 @@ class OwnReplayAgent(DeclaredAgent):
         """The training metrics an evaluation logs, timestep included."""
         raise NotImplementedError
 
-    def evaluate(
+    def evaluation_metrics(
         self,
         agent_state: Any,
         key: jax.Array,
@@ -1636,7 +1876,7 @@ class OwnReplayAgent(DeclaredAgent):
         del agent_state, end_tick
 
     def value_estimate(self) -> Optional[ValueEstimate]:
-        """None: the agent evaluates itself (evaluate), so the shared
+        """None: the agent evaluates itself (evaluation_metrics), so the shared
         evaluation's critic estimate is never compared; a world model's
         critic reads its latent state, not the observation that estimate
         passes."""
@@ -1653,15 +1893,19 @@ class OwnReplayAgent(DeclaredAgent):
         seed: Union[int, Sequence[int]] = 42,
         n_timesteps: int = int(1e6),
         num_episode_test: int = 10,
-        logging_config: Any = None,
+        logging_config: Any = "default",
         on_ids_ready: Optional[Callable] = None,
         initial_state: Any = None,
         total_timesteps: Optional[int] = None,
         sweep: Optional[Sweep] = None,
+        devices: Optional[Sequence[Any]] = None,
+        precision: Optional[str] = None,
         **kwargs: Any,
     ) -> tuple[Any, Any]:
         """ActorCritic.train on the call's replay (prepare_replay), which
-        continues the replay of the uninterrupted run when it resumes."""
+        continues the replay of the uninterrupted run when it resumes. The
+        precision is set first: the replay may store what the networks
+        compute in."""
         state = initial_state
         if isinstance(state, tuple) and len(state) == 2:
             state = state[0]
@@ -1669,24 +1913,44 @@ class OwnReplayAgent(DeclaredAgent):
         # agent: a refused call leaves the agent as it was.
         found = sweep_configurations(sweep)
         if found:
-            check_sweep(type(self).__name__, self.sweepable_fields(), list(found[0]))
+            check_sweep(
+                type(self).__name__,
+                self.sweepable_fields(),
+                list(found[0]),
+                self.unsweepable,
+            )
+        self.use_precision(precision, devices)
         start = 0
         if state is not None:
             counters = shared_counters(state, self.per_seed_update_counts)
             start = int(counters.get("timestep", 0))
-        run_horizon(start, n_timesteps, total_timesteps)
+        horizon = run_horizon(start, n_timesteps, total_timesteps)
         start_tick = 0 if state is None else self.resume_iteration_offset(state)
         end_tick = start_tick + self.count_ticks(n_timesteps, start_tick)
-        replay, state = self.prepare_replay(start_tick, end_tick, state)
+        # A call that trains sizes its replay for the run's horizon, so that a
+        # run in chunks allocates it in its first chunk and never grows it.
+        # A grown replay's shorter one stays in XLA's pinned host pool,
+        # which keeps what it frees and rounds each block up to a power of
+        # two: a 10-seed DreamerV3 run of 1M steps, in chunks, would have
+        # ended near 260 GB of host memory. A 0-tick call (a checkpoint
+        # skeleton) is sized as before (prepare_replay).
+        sized_to = end_tick
+        if end_tick > start_tick:
+            sized_to = start_tick + self.count_ticks(horizon - start, start_tick)
+        replay, resumed = self.prepare_replay(start_tick, sized_to, state)
+        if state is not None:
+            release_replaced(state, resumed)
         agent_state, out = super().train(
             seed=seed,
             n_timesteps=n_timesteps,
             num_episode_test=num_episode_test,
             logging_config=logging_config,
             on_ids_ready=on_ids_ready,
-            initial_state=state,
+            initial_state=resumed,
             total_timesteps=total_timesteps,
             sweep=sweep,
+            devices=devices,
+            precision=precision,
             replay=replay,
             start_tick=start_tick,
             **kwargs,
@@ -1735,7 +1999,9 @@ class OwnReplayAgent(DeclaredAgent):
             metrics=self.report,
             every=log_frequency,
             evaluate=partial(
-                self.evaluate, context=context, num_episode_test=num_episode_test
+                self.evaluation_metrics,
+                context=context,
+                num_episode_test=num_episode_test,
             ),
             after_log=self.make_after_log(),
             steps_before=self.steps_before,

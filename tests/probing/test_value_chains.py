@@ -21,8 +21,8 @@ import pytest
 from probing_environments import gymnax_envs as pe
 from probing_environments.gymnax_envs import continuous_actions as continuous
 
-from ajax.agents.PPO.PPO import _compute_gae
 from ajax.agents.PQN.PQN import compute_q_lambda_targets
+from ajax.agents.returns import compute_gae
 from ajax.environments.differentiable import with_transition_gradients
 from ajax.environments.interaction import reward_statistics
 from ajax.environments.obs_norm import apply_obs_norm
@@ -243,7 +243,7 @@ def _apg_read(run: runs.Run) -> dict:
         args = run.agent.env_args
         args = args.replace(env_params=args.env_params.replace(start=x0))
         context = run.agent.make_context(1, env_args=args)[1]
-        m = run.agent.evaluate(state, R.KEY, context, 2)
+        m = run.agent.evaluation_metrics(state, R.KEY, context, 2)
         return a, m["Eval/episodic mean reward"]
 
     out: dict[str, Any] = {}
@@ -406,7 +406,7 @@ def test_q9_oracle_is_the_forward_view_fixed_point() -> None:
 
 @pytest.mark.parametrize("n_steps", [32, 16])
 def test_q9_target_functions_return_the_lambda_return(n_steps: int) -> None:
-    """PPO's _compute_gae (advantages + values) and PQN's
+    """returns.compute_gae (advantages + values) and PQN's
     compute_q_lambda_targets, on the probe's rollout with V = 0.5378, return
     each step's forward-view lambda-return, PQN's but in its last episode
     (off_by_one): a wrong recursion (Q01, Q02, P03, a forward GAE scan)
@@ -415,7 +415,7 @@ def test_q9_target_functions_return_the_lambda_return(n_steps: int) -> None:
     r, term = (jnp.asarray(rows[:, i], jnp.float32).reshape(shape) for i in (1, 4))
     v, zeros = jnp.full(shape, c), jnp.zeros(shape)
     want = np.tile(forward_view(c, G9, L9), n_steps // 4)
-    g = _compute_gae(r, v, v, term, zeros, G9, L9)[1]
+    g = compute_gae(r, v, v, term, zeros, G9, L9)[1]
     np.testing.assert_allclose(np.asarray(g).reshape(-1), want, atol=1e-5)
     q = compute_q_lambda_targets(r, v, term, zeros, G9, L9)
     ro, pj = oracles.stack([(1.0, _alias_rows(n_steps))]), oracles.Rule(off_by_one=True)

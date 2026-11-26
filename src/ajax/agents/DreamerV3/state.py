@@ -29,6 +29,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Optional, Union
 
 import jax
+import jax.numpy as jnp
 
 from ajax.distributional import TwoHot
 
@@ -120,6 +121,13 @@ class DreamerV3Config:
         weight_decay: decoupled weight decay, multiplied by the (warmed-up)
             learning rate as ``OptimizerConfig.weight_decay`` is; Ajax's
             (0, the default, leaves the reference's chain unchanged).
+
+    Precision (``ajax.precision``; set by ``train(precision=...)``):
+        compute_dtype: ``"float32"`` or ``"bfloat16"``, the dtype of the
+            layers, the recurrent state and the stored latents. The
+            reference computes in bfloat16 with float32 parameters
+            (``configs.yaml:24-25``); logits, distributions, losses,
+            returns and normalisers are float32 in both.
     """
 
     units: int = 256
@@ -165,8 +173,13 @@ class DreamerV3Config:
     eps: float = 1e-20
     warmup: int = 1000
     weight_decay: float = 0.0
+    compute_dtype: str = "float32"
 
     def __post_init__(self) -> None:
+        if self.compute_dtype not in ("float32", "bfloat16"):
+            raise ValueError(
+                f"compute_dtype must be float32 or bfloat16, got {self.compute_dtype!r}"
+            )
         sizes = ("units", "hidden", "deter", "stoch", "classes", "blocks", "bins")
         for name in (*sizes, "actor_layers", "critic_layers", "imag_horizon"):
             if getattr(self, name) < 1:
@@ -237,6 +250,11 @@ class DreamerV3Config:
     def resolved(self) -> dict[str, int]:
         """The widths the preset resolves, for the loggers' run config."""
         return {f"resolved_{k}": getattr(self, k) for k in WIDTHS}
+
+    @property
+    def dtype(self) -> Any:
+        """The layers' compute dtype (:attr:`compute_dtype`)."""
+        return jnp.dtype(self.compute_dtype)
 
     @property
     def feat_dim(self) -> int:

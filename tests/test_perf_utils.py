@@ -1,6 +1,6 @@
 """perf_utils: the resume iteration offset and the shared input of
-build_resumable_train / ActorCritic.train, and build_chunked_train's
-evaluations between chunks."""
+build_resumable_train / ActorCritic.train, build_chunked_train's evaluations
+between chunks, and final_aux_scan's last aux."""
 
 from types import SimpleNamespace
 
@@ -11,7 +11,7 @@ import pytest
 from flax import struct
 
 from ajax.agents.base import ActorCritic, shared_counters
-from ajax.perf_utils import build_chunked_train, build_resumable_train
+from ajax.perf_utils import build_chunked_train, build_resumable_train, final_aux_scan
 
 # ---------------------------------------------------------------------------
 # Resume offset
@@ -97,9 +97,11 @@ class ToyAgent(ActorCritic):
 
 def test_actor_critic_train_passes_the_resume_offset():
     agent = ToyAgent()
-    state, seen = agent.train(seed=[0, 1], n_timesteps=3)
+    state, seen = agent.train(seed=[0, 1], n_timesteps=3, logging_config=None)
     np.testing.assert_array_equal(seen, [[0, 1, 2]] * 2)
-    state, seen = agent.train(seed=[0, 1], n_timesteps=2, initial_state=state)
+    state, seen = agent.train(
+        seed=[0, 1], n_timesteps=2, initial_state=state, logging_config=None
+    )
     np.testing.assert_array_equal(seen, [[3, 4]] * 2)
     np.testing.assert_array_equal(state["ticks"], [5, 5])
 
@@ -111,8 +113,8 @@ def test_actor_critic_keeps_the_resume_offset_unbatched_under_the_seed_vmap():
     branch on every iteration of every seed."""
     record = []
     agent = ToyAgent(on_index=(3, record))
-    state, _ = agent.train(seed=[0, 1], n_timesteps=2)
-    agent.train(seed=[0, 1], n_timesteps=3, initial_state=state)
+    state, _ = agent.train(seed=[0, 1], n_timesteps=2, logging_config=None)
+    agent.train(seed=[0, 1], n_timesteps=3, initial_state=state, logging_config=None)
     jax.effects_barrier()
     assert record == [3]
 
@@ -182,8 +184,8 @@ def test_a_resumed_update_schedule_stays_a_cond_under_the_seed_vmap():
     every iteration."""
     record: list = []
     agent = CountingAgent(at=3, record=record)
-    state, _ = agent.train(seed=[0, 1], n_timesteps=2)
-    agent.train(seed=[0, 1], n_timesteps=3, initial_state=state)
+    state, _ = agent.train(seed=[0, 1], n_timesteps=2, logging_config=None)
+    agent.train(seed=[0, 1], n_timesteps=3, initial_state=state, logging_config=None)
     jax.effects_barrier()
     assert len(record) == 1
 
@@ -206,20 +208,22 @@ def test_a_resume_keeps_unequal_update_counts_only_where_declared():
         return Counted(jnp.array([2, 1], jnp.int32))
 
     state, _ = PerSeedCountingAgent(at=-1, record=[]).train(
-        seed=[0, 1], n_timesteps=3, initial_state=unequal()
+        seed=[0, 1], n_timesteps=3, initial_state=unequal(), logging_config=None
     )
     np.testing.assert_array_equal(state.n_updates, [5, 4])
     with pytest.raises(ValueError, match="n_updates differ"):
         CountingAgent(at=-1, record=[]).train(
-            seed=[0, 1], n_timesteps=3, initial_state=unequal()
+            seed=[0, 1], n_timesteps=3, initial_state=unequal(), logging_config=None
         )
 
 
 def test_default_resume_offset_keeps_existing_agents_unchanged():
     agent = ToyAgent(absolute=False)
     assert agent.resume_iteration_offset({"ticks": jnp.array([7])}) == 0
-    state, _ = agent.train(seed=0, n_timesteps=3)
-    _, seen = agent.train(seed=0, n_timesteps=2, initial_state=state)
+    state, _ = agent.train(seed=0, n_timesteps=3, logging_config=None)
+    _, seen = agent.train(
+        seed=0, n_timesteps=2, initial_state=state, logging_config=None
+    )
     np.testing.assert_array_equal(seen, [[0, 1]])
 
 
@@ -351,3 +355,76 @@ def test_a_resumed_chunked_run_evaluates_on_absolute_ticks():
     np.testing.assert_array_equal(rows[:2], [[5, 15, 50], [8, 36, 80]])
     assert int(count) == 2
     assert int(state["sum"]) == 36
+
+
+def test_a_chunked_run_updates_its_replay_in_place_through_its_evaluations():
+    """Catches an evaluation that returns a copy of the state it reads: each
+    one would hold the replay twice (DreamerV3's replay in host memory ran out
+    of its 64 GB pool there), and the run would end on another buffer."""
+
+    def tick_fn(state, index, tick):
+        del index  # a replay-like write: slot ``tick`` holds ``tick``
+        return {"replay": state["replay"].at[tick].set(tick)}, 10 * tick
+
+    def log_fn(state, aux, out, index, tick):
+        del aux, index
+        rows, count = out
+        return state, (rows.at[count].set(state["replay"][tick]), count + 1)
+
+    train = build_chunked_train(
+        init_fn=lambda key, index: {"replay": jnp.full((1 << 16,), -1, jnp.int32)},
+        tick_fn=tick_fn,
+        log_fn=log_fn,
+        due=lambda ticks: (ticks + 1) % 3 == 0,
+        num_updates=8,
+        carry_out=lambda state, index: (jnp.full((4,), -1), jnp.zeros((), int)),
+    )
+    replay = jnp.full((1 << 16,), -1, jnp.int32)
+    storage = replay.unsafe_buffer_pointer()
+    state, (rows, count) = train(
+        jax.random.PRNGKey(0), initial_state={"replay": replay}, resume_from_state=True
+    )
+    # Ticks 2 and 5 are due; each evaluation reads the slot its tick wrote.
+    np.testing.assert_array_equal(rows, [2, 5, -1, -1])
+    np.testing.assert_array_equal(state["replay"][:9], [0, 1, 2, 3, 4, 5, 6, 7, -1])
+    assert state["replay"].unsafe_buffer_pointer() == storage
+
+
+# ---------------------------------------------------------------------------
+# final_aux_scan
+# ---------------------------------------------------------------------------
+
+
+def running_sum(total: jax.Array, x: jax.Array) -> tuple[jax.Array, dict]:
+    """The carry adds x; the aux is the new total times 10 and the x read."""
+    total = total + x
+    return total, {"scaled": total * 10.0, "x": x}
+
+
+@pytest.mark.parametrize(
+    "length, total, scaled, x",
+    # xs = 1, 2, ..., length: the total is length (length + 1) / 2 and the
+    # last step reads x = length.
+    [(1, 1.0, 10.0, 1.0), (2, 3.0, 30.0, 2.0), (5, 15.0, 150.0, 5.0)],
+)
+def test_final_aux_scan_returns_the_carry_and_the_last_steps_aux(
+    length: int, total: float, scaled: float, x: float
+) -> None:
+    """The bugs: the second-to-last step's aux, or the last step skipped or
+    run twice (the steps before it run apart from it)."""
+    xs = jnp.arange(1.0, length + 1.0)
+    carry, aux = jax.jit(final_aux_scan, static_argnums=(0, 2))(
+        running_sum, jnp.asarray(0.0), length, xs
+    )
+    assert float(carry) == total
+    assert (float(aux["scaled"]), float(aux["x"])) == (scaled, x)
+
+
+def test_final_aux_scan_without_inputs_counts_its_steps() -> None:
+    def count(steps: jax.Array, x: None) -> tuple[jax.Array, jax.Array]:
+        assert x is None
+        return steps + 1, steps * 100
+
+    carry, aux = final_aux_scan(count, jnp.asarray(0), 4)
+    # Four steps; the last starts from 3.
+    assert (int(carry), int(aux)) == (4, 300)

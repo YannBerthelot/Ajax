@@ -46,15 +46,22 @@ class LoggingConfig:
     log_frequency: environment steps between evaluations.
     folder: where use_tensorboard writes, folder/tensorboard/<run_id>/ (the
         working directory when None).
-    sweep: for hyperparameter sweeps, evaluate only in the last fifth of
-        training; with use_wandb, the W&B run gets no steps
-        (WandbBackend(steps=False)).
+    evaluate_last_fifth_only: evaluate only in the last fifth of training,
+        for hyperparameter searches that read the final scores; with
+        use_wandb, the W&B run gets no steps (WandbBackend(steps=False)).
+    sweep: deprecated, the earlier name of evaluate_last_fifth_only (not
+        train's sweep, which trains several configurations in one program).
     evaluation_device: a JAX device, such as jax.devices("cpu")[0] or a
         second GPU, to evaluate on in a thread while training goes on
         (ajax.async_evaluation); None: training waits for each evaluation.
         Not the training GPU: one process's programs on a GPU run one after
         the other. On the CPU, a MuJoCo Warp run is evaluated on pure-JAX
         physics.
+    on_evaluation: a function called in the training process with each
+        member's evaluation, on_evaluation(metrics, index): the metrics as
+        arrays and the member's position among train's members. A backend
+        logs in a process of its own; this is for what must happen here,
+        such as printing (ajax.logging.progress.ProgressPrinter).
     """
 
     config: dict = struct.field(default_factory=dict)
@@ -66,12 +73,32 @@ class LoggingConfig:
     # None: not set, which tells the flags apart from backends.
     use_tensorboard: Optional[bool] = None
     use_wandb: Optional[bool] = None
+    evaluate_last_fifth_only: bool = False
+    # Deprecated for evaluate_last_fifth_only.
     sweep: bool = False
     # None: not given, so the flags decide; () names no backend at all.
     backends: Optional[tuple] = struct.field(pytree_node=False, default=None)
     evaluation_device: Any = struct.field(pytree_node=False, default=None)
+    on_evaluation: Any = struct.field(pytree_node=False, default=None)
 
     def __post_init__(self) -> None:
+        if self.log_frequency < 1:
+            raise ValueError(
+                f"log_frequency={self.log_frequency}: pass the number of"
+                " environment steps between two evaluations, 1 or more. A run"
+                " without evaluations is train(logging_config=None)."
+            )
+        if self.sweep:
+            # stacklevel 3: the caller of LoggingConfig(...), past __init__.
+            warnings.warn(
+                "LoggingConfig's sweep is deprecated: it is now"
+                " evaluate_last_fifth_only (train's sweep is another thing).",
+                FutureWarning,
+                stacklevel=3,
+            )
+            object.__setattr__(self, "evaluate_last_fifth_only", True)
+            # Read once: a copy (replace) does not warn again.
+            object.__setattr__(self, "sweep", False)
         flag_set = self.use_wandb is not None or self.use_tensorboard is not None
         if flag_set and self.backends is None:
             # stacklevel 3: the caller of LoggingConfig(...), past __init__.
@@ -90,6 +117,12 @@ class LoggingConfig:
                 " through use_wandb and use_tensorboard, not both: name every"
                 " one in backends, such as backends=(TensorBoardBackend(folder),"
                 " WandbBackend(project, group))."
+            )
+        if isinstance(self.backends, LoggingBackend):
+            raise TypeError(
+                "LoggingConfig's backends is a tuple of backends: write"
+                f" backends=({type(self.backends).__name__}(...),), with the"
+                " trailing comma."
             )
         for backend in self.backends or ():
             if not isinstance(backend, LoggingBackend):
@@ -113,7 +146,7 @@ class LoggingConfig:
                 WandbBackend(
                     project=self.project_name,
                     group=self.group_name,
-                    steps=not self.sweep,
+                    steps=not self.evaluate_last_fifth_only,
                 )
             )
         if self.use_tensorboard:
@@ -220,6 +253,14 @@ def _logging_worker(q: Any) -> None:
         _call(backend, "close")
 
 
+UNGUARDED_SCRIPT = (
+    "Ajax's logging runs in a process of its own, which imports your script:"
+    " a script that trains at its top level then trains again inside it, and"
+    " the run's logs are lost. Put the training under"
+    ' `if __name__ == "__main__":`.'
+)
+
+
 def start_async_logging() -> None:
     """Spawn the logging process (once; no-op if already running)."""
     global _log_queue, _log_process, _pending_init_msgs
@@ -232,19 +273,40 @@ def start_async_logging() -> None:
         _log_process = _mp_ctx.Process(
             target=_logging_worker, args=(_log_queue,), daemon=True
         )
-        _log_process.start()
-        if _old is None:
-            os.environ.pop("JAX_PLATFORMS", None)
-        else:
-            os.environ["JAX_PLATFORMS"] = _old
+        try:
+            _log_process.start()
+        except RuntimeError as error:
+            # Python refuses a process started while another is being
+            # imported: this is the worker, importing a script that trains
+            # at its top level.
+            raise RuntimeError(UNGUARDED_SCRIPT) from error
+        finally:
+            _restore_platforms(_old)
         for msg in _pending_init_msgs:
             _log_queue.put(msg)
         _pending_init_msgs.clear()
 
 
+def _restore_platforms(old: Optional[str]) -> None:
+    """JAX_PLATFORMS as it was before the worker started."""
+    if old is None:
+        os.environ.pop("JAX_PLATFORMS", None)
+    else:
+        os.environ["JAX_PLATFORMS"] = old
+
+
 def stop_async_logging() -> None:
     """Drain the queue, then stop the logging process."""
     global _log_queue, _log_process, _pending_init_msgs
+    if _log_process is not None and _log_process.exitcode not in (None, 0):
+        # The worker died before its poison pill: nothing it held was written.
+        warnings.warn(
+            f"The logging process stopped early (exit code"
+            f" {_log_process.exitcode}): this run's logs are missing or"
+            f" incomplete; train's evaluations are whole. {UNGUARDED_SCRIPT}",
+            UserWarning,
+            stacklevel=2,
+        )
     if _log_process is not None and _log_process.is_alive() and _log_queue is not None:
         _log_queue.put(None)  # poison pill
         try:

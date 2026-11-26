@@ -2,7 +2,7 @@
 Release workflow's installed-package gate: the core install, and each extra
 installed on its own.
 
-    python tests/release_smoke.py core|brax|playground|gymnasium|gymnasium-mjx|compare|reproduction|manifolds|wandb|cuda
+    python tests/release_smoke.py core|brax|playground|gymnasium|gymnasium-mjx|compare|reproduction|manifolds|render|wandb|cuda
 
 Each check is the smallest real use, seconds long. It imports only the
 standard library and what the install it checks brings, not even pytest,
@@ -171,6 +171,18 @@ def manifolds() -> None:
     assert embeddings.aligned_umap(trace).shape == (8, 32, 2)
 
 
+def render() -> None:
+    """A classic-control episode drawn to a GIF: matplotlib, pygame and the
+    GIF writer are all there."""
+    from ajax import PPO
+
+    agent = PPO("CartPole-v1", n_envs=2, n_steps=16)
+    state, _ = agent.train(seed=0, n_timesteps=32, logging_config=None)
+    with tempfile.TemporaryDirectory() as folder:
+        path = agent.render(state, f"{folder}/cartpole.gif", max_steps=3)
+        assert pathlib.Path(path).read_bytes().startswith(b"GIF"), path
+
+
 CHECKS = {
     "core": core,
     "brax": lambda: step_env("fast"),
@@ -180,6 +192,7 @@ CHECKS = {
     "compare": compare,
     "reproduction": reproduction,
     "manifolds": manifolds,
+    "render": render,
     "wandb": wandb_backend,
     "cuda": cuda,
 }

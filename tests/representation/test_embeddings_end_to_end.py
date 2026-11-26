@@ -74,7 +74,7 @@ def test_an_agent_without_a_critic_ensemble_gets_its_figures(tmp_path, monkeypat
         architecture=NET,
         extensions=(RepresentationProbe(directory, 8, n_states=128),),
     )
-    agent.train(seed=[0], n_timesteps=64)
+    agent.train(seed=[0], n_timesteps=64, logging_config=None)
     monkeypatch.setattr(
         sys, "argv", ["ajax.representation", str(directory), str(figures)]
     )

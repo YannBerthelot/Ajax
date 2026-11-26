@@ -156,7 +156,7 @@ def test_an_evaluation_keeps_the_actors_own_statistics():
     actor (no env statistics) acts on observations normalised by the actor's
     statistics, which the evaluation does not drop. It is evaluating the
     actor handed those normalised observations."""
-    state, _ = _normalising_sac().train(seed=0, n_timesteps=32)
+    state, _ = _normalising_sac().train(seed=0, n_timesteps=32, logging_config=None)
     actor = jax.tree.map(lambda x: x[0], state.actor_state)
     assert actor.obs_norm_info is not None
     normalised = ActsOn(actor, partial(apply_obs_norm, info=actor.obs_norm_info))
@@ -182,7 +182,7 @@ def test_an_evaluation_normalises_with_the_collectors_statistics(monkeypatch):
         actor_architecture=net,
         critic_architecture=net,
     )
-    state, _ = agent.train(seed=0, n_timesteps=32)
+    state, _ = agent.train(seed=0, n_timesteps=32, logging_config=None)
     state = jax.tree.map(lambda x: x[0], state)
     assert state.collector_state.obs_norm_info is not None
     read = []

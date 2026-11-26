@@ -26,9 +26,24 @@ Two prefixes choose a source outright: `"mujoco:<id>"` for
 Brax and Playground ids need Ajax's `brax` or `playground` extra, and
 `"mujoco:"` ids the `gymnasium-mjx` extra
 ([Installation](../getting-started/installation.md#extras)). An unknown id
-raises `ValueError`, naming the extras that are not installed; a `"mujoco:"`
-id without its package raises `ImportError`, naming the extra. The agent
-builds `n_envs` copies, which step in parallel.
+raises `ValueError`, naming the closest ids and the extras that are not
+installed; a `"mujoco:"` id without its package raises `ImportError`,
+naming the extra. The agent builds `n_envs` copies, which step in parallel.
+
+Each source lists its own ids:
+
+| Source | Its ids |
+| --- | --- |
+| gymnax | `gymnax.registered_envs` |
+| MuJoCo Playground | `mujoco_playground.registry.ALL_ENVS` |
+| Brax | the modules of [`brax.envs`](https://github.com/google/brax/tree/main/brax/envs) |
+| `mujoco:` | `gymnasium_mjx.TASKS`, [listed below](#gymnasiums-mujoco-tasks-in-jax) |
+
+```python
+import gymnax
+
+print(gymnax.registered_envs)  # ['Pendulum-v1', 'CartPole-v1', ...]
+```
 
 ```python
 from ajax import PPO, SAC
@@ -38,8 +53,10 @@ agent = PPO("CartPole-v1")  # gymnax, discrete actions
 ```
 
 gymnax environments with image observations are flattened to one vector,
-because the networks read flat vectors. A [CNN encoder](networks.md) can
-rebuild the image from it.
+because the networks read flat vectors. An MLP reads that vector unless you
+pass `cnn_image_shape`, which turns on a
+[CNN encoder](networks.md#image-observations) that rebuilds the image; Ajax
+warns when images reach an MLP.
 
 ### Brax and Playground
 
@@ -243,6 +260,81 @@ state, _ = agent.train(seed=0, n_timesteps=1_000)
 `SAC("Pendulum-v1", env_params=params)` does the same with an id. Brax and
 Playground ids take no `env_params`: passing some raises.
 
+### Writing one
+
+An environment of your own is a subclass of gymnax's `Environment`: a state,
+parameters, a reset, a step and the two spaces. Here a point moves along a
+line and is rewarded for nearing a target:
+
+```python
+import jax
+import jax.numpy as jnp
+from flax import struct
+from gymnax.environments import environment, spaces
+
+from ajax import PPO
+
+
+@struct.dataclass
+class State(environment.EnvState):  # EnvState holds `time`, the step count
+    x: jax.Array  # the point's position
+    target: jax.Array
+
+
+@struct.dataclass
+class Params(environment.EnvParams):
+    max_steps_in_episode: int = 50  # the time limit
+
+
+class Reach(environment.Environment):
+    """A point moves by 0.1 * action towards a random target."""
+
+    @property
+    def default_params(self):
+        return Params()
+
+    def reset_env(self, key, params):
+        target = jax.random.uniform(key, minval=-1.0, maxval=1.0)
+        state = State(time=0, x=jnp.float32(0.0), target=target)
+        return self.get_obs(state), state
+
+    def step_env(self, key, state, action, params):
+        x = state.x + 0.1 * jnp.clip(action[0], -1.0, 1.0)
+        state = state.replace(x=x, time=state.time + 1)
+        reward = -jnp.abs(state.target - x)
+        terminated = jnp.abs(x) > 2.0  # the task's own end, not the time limit
+        return self.get_obs(state), state, reward, terminated, {}
+
+    def get_obs(self, state, params=None, key=None):
+        return jnp.stack([state.x, state.target])
+
+    def observation_space(self, params):
+        return spaces.Box(-jnp.inf, jnp.inf, (2,))
+
+    def action_space(self, params):
+        return spaces.Box(-1.0, 1.0, (1,))
+
+
+agent = PPO(Reach(), env_params=Params(), n_envs=8, n_steps=64)
+state, evaluations = agent.train(seed=[0, 1], n_timesteps=5_120)
+```
+
+What to know when writing one:
+
+- **`step_env` returns five values, and the fourth is the termination
+  only.** Count the steps in `state.time`. gymnax's own `step`, the one Ajax
+  and your loops call, compares it with `params.max_steps_in_episode`, adds
+  the `truncated` flag and resets the environment, so `env.step` returns six
+  values: `obs, state, reward, terminated, truncated, info`.
+- **Leave the time limit out of that fourth value.** Returned there, it
+  would be a termination, and the agent would stop bootstrapping at the
+  limit ([Time limits](#time-limits)).
+- **The step is compiled.** It reads its randomness from `key`, and chooses
+  between values with `jnp.where`, not with a Python `if` on them.
+- **A saved agent does not hold the environment.** `agent.save` stores the
+  agent's plain arguments; pass the environment again when loading:
+  `ajax.load(path, env_id=Reach(), env_params=Params())`.
+
 ### TargetGym
 
 TargetGym's set-point tasks (aircraft, process control, industrial plants)
@@ -270,6 +362,7 @@ Ajax ships gymnax wrappers for common changes to a task:
 | --- | --- |
 | `InitialStateWrapper(env, init_state_fn)` | replaces the reset state, for every episode (fixed or narrowed initial conditions) |
 | `ObservationNoiseWrapper(env, sigma, scale=1.0)` | adds sensor noise to the observations (see [below](#sensor-noise)) |
+| `ObservationWrapper(env)` | a base class: your `observation(obs)` changes every observation (see [below](#changing-the-observations)) |
 | `TerminatedTruncatedWrapper(env)` | splits an old-style `done` into `terminated` and `truncated` (see [time limits](#time-limits)) |
 
 ```python
@@ -318,6 +411,42 @@ env, params = gymnax.make("Pendulum-v1")
 agent = SAC(ScaleReward(env), env_params=params, learning_starts=500)
 state, _ = agent.train(seed=0, n_timesteps=1_000)
 ```
+
+#### Changing the observations
+
+To change the observations, subclass `ObservationWrapper` and write
+`observation`; do not override `reset` and `step` on a `GymnaxWrapper`. When
+an episode ends, gymnax has already reset the environment, and the last
+observation of the finished episode travels in `info["final_observation"]`.
+The agent learns from it. `ObservationWrapper` changes it as it changes the
+others. A wrapper that changes only what `reset` and `step` return leaves
+it as the environment made it: the agent then trains on two kinds of
+observations and learns poorly, with no error.
+
+```python
+import gymnax
+import jax.numpy as jnp
+
+from ajax import PPO
+from ajax.wrappers import ObservationWrapper
+
+
+class HideVelocities(ObservationWrapper):
+    """CartPole showing positions only: both velocities read zero."""
+
+    def observation(self, obs):
+        # CartPole observes [position, velocity, angle, angular velocity].
+        return obs * jnp.array([1.0, 0.0, 1.0, 0.0])
+
+
+env, params = gymnax.make("CartPole-v1")
+agent = PPO(HideVelocities(env), env_params=params, n_envs=8, n_steps=64)
+state, _ = agent.train(seed=0, n_timesteps=1_024)
+```
+
+A wrapper that changes the observations' shape also defines
+`observation_space(params)`. This CartPole needs memory to be solved:
+[Memory](memory.md) trains on it.
 
 Two more modules turn one environment into a family of tasks:
 `ajax.environments.model_reference` (follow a reference model's response)
@@ -444,7 +573,7 @@ The logged returns stay in the environment's units. Evaluation normalises
 observations with the training statistics, frozen, and never normalises
 rewards.
 
-The agents learning from the rollout they just collected (PPO, APO, PQN and
+The agents learning from the rollout they just collected (PPO, APO, REINFORCE, PQN and
 AVG) store each observation normalised with the statistics of its
 collection, which count it: the rollout holds what the actor saw, as
 openai/baselines ppo2's `VecNormalize` keeps it. The statistics live in
@@ -452,7 +581,9 @@ openai/baselines ppo2's `VecNormalize` keeps it. The statistics live in
 policy on a new observation yourself, normalise it as `(obs - mean) /
 sqrt(var + 1e-8)` first.
 
-The replay agents (SAC, TD3, REDQ, ASAC, DQN, UDRL) learn from rows
+The [replay agents](../algorithms/index.md#agent-families) and UDRL
+(<!-- agents: raw-replay -->SAC, ASAC, RVI-SAC, REDQ, CrossQ, TQC, TD3, IQL, DQN, DAgger, UDRL<!-- /agents -->)
+learn from rows
 collected long before, so their replay keeps the environment's own
 observations and rewards, and a replayed row is normalised with the current
 statistics, as Stable-Baselines3's replay buffer does under `VecNormalize`.
@@ -568,7 +699,8 @@ it for the bootstrap.
 Each backend reports the two flags its own way:
 
 - **gymnax 1.0** returns `terminated` and `truncated` apart. Ajax uses them
-  as they are.
+  as they are. An environment of your own gets its `truncated` from gymnax
+  the same way ([Writing one](#writing-one)).
 - **Older gymnax-style environments** return one `done` that folds in the
   time limit, which gymnax hands back as `terminated`: every time limit then
   looks like the end of the task. Wrap such an environment in

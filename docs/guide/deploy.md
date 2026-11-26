@@ -21,6 +21,68 @@ print(evaluations["Eval/episodic mean reward"])  # seeds x evaluations
 
 [Training an agent](training.md) and [Logging](logging.md) have the details.
 
+## Watch the policy
+
+`agent.render(state, path)` runs one fresh episode of a trained policy and
+saves it as an animation:
+
+```python
+import os
+import tempfile
+
+from ajax import PQN
+
+breakout = PQN("Breakout-MinAtar", cnn_image_shape=(10, 10, 4), n_envs=8, n_steps=16)
+breakout_state, _ = breakout.train(seed=0, n_timesteps=1_024, logging_config=None)
+animation = os.path.join(tempfile.mkdtemp(), "breakout.gif")
+breakout.render(breakout_state, animation, max_steps=50)
+```
+
+The policy acts as in `evaluate`. `seed_index` picks the seed whose policy
+plays, `seed` draws the episode's start, and `max_steps` cuts a long
+episode short. What the file is, and what drawing needs beyond Ajax,
+depends on the environment:
+
+| Environment | File | Needs |
+| --- | --- | --- |
+| gymnax: classic control (`CartPole-v1`, `Pendulum-v1`, `Acrobot-v1`, MountainCar) | `.gif` | the `render` extra: `pip install "ajax-rl[render]"` |
+| gymnax: MinAtar, `Catch-bsuite`, `Pong-misc`, `PointRobot-misc`, the mazes | `.gif` | nothing more |
+| Brax | `.html`, a page showing the episode in three dimensions | nothing to install; the page loads its viewer from the internet when opened |
+| MuJoCo Playground and `mujoco:` tasks | `.gif` | the `render` extra, for the GIF writer; without a display, set `MUJOCO_GL=egl` |
+| Gymnasium (`gymnasium:` ids) | `.gif` of the environment's own pictures | what Gymnasium needs to draw that environment (pygame for classic control, in the `render` extra) |
+| Any other, with `draw=` | `.gif` | nothing more |
+
+The gymnax drawings are gymnax's own, and the MuJoCo frames are 320 by 240
+pixels from the task's default camera. A Gymnasium environment is drawn by
+copies built with `render_mode="rgb_array"`, at the speed it names.
+
+Another gymnax task, or an environment of your own, has no drawing Ajax
+knows, and `render` says so before running anything. Pass it a function
+drawing one state:
+
+```python
+import jax.numpy as jnp
+
+from ajax import PPO
+
+
+def draw(env_state):
+    """A white dot at the arm's tip, on a 64 by 64 black picture."""
+    angles = jnp.cumsum(env_state.angles)
+    tip = jnp.stack([jnp.cos(angles).sum(), jnp.sin(angles).sum()]) / env_state.angles.size
+    column, row = jnp.round(31.5 + 28 * tip).astype(int)
+    return jnp.zeros((64, 64, 3)).at[row, column].set(1.0)
+
+
+reacher = PPO("Reacher-misc", n_envs=4, n_steps=32)
+reacher_state, _ = reacher.train(seed=0, n_timesteps=1_024)
+reacher.render(reacher_state, "reacher.gif", draw=draw, max_steps=50)
+```
+
+`draw` receives one environment's state, with the environment's own fields
+and no leading axis, and returns a `(height, width, 3)` picture: 8-bit
+colours, or floats between 0 and 1. The GIF plays 30 pictures a second.
+
 ## Act with the trained policy
 
 `agent.policy(state, seed_index)` returns the policy of one seed. It acts on
@@ -84,15 +146,73 @@ action = agent.predict(state, obs[0])  # one observation; a batch works too
 print(action)
 ```
 
+It acts for the first seed; `seed_index` picks another. With it, an episode
+in one environment is a plain loop:
+
+```python
+single_reset_key, single_key = jax.random.split(jax.random.PRNGKey(1))
+single_obs, single_state = env.reset(single_reset_key, params)
+episode_return, episode_over = 0.0, False
+while not episode_over:
+    single_action = agent.predict(state, single_obs)
+    single_key, step_key = jax.random.split(single_key)
+    single_obs, single_state, single_reward, terminated, truncated, _ = env.step(
+        step_key, single_state, single_action, params
+    )
+    episode_return += float(single_reward)
+    episode_over = bool(terminated or truncated)
+print(episode_return)
+```
+
+Each step draws on a fresh key, split from the last: JAX has no hidden
+random state.
+
 An agent whose policy carries memory refuses `predict`, since one call cannot
 carry it between steps: a recurrent actor, a world model (DreamerV3,
 TD-MPC2), UDRL, an expert or a feature with a state. Use `policy` instead.
+For one environment, it is the same loop with a carry and a batch of one:
+`obs[None]` adds the batch axis and `actions[0]` removes it.
+
+```python
+from ajax import PPO
+from ajax.networks.memory import MemoryConfig
+
+memory_agent = PPO(
+    "CartPole-v1",
+    n_envs=4,
+    n_steps=32,
+    memory=MemoryConfig(kind="gru", hidden_size=16),
+    bptt_length=16,
+)
+memory_state, _ = memory_agent.train(seed=0, n_timesteps=512, logging_config=None)
+
+cartpole, cartpole_params = gymnax.make("CartPole-v1")
+memory_policy = memory_agent.policy(memory_state)
+memory_carry = memory_policy.reset(1)  # one environment
+reset_key, loop_key = jax.random.split(jax.random.PRNGKey(2))
+one_obs, one_state = cartpole.reset(reset_key, cartpole_params)
+episode_return, episode_over = 0.0, False
+while not episode_over:
+    actions, memory_carry = memory_policy.act(one_obs[None], memory_carry)
+    loop_key, step_key = jax.random.split(loop_key)
+    one_obs, one_state, one_reward, terminated, truncated, _ = cartpole.step(
+        step_key, one_state, actions[0], cartpole_params
+    )
+    episode_return += float(one_reward)
+    episode_over = bool(terminated or truncated)
+print(episode_return)
+```
+
 TDMPC2MultiTask has no policy yet: its planner acts for one task of its set.
 
 ## Save and load
 
-`save_checkpoint` writes a state to disk. `load_checkpoint` reads it back
-into an agent built with the same arguments, in this process or another:
+`agent.save(state, path)` writes the state with the agent's class and
+arguments, and `agent, state = ajax.load(path)` builds both again: the
+shortest way, shown in [Checkpoints](checkpoints.md#save-and-load-an-agent).
+The pair below stores the state alone: `save_checkpoint` writes it, and
+`load_checkpoint` reads it back into an agent you build with the same
+arguments, in this process or another:
 
 ```python
 import os

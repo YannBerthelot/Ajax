@@ -25,6 +25,7 @@ notes on using it:
 | PQN | `ajax.agents.PQN.PQN.PQN` | [PQN](../algorithms/pqn.md#api) |
 | PPO | `ajax.agents.PPO.PPO.PPO` | [PPO](../algorithms/ppo.md#api) |
 | APO | `ajax.agents.APO.APO.APO` | [APO](../algorithms/apo.md#api) |
+| REINFORCE | `ajax.agents.REINFORCE.REINFORCE.REINFORCE` | [REINFORCE](../algorithms/reinforce.md#api) |
 | UDRL | `ajax.agents.UDRL.UDRL.UDRL` | [UDRL](../algorithms/udrl.md#api) |
 | DAgger | `ajax.agents.DAgger.DAgger.DAgger` | [DAgger](../algorithms/dagger.md#api) |
 | APG | `ajax.agents.APG.APG.APG` | [APG](../algorithms/apg.md#api) |
@@ -38,20 +39,41 @@ Every agent but DreamerV3 and TD-MPC2 is a declared agent: its
 hyperparameters are the fields of a dataclass on a family of
 `ajax.agents.families`, which builds its constructor (keyword-only after
 `env_id`), run config and train function: a replay
-(SAC, TQC, REDQ, ASAC, RVISAC, CrossQ, TD3, IQL, DQN, DAgger: `ReplayAgent`), each
-step as it comes (AVG: `IncrementalAgent`), rollouts (PPO, APO, PQN:
+(<!-- agents: replay -->SAC, TQC, REDQ, ASAC, RVISAC, CrossQ, TD3, IQL, DQN, DAgger<!-- /agents -->: `ReplayAgent`), each
+step as it comes (AVG: `IncrementalAgent`), rollouts (PPO, APO, REINFORCE, PQN:
 `OnPolicyAgent`) or an iteration of its own (UDRL, APG:
-`OwnIterationAgent`). Its fields are fixed once built:
+`OwnIterationAgent`); [Agent families](../algorithms/index.md#agent-families)
+lists them. Its fields are fixed once built:
 `dataclasses.replace(agent, gamma=0.9)` builds another.
 
 ::: ajax.agents.base.ActorCritic
 
 ::: ajax.agents.families
 
+## Presets and sweeps
+
+`Agent.preset(task, env_id)` builds an agent from its reference's settings
+for one task, and `train(sweep=...)` trains several configurations in one
+program. See [Presets](../guide/training.md#presets) and
+[Hyperparameter sweeps](../guide/training.md#hyperparameter-sweeps).
+
+::: ajax.agents.presets
+
+::: ajax.agents.sweep
+
+## Acting
+
 A trained agent acts through its policy (`agent.policy`, `agent.predict`;
 [Train, evaluate, deploy](../guide/deploy.md)).
 
 ::: ajax.policy
+
+The policy, collection and evaluation act through one controller: the
+features, the normaliser, the expert, the carry and the action transforms.
+An extension author meets it in
+[Writing an extension](../developer/writing-an-extension.md).
+
+::: ajax.controller
 
 PPO's update cuts its rollout into minibatches in one of three ways (a
 rollout split), which also says where the advantages are computed: `"flat"`, ppo2's shuffled single steps,

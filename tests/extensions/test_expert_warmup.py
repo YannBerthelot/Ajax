@@ -33,7 +33,7 @@ def sac(**kwargs: Any) -> SAC:
 
 def train(agent: SAC) -> Any:
     """Six steps per env, four of them the warm-up: one seed's state."""
-    state, _ = agent.train(seed=0, n_timesteps=12)
+    state, _ = agent.train(seed=0, n_timesteps=12, logging_config=None)
     return jax.tree.map(lambda leaf: leaf[0], state)
 
 
@@ -125,7 +125,7 @@ def test_the_expert_takes_avgs_warmup():
         extensions=warmup,
         **ARCHITECTURES,
     )
-    state, _ = agent.train(seed=0, n_timesteps=8)
+    state, _ = agent.train(seed=0, n_timesteps=8, logging_config=None)
     assert float(state.collector_state.last_expert_frac[0]) == 1.0
 
 
@@ -150,7 +150,7 @@ def warmup_rows(cls: Any, **kwargs: Any) -> dict[str, np.ndarray]:
         buffer_size=64,
         **kwargs,
     )
-    state, _ = agent.train(seed=0, n_timesteps=20)
+    state, _ = agent.train(seed=0, n_timesteps=20, logging_config=None)
     rows = state.collector_state.buffer_state.experience
     return {field: np.asarray(value)[0] for field, value in rows.items()}
 

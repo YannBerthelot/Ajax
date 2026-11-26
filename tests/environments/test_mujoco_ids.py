@@ -7,6 +7,9 @@ gymnasium-mjx's own test suite):
 - "mujoco:<id>" builds the package's task with Gymnasium's time limit (50
   steps for Reacher, 100 for Pusher, 1000 for the others) unless the caller
   gives one, and the evaluation rebuild keeps both;
+- an agent's action of -1, 0 and 1 drives each motor at the low end, the
+  centre and the high end of Gymnasium's action space (oracle:
+  gymnasium.make(id).action_space), whatever does the mapping;
 - an unknown id is refused;
 - without the package, building one raises an ImportError that names the
   extra to install.
@@ -14,12 +17,17 @@ gymnasium-mjx's own test suite):
 
 import sys
 
+import jax
+import jax.numpy as jnp
+import numpy as np
 import pytest
 
 pytest.importorskip("mujoco_playground")
 pytest.importorskip("gymnasium_mjx")
+gymnasium = pytest.importorskip("gymnasium")
 
 from ajax.environments.create import build_env_from_id
+from ajax.environments.utils import agent_action_to_env
 from ajax.evaluate import setup_environment
 
 
@@ -49,6 +57,26 @@ def test_the_evaluation_rebuild_keeps_the_task_and_its_time_limit():
 
     assert type(evaluation_env.unwrapped.task).__name__ == "Reacher"
     assert evaluation_env.episode_length == 50
+
+
+# Humanoid: +-0.4 per motor; Pusher: +-2; InvertedPendulum: +-3. Each
+# differs from [-1, 1], so a missing mapping shows; gymnasium-mjx's own
+# tests check every task's bounds.
+@pytest.mark.parametrize("task_id", ["Humanoid-v5", "Pusher-v5", "InvertedPendulum-v5"])
+def test_an_agents_action_drives_the_motors_across_gymnasiums_action_space(task_id):
+    space = gymnasium.make(task_id).action_space
+    env, env_params = build_env_from_id(f"mujoco:{task_id}", n_envs=3)
+    agent_actions = jnp.stack(
+        [-jnp.ones(space.shape), jnp.zeros(space.shape), jnp.ones(space.shape)]
+    )
+
+    state = env.reset(jax.random.split(jax.random.PRNGKey(0), 3))
+    state = env.step(state, agent_action_to_env(agent_actions, env, env_params))
+
+    ctrl = np.asarray(state.data.ctrl)
+    np.testing.assert_allclose(ctrl[0], space.low, rtol=0, atol=1e-6)
+    np.testing.assert_allclose(ctrl[1], (space.low + space.high) / 2, rtol=0, atol=1e-6)
+    np.testing.assert_allclose(ctrl[2], space.high, rtol=0, atol=1e-6)
 
 
 def test_an_unknown_task_is_refused():

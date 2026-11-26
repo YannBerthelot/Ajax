@@ -17,7 +17,7 @@ def test_redq_sets_its_critics_units():
             critic_architecture=NET,
             learning_starts=4,
             num_critic_updates=2,
-        ).train(seed=[0], n_timesteps=8)
+        ).train(seed=[0], n_timesteps=8, logging_config=None)
         return state.critic_state.action_units
 
     assert units("Pendulum-v1") == ((0.0,), (2.0,))  # torque in [-2, 2]

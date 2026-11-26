@@ -47,6 +47,7 @@ from ajax.policy import frozen_progress, make_act, normalised_reward
 from ajax.policy import (
     get_deterministic_action_and_entropy_fn as get_deterministic_action_and_entropy_fn,
 )
+from ajax.random_keys import derive_key, fold_index
 from ajax.state import EnvironmentConfig
 from ajax.wrappers import NormalizationInfo
 
@@ -62,42 +63,25 @@ _RATE_STEPS = 10_000 // _RATE_ENVS
 _RATE_TRAJECTORIES = 10
 
 
-@dataclasses.dataclass(frozen=True, eq=False)
+@dataclasses.dataclass(frozen=True)
 class ValueEstimate:
     """An agent's critic, read for the value bias :func:`evaluate` returns:
     ``value(agent_state, obs, action)`` is its estimate (one per env) of the
     return from ``obs`` taking ``action``, of the rewards times
     ``reward_scale`` discounted by ``gamma``, as its targets are.
 
-    A static argument of the evaluation, its numbers the program's
-    constants, so that the evaluation an asynchronous evaluator compiles
-    apart holds them too. A sweep member's ``gamma`` is a traced number
-    (``ActorCritic.train``'s ``sweep``), which can be neither hashed nor
-    compared: an estimate hashes by its value function, and a traced number
-    equals only itself."""
+    The value function is part of the evaluation's program; ``gamma`` and
+    ``reward_scale`` are its arguments, since a sweep member's are traced
+    numbers (``ActorCritic.train``'s ``sweep``)."""
 
     value: Callable[[Any, jax.Array, jax.Array], jax.Array]
     gamma: float
     reward_scale: float = 1.0
 
-    def __hash__(self) -> int:
-        return hash(self.value)
 
-    def __eq__(self, other: object) -> bool:
-        if not isinstance(other, ValueEstimate):
-            return NotImplemented
-        return (
-            self.value == other.value
-            and _same_number(self.gamma, other.gamma)
-            and _same_number(self.reward_scale, other.reward_scale)
-        )
-
-
-def _same_number(ours: Any, theirs: Any) -> bool:
-    """Equal numbers, or a traced number (a sweep member's) and itself."""
-    if isinstance(ours, jax.Array) or isinstance(theirs, jax.Array):
-        return ours is theirs
-    return bool(ours == theirs)
+jax.tree_util.register_dataclass(
+    ValueEstimate, data_fields=["gamma", "reward_scale"], meta_fields=["value"]
+)
 
 
 def _value_bias(
@@ -818,7 +802,6 @@ def _start_rollout(
         "max_eval_steps",
         "controller",
         "eval_expert_policy",
-        "value_estimate",
         "command",
     ],
 )
@@ -1206,3 +1189,155 @@ def evaluate_policy(
     )
     final, _ = jax.lax.scan(body, init, None, length=horizon)
     return final[5].mean(), final[6].mean()
+
+
+def _raw_evaluation_env(env_args: EnvironmentConfig, num_episodes: int) -> tuple:
+    """``(env, mode, env_params, horizon)``: ``env_args``' env rebuilt raw for
+    ``num_episodes`` envs (no normalisation: a policy's parts normalise as
+    the agent does), with the training action repeat and episode length,
+    and the agent steps an episode lasts at most."""
+    env, env_params = env_args.env, env_args.env_params
+    if env_params_is_batched(env_params):
+        raise ValueError(
+            "agent.evaluate and agent.render run one system: pass unbatched"
+            " env_params, not per-env params."
+        )
+    train_episode_length = (
+        getattr(env, "episode_length", None) if get_env_type(env) == "brax" else None
+    )
+    env, mode, _ = setup_environment(
+        env,
+        env_params,
+        num_episodes,
+        norm_info=None,
+        gamma=0.99,  # unused without norm_info
+        action_repeat=env_args.action_repeat,
+        episode_length=train_episode_length,
+    )
+    horizon = agent_episode_length(env, env_params, env_args.action_repeat)
+    return env, mode, env_params, horizon
+
+
+def policy_episode(
+    env_args: EnvironmentConfig,
+    parts: Any,
+    key: jax.Array,
+    max_steps: Optional[int] = None,
+    snapshot: Optional[Callable[[Any, Any], Any]] = None,
+) -> tuple[Any, list, list[float]]:
+    """One episode under a trained policy's ``parts``, kept step by step for
+    drawing: the env it ran on (:func:`policy_returns`' rebuilt one, a
+    single copy), that env's state at the reset and after every step but
+    the one ending the episode (whose state is already the next episode's),
+    each with its leading axis of one env, and every step's reward. It
+    stops at the episode's end, or after ``max_steps`` steps. The steps run
+    one by one from Python, each compiled: the states are kept, which a
+    compiled loop would have to hold for the longest episode possible.
+    ``snapshot(env, state)`` replaces each kept state by what it returns,
+    taken when the env stands there: a Gymnasium env's state lives in its
+    simulator, which the next step moves."""
+    env, mode, env_params, horizon = _raw_evaluation_env(env_args, 1)
+    key, obs, env_state = _reset_envs(env, mode, env_params, 1, key)
+
+    @jax.jit
+    def advance(obs, env_state, policy_carry, starts, reward, index):
+        step_key = fold_index(key, index)
+        policy_key = derive_key(step_key, "rollout_action")
+        action, policy_carry = parts.step(obs, policy_carry, starts, reward, policy_key)
+        obs, env_state, reward, terminated, truncated, _ = step(
+            env_keys(derive_key(step_key, "rollout_env_step"), mode, 1),
+            env_state,
+            action,
+            env,
+            mode,
+            env_params,
+        )
+        ended = (terminated.reshape(1) > 0) | (truncated.reshape(1) > 0)
+        reward = reward.reshape(1).astype(jnp.float32)
+        return obs, env_state, policy_carry, reward, ended[0]
+
+    policy_carry, starts = parts.initial(1), jnp.ones(1, bool)
+    reward = jnp.zeros(1, jnp.float32)
+
+    def kept(env_state: Any) -> Any:
+        if snapshot is None:
+            return env_state
+        # The reset or step that led here has run once its outputs exist.
+        jax.block_until_ready(env_state)
+        return snapshot(env, env_state)
+
+    states, rewards = [kept(env_state)], []
+    for index in range(horizon if max_steps is None else min(horizon, max_steps)):
+        obs, env_state, policy_carry, reward, ended = advance(
+            obs, env_state, policy_carry, starts, reward, index
+        )
+        starts = jnp.zeros(1, bool)
+        rewards.append(float(reward[0]))
+        if bool(ended):
+            break
+        states.append(kept(env_state))
+    return env, states, rewards
+
+
+def policy_returns(
+    env_args: EnvironmentConfig, parts: Any, num_episodes: int, key: jax.Array
+) -> tuple[jax.Array, jax.Array]:
+    """The return and the length of one episode in each of ``num_episodes``
+    envs, under a trained policy's ``parts`` (``ajax.policy.PolicyParts``,
+    from ``agent.policy_parts()`` on one seed's state): what
+    ``agent.evaluate`` runs.
+
+    The env is rebuilt raw (no normalisation: the parts normalise as the
+    agent does) with the training action repeat and episode length, and
+    reset from ``key``. The parts act in the env's units from the env's own
+    observations, starting an episode on the first step; every env runs one
+    episode, its rewards and steps counted until its first end.
+    """
+    env, mode, env_params, horizon = _raw_evaluation_env(env_args, num_episodes)
+    key, obs, env_state = _reset_envs(env, mode, env_params, num_episodes, key)
+
+    def body(carry: tuple, index: jax.Array) -> tuple[tuple, None]:
+        obs, env_state, policy_carry, starts, reward, done, ret, length = carry
+        step_key = fold_index(key, index)
+        policy_key = derive_key(step_key, "rollout_action")
+        action, policy_carry = parts.step(obs, policy_carry, starts, reward, policy_key)
+        obs, env_state, reward, terminated, truncated, _ = step(
+            env_keys(derive_key(step_key, "rollout_env_step"), mode, num_episodes),
+            env_state,
+            action,
+            env,
+            mode,
+            env_params,
+        )
+        reward = reward.reshape(num_episodes).astype(jnp.float32)
+        running = jnp.logical_not(done)
+        ret = ret + jnp.where(running, reward, 0.0)
+        length = length + running.astype(jnp.float32)
+        ended = (terminated.reshape(num_episodes) > 0) | (
+            truncated.reshape(num_episodes) > 0
+        )
+        # One episode per env, counted until its first end: no restart.
+        return (
+            obs,
+            env_state,
+            policy_carry,
+            jnp.zeros_like(starts),
+            reward,
+            done | ended,
+            ret,
+            length,
+        ), None
+
+    zeros = jnp.zeros(num_episodes, jnp.float32)
+    init = (
+        obs,
+        env_state,
+        parts.initial(num_episodes),
+        jnp.ones(num_episodes, bool),
+        zeros,
+        jnp.zeros(num_episodes, bool),
+        zeros,
+        zeros,
+    )
+    final, _ = jax.lax.scan(body, init, jnp.arange(horizon))
+    return final[6], final[7]

@@ -63,7 +63,11 @@ class ConservativeQ(Extension):
     ratio. It needs a policy with a density: a deterministic one (TD3's) is
     a point mass, whose samples are copies of one action and whose density
     is undefined. Deviations from the reference's SAC: its target keeps SAC's
-    entropy term (the reference's ``deterministic_backup`` drops it). Logs
+    entropy term (the reference's ``deterministic_backup`` drops it), and
+    there is no ``policy_eval_start`` warm start, during which the
+    reference's actor maximises the data actions' log-likelihood in place of
+    the critics' value (cql.py:184-191; 0 steps by default, :36, and 40,000
+    in its examples, d4rl/examples/cql_mujoco_new.py:140). Logs
     ``cql/term`` and ``cql/gap``, the logsumexp minus the data's value.
     """
 
@@ -114,12 +118,16 @@ class ConservativeQ(Extension):
         nxt, log_nxt = policy_samples(
             batch["actor_state"], batch["next_observations"], k_next, n
         )
-        q_now, metrics = self.floor(sampled_q(critic, params, obs, now), batch)
-        q_nxt, _ = self.floor(sampled_q(critic, params, obs, nxt), batch)
+        # One critic pass over every sampled action and the data's own: four
+        # passes cost four times the small launches for the same values.
+        scored = jnp.concatenate([now, nxt, uniform, actions[None]], 0)
+        q = sampled_q(critic, params, obs, scored)
+        q_now, metrics = self.floor(q[:, :n], batch)
+        q_nxt, _ = self.floor(q[:, n : 2 * n], batch)
         # The uniform actions' density is 2^-dim.
-        q_uniform = sampled_q(critic, params, obs, uniform) + dim * jnp.log(2.0)
+        q_uniform = q[:, 2 * n : 3 * n] + dim * jnp.log(2.0)
         samples = jnp.concatenate([q_uniform, q_nxt - log_nxt, q_now - log_now], 1)
-        q_data = predict_value(critic, params, jnp.concatenate([obs, actions], -1))
+        q_data = q[:, 3 * n]
         gap = jnp.mean(jax.scipy.special.logsumexp(samples, axis=1) - q_data)
         term = self.alpha * gap
         logged = {"cql/term": term, "cql/gap": gap}

@@ -185,7 +185,7 @@ def test_the_actor_loss_takes_the_executed_action(
     monkeypatch.setattr(AVG, "update", spy)
     env, params = paid_action.make()
     AVG(env, env_params=params, n_envs=1, actor_architecture=("8", "relu")).train(
-        seed=0, n_timesteps=8
+        seed=0, n_timesteps=8, logging_config=None
     )
     jax.effects_barrier()
     assert len(seen) == 8

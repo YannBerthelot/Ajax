@@ -70,7 +70,10 @@ agent = TQC.preset("Hopper", "hopper", top_quantiles_to_drop_per_net=3)
 ```
 
 A preset is named after its task, not an environment id, so it applies to
-the gymnasium, Brax and Playground versions of the task alike. An unknown
+the gymnasium, Brax and Playground versions of the task alike. PPO also has
+one named after a library: `PPO.preset("SB3", env_id)` is Stable-Baselines3's
+PPO defaults in Ajax's names, for settings brought from SB3 or SBX
+([PPO, "Presets"](../algorithms/ppo.md#presets)). An unknown
 name raises and lists the agent's presets. Each agent module keeps its
 presets in a `PRESETS` table, each entry the values and where they come
 from:
@@ -86,18 +89,23 @@ equals the default today. It sets the agent's fields only: the environment's
 own settings (Atari's frame skip or reward clipping) and a dataset's
 preprocessing stay yours.
 
-| Agent | Presets | Source |
-| --- | --- | --- |
-| [ASAC](../algorithms/asac.md#presets) | the ten Gymnasium MuJoCo tasks | the authors' tuned runs |
-| [CrossQ](../algorithms/crossq.md#presets) | `Swimmer` | the authors' `train.py` |
-| [DreamerV3](../algorithms/dreamerv3.md#presets) | `DMC` | `configs.yaml` |
-| [DQN](../algorithms/dqn.md#presets) | `Atari` | Mnih et al.'s `run_gpu` |
-| [IQL](../algorithms/iql.md#presets) | `AntMaze` | `antmaze_config.py` |
-| [PPO](../algorithms/ppo.md#presets) | `Atari` | ppo2's `defaults.py` |
-| [PQN](../algorithms/pqn.md#presets) | `CartPole`, `Atari` | purejaxql's configs |
-| [REDQ](../algorithms/redq.md#presets) | `Hopper`, `HalfCheetah`, `Walker2d`, `Ant`, `Humanoid` | MBPO's target entropies |
-| [TD3](../algorithms/td3.md#presets) | `D4RL` (TD3+BC) | TD3_BC's `main.py` |
-| [TQC](../algorithms/tqc.md#presets) | `Hopper`, `HalfCheetah`, `Walker2d`, `Ant`, `Humanoid` | the authors' README |
+| Agent | Presets | Fields a preset sets | Source |
+| --- | --- | --- | --- |
+| [ASAC](../algorithms/asac.md#presets) | `Ant`, `HalfCheetah`, `Hopper`, `Humanoid`, `InvertedDoublePendulum`, `InvertedPendulum`, `Pusher`, `Reacher`, `Swimmer`, `Walker2d` | `alpha_init`, `tau_theta`, `buffer_size`, `learning_starts` | the authors' tuned runs |
+| [CrossQ](../algorithms/crossq.md#presets) | `Swimmer` | `gamma` | the authors' `train.py` |
+| [DreamerV3](../algorithms/dreamerv3.md#presets) | `DMC` | `model_size`, `train_ratio`, `n_envs`, `action_repeat` | `configs.yaml` |
+| [DQN](../algorithms/dqn.md#presets) | `Atari` | `learning_rate`, `gamma`, `buffer_size`, `batch_size`, `learning_starts`, `train_frequency`, `target_update_interval`, `epsilon_start`, `epsilon_end`, `epsilon_decay_start`, `epsilon_decay_frac` | Mnih et al.'s `run_gpu` |
+| [IQL](../algorithms/iql.md#presets) | `AntMaze` | `expectile`, `temperature` | `antmaze_config.py` |
+| [PPO](../algorithms/ppo.md#presets) | `Atari`, `SB3` | `n_envs`, `n_steps`, `batch_size`, `n_epochs`, `num_minibatches`, `actor_learning_rate`, `critic_learning_rate`, `gamma`, `gae_lambda`, `clip_range`, `clip_value_loss`, `normalize_advantage`, `ent_coef`, `vf_coef`, `max_grad_norm`, `adam_eps`, `normalize_observations`, `normalize_rewards`, `share_encoder` | ppo2's `defaults.py`; Stable-Baselines3's PPO defaults |
+| [PQN](../algorithms/pqn.md#presets) | `CartPole`, `Atari` | `architecture`, `n_envs`, `n_steps`, `n_epochs`, `num_minibatches`, `learning_rate`, `lr_linear_decay`, `epsilon_end`, `epsilon_decay_frac`, `q_lambda`, `reward_scale` | purejaxql's configs |
+| [REDQ](../algorithms/redq.md#presets) | `Hopper`, `HalfCheetah`, `Walker2d`, `Ant`, `Humanoid` | `target_entropy_per_dim` | MBPO's target entropies |
+| [REINFORCE](../algorithms/reinforce.md#presets) | `rtg_pg` | `baseline`, `normalize_advantage`, `gamma`, `n_steps`, `actor_architecture`, `actor_learning_rate` | Spinning Up's `2_rtg_pg.py` |
+| [TD3](../algorithms/td3.md#presets) | `D4RL` (TD3+BC) | `normalize_observations`, `extensions` | TD3_BC's `main.py` |
+| [TDMPC2](../algorithms/tdmpc2.md#presets) | `MuJoCo` | `discount_max`, `rho` | the latest code's `envs/mujoco.py` |
+| [TQC](../algorithms/tqc.md#presets) | `Hopper`, `HalfCheetah`, `Walker2d`, `Ant`, `Humanoid` | `top_quantiles_to_drop_per_net` | the authors' README |
+
+Each agent's page gives the values. A test compares this table with the
+`PRESETS` tables (`tests/test_docs_agent_sets.py`).
 
 ## `train`
 
@@ -109,7 +117,7 @@ state, out = agent.train(
     seed=[1, 2, 3],  # one run per seed, all in one program
     n_timesteps=2_000,  # environment steps this call trains for
     num_episode_test=10,  # test episodes per evaluation
-    logging_config=None,  # None: no evaluation, and out is None
+    logging_config=None,  # None: no evaluation; not given: about ten, printed
     initial_state=None,  # or a state to continue from
     total_timesteps=None,  # the run's horizon; None: this call's end
 )
@@ -120,9 +128,11 @@ state, out = agent.train(
 `n_timesteps` counts environment steps summed over the `n_envs` copies. An
 off-policy agent collects one step in each copy per iteration, so 100,000
 steps with `n_envs=4` are 25,000 iterations. An on-policy agent (PPO, APO,
-PQN) collects a rollout of `n_steps` per copy per iteration and trains in
-whole rollouts: it runs `n_timesteps // (n_envs * n_steps) + 1` of them, so
-it can stop a little past the budget.
+REINFORCE, PQN) collects a rollout of `n_steps` per copy per iteration and trains in
+whole rollouts: it runs `n_timesteps // (n_envs * n_steps)` of them, and at
+least one. A budget that is not whole rollouts stops at the last whole one,
+with a warning; a budget below one rollout runs that one rollout and
+records no evaluation.
 
 The off-policy agents act uniformly at random and do not update until
 `learning_starts` steps are collected: 10,000 by default for SAC, TD3, REDQ
@@ -138,8 +148,19 @@ program, every seed in step. More seeds cost little extra time until the
 device is full ([Performance](performance.md) has the measurements), so run
 the seeds you need in one call rather than one call per seed.
 
-Every array in the returned state has the seed axis first. Seed `i`'s part
-is `jax.tree.map(lambda x: x[i], state)`.
+Everything `train` returns has the seed axis first, whatever the number of
+seeds: with `seed=0`, `evaluations.returns` has shape `(1, evaluations)`, and
+that run's curve is `evaluations.returns[0]`. The shape does not depend on
+how the seed is written, so a script keeps working when one seed becomes
+several. The last line `train` prints gives the shape, and so does
+`print(evaluations)`. Seed `i`'s part of the state is
+`jax.tree.map(lambda x: x[i], state)`.
+
+To summarise several seeds, the scores of
+[`ajax.compare`](comparing-agents.md) take that array as it is
+(`final_return`, `last_third`, `auc`), and so do libraries that expect one
+row per run, such as [rliable](https://github.com/google-research/rliable)
+for interquartile means and their intervals.
 
 The same seed on the same machine and library versions gives the same run.
 Two programs compiled apart, or on different hardware, may round
@@ -151,32 +172,53 @@ differently, so do not expect identical numbers across machines.
 with every seed:
 
 ```python
-state, _ = agent.train(
+state, evaluations = agent.train(
     seed=[1, 2],
     n_timesteps=2_000,
     sweep={"actor_learning_rate": [1e-4, 3e-4], "tau": [0.005, 0.02]},
 )
 agent.members[0]  # {'seed': 1, 'actor_learning_rate': 0.0001, 'tau': 0.005}
+
+# Each configuration with its rows, one per seed: here returns is (2, evaluations).
+for configuration, returns in agent.by_configuration(evaluations.returns):
+    print(configuration, "final return", returns[:, -1].mean())
 ```
+
+To decide whether one configuration is better than another, give each one's
+per-seed scores to the tests of [Comparing agents](comparing-agents.md):
+`returns[:, -1]` above is one score per seed.
 
 A dict of value lists trains its grid, here 4 configurations, so 8 members;
 a list of dicts trains those configurations. The returned arrays have one
 leading row per member, configuration by configuration, each over the
 seeds, as `agent.members` lists them. Each member trains as a separate run
 of its configuration with its seed would, up to floating-point rounding, and
-the sweep compiles once.
+the sweep compiles once. Rounding grows over a run as it does between two
+machines: on CrossQ, which has no target network to damp it, a member and
+its separate run can part visibly within a hundred updates, while the
+member stays equal to a sweep of the agent built with its values.
 
 Only the agent's sweepable fields can vary (`agent.sweepable_fields()`):
 numbers its training reads as numbers, such as SAC's learning rates, `gamma`
-and `tau`, or PPO's `ent_coef` and `clip_range`. So far only SAC and PPO
-declare any. A setting that changes array shapes or the program, such as the
+and `tau`, or PPO's `ent_coef` and `clip_range`. Every agent on the shared
+training loop declares some; `print(agent.sweepable_fields())`
+lists them, and a refused field's message gives the agent's reason where it
+has one. A setting that changes array shapes or the program, such as the
 network sizes, `n_envs`, `batch_size` or `buffer_size`, takes one `train`
 call per value. Each member keeps its own replay buffer, so memory grows with
 the members.
 
-With a `logging_config`, each member is a logged run of its own, with its
-values in its run config. A sweep continues from its state with the same
+Without a `logging_config`, each evaluation prints a line for all the runs
+and one per configuration under it. With one, each member is a logged run
+of its own, with its values in its run config. A sweep continues from its state with the same
 `seed` and `sweep`.
+
+An agent of your own declares the fields it adds in a `sweepable` class
+attribute, and takes those of its base classes with them (the temperature's
+come with `EntropyTemperature`); `unsweepable` refuses an inherited one, with
+the reason its message gives. A field belongs there once a member changing it
+trains as a separate run built with the value does, which
+`tests/agents/test_sweep_every_agent.py` checks for every declared field.
 
 ### Parallel environments
 
@@ -188,10 +230,11 @@ The defaults differ by agent:
 
 | `n_envs` default | Agents |
 | --- | --- |
-| 1 | SAC, ASAC, REDQ, CrossQ, TQC, TD3, IQL, AVG, DQN, UDRL, DAgger, TDMPC2 |
-| 4 | PPO, APO |
-| 8 | PQN, APG |
+| 1 | PPO, REINFORCE, SAC, ASAC, RVI-SAC, REDQ, CrossQ, TQC, TD3, IQL, AVG, DQN, UDRL, DAgger, TD-MPC2 |
+| 8 | APG |
+| 10 | APO |
 | 16 | DreamerV3 |
+| 128 | PQN |
 
 ### Evaluation
 
@@ -215,11 +258,19 @@ latent policy or planner. Their pages say what they log.
 
 `train` returns `(state, out)`.
 
-- **Without a `logging_config`**, `out` is `None`. The evaluation is not
-  even compiled into the program.
-- **With one**, `out` holds the evaluations: a dictionary from each logged
-  name to an array of shape `(seeds, evaluations)`. `out["timestep"]` says
-  when each evaluation ran. A call that evaluates fewer times than its
+- **With no `logging_config` given**, the run evaluates about ten times
+  (every tenth of `n_timesteps`, rounded up to a whole number of the agent's
+  iterations, such as PPO's rollouts), prints a line for each (the mean return over the seeds, with the lowest
+  and highest) and `out` holds the evaluations.
+- **With `logging_config=None`**, `out` is `None` and nothing is printed.
+  The evaluation is not even compiled into the program: the fastest run.
+- **With a `LoggingConfig`**, the run evaluates every `log_frequency` steps,
+  logs to its backends, prints nothing, and `out` holds the evaluations.
+
+The evaluations are a dictionary from each logged name to an array of shape
+`(seeds, evaluations)`, with two entries by name: `out.returns` (the mean
+evaluation return) and `out.timesteps` (when each evaluation ran, also
+`out["timestep"]` per seed). A call that evaluates fewer times than its
   maximum pads the rest with -1 (the timestep) and NaN (everything else).
 - **APG** returns its per-update metrics instead. See [APG](../algorithms/apg.md).
 
@@ -229,7 +280,20 @@ The logged names are listed in [Logging](logging.md).
 networks, their optimisers and parameters), `collector_state` (the
 environments, the replay buffer, the step counter `timestep`), the random
 keys (`rng` for training, `eval_rng` for evaluation), the evaluation count
-`n_logs`, and each extension's state.
+`n_logs`, and each extension's state. An agent with one network keeps it
+in `actor_state`: DQN's and PQN's Q-network is there, and their
+`critic_state` holds no parameters. To see the networks an agent built,
+print the shapes of their parameters (the first axis is the seeds'):
+
+```python
+import jax
+
+from ajax import PPO
+
+agent = PPO("CartPole-v1", actor_architecture=("32", "relu", "32", "relu"))
+state, _ = agent.train(seed=0, n_timesteps=2_048, logging_config=None)
+print(jax.tree.map(lambda array: array.shape, state.actor_state.params))
+```
 
 ## Continuing a run
 
@@ -253,7 +317,7 @@ training, such as DQN's epsilon decay, has already finished at the end of a
 first call. To split a run and keep the schedules of one call, pass the
 whole run's horizon to every call. A call whose `n_timesteps` would take it
 past the horizon is refused, so the last call trains the rest. An on-policy
-agent (PPO, APO, PQN) trains in whole rollouts of `n_envs x n_steps` steps,
+agent (PPO, APO, REINFORCE, PQN) trains in whole rollouts of `n_envs x n_steps` steps,
 as its original code does: give each call a whole number of them (8,192 is
 8 rollouts of 1,024 here) and the calls end where one call does. A budget
 that is not whole rollouts stops at the last whole one, with a warning; a
@@ -276,8 +340,9 @@ anything you need from it before the call.
 
 ## Training offline
 
-A replay agent (SAC, TD3, REDQ, TQC, CrossQ, ASAC, RVI-SAC, DQN, IQL,
-DAgger) can train on a
+A [replay agent](../algorithms/index.md#agent-families)
+(<!-- agents: offline -->SAC, TD3, REDQ, TQC, CrossQ, ASAC, RVI-SAC, DQN, IQL,
+DAgger<!-- /agents -->) can train on a
 [transition dataset](../api/buffers.md) alone, with no environment step.
 `train_offline(dataset, n_updates)` puts the dataset's rows in the replay
 and in the normalisers, then runs the agent's own update `n_updates` times.
@@ -307,6 +372,12 @@ state, offline = agent.train_offline(data, n_updates=1_000, seed=[0], logging_co
 print(offline["timestep"])  # [[ 500 1000]]: updates done
 state, online = agent.train(seed=[0], n_timesteps=1_000, initial_state=state)
 ```
+
+`record` takes any function from observations to actions in the
+environment's units. A trained agent's `predict` is one, so
+`record(lambda obs: agent.predict(state, obs), agent.env_args, key, n_steps)`
+records its policy. `export(state, seed_index=0)`, from the same module,
+gives the whole episodes a replay agent's own replay holds.
 
 `train_offline` runs the agent's own update, with its extensions' terms:
 [TD3+BC](../algorithms/td3.md#td3bc-offline) is TD3 with a cloning term, and

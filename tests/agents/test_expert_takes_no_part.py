@@ -35,7 +35,9 @@ def _expert(obs: jax.Array) -> jax.Array:
 
 def _train(**kwargs: Any) -> Any:
     agent = SAC("Pendulum-v1", n_envs=2, **KWARGS, **kwargs)
-    return jax.tree.map(lambda x: x[0], agent.train(seed=0, n_timesteps=STEPS)[0])
+    return jax.tree.map(
+        lambda x: x[0], agent.train(seed=0, n_timesteps=STEPS, logging_config=None)[0]
+    )
 
 
 @pytest.mark.parametrize("given", ["expert_policy", "eval_expert_policy"])

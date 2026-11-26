@@ -513,7 +513,9 @@ def test_ppo_trains_with_the_term_in_its_minibatches(geometry: dict) -> None:
             extensions=extensions,
             **geometry,
         )
-        return agent.train(seed=0, n_timesteps=32)[0].actor_state.params
+        return agent.train(seed=0, n_timesteps=32, logging_config=None)[
+            0
+        ].actor_state.params
 
     assert not _same(actor(ImitationLoss(EXPERT, coef=100.0)), actor())
 
@@ -529,7 +531,9 @@ def test_apg_trains_with_the_term_along_its_rollout() -> None:
     def actor(*extensions: Any) -> Any:
         agent = make_agent(env, tracking_class(params), extensions=extensions)
         steps = agent.env_args.n_envs * agent.horizon
-        return agent.train(seed=0, n_timesteps=steps)[0].actor_state.params
+        return agent.train(seed=0, n_timesteps=steps, logging_config=None)[
+            0
+        ].actor_state.params
 
     assert not _same(actor(ImitationLoss(EXPERT, coef=100.0)), actor())
 
@@ -557,7 +561,7 @@ def test_udrl_trains_with_the_term_its_expert_reading_the_envs_observations() ->
 
     def run(*extensions: Any) -> Any:
         agent = UDRL("Pendulum-v1", actor_architecture=NET, extensions=extensions, **kw)
-        return agent.train(seed=0, n_timesteps=32)[0]
+        return agent.train(seed=0, n_timesteps=32, logging_config=None)[0]
 
     state, plain = run(ImitationLoss(expert, coef=100.0)), run()
     assert not _same(state.actor_state.params, plain.actor_state.params)

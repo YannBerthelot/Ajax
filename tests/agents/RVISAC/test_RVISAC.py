@@ -76,7 +76,7 @@ def spied_run(**kwargs) -> list[dict]:
         extensions=(TargetSpy(),),
         **kwargs,
     )
-    agent.train(seed=0, n_timesteps=48)  # 16 updates
+    agent.train(seed=0, n_timesteps=48, logging_config=None)  # 16 updates
     jax.effects_barrier()
     return list(SEEN)
 

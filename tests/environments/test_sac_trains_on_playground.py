@@ -44,7 +44,9 @@ def test_sac_updates_on_a_multi_dimensional_playground_env():
         batch_size=8,
         buffer_size=100,
     )
-    state, _ = agent.train(seed=[0], n_timesteps=40, num_episode_test=1)
+    state, _ = agent.train(
+        seed=[0], n_timesteps=40, num_episode_test=1, logging_config=None
+    )
     action = np.asarray(state.collector_state.buffer_state.experience["action"])
     assert action.shape[-1] == env.action_size == 2
     for train_state in (state.actor_state, state.critic_state):
@@ -93,7 +95,10 @@ def test_sac_trains_from_fresh_initial_states():
         buffer_size=100,
     )
     state, _ = agent.train(
-        seed=[0], n_timesteps=steps_per_env * n_envs, num_episode_test=1
+        seed=[0],
+        n_timesteps=steps_per_env * n_envs,
+        num_episode_test=1,
+        logging_config=None,
     )
 
     # Buffer leaves are (seed, env, time, ...); one seed here.

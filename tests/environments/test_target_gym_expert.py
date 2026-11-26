@@ -44,7 +44,7 @@ def test_an_agent_trains_with_it_and_stores_its_actions() -> None:
     env, params = target_gym.make(TASK)
     expert = registry.REGISTRY[TASK].make_pid_controller().batched()
     agent = SAC(env, env_params=params, n_envs=2, expert_policy=expert, **SHORT)
-    state, _ = agent.train(seed=0, n_timesteps=16)
+    state, _ = agent.train(seed=0, n_timesteps=16, logging_config=None)
     replay = state.collector_state.buffer_state
     assert replay is not None
     a_expert = np.asarray(replay.experience["a_expert"])[..., :8, :]
@@ -82,7 +82,7 @@ def _pid() -> Any:
 def test_each_expert_arm_runs_on_a_real_task_with_its_pid(extension) -> None:
     """The arms' expert paths meet a stateful PID, a task's params and its own
     episode length here, as no stand-in env shows."""
-    state, _ = _agent((extension,)).train(seed=0, n_timesteps=16)
+    state, _ = _agent((extension,)).train(seed=0, n_timesteps=16, logging_config=None)
     leaves = jax.tree.leaves(state.actor_state.params)
     assert all(np.isfinite(np.asarray(leaf)).all() for leaf in leaves)
 
@@ -106,7 +106,7 @@ def test_porl_clones_the_pi_with_its_memory_in_the_observations(
         arm["expert_policy"] = pid
     agent = _agent(arm.pop("extensions"), expert=False, **arm)
 
-    state = agent.train(seed=0, n_timesteps=6)[0]
+    state = agent.train(seed=0, n_timesteps=6, logging_config=None)[0]
 
     rows = state.collector_state.buffer_state.experience["obs"]
     assert rows.shape[-1] == 6 + memory_columns
@@ -120,7 +120,7 @@ def test_the_gate_reads_the_pids_return_on_a_real_task() -> None:
     never = JSRLCurriculum(
         threshold=float("inf"), eval_every=8, eval_episodes=2, moving_average=2
     )
-    state, _ = _agent((never,)).train(seed=0, n_timesteps=16)
+    state, _ = _agent((never,)).train(seed=0, n_timesteps=16, logging_config=None)
     jsrl_state = jax.tree.map(lambda x: x[0], state.ext_state[0])
     assert int(jsrl_state.stage) == 0
     assert int(jsrl_state.evaluations) >= 1
@@ -133,8 +133,8 @@ def test_offline_updates_train_on_rows_recorded_from_the_pid() -> None:
     plain = _agent((), expert=False, learning_starts=0)
     rows = ds.record(_pid(), plain.env_args, jax.random.PRNGKey(0), 32)
     pretrained = _agent((PriorData(rows, 4),), expert=False, learning_starts=0)
-    state = pretrained.train(seed=0, n_timesteps=0)[0]
-    untouched = plain.train(seed=0, n_timesteps=0)[0]
+    state = pretrained.train(seed=0, n_timesteps=0, logging_config=None)[0]
+    untouched = plain.train(seed=0, n_timesteps=0, logging_config=None)[0]
     moved = jax.tree.map(
         lambda a, b: not np.array_equal(a, b),
         state.actor_state.params,

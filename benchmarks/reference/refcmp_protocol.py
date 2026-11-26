@@ -62,11 +62,23 @@ IMPLEMENTATIONS = {
         True,
         ("envs/sb3", "refcmp_sb3.py"),
     ),
+    "sbx": (
+        HERE / "envs" / "sbx",
+        "refcmp_sbx.py",
+        True,
+        ("envs/sbx", "refcmp_sbx.py", "refcmp_sb3.py"),
+    ),
     "purejaxql": (
         HERE / "envs" / "purejaxql",
         "refcmp_jax.py",
         False,
         ("envs/purejaxql", "vendor/purejaxql", "refcmp_jax.py"),
+    ),
+    "spinup": (
+        HERE / "envs" / "spinup",
+        "refcmp_spinup.py",
+        True,
+        ("envs/spinup", "vendor/openai_spinningup", "refcmp_spinup.py"),
     ),
     "brax": (
         HERE / "envs" / "brax",

@@ -13,6 +13,7 @@ Contract (the extension's docstring, from the papers' rules in ajax.agents.cente
 Expected values are worked by hand below.
 """
 
+from functools import partial
 from types import SimpleNamespace
 
 import jax
@@ -22,6 +23,7 @@ import pytest
 
 from ajax import APO, ASAC, DQN, PPO, PQN, RVISAC, SAC, TD3
 from ajax.agents.centering import ReferencePoint, RVIBatchMean, TDErrorCentering
+from ajax.agents.loop import fresh_state
 from ajax.extensions.base import ExtensionStack
 from ajax.extensions.capabilities import MissingCapability
 from ajax.extensions.centering import ValueCentering
@@ -95,12 +97,20 @@ def test_it_refuses_agents_that_centre_themselves_or_return_lambda_returns(build
 
 
 def test_it_runs_on_discounted_one_step_agents():
+    """On each, a fresh run's state carries the offset, at 0 (the contract
+    above: the offset moves from 0). Catches an agent accepted at
+    construction whose run starts without the extension's state."""
     for agent in (
         SAC("Pendulum-v1", extensions=(ValueCentering(),)),
         TD3("Pendulum-v1", extensions=(ValueCentering(),)),
         DQN("CartPole-v1", extensions=(ValueCentering(TDErrorCentering(0.01)),)),
     ):
-        agent.make_context(16)
+        loop, context = agent.make_context(16)
+        init = partial(agent.init, context=context)
+        key = jax.random.PRNGKey(0)
+        state = fresh_state(init, loop.extensions, 16, key, env_args=agent.env_args)
+        (offset,) = state.ext_state
+        assert np.asarray(offset).tolist() == 0.0
 
 
 def test_it_comes_last_of_the_extensions_shaping_the_target():
@@ -122,6 +132,6 @@ def test_on_rewards_of_one_the_offset_rises_towards_them(rule):
         batch_size=32,
         extensions=(ValueCentering(rule),),
     )
-    state, _ = agent.train(seed=0, n_timesteps=128)  # 96 updates
+    state, _ = agent.train(seed=0, n_timesteps=128, logging_config=None)  # 96 updates
     offset = float(np.asarray(state.ext_state[0]).reshape(-1)[0])
     assert 0.0 < offset

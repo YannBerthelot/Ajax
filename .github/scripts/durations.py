@@ -4,7 +4,12 @@
 
 Each test's time replaces its entry (per node id); tests under one second are
 left out (tests/shards.py counts them as one second). Entries the reports do
-not name are kept, so the slow and fast tiers' reports can be merged in turn.
+not name are kept, so several runs' reports can be merged in turn.
+
+With ``--files`` first, the reports are the fast tier's and the seconds of
+each test file are summed into tests/.file_durations (``pytest --shard-by
+file``): a file the reports name gets its new total, the others keep theirs,
+and a file that no longer exists is dropped.
 """
 
 import json
@@ -27,7 +32,34 @@ def nodeid(classname: str, name: str) -> str:
     return "::".join(["/".join(parts) + ".py", name])
 
 
+def file_totals(reports: list[str], known: dict[str, float]) -> dict[str, float]:
+    """``known`` with the seconds of each test file the reports name."""
+    totals: dict[str, float] = {}
+    for report in reports:
+        for case in ET.parse(report).iter("testcase"):
+            file = nodeid(case.get("classname", ""), "").split("::")[0]
+            totals[file] = totals.get(file, 0.0) + float(case.get("time", 0))
+    merged = {**known, **{file: round(s, 1) for file, s in totals.items()}}
+    return {
+        file: seconds
+        for file, seconds in sorted(merged.items())
+        if os.path.exists(os.path.join(ROOT, file))
+    }
+
+
 def main(reports: list[str]) -> None:
+    if reports[:1] == ["--files"]:
+        path = os.path.join(ROOT, "tests", ".file_durations")
+        known = {}
+        if os.path.exists(path):
+            with open(path) as fh:
+                known = json.load(fh)
+        durations = file_totals(reports[1:], known)
+        with open(path, "w") as fh:
+            json.dump(durations, fh, indent=0)
+            fh.write("\n")
+        print(f"{len(durations)} files in {path}")
+        return
     durations = {}
     if os.path.exists(PATH):
         with open(PATH) as fh:

@@ -22,13 +22,25 @@ range of c rather than the current rollout's. Commands, top-K statistics
 and training targets are undiscounted, as in the paper; gamma discounts
 only the logged Train/mean_rtg. The actor reads the command scaled
 (scale_command), the replay keeps it raw. No critic is trained.
+
+Deviations from Srivastava et al. (arXiv:1912.02877v2), whose code is not
+public:
+
+- The replay is first-in first-out over segments; the paper's keeps the
+  best Z episodes by return (Sec. 2.2.1; replay_size 50 to 600, Table 4).
+- A training interval ends at a step drawn uniformly up to its episode's
+  end, the paper's general form (Sec. 2.2.3); its experiments all end it
+  at the episode's end (t2 = T - 1, "trailing segments").
+- No warm-up: the paper fills the replay with 30 to 50 episodes of random
+  actions first (Algorithm 1, line 1; Table 4); here the first segments
+  are the untrained policy's.
 """
 
 from __future__ import annotations
 
 import dataclasses
 from dataclasses import dataclass
-from typing import Any, Callable, Optional, Union
+from typing import Any, Callable, ClassVar, Optional, Union
 
 import distrax
 import jax
@@ -116,15 +128,18 @@ class UDRL(
     command_horizon_init: float = 100.0
     #: Every iteration the return target is the top-K episode returns' mean
     #: times command_return_boost and its spread their std: exploration draws
-    #: the return command uniformly in [target, target + std] (UDRL paper
-    #: Sec. 4.2); the horizon target is the same top-K's mean horizon.
+    #: the return command uniformly in [target, target + std] (Srivastava
+    #: et al., Sec. 2.2.4); the horizon target is the same top-K's mean
+    #: horizon.
     command_topk: int = 32
     command_return_boost: float = 1.0
     #: Smoothing of the targets' update: (1 - tau) old + tau proposal; 1 replaces.
     command_target_tau: float = 1.0
-    #: The scales of (d_r, d_h) the actor reads (the paper's LunarLander
-    #: 0.02 and 0.01): the network learns more cleanly on O(1) commands than
-    #: O(100); the replay and the command's decay stay in raw units.
+    #: The scales of (d_r, d_h) the actor reads, two values of the paper's
+    #: LunarLander search (0.01 to 0.03 for both, Srivastava et al.,
+    #: App. E.1; its tuned values, Table 4, are 0.015 and 0.03): the network
+    #: learns more cleanly on O(1) commands than O(100); the replay and the
+    #: command's decay stay in raw units.
     command_scale_r: float = 0.02
     command_scale_h: float = 0.01
     #: The replay's capacity, in segments: with n_envs envs it holds about
@@ -133,6 +148,18 @@ class UDRL(
     #: The gradient steps per iteration, each on a batch from the replay
     #: (Algorithm 3).
     n_updates_per_iter: int = 64
+
+    #: The numbers a sweep may vary in one program (ActorCritic.sweepable),
+    #: each checked against separate runs by tests/agents/test_sweep_every_agent.py.
+    sweepable: ClassVar[frozenset[str]] = frozenset(
+        {
+            "actor_learning_rate",
+            "command_return_boost",
+            "command_scale_h",
+            "command_scale_r",
+            "command_target_tau",
+        }
+    )
 
     def actor_critic_args(self) -> dict[str, Any]:
         # The critic built beside the actor is never trained. The LayerNorm
@@ -571,7 +598,7 @@ class UDRL(
 
         return parts
 
-    def evaluate(
+    def evaluation_metrics(
         self,
         agent_state: UDRLState,
         key: jax.Array,

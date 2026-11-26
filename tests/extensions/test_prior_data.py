@@ -40,7 +40,7 @@ def train(name: str, extensions: tuple = (), n_timesteps: int = 0, **kw: Any) ->
     case, env = CASES[name], IdentityEnv(discrete=name == "DQN")
     kwargs = {**case.kwargs, **kw}
     agent = case.cls(env, n_envs=1, extensions=extensions, **kwargs)
-    out = agent.train(seed=0, n_timesteps=n_timesteps)[0]
+    out = agent.train(seed=0, n_timesteps=n_timesteps, logging_config=None)[0]
     return jax.tree.map(lambda x: x[0], out)
 
 

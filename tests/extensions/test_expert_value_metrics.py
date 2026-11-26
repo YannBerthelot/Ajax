@@ -56,7 +56,7 @@ def test_the_metrics_read_the_critic_at_the_stored_expert_actions() -> None:
     """Their definitions on the replay batch the key draws; a φ* equal to the
     critic disagrees with it nowhere."""
     agent = _sac()
-    state, _ = agent.train(seed=0, n_timesteps=64)
+    state, _ = agent.train(seed=0, n_timesteps=64, logging_config=None)
     state = jax.tree.map(lambda x: x[0], state)
     critic = state.critic_state
     ext = ExpertValueMetrics().bind_to_agent(

@@ -138,7 +138,7 @@ def run(name: str, extensions: tuple = (), **kwargs: Any) -> Any:
         extensions=extensions,
         **{**case.kwargs, **kwargs},
     )
-    state, _ = agent.train(seed=0, n_timesteps=4)
+    state, _ = agent.train(seed=0, n_timesteps=4, logging_config=None)
     return jax.tree.map(lambda leaf: leaf[0], state)
 
 
@@ -264,7 +264,7 @@ def trained_on_a_prefill(offline_updates: int, **options: Any) -> Any:
         extensions=(ExpertPrefill(n_steps=64, offline_updates=offline_updates),),
         **options,
     )
-    state = agent.train(seed=0, n_timesteps=0)[0]
+    state = agent.train(seed=0, n_timesteps=0, logging_config=None)[0]
     return jax.tree.map(lambda x: x[0], state)
 
 
@@ -295,7 +295,9 @@ def test_offline_updates_read_the_observation_features() -> None:
         expert_policy=push,
         extensions=(terms, ExpertPrefill(n_steps=8, offline_updates=2)),
     )
-    state = jax.tree.map(lambda x: x[0], agent.train(seed=0, n_timesteps=0)[0])
+    state = jax.tree.map(
+        lambda x: x[0], agent.train(seed=0, n_timesteps=0, logging_config=None)[0]
+    )
 
     replay = state.collector_state.buffer_state.experience
     assert replay["obs"].shape[-1] == 3 + 3  # Pendulum's and (e, I, D)
@@ -321,7 +323,7 @@ def test_an_expert_of_the_prefills_own_is_read_in_the_env_units() -> None:
         critic_architecture=("8", "relu"),
         extensions=(ExpertPrefill(n_steps=4, expert=torque),),
     )
-    state = agent.train(seed=0, n_timesteps=0)[0]
+    state = agent.train(seed=0, n_timesteps=0, logging_config=None)[0]
 
     replay: Any = state.collector_state.buffer_state
     np.testing.assert_allclose(np.asarray(replay.experience["action"])[0, 0, :4], 0.5)
@@ -341,7 +343,7 @@ def test_kept_rows_are_the_expert_the_module_holds() -> None:
         expert_policy=still,
         extensions=(RetainedDemonstrations(n_steps=4, expert=torque),),
     )
-    state = agent.train(seed=0, n_timesteps=0)[0]
+    state = agent.train(seed=0, n_timesteps=0, logging_config=None)[0]
 
     replay: Any = state.collector_state.buffer_state
     kept = np.asarray(replay.retained.experience["action"])

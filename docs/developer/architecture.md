@@ -74,13 +74,13 @@ A declared agent (every agent but the offline `TDMPC2MultiTask`) is one file,
 and train function ([Contributing](contributing.md#adding-an-agent)): a
 replay (`ReplayAgent`: SAC, TQC, REDQ, ASAC, CrossQ, TD3, IQL, DQN,
 DAgger), one update on each step as it comes (`IncrementalAgent`: AVG),
-rollouts (`OnPolicyAgent`: PPO, APO, PQN) or an iteration of its own
+rollouts (`OnPolicyAgent`: PPO, APO, REINFORCE, PQN) or an iteration of its own
 (`OwnIterationAgent`: UDRL's segment and replay of segments, APG's
 gradient step through a differentiable rollout; the agent writes
-`iterate`, `report` and `evaluate`, the loop resumes and logs) or rows in
+`iterate`, `report` and `evaluation_metrics`, the loop resumes and logs) or rows in
 a replay of its own, sized for each call (`OwnReplayAgent`: DreamerV3,
 TD-MPC2; the agent writes `prepare_replay`, `collect`, `count_updates`,
-`update`, `report` and `evaluate` on `loop.off_policy`'s hooks). Knobs
+`update`, `report` and `evaluation_metrics` on `loop.off_policy`'s hooks). Knobs
 several agents share are mixins of fields (`EntropyTemperature`,
 `PolicyUpdateStart`, `ExpertGuided`, ...), and an agent changes what its
 family does by overriding a few hooks (`network_settings`,
@@ -251,7 +251,7 @@ agent at once. The probes check it end to end: a planted fault that runs
 | Shape | Agents | One iteration | Budget |
 | --- | --- | --- | --- |
 | `loop.off_policy(init, update, learning_starts, ...)` | SAC, TD3, TQC, REDQ, ASAC, CrossQ, IQL, AVG, DQN | one step per env (a *tick*); from `learning_starts` on, one `update(state, transition)` | `budget // n_envs` ticks |
-| `loop.on_policy(init, update, n_steps, ...)` | PPO, APO, PQN | an `n_steps` rollout per env from the agent state `agent_state_at_rollout_start`, then `update(agent_state, rollout, agent_state_at_rollout_start)` | `budget // (n_envs * n_steps) + 1` rollouts |
+| `loop.on_policy(init, update, n_steps, ...)` | PPO, APO, REINFORCE, PQN | an `n_steps` rollout per env from the agent state `agent_state_at_rollout_start`, then `update(agent_state, rollout, agent_state_at_rollout_start)` | `budget // (n_envs * n_steps) + 1` rollouts |
 | `loop.off_policy(..., collect=, n_updates=, evaluation=)` | DreamerV3, TDMPC2 (`OwnReplayAgent`) | the agent's own `collect(state, tick)`, then `n_updates(tick, state)` updates (a train ratio, a burst), then the agent's own `Evaluation` | `budget // n_envs` ticks, or `num_ticks` |
 
 Before `learning_starts`, the off-policy shape acts uniformly at random
@@ -413,8 +413,11 @@ Three modules share the work:
 
 What `train` returns follows from the logging config:
 
-- **No `LoggingConfig`:** no evaluation is traced at all (tracing alone would
+- **`logging_config=None`:** no evaluation is traced at all (tracing alone would
   rebuild the evaluation environment), and `train` returns `(state, None)`.
+  Not given, `train` makes a `LoggingConfig` of its own: about ten
+  evaluations, no backend, and a `ProgressPrinter` as `on_evaluation`
+  ([`logging/progress.py`](../../src/ajax/logging/progress.py)).
   APG returns its per-update metrics in place of `None`.
 - **A `LoggingConfig`:** the run evaluates whether or not a backend records
   it, and returns `(state, evaluations)`: every logged key's values per seed

@@ -1,9 +1,11 @@
 # Logging
 
-A `LoggingConfig` turns on evaluation and logging. Every `log_frequency`
-steps the agent is evaluated, `train` returns the evaluations, and each run
-logs them to its backends: TensorBoard, Weights & Biases, or a backend of
-your own.
+A `LoggingConfig` says when a run evaluates and where it logs. Every
+`log_frequency` steps the agent is evaluated, `train` returns the
+evaluations, and each run logs them to its backends: TensorBoard, Weights &
+Biases, or a backend of your own. A `train` call given none evaluates about
+ten times and prints a line for each; `logging_config=None` evaluates
+nothing.
 
 ## `LoggingConfig`
 
@@ -23,15 +25,21 @@ logging = LoggingConfig(
 | `config` | `{}` | a dictionary stored with each run, with the agent's run configuration added (below) |
 | `log_frequency` | 10,000 | environment steps between evaluations |
 | `run_name` | `None` | each run's name prefix: a run is named `<run_name>_<run id>` |
-| `sweep` | `False` | for hyperparameter sweeps: SAC evaluates only in the last 20% of training |
+| `evaluate_last_fifth_only` | `False` | evaluate only in the last 20% of training, for hyperparameter searches that read the final scores |
+| `sweep` | `False` | deprecated: the earlier name of `evaluate_last_fifth_only`. Set `True`, it warns. It is not `train(sweep=...)` |
 | `evaluation_device` | `None` | a JAX device to evaluate on while training goes on ([below](#evaluating-on-another-device)); `None`: training waits for each evaluation |
 | `use_wandb`, `use_tensorboard` | not set | deprecated: the earlier way to name backends. Set, they warn and name W&B (on unless set `False`) and TensorBoard (off unless set `True`), as before |
+| `on_evaluation` | `None` | a function called in the training process with each seed's evaluation, `on_evaluation(metrics, index)`, where `index` says which seed; within one evaluation the seeds' calls come in no fixed order; a backend logs in a process of its own |
 | `folder` | `None` | where the default TensorBoard backend writes, `<folder>/tensorboard/<run id>/` (the working directory when `None`) |
 | `project_name`, `group_name` | `None` | with the deprecated flags: the W&B project and group |
 
 With `backends=()`, `train` still evaluates and returns the evaluations in
-memory: the quickest way to get learning curves. Without `backends`, each
-run writes TensorBoard event files under `./tensorboard/<run id>/`. Setting
+memory: the quickest way to get learning curves. A `LoggingConfig` built
+without the `backends` argument writes each run's TensorBoard event files
+under `./tensorboard/<run id>/`; the folder is named by the run id alone,
+without `run_name`. A `train` call given no `logging_config` writes no
+file: it prints a line per evaluation, which a `LoggingConfig` of yours
+does not. Setting
 a deprecated flag together with `backends` is refused.
 
 ### The run configuration
@@ -197,7 +205,8 @@ evaluation due at the end of the run does not happen, and `train` warns.
 
 ## Evaluating on another device
 
-Training waits for each evaluation. With `evaluation_device` it does not: at
+Training waits for each evaluation. With `evaluation_device` it does not
+(asynchronous evaluation, `ajax.async_evaluation`): at
 each evaluation, the training program hands the policy over and goes on, and
 a thread scores it on that device.
 
@@ -246,13 +255,15 @@ lists them, and `train(..., on_ids_ready=callback)` hands them to
   the `wandb` extra and log in once with `wandb login`. Each run is created
   in your process before training, so a missing login fails at once.
   `WandbBackend(steps=False)` creates the runs and sends them no evaluation,
-  as the deprecated `use_wandb` with `sweep=True` does.
+  as the deprecated `use_wandb` with `evaluate_last_fifth_only=True` does.
 - A backend of your own: [below](#a-backend-of-your-own).
 
 !!! warning "Guard your script's entry point"
     The logging worker is a separate Python process started with `spawn`,
     which imports your script again. A script that trains at the top level
-    then tries to train a second time inside the worker, and the run hangs.
+    then tries to train a second time inside the worker, which stops with
+    an error: training goes on and `train` returns its evaluations, but the
+    backends write nothing, and Ajax warns that the logs are missing.
     Put the training under `if __name__ == "__main__":`, as below.
 
 ```python

@@ -1,6 +1,6 @@
 # Algorithms
 
-Ajax has nineteen agents, all exported from `ajax`. Each follows a published
+Ajax has twenty agents, all exported from `ajax`. Each follows a published
 paper, and each page says where Ajax departs from it. Every agent takes an
 environment (`TDMPC2MultiTask`: a dataset, and environments to evaluate
 on), its own hyperparameters, `episode_length` and `action_repeat` (for
@@ -25,6 +25,7 @@ several seeds in a single compiled program with
 | [PQN](pqn.md) | value-based, parallel environments, no replay | Gallici et al. 2024 | discrete | no | `on_target`, `critic_loss` |
 | [PPO](ppo.md) | on-policy policy gradient | Schulman et al. 2017 ([arXiv:1707.06347](https://arxiv.org/abs/1707.06347)) | both | yes | `on_target`, `critic_loss`, `actor_loss` |
 | [APO](apo.md) | on-policy policy gradient, average reward | Ma et al. 2021 ([arXiv:2106.03442](https://arxiv.org/abs/2106.03442)) | both | no | `on_target`, `critic_loss`, `actor_loss` |
+| [REINFORCE](reinforce.md) | on-policy policy gradient, one step per rollout | Williams 1992 | both | no | none |
 | [UDRL](udrl.md) | command-conditioned supervised learning | Schmidhuber 2019 ([arXiv:1912.02875](https://arxiv.org/abs/1912.02875)) | both | no | `actor_loss` |
 | [DAgger](dagger.md) | imitation by dataset aggregation, no reward | Ross, Gordon and Bagnell, AISTATS 2011 ([arXiv:1011.0686](https://arxiv.org/abs/1011.0686)) | both | no | `actor_loss` |
 | [APG](apg.md) | gradients through a differentiable simulator | Busetto et al. 2024 ([arXiv:2411.06482](https://arxiv.org/abs/2411.06482)) for `APG.contextual_controller` | continuous | yes | `actor_loss` |
@@ -57,6 +58,36 @@ several seeds in a single compiled program with
   For SAC, TD3, REDQ, AVG, DQN, PQN and PPO, `Eval/mean bias` is the
   critic's estimate minus the discounted return actually obtained, averaged
   over the evaluated steps.
+
+## Agent families
+
+An agent belongs to a family according to where its updates take their data
+from. The other pages use these names, and a family's class in
+`ajax.agents.families` builds its agents' training loop.
+
+| Family | Agents | Its updates learn from |
+| --- | --- | --- |
+| Replay agents (`ReplayAgent`) | <!-- agents: replay -->SAC, ASAC, RVI-SAC, REDQ, CrossQ, TQC, TD3, IQL, DQN, DAgger<!-- /agents --> | rows sampled from a replay buffer of past transitions |
+| On-policy agents (`OnPolicyAgent`) | <!-- agents: on-policy -->PPO, APO, REINFORCE, PQN<!-- /agents --> | the rollout just collected, then discarded |
+| Incremental agent (`IncrementalAgent`) | <!-- agents: incremental -->AVG<!-- /agents --> | each step as it comes, with no replay |
+| Agents with an iteration of their own (`OwnIterationAgent`) | <!-- agents: own-iteration -->UDRL, APG<!-- /agents --> | UDRL: a replay of episode segments; APG: gradients through the simulator |
+| World models (`OwnReplayAgent`) | <!-- agents: own-replay -->DreamerV3, TD-MPC2<!-- /agents --> | a replay of their own, which trains the model and the policy |
+
+`TDMPC2MultiTask` is outside the families: it learns from a dataset only.
+
+Two properties follow the replay agents:
+
+- **Training offline.** The replay agents
+  (<!-- agents: offline -->SAC, ASAC, RVI-SAC, REDQ, CrossQ, TQC, TD3, IQL, DQN, DAgger<!-- /agents -->)
+  accept a dataset in place of the environment
+  ([`train_offline`](../guide/training.md#training-offline)).
+- **Sequence replay.** Six of them
+  (<!-- agents: sequence-replay -->SAC, ASAC, RVI-SAC, REDQ, TQC, TD3<!-- /agents -->)
+  take `memory=` and then replay sequences
+  ([Memory](../guide/memory.md#off-policy-sequence-replay)).
+
+A test compares each of these lists with the classes
+(`tests/test_docs_agent_sets.py`).
 
 ## Which agent should I use?
 
@@ -94,6 +125,12 @@ networks: [AVG](avg.md).
 give [PPO](ppo.md), [SAC](sac.md), [TD3](td3.md), [REDQ](redq.md),
 [ASAC](asac.md) or [APG](apg.md) a `memory=`. [DreamerV3](dreamerv3.md) is
 recurrent already.
+
+**The observation is an image.** [PPO](ppo.md), [DQN](dqn.md),
+[PQN](pqn.md) and [UDRL](udrl.md) read images through a convolutional
+encoder ([Image observations](../guide/networks.md#image-observations)); all
+four take discrete actions, and PPO and UDRL continuous ones too. The other agents,
+DreamerV3 included, read vector observations only.
 
 **You have an expert controller** (a PID, a hand-written policy): SAC has the
 most expert support, and it alone folds the `action` phase, which lets the

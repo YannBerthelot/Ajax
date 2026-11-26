@@ -31,7 +31,8 @@ network).
 from ajax import DQN
 from ajax.logging import LoggingConfig
 
-# A short run: the default warm-up, CleanRL's, is 10,000 steps.
+# A short run that shows the call, too short to learn CartPole: the
+# default warm-up, CleanRL's, is 10,000 steps.
 agent = DQN("CartPole-v1", n_envs=4, learning_starts=1_000)
 logging = LoggingConfig(log_frequency=5_000, backends=())
 state, evaluations = agent.train(seed=[0, 1], n_timesteps=10_000, logging_config=logging)
@@ -50,7 +51,7 @@ agent = DQN(
     "CartPole-v1",
     td_target_fn=compute_double_dqn_td_target,  # Double DQN
     q_network_cls=DuelingQNetwork,               # dueling heads
-    td_loss_fn=compute_mse_td_loss,              # squared error instead of Huber
+    td_loss_fn=compute_mse_td_loss,              # the squared error, named
 )
 state, _ = agent.train(seed=0, n_timesteps=2_000)
 ```
@@ -58,13 +59,14 @@ state, _ = agent.train(seed=0, n_timesteps=2_000)
 ## Key hyperparameters
 
 Defaults are read from DQN's fields: on vector observations, those of
-CleanRL's `dqn.py` (vwxyzjn/cleanrl `fe8d8a0`), with the authors' optimiser
-and loss (see Notes).
+CleanRL's `dqn.py` (vwxyzjn/cleanrl `fe8d8a0`), its Adam and squared loss
+included; on image observations the optimiser and loss are the authors'
+(see Notes).
 
 | Argument | Default | What it does |
 | --- | --- | --- |
 | `n_envs` | `1` | parallel environments |
-| `learning_rate` | `2.5e-4` | step size of centered RMSProp (see Notes) |
+| `learning_rate` | `2.5e-4` | step size of Adam (of centered RMSProp on images, see Notes) |
 | `architecture` | `("120", "relu", "84", "relu")` | hidden layers of the Q-network |
 | `gamma` | `0.99` | discount |
 | `buffer_size` | `10_000` | replay capacity |
@@ -76,12 +78,13 @@ and loss (see Notes).
 | `tau` | `1.0` | refresh rate: `1.0` copies the weights, below `1` is a Polyak step |
 | `epsilon_start`, `epsilon_end` | `1.0`, `0.05` | exploration rate at the start and the end of its decay |
 | `epsilon_decay_frac` | `0.5` | fraction of the run over which epsilon decays |
+| `epsilon_decay_start` | `0` | step at which the decay starts; epsilon is `epsilon_start` until then |
 | `reward_scale` | `1.0` | multiplies the rewards in the target |
 | `max_grad_norm` | `None` | gradient clipping |
 | `normalize_observations`, `normalize_rewards` | `False` | running normalisation |
 | `reward_normalization_gamma` | `None` | with `normalize_rewards`, the discount of the return whose spread divides the rewards: `gamma` if None, 0 for the single reward's |
 | `td_target_fn` | `None` | the target; `None` is vanilla DQN, `compute_double_dqn_td_target` is Double DQN |
-| `td_loss_fn` | `None` | the loss; `None` is the Huber loss with delta 1, `compute_mse_td_loss` the squared error |
+| `td_loss_fn` | `None` | the loss; `None` is the squared error on vector observations and the Huber loss with delta 1 on images (see Notes) |
 | `q_network_cls` | `None` | the network; `None` is `QNetwork`, `DuelingQNetwork` the dueling one |
 | `cnn_image_shape`, `cnn_extra_obs_dim`, `cnn_spec` | `None`, `0`, `None` | convolutional encoder for flat image observations; `None` builds the reference network (see Notes) |
 | `episode_length`, `action_repeat` | `None`, `1` | simulator steps per episode (1,000 when `None`) and per agent step, on Brax and Playground |
@@ -94,9 +97,10 @@ and loss (see Notes).
 [Presets](../guide/training.md#presets)): a 1,000,000-row replay, batches of
 32, 50,000 warm-up steps, one update every 4 steps (`train_frequency=4`), the
 target refreshed every 10,000 steps (`target_update_interval=2_500`
-updates), epsilon falling to 0.1 by step 1,050,000. That last is a fraction
-of the reference's 50M-step run (`epsilon_decay_frac=0.021`), so it comes
-sooner in a shorter run. Atari's frame skip and stack, no-op starts and
+updates), epsilon held at 1 for the warm-up (`epsilon_decay_start=50_000`)
+then falling to 0.1 over a million steps. That million is a fraction
+of the reference's 50M-step run (`epsilon_decay_frac=0.02`), so it is
+shorter in a shorter run. Atari's frame skip and stack, no-op starts and
 reward clipping are the environment's.
 
 ## Notes
@@ -122,19 +126,26 @@ reward clipping are the environment's.
   its steps from 0: an update or refresh at Ajax's 10,500th step is
   CleanRL's at `global_step` 10,500, its 10,501st. Ajax also updates and
   refreshes at step 10,000, where CleanRL waits for `global_step >
-  learning_starts`. CleanRL's Adam and squared loss give way to the authors'
-  optimiser and Huber loss (below).
+  learning_starts`. On CartPole-v1 these defaults reach a return near 500
+  within CleanRL's 500,000 steps; a run of a few thousand steps is still in
+  its warm-up.
 - **Exploration.** Epsilon decays linearly with the training fraction (the
   timestep over the run's total), from `epsilon_start` to `epsilon_end`
-  over the first `epsilon_decay_frac` of the run. Before `learning_starts`
+  over `epsilon_decay_frac` of the run, starting at step
+  `epsilon_decay_start` (0 by default). Before `learning_starts`
   every action is uniform. Evaluation is greedy.
 - **Time limits.** A transition cut by a time limit bootstraps on its final
   observation; only a termination stops the bootstrap.
-- **Loss.** The default is the Huber loss with delta 1, whose gradient is
-  the TD error clipped to [-1, 1], as the original DQN clips it.
-  `make_huber_td_loss(delta)` sets another delta; `compute_mse_td_loss` is the
-  squared error.
-- **Optimiser.** The authors' centered RMSProp (Graves 2013): each step is
+- **Loss.** On vector observations, the squared error, as CleanRL. On
+  images (`cnn_image_shape`), the Huber loss with delta 1, whose gradient is
+  the TD error clipped to [-1, 1], as the original DQN clips it on Atari's
+  rewards, themselves clipped to [-1, 1]. On unclipped rewards that loss
+  learns poorly: with it, CartPole-v1 stays near a return of 10.
+  `td_loss_fn` sets either: `compute_mse_td_loss`, `compute_huber_1_td_loss`
+  or `make_huber_td_loss(delta)`.
+- **Optimiser.** On vector observations, Adam at torch's defaults (eps
+  `1e-8`), as CleanRL. On images, the authors' centered RMSProp (Graves
+  2013): each step is
   the gradient over `sqrt(E[g^2] - E[g]^2 + eps)`, both averages decaying
   at 0.95. Their eps is 0.01 on a gradient summed over the batch; on Ajax's
   mean loss the same step takes `eps = 0.01 / batch_size**2`.

@@ -429,6 +429,10 @@ class NetworkConfig(Replaceable):
     # without a constructor argument for it take it through
     # ``agent.network_args.replace(encoder_layer_norm=True)``.
     encoder_layer_norm: bool = False
+    # The observation encoders' compute dtype ("bfloat16"; None: float32),
+    # which ActorCritic.train(precision=...) sets for its call. Parameters,
+    # heads, memory cells and losses stay float32 (ajax.precision).
+    compute_dtype: Optional[str] = flax.struct.field(pytree_node=False, default=None)
     squash: bool = False
     # The tanh log-det's guard, Squash's ``log_det_eps``: 0 keeps the exact
     # log-det; an agent whose reference adds one inside the log sets it.
@@ -443,7 +447,9 @@ class NetworkConfig(Replaceable):
     # reference does (AVG's) sets it.
     log_variance_head: bool = False
     # One encoder (and memory block) for the actor and the critic, which
-    # the critic owns and both losses train (get_initialized_actor_critic);
+    # the critic owns (get_initialized_actor_critic) and its optimiser
+    # steps: down both losses in PPO and APO, the critic's alone in an
+    # agent with a Q-critic;
     # False: each network has its own. Static: it decides the networks'
     # structure.
     share_encoder: bool = flax.struct.field(pytree_node=False, default=False)

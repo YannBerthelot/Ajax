@@ -131,6 +131,33 @@ class BinaryObservations(GymnaxWrapper):
         return spaces.Box(space.low, space.high, space.shape, jnp.bool_)
 
 
+class ObservationWrapper(GymnaxWrapper):
+    """A gymnax env whose observations are ``self.observation(obs)``: at
+    reset, at every step, and for the pre-reset observation an episode end
+    leaves in the info, which the agent reads as that transition's next
+    observation. A wrapper changing only what reset and step return leaves
+    that one as the env made it, and the agent then learns from two kinds
+    of observations, with no error. A subclass that changes the
+    observations' shape also defines ``observation_space``."""
+
+    def observation(self, obs: jax.Array) -> jax.Array:
+        raise NotImplementedError
+
+    def reset(self, key, params=None):
+        obs, state = self._env.reset(key, params)
+        return self.observation(obs), state
+
+    def step(self, key, state, action, params=None):
+        obs, state, reward, terminated, truncated, info = self._env.step(
+            key, state, action, params
+        )
+        info = {
+            name: self.observation(value) if name in _FINAL_OBS_KEYS else value
+            for name, value in info.items()
+        }
+        return self.observation(obs), state, reward, terminated, truncated, info
+
+
 class FlattenObservationWrapper(GymnaxWrapper):
     """Flatten the observations of the environment."""
 
@@ -319,15 +346,21 @@ class _OnlineNormalization:
         gamma: Optional[float] = None,
     ):
         super().__init__(env)  # type: ignore[call-arg]
-        self.obs_shape, _ = get_state_action_shapes(env)
         self.raw_columns = raw_obs_columns(env)
         self.train = train
         self.normalize_obs = normalize_obs
         self.normalize_reward = normalize_reward
         self.norm_info = norm_info
         self.gamma = gamma
-        obs_shape = self._trace_reset().shape
-        self.batch_size = obs_shape[0] if len(obs_shape) > 1 else 1
+        traced = self._trace_reset().shape
+        # A brax stack's width is read off a traced reset
+        # (get_state_action_shapes): the one trace serves both, since an MJX
+        # reset takes about 0.7 s to trace, paid at every agent built on a
+        # normalised env.
+        self.obs_shape = (
+            (traced[-1],) if self.mode == "brax" else get_state_action_shapes(env)[0]
+        )
+        self.batch_size = traced[0] if len(traced) > 1 else 1
 
     def _trace_reset(self) -> Any:
         """The inner reset's observation, traced, not run (shapes only)."""
@@ -618,11 +651,15 @@ class EpisodeKeyedAutoResetWrapper(GymnaxWrapper):
                 environment.Environment, method
             ):
                 raise ValueError(
-                    f"{type(env).__name__} overrides gymnax's {method}, which"
-                    " resets keyed by episode would bypass. Build it with"
-                    " episode_keys=False: build_env_from_id(env_id, ...,"
-                    " episode_keys=False), or with_episode_keys(env, on=False)"
-                    " (ajax.environments.create) for an env you built."
+                    f"{type(env).__name__} has a {method} of its own, which"
+                    " Ajax's episode-keyed resets would bypass. Build it"
+                    " without them and pass the agent that environment: env,"
+                    " env_params = build_env_from_id(env_id, n_envs=...,"
+                    " episode_keys=False) (ajax.environments.create), then"
+                    " Agent(env, env_params=env_params, n_envs=...); for an"
+                    " env you built, with_episode_keys(env, on=False). Its"
+                    " episodes then start on gymnax's own keys (see"
+                    " 'Episode keys' in the environments guide)."
                 )
         _, state = jax.eval_shape(
             lambda key: env.reset_env(key, env.default_params), jax.random.PRNGKey(0)

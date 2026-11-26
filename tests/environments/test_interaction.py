@@ -383,7 +383,9 @@ def test_replayed_next_obs_is_one_step_on_from_obs_through_time_limits():
         batch_size=4,
         buffer_size=40,
     )
-    state, _ = agent.train(seed=0, n_timesteps=14)  # 7 rows per env
+    state, _ = agent.train(
+        seed=0, n_timesteps=14, logging_config=None
+    )  # 7 rows per env
     rows = state.collector_state.buffer_state.experience
     obs, next_obs, truncated = (
         np.asarray(rows[k])[0, :, :7] for k in ("obs", "next_obs", "truncated")

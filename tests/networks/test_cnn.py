@@ -121,7 +121,9 @@ def test_udrl_trains_a_cnn_policy_on_image_and_command():
         buffer_capacity=8,
         cnn_image_shape=(2, 2, 1),
     )
-    state, _ = agent.train(seed=0, n_timesteps=16, num_episode_test=1)
+    state, _ = agent.train(
+        seed=0, n_timesteps=16, num_episode_test=1, logging_config=None
+    )
     params = jax.tree.map(lambda leaf: leaf[0], state.actor_state.params)
     assert _conv_params(params)
     command_obs = jnp.ones((BATCH, 4 + 2))  # the image, then (d_r, d_h)

@@ -25,7 +25,7 @@ from . import readouts as R
 from .verdict import Case, Query, check, params
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "af3378ef3468"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "be526c143487"  # verdict.digest(CASES): every answer, pinned
 ENV, PARAMS = envs.action_box().make()
 CONTEXTS = jnp.eye(3)  # up, down, inside
 
@@ -148,6 +148,7 @@ CELLS: dict[str, tuple] = {  # agent: family, budget, tolerances, overrides
     "ASAC": ("ASAC", 60_000, (0.062, 0.083, 0.233), dict.fromkeys(LR3, 1e-4)),
     "AVG": ("AVG", 20_000, (0.026, 0.045, 0.239), LR3),
     "APO": ("none", 300_000, (0.02, 0.02, 0.145), dict.fromkeys(LR3, 1e-4)),
+    "REINFORCE": ("none", 100_000, (0.02, 0.02, 0.216), {}),
     "APG": ("none", 5000, (0.02, 0.02, 0.065), {"horizon": 1}),
     "DreamerV3": ("none", 32_000, (0.074, 0.076), {}),
     "TDMPC2": ("none", 4000, (0.02, 0.02, 0.248), {"episodic": True, "horizon": 1}),

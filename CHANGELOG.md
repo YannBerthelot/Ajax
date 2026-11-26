@@ -8,11 +8,220 @@ PyPI as `ajax-rl`.
 
 The next release is 0.6.0: the first item changes results.
 
+- **Changes results: an agent's actions on `mujoco:InvertedPendulum-v5`
+  and `mujoco:Pusher-v5` now span Gymnasium's action space.** Agents act
+  in [-1, 1], and on `mujoco:` tasks that went to the motors unscaled.
+  InvertedPendulum's motor takes ±3 and Pusher's take ±2, so agents
+  reached a third and a half of the range, and Pusher's control cost a
+  quarter of Gymnasium's largest. gymnasium-mjx's adapter, which now
+  holds the `mujoco:` tasks, maps [-1, 1] onto each motor's range, as
+  Ajax does for `gymnasium:` tasks; the Humanoids' motors take ±0.4. The
+  other six tasks, whose motors take ±1, are unchanged, as are
+  Playground's own environments. Upgrade: results
+  recorded on those two tasks before this change are not comparable.
+- **New: `REINFORCE`, the plain policy gradient** (Williams, 1992), as
+  Spinning Up's Vanilla Policy Gradient runs it: one full-batch policy step
+  per rollout on GAE advantages of a learned baseline, then 80 critic
+  steps. `baseline=False` weights each step by its reward-to-go alone, and
+  `REINFORCE.preset("rtg_pg", env_id)` is Spinning Up's plain example.
+  Discrete and continuous actions; no memory yet. See
+  [REINFORCE](docs/algorithms/reinforce.md). PPO's GAE moved to
+  `ajax.agents.returns.compute_gae`, which PPO, APO and REINFORCE share;
+  it was private (`_compute_gae`), so no public name changed.
+- **New: `agent.render(state, path)` saves an episode of the trained
+  policy as an animation**: a GIF on the gymnax tasks gymnax draws, on
+  MuJoCo Playground and on the `mujoco:` tasks, an interactive page on
+  Brax (Train, evaluate, deploy, "Watch the policy"). The new `render`
+  extra installs what the gymnax drawings need: matplotlib and
+  Gymnasium's classic-control drawings.
+- **New: `ajax.wrappers.ObservationWrapper`**, a base class whose
+  `observation(obs)` changes every observation, the one an episode's end
+  leaves in the info included. A wrapper changing only what `reset` and
+  `step` return trained on two kinds of observations, with no error
+  (Environments, "Changing the observations"). The memory guide trains on
+  a CartPole with hidden velocities built with it.
+- **An architecture of widths alone warns.** `actor_architecture=[64, 64]`
+  (SB3's `net_arch` habit) built layers with no activation between them,
+  with no word; the agent now warns and shows the tuple to write.
+- **`agent.evaluate`, `predict`, `policy` and `save` name the argument
+  meant**, as `render` and `train_offline` do.
+- **A state from another agent or environment is refused saying so.**
+  `evaluate`, `predict` and `render` gave flax's error about a parameter's
+  shape; they now say the state acts with the agent and environment that
+  trained it.
+- **A `LoggingConfig` whose `log_frequency` is past the run's end warns.**
+  Its default is 10,000 steps, so a shorter run with a `LoggingConfig` of
+  your own returned no evaluation, with no word.
+- **The warning for a budget that is not whole iterations** no longer says
+  the missing evaluation is NaN: the evaluations returned have no column
+  for it.
+- **Docs: "Coming from Stable-Baselines3" says whose defaults Ajax keeps**
+  (each algorithm's original) and lists, for PPO, SAC, TD3 and DQN, where
+  SB3's differ. The tables of default `n_envs` and default networks had
+  drifted from the code for PPO, APO, PQN, DQN and others; tests now hold
+  them to it.
+- **Fixed: a logged run with `JSRLCurriculum` warned `invalid value
+  encountered in cast`.** The steps without an evaluation held NaN in place
+  of JSRL's integer stage. No logged value changes.
+- **`agent.render` and `agent.train_offline` name the argument meant.** A
+  keyword neither takes is refused in the agent's name with the closest
+  names (`PPO.render has no argument 'max_step'. Did you mean max_steps?`),
+  and a call without the state says what the method needs.
+- **New: `PPO.preset("SB3", env_id)`**, Stable-Baselines3's PPO defaults in
+  Ajax's names, for settings brought from SB3 or SBX. Ajax's PPO defaults
+  are ppo2's, which clip the value loss and normalise observations and
+  rewards; SB3 and SBX do neither. The PPO page lists the differences
+  ("Presets").
+- **Ajax's PPO and SAC were run beside SBX**, Stable-Baselines3's JAX
+  version (0.28.0), under the reproduction protocol. Both are similar by
+  the registered margin, with no difference shown at 96 seeds a side
+  (Reproduction, "Results"). A first PPO run left Ajax's value-loss clip
+  on, which SBX does not have, and ended lower (489.4 against 500); the
+  comparison's second version turns it off. The PPO comparison with
+  Stable-Baselines3 was run again with the same setting written out
+  (version 3), since its earlier record predates the clip being PPO's
+  default.
+- **Ajax's DQN was run beside Stable-Baselines3's** on CartPole-v1 under
+  the reproduction protocol, set up as SB3's (Huber loss, one update per
+  step). No difference is shown at 96 seeds a side (243.7 against 245.9),
+  and the verdict is inconclusive: both end near half of the task's 500
+  and vary from seed to seed, so the interval is wider than the ±25 margin
+  (Reproduction, "Results"). The run does not cover DQN's own defaults.
+- **`agent.render` draws Gymnasium environments and your own.** A
+  `gymnasium:` environment is saved as a GIF of its own pictures. Any other
+  environment takes `agent.render(state, path, draw=my_draw)`, where
+  `my_draw(env_state)` returns one picture. Both were refused before.
+- **Sweeps on every agent of the shared loop.** `train(sweep=...)` now
+  varies numbers on APO, ASAC, AVG, CrossQ, DAgger, DQN, IQL, PQN, REDQ, RVI-SAC,
+  TD3, TQC and UDRL as on SAC and PPO; `agent.sweepable_fields()` lists each
+  agent's. A class declares the fields it defines (`sweepable`), a mixin its
+  own, and an agent takes the union, less those it refuses with a reason
+  (`unsweepable`). One test checks every declared field of every agent
+  against separate runs, and against a sweep of the agent built with the
+  value: CrossQ's sweep rounds apart from a separate run too soon for the
+  first comparison. Not yet: the world models and APG, and fields whose
+  optimiser or schedule is built with the agent (DQN's and CrossQ's
+  `learning_rate`, the exploration's `epsilon_decay_frac`).
+- **The seed axis is said where it is read.** Results keep their seed axis
+  whatever the number of seeds. The last line `train` prints now gives
+  `evaluations.returns`' layout and shape, `print(evaluations)` opens on it,
+  and the quickstart and the training page show a single seed's curve as
+  `evaluations.returns[0]`.
+- **Checks and messages**, after a fifth newcomer trial:
+    - a script that trains at its top level with a logging backend used to
+      lose its logs silently (the logging process failed on importing the
+      script): the run now warns that the logs are missing, and both
+      messages say to guard the entry point;
+    - `train` refuses a seed that is no integer (`seed=1.5` gave "'float'
+      object is not iterable"), a negative `n_timesteps` (it trained one
+      rollout) and `num_episode_test=0` (it returned NaN); `LoggingConfig`
+      refuses a `log_frequency` below 1 (it returned no evaluation);
+    - a `total_timesteps` below the call's steps says that `n_timesteps` is
+      what the call trains;
+    - `evaluate`, `render`, `predict` and `policy` refuse an integer or
+      `None` given as the state, showing the call;
+    - docs: where a one-network agent keeps its network and how to print
+      an agent's network shapes, a resumed call's new run ids, the agents
+      for image observations, and DQN's optimiser on the page for people
+      coming from SB3.
+- **DQN's default optimiser and loss on vector observations are CleanRL's**
+  (default change): Adam at eps `1e-8` and the squared error, as the
+  `dqn.py` its other defaults come from. They were the authors' centered
+  RMSProp and Huber loss, which the authors run on Atari's clipped rewards:
+  with them the default did not learn CartPole-v1 (a return near 10 after
+  500,000 steps on four seeds, where CleanRL's code and the new default
+  reach 500). On image observations (`cnn_image_shape`) the authors'
+  optimiser and loss stay. To keep the earlier loss, pass
+  `td_loss_fn=compute_huber_1_td_loss` (`ajax.agents.critics`).
+- **More checks**, after a third newcomer trial:
+    - an expert whose action drops its last axis is refused where Ajax
+      first calls it, naming the expert and the axis (before, a
+      broadcasting error, or a silent broadcast);
+    - `LoggingConfig(backends=TensorBoardBackend(...))`, without the tuple,
+      shows the tuple to write;
+    - `train` refuses a keyword it does not take before anything starts,
+      naming the one meant (`logging`: `logging_config`);
+    - a dataset whose rows do not fit the agent's environment says so, and
+      a gymnax environment with a step of its own (bsuite's DeepSea) names
+      the two lines that build it;
+    - the docs give each expert piece's module, how to `record` a trained
+      agent's policy, what the seeds of a resuming call do, and what
+      `render` needs for MinAtar (nothing) and Brax (the internet).
+- **Clearer errors and checks**, after a second newcomer trial:
+    - an unknown environment id names the closest ids, and an unknown agent
+      argument the closest arguments (`learning_rate`:
+      `actor_learning_rate`, `critic_learning_rate`);
+    - an agent on the wrong kind of actions names the agents that fit;
+    - a `mujoco:` id without MuJoCo names the `playground` extra, and a
+      Gymnasium environment outside the `gymnasium` extra (LunarLander's
+      Box2D) no longer points at that extra;
+    - `predict` checks the observation's shape, `policy` and `predict`
+      refuse a `seed_index` the state does not hold (it returned an action
+      before), `policy.act` refuses an observation without a row per
+      environment, and `evaluate`, `policy` and `predict` say so when given
+      train's evaluations instead of its state;
+    - image observations read by an MLP warn and name the
+      `cnn_image_shape` to pass, and one in another order than the
+      environment's (channels first) raises;
+    - a budget below one rollout warns that no evaluation is recorded.
+- **Docs:** where each source lists its environment ids, a hand-written
+  loop for one environment with a recurrent policy, and PPO's rollout count
+  corrected (Training).
+- **New: a sweep reads by configuration.** A sweep's default progress
+  shows a line per configuration under each evaluation, and
+  `agent.by_configuration(evaluations.returns)` gives each configuration
+  with its rows, one per seed.
+- **New: `print(agent)` shows the call that builds it**, with the arguments
+  that differ from their defaults.
+- **Docs: writing your own environment** has its own example
+  (Environments), which says that gymnax applies the time limit: `step_env`
+  returns the termination only. The sweep, save and load, TensorBoard and
+  hand-written loop pages are corrected after a newcomer trial.
+- **New: `train(precision=...)` runs the networks in bfloat16.** Mixed
+  precision: parameters, gradients and optimiser stay float32, the layers
+  compute in bfloat16, every network returns float32. `"auto"` uses
+  bfloat16 only where every device has bfloat16 units (NVIDIA compute
+  capability 8.0 or more, TPU) and float32 elsewhere; `"bfloat16"` forces
+  it; `None` (the default) is each agent's original precision, float32 for
+  all for now, so nothing changes unless asked. The run config records the
+  result. DreamerV3, whose original computes in bfloat16, stores its replay
+  latents in the compute dtype: half the replay, without loss
+  (`docs/guide/performance.md`, "bfloat16").
+
+- **Changed: a resume holds no second copy of a large replay.** A
+  checkpoint now stores its arrays of 16 MiB or more after the pickle
+  stream, and a restore copies each from the file straight to where the
+  state keeps it (a 10-seed DreamerV3 replay in host memory: 80 GiB, held
+  once instead of up to three times). `load_checkpoint` and `load` no
+  longer keep the file's state while restoring it. Checkpoints written
+  before still load. Upgrade note: a checkpoint holding such an array is
+  no longer one pickle stream: read it with `restore_into`,
+  `load_checkpoint` or `load`, not `pickle.load`, and an older Ajax cannot
+  read it.
+
 - **Fixed: a forced reset kept the reward normaliser's running return.**
   With `normalize_rewards` and forced resets (`num_resets_per_eval`), the
   abandoned episodes' discounted return carried into the new episodes'
   rewards and statistics. It now restarts at zero, as SB3's
   `VecNormalize.reset` does; the statistics stay.
+
+- **Deprecated: `LoggingConfig(sweep=...)` is now
+  `evaluate_last_fifth_only`.** The flag evaluates only in the last fifth
+  of training; its name was also that of `train(sweep=...)`, which trains
+  several configurations in one program. `sweep=True` is still accepted:
+  it warns (`FutureWarning`), sets the new field and reads `False`
+  afterwards.
+  Upgrade: rename the argument, and read `evaluate_last_fifth_only`.
+
+- **DQN's Atari preset holds epsilon at 1 during the warm-up.** Mnih et
+  al.'s code starts the decay after its 50,000 warm-up steps and ends it a
+  million steps later (google-deepmind/dqn@9d9b1d1,
+  `NeuralQLearner.lua:369-371`); the preset decayed from step 0 to the same
+  end, so its epsilon was up to 0.043 lower in between. DQN gains
+  `epsilon_decay_start` (0 by default: other runs are unchanged), which the
+  preset sets to 50,000 with `epsilon_decay_frac=0.02`. Upgrade: for the
+  earlier schedule, pass `epsilon_decay_start=0,
+  epsilon_decay_frac=0.021` to `DQN.preset("Atari", ...)`.
 
 - **Fixed: n-step rewards were clipped after the sum.** With `n_step` above
   1 and `normalize_rewards`, each reward of a row is now divided and clipped
@@ -368,6 +577,12 @@ The next release is 0.6.0: the first item changes results.
   on all fifteen DeepMind Control tasks, APO's HumanoidWalk run finished, and
   REDQ, TQC, CrossQ, TD-MPC2 and DreamerV3 have CheetahRun scores, from runs
   on a GPU ([Agent benchmark](docs/reproduction/benchmark.md)).
+- **Agent benchmark rerun at the new defaults.** PPO, APO, DQN, PQN and
+  REDQ were rerun at `2ef57fe`; the page lists what moved (PPO on CheetahRun
+  215 to 497, PQN on Breakout 24 to 71, DQN on Breakout 84 to 50; REDQ on
+  CheetahRun stays at about 910). The other agents' rows are from the
+  earlier commits
+  ([Agent benchmark](docs/reproduction/benchmark.md)).
 - **Agent benchmark page in tabs.** One tab per suite, each with its table, a
   heatmap and learning curves. `benchmarks/suite/publish.py` writes the
   tables, figures and the README summary from the records, and a test checks
@@ -523,6 +738,10 @@ one env and 64-64 layers), DQN, PQN, APO, REDQ's warm-up, DAgger's fit and
 and windows. Checkpoints of recurrent SAC-family agents and of DAgger saved
 before this version do not restore at the new defaults. The rest:
 
+- **An expert must keep its action's last axis**, as the expert guide has
+  asked: `expert(obs)` returns `(..., action_dim)`, an index column `(..., 1)`
+  on discrete actions. One that returned `(...,)` and ran by broadcasting is
+  now refused; add `[..., None]`.
 - **On-policy runs train one rollout fewer per `train` call**, so their
   results move a little. A call asked for 8,192 steps of 1,024-step rollouts
   now stops at 8,192, not 9,216. *What to do:* compare with runs of this
@@ -600,6 +819,65 @@ before this version do not restore at the new defaults. The rest:
   `bc_min_log_std` and `bc_action_clip_eps`, which no caller set (they are
   constants now). *What to do:* code calling these by keyword renames or
   drops the argument; no result changes.
+
+- **`train(devices=...)` splits the seeds over several devices.** Each
+  device trains a consecutive slice of the seeds, or of a sweep's
+  configurations over the seeds, at the same time; the results come back
+  in the usual order on the first device. Without `devices` nothing
+  changes.
+
+- **`agent.save(state, path)` and `load`.** `save` writes the state with
+  the agent's class and its plain constructor arguments; `ajax.load(path)`
+  or `PPO.load(path)` returns `(agent, state)`. Arguments that are objects
+  (a prebuilt environment, extensions, an expert policy) are passed to
+  `load` again. `save_checkpoint` and `load_checkpoint` are unchanged, and
+  read these files too.
+
+- **Fixed: training held extra copies of its state.** Each evaluation
+  between chunks of training returned a copy of the whole state, replay
+  included. A resumed run also kept the shorter replay it had grown out of
+  until the call ended. Evaluations now update the state in place, and a
+  resume frees the replay it replaces. No result changes. A state passed
+  as `initial_state` was already used up by the call; now its old replay
+  is freed too.
+
+- **Faster: training chunks compute only their last update's logs.** A
+  logged run computed the update logs (losses, gradient norms, the
+  ensemble's spread) at every step and read them once per evaluation. Now
+  only the step before an evaluation computes them. Measured on an RTX 2080
+  Ti at 10 seeds: SAC 4.9%, TD3 4.6%, TQC 3.9% less time per step; CrossQ
+  and REDQ unchanged. Same steps in the same order; results move by
+  floating-point rounding at most.
+
+- **Faster: CQL and Cal-QL score their sampled actions in one critic pass**
+  where there were four. Same values to rounding.
+
+- **New: `TDMPC2.preset("MuJoCo", env_id)`.** The two settings the latest
+  official TD-MPC2 code changes for its gym MuJoCo tasks: `discount_max=0.99`
+  and `rho=0.7`. TD-MPC2's defaults are unchanged.
+
+- **Changed default: a `train` call given no `logging_config` evaluates and
+  prints.** It evaluates about ten times over the call (every tenth of its
+  steps, rounded up to whole iterations of the agent), prints a line for
+  each (the mean return over the seeds, with the lowest and highest), and
+  returns the evaluations where it returned `None`. **Upgrade:** pass
+  `logging_config=None` for the earlier behaviour: no evaluation, nothing
+  printed, `None` returned, and the fastest run. A call with a
+  `LoggingConfig` is unchanged.
+
+- **New: the evaluations by name.** `train`'s second value is still the
+  dict of logged names, and now also has `evaluations.returns` (seeds x
+  evaluations) and `evaluations.timesteps`.
+
+- **New: `agent.evaluate(state, episodes=10, seed=0)`**, the returns of
+  fresh episodes of each seed's trained policy, one row per seed, acting as
+  `agent.policy` does; on a Gymnasium environment the episodes step in
+  Python, one seed after another. The hook of that
+  name on agents with their own loop (UDRL, APG, DreamerV3, TD-MPC2) is now
+  `evaluation_metrics`; `TDMPC2MultiTask.evaluate` is unchanged.
+
+- **New: `LoggingConfig(on_evaluation=...)`**, a function called in the
+  training process with each seed's evaluation.
 
 ## 0.5.0
 

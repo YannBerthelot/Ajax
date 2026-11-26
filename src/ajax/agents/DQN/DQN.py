@@ -32,6 +32,7 @@ from flax import struct
 from ajax.agents.critics import (
     ValueAuxiliaries,
     compute_huber_1_td_loss,
+    compute_mse_td_loss,
     q_gradient_step,
     q_network_value_readers,
 )
@@ -75,10 +76,10 @@ from ajax.types import Architecture
 #: Mnih et al.'s Atari config (google-deepmind/dqn@9d9b1d1, run_gpu:12-32):
 #: one update every 4 steps after 50,000, the target refreshed every 10,000
 #: steps (NeuralQLearner.lua:341-342, :356), so every 2,500 updates. Its
-#: epsilon reaches 0.1 at step 1,050,000, a million steps after the warm-up
-#: (:370-371): here that step's fraction of its 50M-step run, so a shorter
-#: run decays faster. Atari's frame skip and stack, no-op starts and reward
-#: clipping are the env's.
+#: epsilon stays at 1 for the 50,000 warm-up steps, then reaches 0.1 a
+#: million steps later, at step 1,050,000 (:369-371): here that million is
+#: a fraction of its 50M-step run, so a shorter run decays faster. Atari's
+#: frame skip and stack, no-op starts and reward clipping are the env's.
 PRESETS = {
     "Atari": Preset(
         {
@@ -91,7 +92,8 @@ PRESETS = {
             "target_update_interval": 2_500,
             "epsilon_start": 1.0,
             "epsilon_end": 0.1,
-            "epsilon_decay_frac": 1_050_000 / 50_000_000,
+            "epsilon_decay_start": 50_000,
+            "epsilon_decay_frac": 1_000_000 / 50_000_000,
         },
         "google-deepmind/dqn@9d9b1d1 run_gpu:12-32, NeuralQLearner.lua:341-371",
     )
@@ -112,10 +114,25 @@ class DQN(
     (the module's equations), acting epsilon-greedy.
 
     Defaults: on vector observations, CleanRL's dqn.py (vwxyzjn/cleanrl
+    #: The numbers a sweep may vary in one program (ActorCritic.sweepable),
+    #: each checked against separate runs by tests/agents/test_sweep_every_agent.py.
+    sweepable: ClassVar[frozenset[str]] = frozenset(
+        {
+            "epsilon_end",
+            "epsilon_start",
+            "gamma",
+            "reward_scale",
+            "tau",
+        }
+    )
+
     @fe8d8a0, its Args at lines 47-71 and QNetwork at 95-99), the
-    classic-control reference, with Mnih et al.'s optimiser and Huber loss
-    (optimizer_settings, td_loss_fn), which google-deepmind/dqn @9d9b1d1
-    runs on Atari. Ajax counts the steps collected, CleanRL numbers them
+    classic-control reference, with its Adam and squared loss (dqn.py:148,
+    :201); on image observations (cnn_image_shape), Mnih et al.'s optimiser
+    and Huber loss (optimizer_settings, default_td_loss), which
+    google-deepmind/dqn @9d9b1d1 runs on Atari, where rewards are clipped
+    to [-1, 1]: on CartPole's unclipped rewards that loss does not learn.
+    Ajax counts the steps collected, CleanRL numbers them
     from 0 (global_step): an update and a refresh of Ajax's at its 10,500th
     step are CleanRL's at global_step 10,500, its 10,501st. Ajax also
     updates and refreshes at step 10,000, where CleanRL waits for
@@ -145,18 +162,22 @@ class DQN(
     #: The updates per updating tick, once learning_starts is reached.
     n_gradient_steps: int = 1
     #: Linear epsilon-greedy schedule: epsilon goes from epsilon_start to
-    #: epsilon_end over the first epsilon_decay_frac of training (start_e,
-    #: end_e, exploration_fraction: dqn.py:63-67).
+    #: epsilon_end over epsilon_decay_frac of training (start_e, end_e,
+    #: exploration_fraction: dqn.py:63-67), from step epsilon_decay_start:
+    #: 0 as CleanRL, whose schedule reads global_step (dqn.py:165); Mnih et
+    #: al.'s code starts the decay after its warm-up (the preset).
     epsilon_start: float = 1.0
     epsilon_end: float = 0.05
     epsilon_decay_frac: float = 0.5
+    epsilon_decay_start: int = 0
     #: The TD target: None is compute_dqn_td_target; compute_double_dqn_td_target
     #: is Double DQN's. Either returns the target, the next actions it scored
     #: and the values it bootstrapped there, which the extensions learning
     #: from the target read; a function may return the target alone.
     td_target_fn: Optional[Callable] = None
-    #: The TD loss: None is compute_huber_1_td_loss, the reference's TD-error
-    #: clip; compute_mse_td_loss (ajax.agents.critics) the squared error.
+    #: The TD loss: None is default_td_loss, the observation kind's
+    #: reference; compute_mse_td_loss and compute_huber_1_td_loss
+    #: (ajax.agents.critics) name either.
     td_loss_fn: Optional[Callable] = None
     #: The Q-network module: None is QNetwork; DuelingQNetwork
     #: (ajax.networks.q_networks) the dueling architecture.
@@ -185,13 +206,25 @@ class DQN(
         return args
 
     def optimizer_settings(self) -> dict[str, Any]:
-        # The reference's optimiser (NeuralQLearner.lua:265-277): centred
-        # RMSProp, both averages decaying at 0.95, eps 0.01 inside the square
-        # root of a gradient summed over the batch (:254). Ajax's TD loss
-        # averages over the batch, so the same step takes eps 0.01 /
+        # Vector observations: CleanRL's torch Adam at its defaults
+        # (dqn.py:148), eps 1e-8.
+        if self.cnn_image_shape is None:
+            return {"eps": 1e-8}
+        # Images: Mnih et al.'s optimiser (NeuralQLearner.lua:265-277):
+        # centred RMSProp, both averages decaying at 0.95, eps 0.01 inside
+        # the square root of a gradient summed over the batch (:254). Ajax's
+        # TD loss averages over the batch, so the same step takes eps 0.01 /
         # batch_size**2.
         eps = 0.01 / self.batch_size**2
         return {"optimizer": "centered_rmsprop", "beta_2": 0.95, "eps": eps}
+
+    def default_td_loss(self) -> Callable:
+        """The reference's TD loss: CleanRL's squared error on vector
+        observations (dqn.py:201); on images Mnih et al.'s TD error clipped
+        to [-1, 1] (NeuralQLearner.lua:232-236), the Huber loss of delta 1."""
+        if self.cnn_image_shape is None:
+            return compute_mse_td_loss
+        return compute_huber_1_td_loss
 
     def value_estimate(self) -> ValueEstimate:
         # The greedy policy's max_a Q(s, a), not a critic's Q at an actor's
@@ -201,13 +234,15 @@ class DQN(
     def make_epsilon_schedule(
         self, context: TrainContext
     ) -> Callable[[Any], jax.Array]:
-        """The exploration rate at a timestep: linear over the first
-        epsilon_decay_frac of the horizon, then flat."""
-        return linear(
+        """The exploration rate at a timestep: epsilon_start until
+        epsilon_decay_start, linear over the next epsilon_decay_frac of the
+        horizon, then flat."""
+        decay = linear(
             self.epsilon_start,
             self.epsilon_end,
             self.epsilon_decay_frac * context.total_timesteps,
         )
+        return lambda timestep: decay(timestep - self.epsilon_decay_start)
 
     def choose_behaviour(self, context: TrainContext) -> Callable:
         """Epsilon-greedy collection on the greedy Q-network, uniform (or
@@ -272,7 +307,7 @@ class DQN(
             td_target_fn = compute_dqn_td_target
         td_loss_fn = self.td_loss_fn
         if td_loss_fn is None:
-            td_loss_fn = compute_huber_1_td_loss
+            td_loss_fn = self.default_td_loss()
         targeted: Any = td_target_fn(
             q_state=agent_state.actor_state,
             next_observations=next_observations,

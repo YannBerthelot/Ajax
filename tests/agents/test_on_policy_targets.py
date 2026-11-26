@@ -16,8 +16,8 @@ import numpy as np
 import pytest
 
 from ajax import PPO, PQN
-from ajax.agents.PPO.PPO import _compute_gae
 from ajax.agents.PQN.PQN import compute_q_lambda_targets
+from ajax.agents.returns import compute_gae
 from ajax.extensions.base import Extension
 from ajax.networks.networks import predict_value
 from ajax.networks.q_networks import predict_q
@@ -47,7 +47,7 @@ class _PPOTargets(Extension):
             value(batch["observations"]),
             value(batch["next_observations"]),
         )
-        _, want = _compute_gae(
+        _, want = compute_gae(
             batch["rewards"],
             values,
             next_values,
@@ -112,7 +112,7 @@ def test_ppo_gae_reads_each_steps_own_flags_and_next_state(unroll) -> None:
     agent = PPO(
         env, env_params=env.default_params, n_envs=2, extensions=[_PPOTargets()], **kw
     )
-    agent.train(seed=0, n_timesteps=64)
+    agent.train(seed=0, n_timesteps=64, logging_config=None)
     jax.effects_barrier()
     assert SEEN
     _check_flags(SEEN)
@@ -135,7 +135,7 @@ def test_pqn_targets_read_each_steps_own_reward_flags_and_next_state() -> None:
     agent = PQN(
         env, env_params=env.default_params, n_envs=2, extensions=[_PQNTargets()], **kw
     )
-    agent.train(seed=0, n_timesteps=64)
+    agent.train(seed=0, n_timesteps=64, logging_config=None)
     jax.effects_barrier()
     assert SEEN
     _check_flags(SEEN)

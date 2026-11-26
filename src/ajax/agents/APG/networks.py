@@ -72,6 +72,9 @@ class Controller(nn.Module):
     pid: Optional[PIDHeadConfig] = None
     squash: bool = True
     cache_keys_values: bool = False
+    # The encoder's compute dtype (NetworkConfig.compute_dtype); memory, norm
+    # and output stay float32.
+    compute_dtype: Optional[str] = None
 
     @property
     def stateful(self) -> bool:
@@ -81,7 +84,11 @@ class Controller(nn.Module):
         self.encoder = (
             # Kept from Ajax's earlier encoder: a LayerNorm on its output
             # (the shared default is now a plain MLP).
-            Encoder(input_architecture=self.input_architecture, layer_norm=True)
+            Encoder(
+                input_architecture=self.input_architecture,
+                layer_norm=True,
+                dtype=self.compute_dtype,
+            )
             if len(self.input_architecture) > 0
             else None
         )

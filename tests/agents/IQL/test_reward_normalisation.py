@@ -52,8 +52,12 @@ def values(state: Any) -> np.ndarray:
 
 
 def test_reward_units_leave_iqls_online_values_as_they_were() -> None:
-    plain = IQL(Pendulum(), **KWARGS).train(seed=0, n_timesteps=24)[0]
-    louder = IQL(Louder(), **KWARGS).train(seed=0, n_timesteps=24)[0]
+    plain = IQL(Pendulum(), **KWARGS).train(
+        seed=0, n_timesteps=24, logging_config=None
+    )[0]
+    louder = IQL(Louder(), **KWARGS).train(seed=0, n_timesteps=24, logging_config=None)[
+        0
+    ]
 
     np.testing.assert_allclose(values(louder), values(plain), rtol=RTOL, atol=RTOL)
 

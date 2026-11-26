@@ -176,7 +176,9 @@ def test_mc_returns_carry_the_reward_scale():
     env, params = paid_action.make()
     net = ("8", "relu")
     agent = SAC(env, env_params=params, actor_architecture=net, critic_architecture=net)
-    state = jax.tree.map(lambda x: x[0], agent.train(seed=0, n_timesteps=0)[0])
+    state = jax.tree.map(
+        lambda x: x[0], agent.train(seed=0, n_timesteps=0, logging_config=None)[0]
+    )
     zero = jax.tree.map(jnp.zeros_like, state.critic_state.params)
     critic = state.critic_state.replace(params=zero)
 
@@ -234,7 +236,7 @@ def test_bellman_pretrain_steps_a_discounted_q_critic_with_targets(cls: Any):
         agent = cls(
             "Pendulum-v1", extensions=(ExpertPrefill(n_steps=8), *extensions), **kw
         )
-        return agent.train(seed=0, n_timesteps=0)[0]
+        return agent.train(seed=0, n_timesteps=0, logging_config=None)[0]
 
     plain, stepped = pretrained(), pretrained(BellmanPretrain(n_steps=4))
     same = jax.tree.map(

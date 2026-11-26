@@ -27,7 +27,7 @@ from the first step, with no uniform warm-up, as the authors' code does.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable, Optional
+from typing import Any, Callable, ClassVar, Optional
 
 import jax
 import jax.numpy as jnp
@@ -139,6 +139,17 @@ class TQC(
     # None: 256 rows, or 64 windows with memory (RecurrentReplayAgent).
     batch_size: Optional[int] = None  # type: ignore[assignment]
     learning_starts: int = 257
+
+    #: The numbers a sweep may vary in one program (ActorCritic.sweepable),
+    #: each checked against separate runs by tests/agents/test_sweep_every_agent.py.
+    sweepable: ClassVar[frozenset[str]] = frozenset(
+        {
+            "actor_learning_rate",
+            "critic_learning_rate",
+            "reward_scale",
+            "tau",
+        }
+    )
 
     def check(self) -> None:
         n_drop = self.top_quantiles_to_drop_per_net * self.num_critics

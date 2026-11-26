@@ -186,7 +186,7 @@ def test_the_actors_copy_follows_the_encoder_through_recurrent_training():
         **{**SMALL, "n_envs": 4},
     )
 
-    state, _ = agent.train(seed=0, n_timesteps=2 * N_STEPS * 4)
+    state, _ = agent.train(seed=0, n_timesteps=2 * N_STEPS * 4, logging_config=None)
 
     shared = state.actor_state.shared_params
     owned = state.critic_state.params["params"]
@@ -315,7 +315,7 @@ def test_a_q_critic_agent_trains_on_one_encoder_its_actor_reads(name):
     assert not _q_agent(name).network_args.share_encoder  # the references' default
     agent = _q_agent(name, share_encoder=True)
 
-    state = _one_seed(agent.train(seed=0, n_timesteps=48)[0])
+    state = _one_seed(agent.train(seed=0, n_timesteps=48, logging_config=None)[0])
 
     copy = dict(state.actor_state.shared_params)["encoder"]
     same = jax.tree.map(np.array_equal, copy, _critic_encoder(state))
@@ -343,7 +343,7 @@ def test_a_shared_encoder_is_the_actors_architecture_and_the_heads_the_critics(n
     then its value layer 16 into 1."""
     agent = _q_agent(name, share_encoder=True, critic_architecture=("16", "relu"))
 
-    state = _one_seed(agent.train(seed=0, n_timesteps=48)[0])
+    state = _one_seed(agent.train(seed=0, n_timesteps=48, logging_config=None)[0])
 
     critic = state.critic_state.params["params"]
     assert _dense_shapes(critic["encoder"]) == {(3, 8)}
@@ -360,7 +360,7 @@ def test_only_the_critics_loss_trains_the_encoder(critic_learning_rate, encoder_
     agent = _q_agent(
         "SAC", share_encoder=True, critic_learning_rate=critic_learning_rate
     )
-    state = _one_seed(agent.train(seed=0, n_timesteps=32)[0])
+    state = _one_seed(agent.train(seed=0, n_timesteps=32, logging_config=None)[0])
     _, context = agent.make_context(64)
 
     updated, _ = agent.update(state, context)
@@ -491,7 +491,7 @@ def test_a_shared_memory_with_a_q_critic_reads_the_previous_action_by_default():
 def test_a_q_critic_agent_trains_on_one_memory_its_actor_reads(name):
     agent = _q_agent(name, **SHARED_MEMORY)
 
-    state = _one_seed(agent.train(seed=0, n_timesteps=96)[0])
+    state = _one_seed(agent.train(seed=0, n_timesteps=96, logging_config=None)[0])
 
     shared = dict(state.actor_state.shared_params)
     assert set(shared) == {"encoder", "memory_cell"}
@@ -509,7 +509,7 @@ def test_only_the_critics_loss_trains_the_shared_memory(
     critic_learning_rate, memory_moves
 ):
     agent = _q_agent("SAC", **SHARED_MEMORY, critic_learning_rate=critic_learning_rate)
-    state = _one_seed(agent.train(seed=0, n_timesteps=64)[0])
+    state = _one_seed(agent.train(seed=0, n_timesteps=64, logging_config=None)[0])
     _, context = agent.make_context(128)
 
     updated, _ = agent.update(state, context)
@@ -531,7 +531,7 @@ def test_td3s_target_actor_warms_up_through_the_target_critics_memory(target, ch
     memory block, not with the online critic's (a window warmed up by a
     burn-in: Ni et al.'s default has none)."""
     agent = _q_agent("TD3", **SHARED_MEMORY, burn_in=4)
-    state = _one_seed(agent.train(seed=0, n_timesteps=64)[0])
+    state = _one_seed(agent.train(seed=0, n_timesteps=64, logging_config=None)[0])
     _, context = agent.make_context(128)
     critic = state.critic_state
     which = "target_params" if target else "params"

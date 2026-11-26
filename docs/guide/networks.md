@@ -26,21 +26,30 @@ state, _ = agent.train(seed=0, n_timesteps=2_048)
 ```
 
 The activations are `relu`, `tanh`, `leaky_relu`, `swish`, `silu` and `mish`;
-a callable works too. `"layernorm"` adds a LayerNorm where it stands, so
+a callable works too. Another name is refused when training starts, with
+that list. `"layernorm"` adds a LayerNorm where it stands, so
 `("256", "layernorm", "relu", "256", "layernorm", "relu")` is RLPD's critic
 (Ball et al., 2023). The agent adds its output heads after the hidden
 layers: the policy's mean and standard deviation, the value, the Q-values.
 DQN and PQN take a single `architecture` for their Q-network.
 
+Widths alone, as SB3's `net_arch=[64, 64]`, leave the layers without an
+activation between them; Ajax warns and shows the tuple to write.
+
+`print(agent)` shows the agent as the call that builds it, with every
+argument that differs from its default, so a setting that did not reach the
+agent is missing from it. `agent.config` is the dict of all of them.
+
 Each agent's default follows its paper or reference implementation:
 
 | Default | Agents |
 | --- | --- |
-| `("256", "relu", "256", "relu")` | SAC, ASAC, REDQ, TD3 |
+| `("256", "relu", "256", "relu")` | SAC, ASAC, RVI-SAC, REDQ, TQC, TD3, IQL |
 | `("256", "leaky_relu", "256", "leaky_relu")` | AVG |
-| `("128", "tanh", "128", "tanh")` | PPO |
-| `("64", "tanh", "64", "tanh")` | APO |
-| `("128", "relu", "128", "relu")` | DQN, PQN, UDRL, APG (its controller) |
+| `("64", "tanh", "64", "tanh")` | PPO, APO, REINFORCE |
+| `("32", "tanh", "32", "tanh")` | DAgger |
+| `("128", "relu", "128", "relu")` | PQN, UDRL, APG (its controller) |
+| `("120", "relu", "84", "relu")` | DQN |
 
 DreamerV3 and TD-MPC2 build their own networks to their papers'
 specifications: see [World models](world-models.md).
@@ -189,7 +198,9 @@ DQN and PQN default to their reference codes' networks (see their pages);
 PPO and UDRL to `CNNSpec()`. `CNNSpec()` with no arguments is this encoder: two ReLU convolutions
 of 16 and 32 channels (kernels 4 and 3, stride 2, `"SAME"` padding), then a
 128-wide dense layer, all at flax's default initialisation. The image is
-read in height, width, channels order. `padding` takes flax's padding
+read in height, width, channels order: on a gymnax environment, a
+`cnn_image_shape` other than the environment's raises an error, and leaving
+it out warns that an MLP reads the flattened image. `padding` takes flax's padding
 (`"VALID"` for none), `layer_norm=True` puts a LayerNorm after every layer,
 before its ReLU, and `kernel_init` names the initialiser of every layer, as
 the network's other `*_kernel_init` settings do.
@@ -250,7 +261,7 @@ encoder and the memory block. PureJaxRL also gives each head a hidden layer
 of its own after the memory: a Dense(128) and a ReLU, orthogonal with gain 2.
 Recurrent PPO has those layers by default ([layers per head](#layers-per-head)),
 but keeps separate memories. With one memory, it fails the memory probe
-(CartPole with the velocities hidden) even with the layers and with
+(CartPole with the velocities hidden, as in [Memory](memory.md)) even with the layers and with
 normalised rewards, while separate memories pass it.
 
 ## The PID policy

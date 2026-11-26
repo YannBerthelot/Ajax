@@ -123,6 +123,14 @@ only SAC supports.
   update: `num_critic_updates` critic steps, one actor step, one temperature
   step and one target update. With `n_envs=4` that is one update per four
   environment steps.
+- **Update order, a deviation from the reference.** `softlearning` at the
+  time of the learned-temperature paper (`a1253bc`, `sac.py:348-353`) runs
+  the critic, actor and temperature steps in one `session.run`: every
+  gradient reads the parameters from before the update, and the temperature
+  reads the actor loss's own sample. Ajax makes the steps one after the
+  other: the actor reads the stepped critics, and the temperature a fresh
+  sample of the stepped actor, as `softlearning`'s TensorFlow 2 port
+  (`13cf187`, `sac.py:277-281`) and CleanRL do.
 - **Time limits.** A transition cut by a time limit still bootstraps on its
   final observation; only a termination stops the bootstrap.
 - **Temperature.** The `alpha` step is never gradient-clipped, as in the

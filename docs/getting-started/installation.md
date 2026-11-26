@@ -90,6 +90,7 @@ imported.
 | `playground` | [MuJoCo Playground](https://github.com/google-deepmind/mujoco_playground) and Brax, for Playground environments such as `"CartpoleBalance"` |
 | `gymnasium` | [Gymnasium](https://gymnasium.farama.org) with MuJoCo, for [Gymnasium environments](../guide/environments.md#gymnasium-environments) such as `"gymnasium:HalfCheetah-v5"`, which step in Python |
 | `gymnasium-mjx` | [gymnasium-mjx](https://github.com/YannBerthelot/gymnasium-mjx) and the `playground` extra, for [Gymnasium's MuJoCo tasks in JAX](../guide/environments.md#gymnasiums-mujoco-tasks-in-jax) such as `"mujoco:HalfCheetah-v5"` |
+| `render` | matplotlib and Gymnasium's classic-control drawings (pygame), for [`agent.render`](../guide/deploy.md#watch-the-policy) on gymnax tasks |
 | `compare` | the `adastop` package, whose confidence sequence [`ajax.compare.estimate`](../guide/comparing-agents.md#one-agent-how-sure-is-a-number) uses; AdaStop itself needs no extra |
 | `reproduction` | Hugging Face Hub, pandas and pyarrow, for `ajax.reproduction.load` ([Reproduction](../reproduction/index.md)) |
 | `manifolds` | umap-learn, M-PHATE and matplotlib, for embedding a recorded run ([Representations during training](../guide/representations.md#embedding-a-run)) |

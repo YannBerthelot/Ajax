@@ -50,12 +50,12 @@ def test_pqn_keeps_the_executed_actions_it_learns_from():
         num_minibatches=2,
         expose_recent_rollout=True,
     )
-    state, _ = agent.train(seed=0, n_timesteps=32)
+    state, _ = agent.train(seed=0, n_timesteps=32, logging_config=None)
     rollout = state.last_rollout
     assert rollout.executed_action.dtype == rollout.action.dtype
     np.testing.assert_array_equal(rollout.executed_action, rollout.action)
     ppo = PPO(**small, batch_size=8, expose_recent_rollout=True)
-    state, _ = ppo.train(seed=0, n_timesteps=32)
+    state, _ = ppo.train(seed=0, n_timesteps=32, logging_config=None)
     assert state.last_rollout.executed_action is None
 
 
@@ -84,7 +84,7 @@ def test_pqn_fits_q_where_the_expert_acted(monkeypatch):
             JSRLCurriculum(episode_length=1000, decay_frac=1e6, schedule="time"),
         ),
     )
-    agent.train(seed=0, n_timesteps=32)
+    agent.train(seed=0, n_timesteps=32, logging_config=None)
     jax.effects_barrier()
     assert seen
     for actions in seen:
@@ -102,7 +102,12 @@ def test_pqn_huber_loss_smoke():
         num_minibatches=2,
         td_loss_fn=make_huber_td_loss(1.0),
     )
-    agent.train(seed=42, n_timesteps=256)
+    state, _ = agent.train(seed=42, n_timesteps=256, logging_config=None)
+    # 256 steps hold 16 rollouts of 2 envs x 8 steps. Catches a Huber hook
+    # that skips the updates or leaves non-finite parameters.
+    assert np.asarray(state.n_updates).tolist() == [16]
+    for leaf in jax.tree.leaves(state.actor_state.params):
+        assert np.isfinite(np.asarray(leaf)).all()
 
 
 def test_pqn_steps_as_its_reference_optimiser():
@@ -135,6 +140,22 @@ def test_pqn_starts_every_dense_as_flax_default():
         np.testing.assert_array_equal(params[name]["bias"], 0.0, err_msg=name)
 
 
+def test_pqn_normalises_after_every_hidden_dense():
+    """PQN's defining layer: LayerNorm after each hidden Dense (Gallici et
+    al. 2024; purejaxql's pqn_gymnax.py). At initialisation the biases are
+    zero, so a Dense scales with its input and the LayerNorm after it
+    removes the scale: Q(10 x) = Q(x). Without the LayerNorms the Q-values
+    would be 10 times larger. LayerNorm's epsilon (1e-6 under the root)
+    leaves a relative difference of about 1e-6 here; 1e-4 allows float32."""
+    network = PQNNetwork(input_architecture=("16", "relu", "16", "relu"), n_actions=3)
+    obs = jax.random.normal(jax.random.PRNGKey(1), (5, 4))
+    params = network.init(jax.random.PRNGKey(0), obs)
+    q_values = network.apply(params, obs).q_values
+    scaled = network.apply(params, 10.0 * obs).q_values
+    assert float(jnp.abs(q_values).max()) > 1e-2  # not trivially equal at zero
+    np.testing.assert_allclose(scaled, q_values, rtol=1e-4, atol=1e-5)
+
+
 def test_pqn_images_build_purejaxql_s_network_and_train_on_minatar():
     """purejaxql's image networks: Mnih et al.'s from 36 px a side, MinAtar's
     below, he_normal with a LayerNorm after every layer, straight into the
@@ -149,4 +170,4 @@ def test_pqn_images_build_purejaxql_s_network_and_train_on_minatar():
     assert sorted(params) == ["CNNEncoder_0", "Dense_0"]
     assert params["Dense_0"]["kernel"].shape == (128, 3)
     agent = PQN(env_id="Breakout-MinAtar", cnn_image_shape=(10, 10, 4), n_envs=2)
-    agent.train(seed=0, n_timesteps=2 * agent.n_steps)
+    agent.train(seed=0, n_timesteps=2 * agent.n_steps, logging_config=None)

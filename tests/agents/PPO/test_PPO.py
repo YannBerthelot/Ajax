@@ -22,10 +22,15 @@ from tests.probing import readouts
 
 
 def test_PPO_train_playground_smoke():
-    """Smoke test: PPO trains briefly on a playground env (covers playground
-    code path end-to-end including seed vmap and eval)."""
+    """PPO trains on a playground env: train()'s docstring promises the whole
+    iterations the budget holds (50 steps hold one rollout of 2 x 16) and a
+    state with one row per seed. Catches a playground path that returns
+    without updating, or whose first update leaves non-finite parameters."""
     agent = PPO(env_id="PendulumSwingup", n_envs=2, n_steps=16, n_epochs=1)
-    agent.train(seed=42, n_timesteps=50)
+    state, _ = agent.train(seed=42, n_timesteps=50, logging_config=None)
+    assert np.asarray(state.n_updates).tolist() == [1]
+    for leaf in jax.tree.leaves((state.actor_state.params, state.critic_state.params)):
+        assert np.isfinite(np.asarray(leaf)).all()
 
 
 @pytest.mark.parametrize("env_id, mode", [("Pendulum-v1", "gymnax"), ("fast", "brax")])
@@ -42,7 +47,9 @@ def test_a_forced_reset_keeps_the_normaliser_statistics(env_id, mode):
         normalize_observations=True,
         normalize_rewards=True,
     )
-    state = jax.tree.map(lambda x: x[0], agent.train(seed=0, n_timesteps=32)[0])
+    state = jax.tree.map(
+        lambda x: x[0], agent.train(seed=0, n_timesteps=32, logging_config=None)[0]
+    )
     saved = normalisation_info(state.collector_state.env_state, mode)
     after = force_reset(state, agent.env_args, mode).collector_state
     kept = normalisation_info(after.env_state, mode)
@@ -69,7 +76,9 @@ def test_a_forced_reset_keeps_the_count_of_non_finite_steps():
     """The count is the run's, not an episode's: 8 steps on 2 envs break at
     steps 3 and 6."""
     agent = PPO(env_id=ALWAYS, n_envs=2, n_steps=8, n_epochs=1)
-    state = jax.tree.map(lambda x: x[0], agent.train(seed=0, n_timesteps=16)[0])
+    state = jax.tree.map(
+        lambda x: x[0], agent.train(seed=0, n_timesteps=16, logging_config=None)[0]
+    )
     assert non_finite_env_steps(state.collector_state.env_state) == 4
     after = force_reset(state, agent.env_args, "brax").collector_state
     assert non_finite_env_steps(after.env_state) == 4
@@ -87,7 +96,9 @@ def test_a_forced_reset_gives_the_reset_observations_their_features():
         normalize_observations=True,
         extensions=(TrainingProgressInput(), RawProgress()),
     )
-    state = jax.tree.map(lambda x: x[0], agent.train(seed=0, n_timesteps=32)[0])
+    state = jax.tree.map(
+        lambda x: x[0], agent.train(seed=0, n_timesteps=32, logging_config=None)[0]
+    )
     after = force_reset(state, agent.env_args, "gymnax").collector_state
     assert after.last_obs.shape == (2, 3 + 2)
     done = float(state.collector_state.train_time_fraction)
@@ -116,7 +127,7 @@ def test_a_forced_reset_marks_an_episode_start_for_a_recurrent_policy(kind):
         num_resets_per_eval=1,
         num_evals=2,
     )
-    state, _ = agent.train(seed=0, n_timesteps=48)
+    state, _ = agent.train(seed=0, n_timesteps=48, logging_config=None)
     np.testing.assert_array_equal(state.collector_state.last_truncated, 1.0)
     for leaf in jax.tree.leaves(state.actor_state.params):
         assert np.isfinite(leaf).all()
@@ -155,10 +166,14 @@ def test_a_split_run_resets_on_the_one_calls_cadence():
             num_evals=3,
         )
 
-    one, _ = agent().train(seed=0, n_timesteps=96)
-    first, _ = agent().train(seed=0, n_timesteps=32, total_timesteps=96)
+    one, _ = agent().train(seed=0, n_timesteps=96, logging_config=None)
+    first, _ = agent().train(
+        seed=0, n_timesteps=32, total_timesteps=96, logging_config=None
+    )
     np.testing.assert_array_equal(first.n_updates, 2)
-    split, _ = agent().train(seed=0, n_timesteps=96 - 32, initial_state=first)
+    split, _ = agent().train(
+        seed=0, n_timesteps=96 - 32, initial_state=first, logging_config=None
+    )
     # The two runs are separately compiled programs: some CI runners round them
     # 1.67e-6 apart (the env's last torque). A wrong cadence changes the keys,
     # the pendulum's state by 1 to 6 and the weights by 9e-3 or more.

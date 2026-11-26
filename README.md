@@ -15,26 +15,13 @@
 <p align="center">
   <a href="#install">Install</a> ·
   <a href="#quickstart">Quickstart</a> ·
+  <a href="#why-ajax">Why Ajax</a> ·
+  <a href="#beside-reference-implementations">Reproduction</a> ·
   <a href="#agents">Agents</a> ·
   <a href="#learning-from-an-expert-or-from-data">Expert and data</a> ·
-  <a href="#beside-reference-implementations">Reproduction</a> ·
   <a href="#benchmark">Benchmark</a> ·
   <a href="https://yannberthelot.github.io/Ajax/">Documentation</a>
 </p>
-
-Ajax has nineteen agents, each from a published paper. Compared with
-[Stable-Baselines3](https://github.com/DLR-RM/stable-baselines3) and
-[SBX](https://github.com/araffin/sbx), it offers:
-
-- **[Fast and parallel](docs/guide/performance.md)**: the environment steps beside the agent on a CPU or a GPU, with no Python in the loop, so many seeds and environment copies train at once on one device. With 10 seeds, one NVIDIA L40S ran SAC about 7 times as fast as four CPU cores, and CrossQ and REDQ over 50 times ([speeds](docs/guide/performance.md#cpu-or-gpu)).
-- **[Modular](docs/guide/extensions.md)**: GRU, LSTM, transformer and Mamba memories, CNN encoders, sequence replay with burn-in, a PID policy and forty-four extensions, combined in the agent's constructor. The [compatibility table](docs/guide/compatibility.md) shows which parts go together.
-- **Multi-paradigm**: discounted and average-reward agents ([ASAC](docs/algorithms/asac.md), [RVI-SAC](docs/algorithms/rvisac.md), [APO](docs/algorithms/apo.md)), model-free and model-based, online and offline, all behind one interface.
-- **[Expert-guided](docs/guide/expert-guidance.md)**: cloning, imitation, prior data and offline training.
-- **[World models, ready to use](docs/guide/world-models.md)**: DreamerV3 and TD-MPC2 are among the hardest agents to get right, and their papers run them on over a hundred tasks with one set of hyperparameters. Ajax checks them against the official code, update by update.
-
-[Why Ajax](docs/getting-started/why-ajax.md) compares it with SB3, SBX,
-PureJaxRL, Brax, Stoix, Rejax, TorchRL and Tianshou, including when to use
-them instead.
 
 ## Install
 
@@ -51,19 +38,29 @@ covers the other extras and `uv sync` from a clone.
 
 ```python
 from ajax import PPO
-from ajax.logging import LoggingConfig
 
-agent = PPO("CartPole-v1")  # one environment, 2048-step rollouts: one update per 2,048 steps
-# Evaluate every 4 updates; backends=() keeps the results in memory only.
-logging = LoggingConfig(log_frequency=8_192, backends=())
-state, evaluations = agent.train(seed=[1, 2, 3], n_timesteps=40_960, logging_config=logging)
+agent = PPO("CartPole-v1", n_envs=8, n_steps=128)
+state, evaluations = agent.train(seed=[1, 2, 3], n_timesteps=40_960)
 
-print(evaluations["timestep"][0])                # when each evaluation ran
-print(evaluations["Eval/episodic mean reward"])  # one row per seed, one column per evaluation
+print(evaluations.timesteps)  # when each evaluation ran
+print(evaluations.returns)    # one row per seed, one column per evaluation
+print(agent.evaluate(state, episodes=20).mean(axis=1))  # each seed's score now
 ```
 
-The three seeds train together, in about fifteen seconds on a laptop CPU,
-compilation included. Parts combine in the constructor:
+`train` prints a line per evaluation, with the mean return over the seeds.
+The three seeds train together, in under a minute on a laptop CPU,
+compilation included.
+
+`"CartPole-v1"` here is [gymnax](https://github.com/RobertTLange/gymnax)'s
+CartPole, written in JAX. That is the intended use: with a JAX environment
+(gymnax, Brax, MuJoCo Playground) the environment, the agent and every seed
+compile into one program that stays on the CPU or the GPU from start to
+end. [Gymnasium](https://gymnasium.farama.org) environments are supported
+too, with `PPO("gymnasium:CartPole-v1")`; they step in Python, so training
+is slower and a GPU does not help
+([Environments](docs/guide/environments.md#gymnasium-environments)).
+
+Parts combine in the constructor:
 
 ```python
 from ajax import PPO, SAC
@@ -79,18 +76,76 @@ agent = PPO("CartPole-v1", extensions=(ConditioningMetrics(),))
 agent = PPO("ant", n_envs=8)
 ```
 
+A notebook trains, acts and saves step by step: [`notebooks/quickstart.ipynb`](notebooks/quickstart.ipynb)
+([open in Colab](https://colab.research.google.com/github/YannBerthelot/Ajax/blob/main/notebooks/quickstart.ipynb)).
+Complete scripts are in [`examples/`](examples/).
+
+## Why Ajax
+
+Ajax has twenty agents, each from a published paper. Compared with
+[Stable-Baselines3](https://github.com/DLR-RM/stable-baselines3) and
+[SBX](https://github.com/araffin/sbx), it offers:
+
+- **[Fast and parallel](docs/guide/performance.md)**: the environment steps beside the agent on a CPU or a GPU, with no Python in the loop, so many seeds and environment copies train at once on one device. With 10 seeds, one NVIDIA L40S ran SAC about 7 times as fast as four CPU cores, and CrossQ and REDQ over 50 times ([speeds](docs/guide/performance.md#cpu-or-gpu)).
+- **[Modular](docs/guide/extensions.md)**: GRU, LSTM, transformer and Mamba memories, CNN encoders, sequence replay with burn-in, a PID policy and forty-four extensions, combined in the agent's constructor. The [compatibility table](docs/guide/compatibility.md) shows which parts go together.
+- **Multi-paradigm**: discounted and average-reward agents ([ASAC](docs/algorithms/asac.md), [RVI-SAC](docs/algorithms/rvisac.md), [APO](docs/algorithms/apo.md)), model-free and model-based, online and offline, all behind one interface.
+- **[Expert-guided](docs/guide/expert-guidance.md)**: cloning, imitation, prior data and offline training.
+- **[World models, ready to use](docs/guide/world-models.md)**: DreamerV3 and TD-MPC2 are among the hardest agents to get right, and their papers run them on over a hundred tasks with one set of hyperparameters. Ajax checks them against the official code, update by update.
+
+[Why Ajax](docs/getting-started/why-ajax.md) compares it with SB3, SBX,
+PureJaxRL, Brax, Stoix, Rejax, TorchRL and Tianshou, including when to use
+them instead.
+
+## Beside reference implementations
+
+Each agent below was run beside a reference implementation on the same JAX
+environment, with the reference's settings, up to 96 seeds a side:
+
+<!-- reproduction-summary:start -->
+| Agent | Task | Reference | Reference's return | Ajax's return | Verdict | Reference's CPU s per 1M steps | Ajax's |
+|---|---|---|---|---|---|---|---|
+| DQN | CartPole-v1 | Stable-Baselines3 | 243.7 | 245.9 | inconclusive | 3,254 | 888 |
+| PPO | CartPole-v1 | Stable-Baselines3 | 493.8 | 496.1 | similar | 401 | 92 |
+| PPO | CartPole-v1 | SBX | 500 | 499.8 | similar | 377 | 93 |
+| PPO | inverted_pendulum | Brax | 1000 | 1000 | similar | 246 | 225 |
+| PQN | CartPole-v1 | purejaxql | 498 | 499 | similar | 121 | 96 |
+| PQN | Asterix-MinAtar | purejaxql | 2.292 | 2.455 | inconclusive | 63 | 61 |
+| REINFORCE | CartPole-v1 | Spinning Up | 150.1 | 145 | similar | 639 | 226 |
+| REINFORCE | Pendulum-v1 | Spinning Up | -1195 | -1143 | inconclusive | 619 | 218 |
+| SAC | Pendulum-v1 | Stable-Baselines3 | -146.7 | -148 | similar | 23,620 | 13,242 |
+| SAC | Pendulum-v1 | SBX | -147.2 | -148.5 | similar | 32,163 | 31,706 |
+| TD3 | Pendulum-v1 | Stable-Baselines3 | -148.9 | -144.2 | similar | 22,334 | 17,257 |
+<!-- reproduction-summary:end -->
+
+A return is the mean at the end of training. "Similar" means the interval of
+the difference lies inside a margin registered before the runs;
+"inconclusive" means it does not, without the returns being shown different.
+CPU seconds are for one run, both sides of a row on the same machine: a
+32-core Xeon for the DQN row, the PPO rows on CartPole and the SBX rows, a 4-core one
+for the others.
+
+<p align="center">
+  <img src="docs/reproduction/PPO.svg" width="45%" alt="PPO on CartPole-v1, Ajax and Stable-Baselines3, 96 seeds each">
+  <img src="docs/reproduction/SAC.svg" width="45%" alt="SAC on Pendulum-v1, Ajax and Stable-Baselines3, 96 seeds each">
+</p>
+
+[Results](docs/reproduction/results.md) has every learning curve, the
+differences with their intervals and the machines; the
+[protocol](docs/reproduction/protocol.md) says how the comparisons are run,
+and each one reproduces with one command ([specifications](docs/reproduction/specs.md)).
+
 ## Agents
 
 - **Off-policy actor-critic**: [SAC](docs/algorithms/sac.md), [TD3](docs/algorithms/td3.md), [REDQ](docs/algorithms/redq.md), [CrossQ](docs/algorithms/crossq.md) (batch-renormalised, no target networks), [TQC](docs/algorithms/tqc.md) (truncated quantile critics), [AVG](docs/algorithms/avg.md) (no replay), [ASAC](docs/algorithms/asac.md) and [RVISAC](docs/algorithms/rvisac.md) (RVI-SAC; average reward), [IQL](docs/algorithms/iql.md) (offline)
-- **On-policy**: [PPO](docs/algorithms/ppo.md), [APO](docs/algorithms/apo.md) (average reward)
+- **On-policy**: [PPO](docs/algorithms/ppo.md), [APO](docs/algorithms/apo.md) (average reward), [REINFORCE](docs/algorithms/reinforce.md) (the plain policy gradient)
 - **Value-based**: [DQN](docs/algorithms/dqn.md), [PQN](docs/algorithms/pqn.md)
 - **World models**: [DreamerV3](docs/algorithms/dreamerv3.md), [TDMPC2](docs/algorithms/tdmpc2.md), [TDMPC2MultiTask](docs/algorithms/tdmpc2.md) (multi-task, offline)
 - **Supervised**: [DAgger](docs/algorithms/dagger.md) (imitation of an expert), [UDRL](docs/algorithms/udrl.md) (command-conditioned)
 - **Differentiable simulation**: [APG](docs/algorithms/apg.md)
 
-DQN and PQN take discrete actions; PPO, APO, DAgger, UDRL and DreamerV3 take
-both; the others continuous ones. SAC, TD3, REDQ, TQC, CrossQ, ASAC, RVI-SAC,
-DQN, IQL and DAgger also train offline (`train_offline`). Each name opens the agent's page, with its paper;
+DQN and PQN take discrete actions; PPO, APO, REINFORCE, DAgger, UDRL and
+DreamerV3 take both; the others continuous ones. <!-- agents: offline -->SAC, TD3, REDQ, TQC, CrossQ, ASAC, RVI-SAC,
+DQN, IQL and DAgger<!-- /agents --> also train offline (`train_offline`). Each name opens the agent's page, with its paper;
 the [compatibility table](docs/guide/compatibility.md) lists every extension
 per agent.
 
@@ -103,19 +158,6 @@ per agent.
 [Choosing the pieces](docs/guide/expert-guidance.md#choosing-the-pieces) gives
 each method's paper and the agents that take it.
 
-## Beside reference implementations
-
-<p align="center">
-  <img src="docs/reproduction/PPO.svg" width="45%" alt="PPO on CartPole-v1, Ajax and Stable-Baselines3, 96 seeds each">
-  <img src="docs/reproduction/PQN.svg" width="45%" alt="PQN on CartPole-v1, Ajax and purejaxql, 96 seeds each">
-</p>
-
-Ajax's PPO beside Stable-Baselines3's and its PQN beside purejaxql's, on the
-same JAX environment, 96 seeds each; both comparisons find the returns similar
-within the registered margin. [Results](docs/reproduction/results.md) has two
-more comparisons (one inconclusive) and the speed of each side; the
-[protocol](docs/reproduction/protocol.md) says how they are run.
-
 ## Benchmark
 
 <!-- benchmark-summary:start -->
@@ -125,22 +167,22 @@ more comparisons (one inconclusive) and the speed of each side; the
 |---|---|---|
 | SAC | 846 | 962 |
 | TD3 | 846 | 968 |
-| REDQ | 913 | – |
+| REDQ | 909 | – |
 | TQC | 906 | – |
 | CrossQ | 905 | – |
 | ASAC | 626 | 878 |
 | RVI-SAC | 827 | 959 |
 | AVG | 330 | 420 |
-| APO | 213 | 196 |
-| PPO | 215 | 261 |
+| APO | 299 | 273 |
+| PPO | 497 | 248 |
 | DreamerV3 | 762 | – |
 | TD-MPC2 | 827 | – |
 
 | Agent | Breakout | SpaceInvaders |
 |---|---|---|
-| DQN | 84 | 143 |
-| PQN | 24 | 138 |
-| PPO | 27 | 150 |
+| DQN | 50 | 150 |
+| PQN | 71 | 155 |
+| PPO | 29 | 141 |
 | UDRL | 4 | 9 |
 
 [Agent benchmark](docs/reproduction/benchmark.md) has every task, the spread over seeds, learning curves and what to keep in mind when reading them.

@@ -293,7 +293,9 @@ def test_a_row_stops_at_the_end_of_the_prefill() -> None:
         expert_policy=expert,
         extensions=(ExpertPrefill(n_steps=4),),
     )
-    state = jax.tree.map(lambda x: x[0], agent.train(seed=0, n_timesteps=4)[0])
+    state = jax.tree.map(
+        lambda x: x[0], agent.train(seed=0, n_timesteps=4, logging_config=None)[0]
+    )
     replay = state.collector_state.buffer_state
     ring = {name: np.asarray(value) for name, value in replay.experience.items()}
     rows = by_ring_row(sampled(agent.buffer, replay, draws=4), ring)
@@ -404,7 +406,7 @@ def test_the_critics_target_bootstraps_as_many_steps_ahead_as_it_sums() -> None:
         critic_architecture=("8", "relu"),
         extensions=(TargetTap(seen),),
     )
-    agent.train(seed=0, n_timesteps=20)
+    agent.train(seed=0, n_timesteps=20, logging_config=None)
     jax.effects_barrier()
 
     target, rewards, discounts, dones, next_values = (
@@ -419,7 +421,7 @@ def test_the_critics_target_bootstraps_as_many_steps_ahead_as_it_sums() -> None:
 
 
 def critic_of(agent: SAC, n_timesteps: int) -> list:
-    state = agent.train(seed=0, n_timesteps=n_timesteps)[0]
+    state = agent.train(seed=0, n_timesteps=n_timesteps, logging_config=None)[0]
     return [np.asarray(leaf) for leaf in jax.tree.leaves(state.critic_state.params)]
 
 

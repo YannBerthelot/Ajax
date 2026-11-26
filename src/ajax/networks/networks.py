@@ -17,26 +17,47 @@ from ajax.controller import (
     policy_action_dim,
     reads_previous_action,
 )
-from ajax.environments.obs_norm import apply_obs_norm
 from ajax.environments.utils import get_state_action_shapes
 from ajax.extensions.observe import pid_terms_at
 from ajax.modules.pid_actor import PIDActor, PIDPolicy, check_pid_actor
+from ajax.networks import values
 from ajax.networks.distributions import squash
 from ajax.networks.memory import (
-    Carry,
     MemoryCell,
     MemoryConfig,
     init_carry,
     parse_memory_config,
 )
+
+# Re-exported: these lived here before ajax.networks.sharing.
+from ajax.networks.sharing import (  # noqa: F401
+    _borrow_encoder,
+    mirror_shared_encoder,
+    shared_encoder_params,
+    take_actor_encoder,
+    with_critic_encoder,
+)
 from ajax.networks.utils import (
-    SHARED_ENCODER_MODULES,
     TORCH_LINEAR,
     dense,
     get_adam_tx,
     parse_architecture,
     parse_initialization,
     uniform_init,
+)
+
+# Re-exported: these lived here before ajax.networks.values.
+from ajax.networks.values import (  # noqa: F401
+    _apply_critic_action_units,
+    _apply_critic_obs_norm,
+    action_value_input,
+    critic_input,
+    get_policy_updating_batch_statistics,
+    in_critic_units,
+    phi_star_critic_state,
+    predict_value,
+    predict_value_sequence,
+    predict_value_updating_batch_statistics,
 )
 from ajax.random_keys import derive_key
 from ajax.state import (
@@ -46,9 +67,13 @@ from ajax.state import (
     NetworkConfig,
     OptimizerConfig,
     check_log_std_bounds,
-    network_variables,
 )
 from ajax.types import ActivationFunction, InitializationFunction
+
+# Re-exported too. Assigned, not imported: functions below take a parameter
+# named action_value, which the linter reads as redefining an import.
+action_value = values.action_value
+state_value = values.state_value
 
 
 class Encoder(nn.Module):
@@ -60,10 +85,14 @@ class Encoder(nn.Module):
     # TD3, PPO and DQN papers use plain MLPs. Ignored under
     # penultimate_normalization, which takes precedence.
     layer_norm: bool = False
+    # The layers' compute dtype ("bfloat16"; None: float32), set by
+    # ActorCritic.train(precision=...). The parameters stay float32 and the
+    # features return in float32 (ajax.precision).
+    dtype: Optional[str] = None
 
     def setup(self):
         layers = parse_architecture(
-            self.input_architecture, self.kernel_init, self.bias_init
+            self.input_architecture, self.kernel_init, self.bias_init, self.dtype
         )
         self.network = nn.Sequential(layers)
         if self.layer_norm:
@@ -71,6 +100,8 @@ class Encoder(nn.Module):
 
     def __call__(self, x):
         features = self.network(x)
+        if self.dtype is not None:
+            features = features.astype(jnp.float32)
         if self.penultimate_normalization:
             # Each feature vector (last axis) to unit L2 norm, whatever the
             # leading batch or time axes: flax's _l2_normalize formula and
@@ -178,6 +209,7 @@ def observation_encoder(
         penultimate_normalization=network.penultimate_normalization,
         kernel_init=network.encoder_kernel_init,
         layer_norm=network.encoder_layer_norm,
+        dtype=network.compute_dtype,
     )
 
 
@@ -403,6 +435,8 @@ class Actor(nn.Module):
     tanh_mean: bool = False
     # Opt-in LayerNorm on the encoder's output (see Encoder.layer_norm).
     encoder_layer_norm: bool = False
+    # Its observation encoder's compute dtype (NetworkConfig.compute_dtype).
+    compute_dtype: Optional[str] = None
     # Optional CNN encoder over flat image obs (see `CNNEncoder`); None
     # keeps the MLP encoder.
     cnn_image_shape: Optional[Tuple[int, int, int]] = None
@@ -550,6 +584,8 @@ class Critic(nn.Module):
     encoder_kernel_init: Optional[Union[str, InitializationFunction]] = None
     # Opt-in LayerNorm on the encoder's output (see Encoder.layer_norm).
     encoder_layer_norm: bool = False
+    # Its observation encoder's compute dtype (NetworkConfig.compute_dtype).
+    compute_dtype: Optional[str] = None
     # When set, the encoder is a `CNNEncoder` over flat image obs rather
     # than the MLP `Encoder`. See `NetworkConfig.cnn_image_shape`. Valid
     # only for state-value critics (obs-only input); an action-value
@@ -671,6 +707,8 @@ class MultiCritic(nn.Module):
     bias_init: Optional[Union[str, InitializationFunction]] = None
     encoder_kernel_init: Optional[Union[str, InitializationFunction]] = None
     encoder_layer_norm: bool = False
+    # Its observation encoder's compute dtype (NetworkConfig.compute_dtype).
+    compute_dtype: Optional[str] = None
     cnn_image_shape: Optional[Tuple[int, int, int]] = None
     cnn_extra_obs_dim: int = 0
     cnn_spec: Optional[CNNSpec] = None
@@ -729,6 +767,7 @@ class MultiCritic(nn.Module):
             bias_init=self.bias_init,
             encoder_kernel_init=self.encoder_kernel_init,
             encoder_layer_norm=self.encoder_layer_norm,
+            compute_dtype=self.compute_dtype,
             cnn_image_shape=self.cnn_image_shape,
             cnn_extra_obs_dim=self.cnn_extra_obs_dim,
             cnn_spec=self.cnn_spec,
@@ -794,18 +833,6 @@ class MultiCritic(nn.Module):
                 x = x[..., : -self.query_dim]
             return self.encoder(x)[None]
         return self.ensemble.apply_encoder(x)
-
-
-def action_value_input(
-    obs: jax.Array, action: jax.Array, previous_action: Optional[jax.Array] = None
-) -> jax.Array:
-    """A Q-critic's input: ``(obs, action)``, or, given the previous
-    action, the recurrent critic's ``(obs, previous_action, action)``: its
-    memory reads the observation and the previous action, the current
-    action joins at its head (``Critic.query_dim``)."""
-    if previous_action is None:
-        return jnp.concatenate([obs, action], axis=-1)
-    return jnp.concatenate([obs, previous_action, action], axis=-1)
 
 
 def check_share_encoder(
@@ -1003,6 +1030,7 @@ def get_initialized_actor_critic(
             log_std_kernel_init=network_config.log_std_kernel_init,
             tanh_mean=network_config.tanh_mean,
             encoder_layer_norm=network_config.encoder_layer_norm,
+            compute_dtype=network_config.compute_dtype,
             memory=memory,
             head_architecture=network_config.head_architecture,
             head_kernel_init=network_config.head_kernel_init,
@@ -1032,6 +1060,7 @@ def get_initialized_actor_critic(
         bias_init=network_config.critic_bias_init,
         encoder_kernel_init=network_config.encoder_kernel_init,
         encoder_layer_norm=network_config.encoder_layer_norm,
+        compute_dtype=network_config.compute_dtype,
         cnn_image_shape=critic_cnn_image_shape,
         cnn_extra_obs_dim=cnn_extra_obs_dim,
         cnn_spec=cnn_spec,
@@ -1157,84 +1186,6 @@ def get_initialized_critic(
     )
 
 
-def shared_encoder_params(critic_params: Any) -> FrozenDict:
-    """The parameters of the encoder (and memory block) a critic shares with
-    its actor, taken from the critic's parameters."""
-    owned = critic_params["params"]
-    return FrozenDict(
-        {name: owned[name] for name in SHARED_ENCODER_MODULES if name in owned}
-    )
-
-
-def with_critic_encoder(
-    actor_state: LoadedTrainState, critic_params: Any
-) -> LoadedTrainState:
-    """``actor_state`` reading the encoder in ``critic_params``, for an actor
-    sharing the critic's encoder; an actor with its own is returned as is. A
-    loss differentiated with respect to ``critic_params`` then trains the
-    encoder through the actor too."""
-    if actor_state.shared_params is None:
-        return actor_state
-    return actor_state.replace(shared_params=shared_encoder_params(critic_params))
-
-
-def mirror_shared_encoder(agent_state: Any) -> Any:
-    """``agent_state`` with its actor's copy of the shared encoder taken from
-    the critic as it is now: the training loop calls it after anything that
-    steps the critic (each update, the extensions' pretraining), so acting
-    and evaluating read the current encoder. Unchanged without one."""
-    actor_state: Any = getattr(agent_state, "actor_state", None)
-    if getattr(actor_state, "shared_params", None) is None:
-        return agent_state
-    critic_params = agent_state.critic_state.params
-    return agent_state.replace(
-        actor_state=with_critic_encoder(actor_state, critic_params)
-    )
-
-
-def take_actor_encoder(agent_state: Any) -> Any:
-    """``agent_state`` with the critic's shared encoder replaced by the
-    actor's copy, after something trained the encoder through the actor
-    alone (cloning pretraining); the target critic's too, which starts as
-    the critic. Unchanged without a shared encoder."""
-    actor_state = agent_state.actor_state
-    if actor_state.shared_params is None:
-        return agent_state
-    critic_state = agent_state.critic_state
-
-    def with_encoder(params: Any) -> FrozenDict:
-        owned = {**params["params"], **actor_state.shared_params}
-        return FrozenDict({**params, "params": owned})
-
-    critic_state = critic_state.replace(
-        params=with_encoder(critic_state.params),
-        target_params=with_encoder(critic_state.target_params),
-    )
-    return agent_state.replace(critic_state=critic_state)
-
-
-def _borrow_encoder(
-    actor_state: LoadedTrainState, encoder: FrozenDict
-) -> LoadedTrainState:
-    """``actor_state`` without its own encoder, reading ``encoder`` instead:
-    its parameters, and its optimiser's state, rebuilt on what it still
-    owns (its heads)."""
-    own = {
-        name: value
-        for name, value in actor_state.params["params"].items()
-        if name not in encoder
-    }
-    params: FrozenDict = FrozenDict({**actor_state.params, "params": own})
-    return LoadedTrainState.create(
-        params=params,
-        tx=actor_state.tx,
-        apply_fn=actor_state.apply_fn,
-        hidden_state=actor_state.hidden_state,
-        target_params=params,
-        batch_stats=actor_state.batch_stats,
-    ).replace(shared_params=encoder)
-
-
 def init_network_carry(network, memory: MemoryConfig, key: jax.Array, batch_size: int):
     """Fresh carry for ``network``. Ensembles (modules exposing ``num``)
     get one carry per member, stacked on a leading (num,) axis; members
@@ -1299,147 +1250,3 @@ def init_network_state(
         target_params=params,
         batch_stats=None if batch_stats is None else FrozenDict(batch_stats),
     )
-
-
-def in_critic_units(critic_state: LoadedTrainState, actions: jax.Array) -> jax.Array:
-    """``actions`` as the critic reads them: ``critic_state.action_units``'
-    affine map of the agent's [-1, 1] actions, or the actions themselves."""
-    units = getattr(critic_state, "action_units", None)
-    if units is None:
-        return actions
-    offset, scale = (jnp.asarray(u, actions.dtype) for u in units)
-    return offset + scale * actions
-
-
-def _apply_critic_action_units(
-    critic_state: LoadedTrainState, x: jax.Array
-) -> jax.Array:
-    """The action slice of a Q-critic's input ``concat(obs, action)`` in the
-    critic's units (:func:`in_critic_units`): every caller passes the
-    agent's [-1, 1] actions."""
-    units = getattr(critic_state, "action_units", None)
-    if units is None:
-        return x
-    k = len(units[0])
-    return jnp.concatenate(
-        [x[..., :-k], in_critic_units(critic_state, x[..., -k:])], axis=-1
-    )
-
-
-def _apply_critic_obs_norm(critic_state: LoadedTrainState, x: jax.Array) -> jax.Array:
-    """Normalise the obs slice of a critic input (obs or concat(obs, action));
-    the action slice stays raw (``apply_obs_norm``). No-op when
-    normalisation is disabled."""
-    return apply_obs_norm(x, getattr(critic_state, "obs_norm_info", None))
-
-
-def critic_input(critic_state: LoadedTrainState, x: jax.Array) -> jax.Array:
-    """``x`` (obs, or ``concat(obs, action)`` with the agent's action) as a
-    feedforward critic reads it: its observations normalised, its action in
-    its units."""
-    return _apply_critic_action_units(
-        critic_state, _apply_critic_obs_norm(critic_state, x)
-    )
-
-
-def predict_value_sequence(
-    critic_state: LoadedTrainState,
-    critic_params: FrozenDict,
-    x: jax.Array,
-    resets: jax.Array,
-    initial_hidden: Carry,
-    *,
-    quantiles: bool = False,
-) -> Tuple[jax.Array, Carry]:
-    """Run a recurrent critic over a time-major sequence (``quantiles``: a
-    distributional critic's quantiles, last axis, in place of the values).
-
-    Args:
-        x: (T, B, features) critic input (obs, or concat(obs, action)).
-        resets: (T, B) episode-start flags aligned with ``x`` (resets[t]
-            means x[t] is the first observation of a new episode).
-        initial_hidden: carry valid for x[0]; leaves are (num, B, hidden)
-            for critic ensembles.
-
-    Returns:
-        (values, final_hidden): values (num, T, B, 1); final_hidden is the
-        carry after consuming the whole sequence.
-    """
-    x = _apply_critic_obs_norm(critic_state, x)
-    return critic_state.apply_fn(
-        network_variables(critic_state, critic_params),
-        x,
-        hidden_state=initial_hidden,
-        done=resets,
-        method="quantiles" if quantiles else None,
-    )
-
-
-def phi_star_critic_state(critic_state: LoadedTrainState) -> LoadedTrainState:
-    """The critic state the frozen expert critic phi*'s parameters
-    (``expert_critic_params``) are applied with: the online critic's
-    network without the agent's observation statistics, as MC pretraining
-    and PhiRefresh fit phi* on the observations as stored."""
-    if getattr(critic_state, "obs_norm_info", None) is None:
-        return critic_state
-    return critic_state.replace(obs_norm_info=None)
-
-
-def predict_value(
-    critic_state: LoadedTrainState,
-    critic_params: FrozenDict,
-    x: jax.Array,
-    *,
-    quantiles: bool = False,
-) -> jax.Array:
-    """The critic's values at ``x``: obs, or ``concat(obs, action)`` with the
-    agent's [-1, 1] action, which a critic with ``action_units`` reads in its
-    units (TD3's, in the env's). ``quantiles``: a distributional critic's
-    quantiles (last axis) in place of their mean, the value."""
-    x = critic_input(critic_state, x)
-    variables = network_variables(critic_state, critic_params)
-    if quantiles:
-        return critic_state.apply_fn(variables, x, method="quantiles")
-    return critic_state.apply_fn(variables, x)
-
-
-def get_policy_updating_batch_statistics(
-    actor_state: LoadedTrainState, params: Any, obs: jax.Array
-) -> Tuple[Any, Optional[Any]]:
-    """The actor's distribution at obs in training mode, and its batch
-    normalisation's running statistics after this pass (apply_train).
-
-    In training mode a batch normalisation layer (CrossQ's batch
-    renormalisation) normalises with the batch's own statistics and updates
-    its running averages; acting and the targets use the running averages
-    instead. A feedforward actor only."""
-    obs = apply_obs_norm(obs, getattr(actor_state, "obs_norm_info", None))
-    return actor_state.apply_train(params, obs)
-
-
-def predict_value_updating_batch_statistics(
-    critic_state: LoadedTrainState,
-    critic_params: FrozenDict,
-    x: jax.Array,
-) -> Tuple[jax.Array, Optional[FrozenDict]]:
-    """The critic's values at x in training mode, and its batch
-    normalisation's running statistics after this pass
-    (LoadedTrainState.apply_train); see get_policy_updating_batch_statistics
-    for what training mode changes."""
-    return critic_state.apply_train(critic_params, critic_input(critic_state, x))
-
-
-def state_value(agent_state: Any, obs: jax.Array, action: jax.Array) -> jax.Array:
-    """``V(obs)`` of the agent's critic, its ensemble's mean (``action``
-    unused): an evaluation's value estimate (:class:`ajax.evaluate.ValueEstimate`)."""
-    del action
-    critic = agent_state.critic_state
-    return predict_value(critic, critic.params, obs).mean(0).squeeze(-1)
-
-
-def action_value(agent_state: Any, obs: jax.Array, action: jax.Array) -> jax.Array:
-    """``Q(obs, action)`` of the agent's critic, its ensemble's mean: an
-    evaluation's value estimate (:class:`ajax.evaluate.ValueEstimate`)."""
-    critic = agent_state.critic_state
-    x = action_value_input(obs, action.astype(obs.dtype))
-    return predict_value(critic, critic.params, x).mean(0).squeeze(-1)

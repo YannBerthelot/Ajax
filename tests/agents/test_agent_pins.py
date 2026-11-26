@@ -39,6 +39,7 @@ from ajax.agents.IQL.IQL import IQL
 from ajax.agents.PPO.PPO import PPO
 from ajax.agents.PQN.PQN import PQN
 from ajax.agents.REDQ.REDQ import REDQ
+from ajax.agents.REINFORCE.REINFORCE import REINFORCE
 from ajax.agents.SAC.SAC import SAC
 from ajax.agents.TD3.TD3 import TD3
 from ajax.agents.TDMPC2.dataset import TaskEpisodes, pool_tasks
@@ -292,6 +293,12 @@ _CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
     ),
     # Flat shuffle, GAE on the whole rollout: 4 minibatches, 2 envs.
     "PPO-flat": (PPO, {**_PENDULUM, "n_envs": 2, "n_steps": 32, "batch_size": 8}, 128),
+    # One policy step and three critic steps a rollout, 2 envs.
+    "REINFORCE": (
+        REINFORCE,
+        {**_PENDULUM, "n_envs": 2, "n_steps": 32, "value_steps": 3},
+        128,
+    ),
     # The env axis split, GAE per minibatch (brax's time geometry, opted
     # into: unroll_length = n_steps); brax's knobs.
     "PPO-env-split": (
@@ -1845,7 +1852,7 @@ _GOLDEN.update(
 def fingerprint(name: str) -> dict[str, float]:
     agent_cls, kwargs, steps = _CASES[name]
     agent = agent_cls(**kwargs)
-    state, _ = agent.train(seed=0, n_timesteps=steps)
+    state, _ = agent.train(seed=0, n_timesteps=steps, logging_config=None)
     out = {"actor": float(tree_norm(state.actor_state.params, squared=True))}
     if state.critic_state is not None:
         out["critic"] = float(tree_norm(state.critic_state.params, squared=True))
@@ -2371,3 +2378,33 @@ _GOLDEN.update(
         },
     }
 )
+# Re-recorded on Linux x86 CPU (flanders) once DQN on vector observations
+# stepped as CleanRL's dqn.py: Adam at eps 1e-8 on the squared error (were
+# centered RMSProp on the Huber loss). Relative shifts (actor, target): DQN
+# -0.19%, -0.14%; DQN-dueling-nudge -0.33%, -0.22%; the unused critic copy,
+# the update count and the nudge are unchanged.
+_GOLDEN.update(
+    {
+        "DQN": {
+            "actor": 8.627391815185547,
+            "critic": 8.621588706970215,
+            "target": 8.624855041503906,
+            "n_updates": 11.0,
+        },
+        "DQN-dueling-nudge": {
+            "actor": 9.089839935302734,
+            "critic": 9.092710494995117,
+            "target": 9.089208602905273,
+            "n_updates": 11.0,
+            "nudge": 0.8379592299461365,
+        },
+    }
+)
+
+# REINFORCE's pin, recorded on Linux x86 CPU (bob) when the agent was added.
+_GOLDEN["REINFORCE"] = {
+    "actor": 7.6761860847473145,
+    "critic": 8.163204193115234,
+    "target": 7.68051815032959,
+    "n_updates": 2.0,
+}

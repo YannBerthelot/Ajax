@@ -41,7 +41,7 @@ compares Ajax with SB3, SBX, PureJaxRL, Brax, Stoix, Rejax, TorchRL and
 Tianshou, including
 when to use them instead.
 
-Ajax has nineteen agents, from SAC and PPO to DreamerV3 and TD-MPC2. Each
+Ajax has twenty agents, from SAC and PPO to DreamerV3 and TD-MPC2. Each
 implements a published paper, and its page lists where it departs from it.
 Several seeds train side by side in one program, on a CPU or a GPU. Research
 features (learning from an expert, exploration rules, diagnostics) are
@@ -53,7 +53,11 @@ agent runs which.
 ```bash
 pip install ajax-rl                 # imports as ajax; Python 3.12 or newer
 pip install "ajax-rl[playground]"   # adds Brax and MuJoCo Playground environments
+pip install "ajax-rl[cuda]"         # adds CUDA, on Linux with an NVIDIA GPU
 ```
+
+[Installation](getting-started/installation.md) covers the other extras and
+installing from a clone.
 
 ```python
 from ajax import PPO
@@ -91,6 +95,11 @@ print(evaluations["Eval/episodic mean reward"])  # one row per seed, one column 
   changes, actor and critic pre-training, offline RL, adversarial imitation
   and diagnostics, each usable with the agents that run the training phases
   it touches.
+- [Presets](guide/training.md#presets): the settings an agent's reference
+  code tunes for one task, as `Agent.preset(task, env_id)`.
+- [Hyperparameter sweeps](guide/training.md#hyperparameter-sweeps):
+  `train(sweep=...)` trains several configurations, each with every seed, in
+  one compiled program.
 - [Training offline](guide/training.md#training-offline): a replay agent
   trains on a transition dataset before it acts, then fine-tunes online.
 - [Expert guidance](guide/expert-guidance.md): learn from an existing
@@ -98,7 +107,10 @@ print(evaluations["Eval/episodic mean reward"])  # one row per seed, one column 
   its action units.
 - [Memory](guide/memory.md): GRU, LSTM, transformer or Mamba blocks, with
   R2D2-style sequence replay.
-- [PID policy](guide/networks.md): a PID controller as the actor, whose learned
+- [Networks](guide/networks.md): hidden layers, initialisers, a shared
+  encoder, and hidden layers per output head
+  ([`head_architecture`](guide/networks.md#layers-per-head)).
+- [PID policy](guide/networks.md#the-pid-policy): a PID controller as the actor, whose learned
   gains deploy as a plain PID.
 - [Differentiable simulation](guide/differentiable-simulation.md): APG through
   gymnax dynamics, across distributions of physical parameters.
@@ -108,8 +120,17 @@ print(evaluations["Eval/episodic mean reward"])  # one row per seed, one column 
   id, with wrappers for normalisation, observation noise, reference tracking
   and more; every continuous agent's `[-1, 1]` actions are mapped onto the
   environment's bounds.
+- [Gymnasium's MuJoCo tasks in JAX](guide/environments.md#gymnasiums-mujoco-tasks-in-jax)
+  (`"mujoco:<id>"`) and [MuJoCo Warp physics](guide/environments.md#mujoco-warp-on-a-gpu)
+  on an NVIDIA GPU (`physics="warp"`).
+- [Normalisation](guide/environments.md#normalisation): running observation
+  statistics, and rewards divided by the spread of the discounted return
+  (`normalize_rewards`).
 - [Logging](guide/logging.md) and [checkpoints](guide/checkpoints.md):
   evaluations as arrays, W&B or TensorBoard, resuming in another process.
+- [Evaluating on another device](guide/logging.md#evaluating-on-another-device):
+  with `LoggingConfig(evaluation_device=...)`, training goes on while a
+  thread scores the policy.
 - [Performance](guide/performance.md): every seed in one program, a persistent
   compile cache, one per machine and JAX version.
 - [Comparing agents](guide/comparing-agents.md): AdaStop, which trains more
@@ -127,6 +148,7 @@ print(evaluations["Eval/episodic mean reward"])  # one row per seed, one column 
     [Installation](getting-started/installation.md) ·
     [Quickstart](getting-started/quickstart.md) ·
     [Why Ajax](getting-started/why-ajax.md) ·
+    [Coming from SB3](getting-started/coming-from-sb3.md) ·
     [Training an agent](guide/training.md) ·
     [Algorithms](algorithms/index.md)
 

@@ -24,7 +24,9 @@ import numpy as np
 import pytest
 
 from ajax import PPO, SAC, TDMPC2
+from ajax.agents.sweep import configurations
 from ajax.logging.wandb_logging import LoggingConfig
+from ajax.networks.memory import MemoryConfig
 from tests.agents.TDMPC2.common import TINY_AGENT as TDMPC2_TINY
 
 RELU = ("16", "relu", "16", "relu")
@@ -140,6 +142,20 @@ def test_sac_members_train_and_evaluate_as_their_separate_runs() -> None:
     )
 
 
+def test_a_dict_sweep_is_the_grid_of_its_lists_with_the_last_field_fastest() -> None:
+    """Two fields of two values give the four combinations, in the order
+    the docstring promises (the last field varies fastest): lists paired
+    element by element would give two, and another order would label each
+    member's results with another member's settings."""
+    grid = {"actor_learning_rate": [3e-4, 1e-3], "gamma": [0.9, 0.99]}
+    assert configurations(grid) == [
+        {"actor_learning_rate": 3e-4, "gamma": 0.9},
+        {"actor_learning_rate": 3e-4, "gamma": 0.99},
+        {"actor_learning_rate": 1e-3, "gamma": 0.9},
+        {"actor_learning_rate": 1e-3, "gamma": 0.99},
+    ]
+
+
 def test_ppo_trains_a_dict_sweeps_grid_configuration_major() -> None:
     """Catches members ordered seed-major, or a grid built in another order:
     each block of rows must be its configuration's separate run. gamma
@@ -150,6 +166,25 @@ def test_ppo_trains_a_dict_sweeps_grid_configuration_major() -> None:
         {"actor_learning_rate": 1e-3, "gamma": 0.9},
     ]
     assert_members_train_as_separate_runs(tiny_ppo, grid, configurations, 128)
+
+
+def test_recurrent_ppo_members_train_as_their_separate_runs() -> None:
+    """The contract makes no exception for an agent with memory. Catches a
+    recurrent path that still takes a swept number as a constant of the
+    base agent (gamma in the sequence GAE, the learning rate of the
+    optimiser stepping the memory), or members sharing one carry."""
+    gru = MemoryConfig("gru", hidden_size=8)
+    configurations = [
+        {"actor_learning_rate": 3e-4, "gamma": 0.9},
+        {"actor_learning_rate": 1e-3, "gamma": 0.99},
+    ]
+
+    def recurrent_ppo(**fields: Any) -> PPO:
+        return tiny_ppo(memory=gru, **fields)
+
+    assert_members_train_as_separate_runs(
+        recurrent_ppo, configurations, configurations, 64
+    )
 
 
 #: A value off each sweepable field's default; a field joins sweepable with
@@ -194,7 +229,9 @@ def test_every_sweepable_field_reaches_the_training(
         changed = dict(base)
         changed[name] = value
         configurations.append(changed)
-    state, _ = agent.train(seed=0, n_timesteps=64, sweep=configurations)
+    state, _ = agent.train(
+        seed=0, n_timesteps=64, sweep=configurations, logging_config=None
+    )
     leaves = list(floating_leaves(state).values())
     for row, name in enumerate(changes, start=1):
         # equal_nan: NaN fills a metrics slot no update wrote yet, in every row.
@@ -239,7 +276,7 @@ def test_a_sweep_outside_the_sweepable_numbers_is_refused_before_training(
     """Catches a sweep that would compile one program per value, or train
     every member with a value its replay or loop fixed when built."""
     with pytest.raises(ValueError, match=refused):
-        make().train(seed=0, n_timesteps=16, sweep=sweep)
+        make().train(seed=0, n_timesteps=16, sweep=sweep, logging_config=None)
 
 
 def test_a_normaliser_with_its_own_discount_leaves_gamma_sweepable() -> None:
@@ -255,12 +292,27 @@ def test_a_resumed_sweep_continues_as_the_uninterrupted_sweep() -> None:
     with the base agent's) or reorders them; a state of other members is
     refused."""
     sweep = {"tau": [0.005, 0.05], "actor_learning_rate": [1e-3]}
-    whole, _ = tiny_sac().train(seed=0, n_timesteps=64, sweep=sweep)
+    whole, _ = tiny_sac().train(
+        seed=0, n_timesteps=64, sweep=sweep, logging_config=None
+    )
     agent = tiny_sac()
-    half, _ = agent.train(seed=0, n_timesteps=32, sweep=sweep, total_timesteps=64)
+    half, _ = agent.train(
+        seed=0, n_timesteps=32, sweep=sweep, total_timesteps=64, logging_config=None
+    )
     with pytest.raises(ValueError, match="same seed and sweep"):
-        agent.train(seed=[0, 1], n_timesteps=32, sweep=sweep, initial_state=half)
+        agent.train(
+            seed=[0, 1],
+            n_timesteps=32,
+            sweep=sweep,
+            initial_state=half,
+            logging_config=None,
+        )
     resumed, _ = agent.train(
-        seed=0, n_timesteps=32, sweep=sweep, total_timesteps=64, initial_state=half
+        seed=0,
+        n_timesteps=32,
+        sweep=sweep,
+        total_timesteps=64,
+        initial_state=half,
+        logging_config=None,
     )
     assert_rows_match(resumed, slice(None), whole)

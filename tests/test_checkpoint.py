@@ -2,6 +2,7 @@
 
 import os
 import pickle
+import tracemalloc
 from types import SimpleNamespace
 from typing import ClassVar, NamedTuple
 
@@ -85,6 +86,90 @@ def test_an_array_restores_into_the_memory_its_skeleton_keeps_it_in(tmp_path):
     np.testing.assert_array_equal(loaded["count"], 3)
 
 
+#: 32 MiB of float32: a checkpoint array large enough to be stored after the
+#: pickle stream. A 10-seed DreamerV3 replay ring is 80 GiB.
+LARGE = (4, 1024, 2048)
+
+
+def _pinned_host():
+    return jax.sharding.SingleDeviceSharding(
+        jax.devices()[0], memory_kind="pinned_host"
+    )
+
+
+def _python_peak(call):
+    """call's result, and the most Python-side memory (NumPy arrays and
+    bytes included) it held at once."""
+    tracemalloc.start()
+    try:
+        result = call()
+        return result, tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+
+
+class _LargeRingAgent:
+    """Stands in for an agent whose state keeps a large ring in host memory:
+    load_checkpoint only calls train, for a 0-step skeleton of as many seeds
+    as the file holds."""
+
+    def train(self, seed, n_timesteps, **options):
+        ring = jax.device_put(jnp.zeros(LARGE, jnp.float32), _pinned_host())
+        return {"rng": jnp.zeros((len(seed), 2), jnp.uint32), "ring": ring}, None
+
+
+def _large_ring_state():
+    ring = np.arange(np.prod(LARGE), dtype=np.float32).reshape(LARGE)
+    return {"rng": np.zeros((3, 2), np.uint32), "ring": ring}
+
+
+# Contract (owner, 2026-11-20: load the checkpoint straight into pinned
+# memory): a restore copies each large array of a checkpoint once, from the
+# file to where the state keeps it, with no whole NumPy copy on the way; a
+# file written before, one pickle stream, is read whole once, never twice.
+
+
+def test_a_large_array_restores_into_host_memory_without_a_copy_on_the_way(
+    tmp_path,
+):
+    state = _large_ring_state()
+    path = str(tmp_path / "ckpt.pkl")
+    save_checkpoint(state, path)
+    skeleton = _LargeRingAgent().train(
+        seed=[0, 1, 2], n_timesteps=0, logging_config=None
+    )[0]
+
+    loaded, peak = _python_peak(lambda: restore_into(skeleton, path))
+
+    assert peak < state["ring"].nbytes // 4
+    assert loaded["ring"].sharding.memory_kind == "pinned_host"
+    np.testing.assert_array_equal(loaded["ring"], state["ring"])
+
+
+def test_load_checkpoint_reads_a_large_array_once(tmp_path):
+    state = _large_ring_state()
+    path = str(tmp_path / "ckpt.pkl")
+    save_checkpoint(state, path)
+
+    loaded, peak = _python_peak(lambda: load_checkpoint(_LargeRingAgent(), path))
+
+    assert peak < state["ring"].nbytes // 4
+    np.testing.assert_array_equal(loaded["ring"], state["ring"])
+    np.testing.assert_array_equal(loaded["rng"], state["rng"])
+
+
+def test_load_checkpoint_reads_a_file_of_one_pickle_stream_whole_once(tmp_path):
+    state = _large_ring_state()
+    path = str(tmp_path / "ckpt.pkl")
+    with open(path, "wb") as fh:  # as save_checkpoint wrote every file before
+        pickle.dump({**state, "ajax_checkpoint_format": 3}, fh, protocol=5)
+
+    loaded, peak = _python_peak(lambda: load_checkpoint(_LargeRingAgent(), path))
+
+    assert peak < 1.5 * state["ring"].nbytes
+    np.testing.assert_array_equal(loaded["ring"], state["ring"])
+
+
 def test_save_overwrites_existing(tmp_path):
     path = str(tmp_path / "ckpt.pkl")
     save_checkpoint({"x": jnp.array(1.0)}, path)
@@ -160,7 +245,7 @@ def sac_run():
         batch_size=4,
         buffer_size=40,
     )
-    out = agent.train(seed=[0], n_timesteps=40, num_episode_test=1)
+    out = agent.train(seed=[0], n_timesteps=40, num_episode_test=1, logging_config=None)
     return SimpleNamespace(agent=agent, out=jax.device_get(out))
 
 
@@ -201,7 +286,7 @@ def test_a_replay_buffer_saved_without_raw_next_obs_restores_with_the_next_rows(
         buffer_size=40,
         extensions=(IBRL(expert_policy=lambda obs: obs[..., :1]),),
     )
-    state, _ = agent.train(seed=0, n_timesteps=10)
+    state, _ = agent.train(seed=0, n_timesteps=10, logging_config=None)
     buffer = state.collector_state.buffer_state
     rows = {k: v for k, v in buffer.experience.items() if k != "raw_next_obs"}
     old = state.collector_state.replace(buffer_state=buffer.replace(experience=rows))
@@ -231,7 +316,11 @@ def test_a_replay_buffer_saved_with_fields_no_reader_needs_resumes(sac_run, tmp_
         restored[0].collector_state.buffer_state.experience
     )
     resumed, _ = agent.train(
-        seed=[0], n_timesteps=40, num_episode_test=1, initial_state=restored
+        seed=[0],
+        n_timesteps=40,
+        num_episode_test=1,
+        initial_state=restored,
+        logging_config=None,
     )
     raw = np.asarray(resumed.collector_state.buffer_state.experience["raw_obs"])
     assert np.isfinite(raw).all() and (raw != 1.0).any()  # new rows written
@@ -269,7 +358,11 @@ def test_sac_resumes_from_a_restored_checkpoint_of_its_train_tuple(sac_run, tmp_
     restored = restore_into(first, path)
     jax.tree.map(np.testing.assert_array_equal, restored, first)
     resumed, _ = agent.train(
-        seed=[0], n_timesteps=40, num_episode_test=1, initial_state=restored
+        seed=[0],
+        n_timesteps=40,
+        num_episode_test=1,
+        initial_state=restored,
+        logging_config=None,
     )
     np.testing.assert_array_equal(
         resumed.collector_state.timestep, 2 * first[0].collector_state.timestep
@@ -315,7 +408,7 @@ def test_an_apg_transformer_checkpoint_saved_before_key_value_caching_restores(
 
     memory = MemoryConfig("transformer", 8, num_heads=2, window=3)
     agent = APG("Pendulum-v1", n_envs=2, horizon=4, memory=memory)
-    state, _ = agent.train(seed=0, n_timesteps=16)
+    state, _ = agent.train(seed=0, n_timesteps=16, logging_config=None)
     path = str(tmp_path / "old.pkl")
     save_checkpoint(state, path)
     with open(path, "rb") as fh:
@@ -349,7 +442,7 @@ def test_a_checkpoint_saved_before_the_non_finite_count_restores(tmp_path):
     from ajax.wrappers import NON_FINITE_STEPS_KEY
 
     agent = PPO(env_id="fast", n_envs=2, n_steps=8, batch_size=8, n_epochs=1)
-    state, _ = agent.train(seed=0, n_timesteps=16)
+    state, _ = agent.train(seed=0, n_timesteps=16, logging_config=None)
     path = str(tmp_path / "old.pkl")
     save_checkpoint(state, path)
     with open(path, "rb") as fh:
@@ -385,7 +478,7 @@ def test_a_checkpoint_saved_before_a_transition_field_restores(tmp_path, agent_n
     else:
         kw.update({"n_steps": 8, "batch_size": 8, "expose_recent_rollout": True})
         agent = PPO(env_id="Pendulum-v1", **kw)
-    state, _ = agent.train(seed=0, n_timesteps=16)
+    state, _ = agent.train(seed=0, n_timesteps=16, logging_config=None)
     path = str(tmp_path / "old.pkl")
     save_checkpoint(state, path)
     with open(path, "rb") as fh:
@@ -416,7 +509,7 @@ def test_a_memory_checkpoint_restores_only_into_its_own_final_norm(tmp_path):
 
     def skeleton(memory):
         agent = PPO(env_id="CartPole-v1", memory=memory, **kw)
-        return agent.train(seed=0, n_timesteps=0)[0]
+        return agent.train(seed=0, n_timesteps=0, logging_config=None)[0]
 
     old = skeleton(dataclasses.replace(memory, final_norm=False))
     path = str(tmp_path / "old.pkl")
@@ -446,7 +539,9 @@ def test_a_ppo_checkpoint_restores_only_into_its_own_log_std_head(tmp_path):
     kw.update({"actor_architecture": net, "critic_architecture": net})
 
     def skeleton(**head):
-        return PPO(env_id="Pendulum-v1", **kw, **head).train(seed=0, n_timesteps=0)[0]
+        return PPO(env_id="Pendulum-v1", **kw, **head).train(
+            seed=0, n_timesteps=0, logging_config=None
+        )[0]
 
     old = skeleton(log_std_state_independent=False, log_std_init=-1.0)
     path = str(tmp_path / "old.pkl")
@@ -478,7 +573,7 @@ def test_an_optimiser_state_saved_behind_its_own_clip_restores(tmp_path, agent_n
     agent_cls = getattr(ajax, agent_name)
     rollout = {"n_envs": 2, "n_steps": 8, "batch_size": 8, "num_minibatches": 0}
     agent = agent_cls(env_id="Pendulum-v1", **rollout)
-    skeleton = agent.train(seed=0, n_timesteps=0)[0]
+    skeleton = agent.train(seed=0, n_timesteps=0, logging_config=None)[0]
     moved = {  # moments and counts the skeleton does not hold
         name: jax.tree.map(lambda x: x + 1, getattr(skeleton, name).opt_state)
         for name in ("actor_state", "critic_state")
@@ -514,7 +609,7 @@ def test_an_optimiser_state_of_another_network_behind_a_clip_is_refused(tmp_path
     from ajax.agents.PPO.PPO import PPO
 
     agent = PPO(env_id="Pendulum-v1", n_envs=2, n_steps=8, batch_size=8)
-    skeleton = agent.train(seed=0, n_timesteps=0)[0]
+    skeleton = agent.train(seed=0, n_timesteps=0, logging_config=None)[0]
     actor = skeleton.actor_state
     per_array = _moments_per_array(actor).opt_state
     old = skeleton.replace(
@@ -602,7 +697,9 @@ def test_an_apo_checkpoint_restores_only_into_its_own_hidden_widths(tmp_path):
     wide = ("128", "tanh", "128", "tanh")
 
     def skeleton(**net):
-        return APO(env_id="Pendulum-v1", **kw, **net).train(seed=0, n_timesteps=0)[0]
+        return APO(env_id="Pendulum-v1", **kw, **net).train(
+            seed=0, n_timesteps=0, logging_config=None
+        )[0]
 
     old = skeleton(actor_architecture=wide, critic_architecture=wide)
     path = str(tmp_path / "old.pkl")
@@ -632,7 +729,7 @@ def test_a_state_without_a_collector_restores(tmp_path):
     tiny = {"enc_dim": 32, "mlp_dim": 32, "latent_dim": 16, "num_q": 2}
     tiny.update({"task_dim": 4, "batch_size": 16, "num_samples": 32, "num_elites": 8})
     agent = TDMPC2MultiTask(data, num_pi_trajs=4, iterations=2, **tiny)
-    state, _ = agent.train(seed=0, n_timesteps=0)
+    state, _ = agent.train(seed=0, n_timesteps=0, logging_config=None)
     assert state.collector_state is None
     path = str(tmp_path / "offline.pkl")
     save_checkpoint(state, path)
@@ -820,7 +917,7 @@ def test_a_checkpoint_of_another_agent_still_fails(sac_run, tmp_path):
         batch_size=4,
         buffer_size=40,
     )
-    skeleton, _ = redq.train(seed=[0], n_timesteps=0)
+    skeleton, _ = redq.train(seed=[0], n_timesteps=0, logging_config=None)
     path = str(tmp_path / "sac.pkl")
     save_checkpoint(sac_run.out[0], path)
     with pytest.raises(ValueError, match="Unknown field.*expert_critic"):
@@ -868,7 +965,9 @@ def test_a_gymnax_on_policy_checkpoint_with_env_statistics_restores_them_merged(
     set: the statistics of every env's observations together."""
     from ajax.environments.obs_norm import init_agent_obs_norm, update_obs_norm
 
-    state, _ = _ppo_normalising("Pendulum-v1").train(seed=0, n_timesteps=16)
+    state, _ = _ppo_normalising("Pendulum-v1").train(
+        seed=0, n_timesteps=16, logging_config=None
+    )
     path, saved = _saved(state, tmp_path)
     rows = np.arange(15, dtype=np.float32).reshape(5, 3)
     per_env = [
@@ -903,7 +1002,9 @@ def test_a_brax_on_policy_checkpoint_with_env_statistics_restores_them(
     from ajax.environments.obs_norm import init_agent_obs_norm, update_obs_norm
     from ajax.utils import online_normalize
 
-    state, _ = _ppo_normalising("fast").train(seed=0, n_timesteps=16)
+    state, _ = _ppo_normalising("fast").train(
+        seed=0, n_timesteps=16, logging_config=None
+    )
     path, saved = _saved(state, tmp_path)
     env = saved["collector_state"]["_env_state"]
     raw = np.asarray(env["obs"])  # (seed, env, obs)
@@ -977,7 +1078,7 @@ def test_a_replay_checkpoint_from_before_raw_replay_is_refused(tmp_path, normali
     kw = {"n_envs": 2, "actor_architecture": net, "critic_architecture": net}
     kw.update({"learning_starts": 100, "batch_size": 4, "buffer_size": 40})
     agent = SAC(env_id="Pendulum-v1", normalize_rewards=normalised == "rewards", **kw)
-    state, _ = agent.train(seed=0, n_timesteps=16)
+    state, _ = agent.train(seed=0, n_timesteps=16, logging_config=None)
     path = str(tmp_path / "new.pkl")
     save_checkpoint(state, path)
     restore_into(state, path)
@@ -997,7 +1098,9 @@ def test_a_replay_checkpoint_from_before_raw_replay_is_refused(tmp_path, normali
     _without_format(path)
     with pytest.raises(ValueError, match="before a replay agent kept"):
         restore_into(state, path)
-    plain, _ = SAC(env_id="Pendulum-v1", **kw).train(seed=0, n_timesteps=16)
+    plain, _ = SAC(env_id="Pendulum-v1", **kw).train(
+        seed=0, n_timesteps=16, logging_config=None
+    )
     save_checkpoint(plain, path)
     _without_format(path)
     restore_into(plain, path)
@@ -1045,7 +1148,7 @@ def test_a_udrl_buffer_saved_with_a_raw_obs_field_restores(tmp_path, copy):
     """On 2026-10-17 UDRL's segment buffer held the env's own observations
     twice, in obs and, for a run with an expert, in raw_obs (None without
     one): a checkpoint written then restores, the copy dropped."""
-    state, _ = _udrl().train(seed=0, n_timesteps=16)
+    state, _ = _udrl().train(seed=0, n_timesteps=16, logging_config=None)
     path = str(tmp_path / "old.pkl")
     save_checkpoint(state, path)
 
@@ -1063,7 +1166,9 @@ def test_a_udrl_buffer_the_env_normalised_is_refused(tmp_path):
     env state holds their statistics) keeps each row at the statistics of
     its collection: refused, saying why, since UDRL now normalises the raw
     rows it reads."""
-    state, _ = _udrl(normalize_observations=True).train(seed=0, n_timesteps=16)
+    state, _ = _udrl(normalize_observations=True).train(
+        seed=0, n_timesteps=16, logging_config=None
+    )
     path = str(tmp_path / "old.pkl")
     save_checkpoint(state, path)
     stats = {"count": 1.0, "mean": 0.0, "mean_2": 1.0}
@@ -1091,7 +1196,9 @@ def test_a_checkpoint_from_before_the_collections_own_stream_restarts_it(tmp_pat
     net = ("8", "relu")
     kw = {"n_envs": 2, "actor_architecture": net, "critic_architecture": net}
     kw.update({"learning_starts": 100, "batch_size": 4, "buffer_size": 40})
-    state, _ = SAC(env_id="Pendulum-v1", **kw).train(seed=[0, 1], n_timesteps=16)
+    state, _ = SAC(env_id="Pendulum-v1", **kw).train(
+        seed=[0, 1], n_timesteps=16, logging_config=None
+    )
     path = str(tmp_path / "state.pkl")
     save_checkpoint((state, jnp.zeros(3)), path)  # a state saved with its logs
     kept = restore_into((state, jnp.zeros(3)), path)[0]
@@ -1116,7 +1223,9 @@ def test_a_row_collector_keeps_its_own_stream_from_an_older_checkpoint(tmp_path)
     from ajax.checkpoint import FORMAT_KEY
     from tests.agents.TDMPC2.common import TINY_AGENT
 
-    state, _ = TDMPC2(**TINY_AGENT, env_id="Pendulum-v1").train(seed=0, n_timesteps=0)
+    state, _ = TDMPC2(**TINY_AGENT, env_id="Pendulum-v1").train(
+        seed=0, n_timesteps=0, logging_config=None
+    )
     path = str(tmp_path / "state.pkl")
     save_checkpoint(state, path)
     with open(path, "rb") as fh:
@@ -1147,8 +1256,10 @@ def test_episode_counters_restore_only_into_an_agent_keying_its_resets(tmp_path)
     kw = {"n_envs": 2, "actor_architecture": net, "critic_architecture": net}
     env, params = gymnax.make("Pendulum-v1")
     off = SAC(env_id=with_episode_keys(env, on=False), env_params=params, **kw)
-    unkeyed, _ = off.train(seed=0, n_timesteps=0)
-    keyed, _ = SAC(env_id="Pendulum-v1", **kw).train(seed=0, n_timesteps=0)
+    unkeyed, _ = off.train(seed=0, n_timesteps=0, logging_config=None)
+    keyed, _ = SAC(env_id="Pendulum-v1", **kw).train(
+        seed=0, n_timesteps=0, logging_config=None
+    )
     old, new = str(tmp_path / "old.pkl"), str(tmp_path / "new.pkl")
     save_checkpoint(unkeyed, old)
     with open(old, "rb") as fh:
@@ -1198,14 +1309,14 @@ def test_load_checkpoint_returns_the_state_it_saved(name, tmp_path):
     from tests.exact_pins import CASES
 
     cls, kwargs, _ = CASES[name]
-    saved, _ = cls(**kwargs).train(seed=[3, 5, 7], n_timesteps=0)
+    saved, _ = cls(**kwargs).train(seed=[3, 5, 7], n_timesteps=0, logging_config=None)
     path = str(tmp_path / "state.pkl")
     save_checkpoint(saved, path)
     agent = cls(**kwargs)
 
     loaded = load_checkpoint(agent, path)
 
-    skeleton, _ = agent.train(seed=[0, 1, 2], n_timesteps=0)
+    skeleton, _ = agent.train(seed=[0, 1, 2], n_timesteps=0, logging_config=None)
     restored = restore_into(skeleton, path)
     for want in (saved, restored):
         pairs = zip(jax.tree.leaves(loaded), jax.tree.leaves(want), strict=True)
@@ -1223,7 +1334,9 @@ def test_load_checkpoint_refuses_what_restore_into_refuses(tmp_path):
 
     net = ("8", "relu")
     kw = {"n_envs": 2, "actor_architecture": net, "critic_architecture": net}
-    keyed, _ = SAC(env_id="Pendulum-v1", **kw).train(seed=0, n_timesteps=0)
+    keyed, _ = SAC(env_id="Pendulum-v1", **kw).train(
+        seed=0, n_timesteps=0, logging_config=None
+    )
     path = str(tmp_path / "keyed.pkl")
     save_checkpoint(keyed, path)
     env, params = gymnax.make("Pendulum-v1")

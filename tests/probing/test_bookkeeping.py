@@ -69,9 +69,9 @@ LOG_EVERY, BUDGET, SEEDS = 140, {1: 1400, 4: 2800}, tuple(range(8))
 TRAIN, EVAL, LENGTH = runs.TRAIN_KEYS
 P2_AGENTS = (
     *("SAC", "ASAC", "REDQ", "TD3", "AVG", "PPO", "APO"),
-    *("DQN", "PQN", "CrossQ", "TQC"),
+    *("DQN", "PQN", "CrossQ", "TQC", "REINFORCE"),
 )
-ROLLOUT = {"PPO": 32, "APO": 32, "PQN": 16}
+ROLLOUT = {"PPO": 32, "APO": 32, "PQN": 16, "REINFORCE": 32}
 
 
 @functools.cache
@@ -126,6 +126,8 @@ def steps(
         "PQN": {"actor": rollout, "critic": 0},
         "PPO": {"actor": rollout, "critic": rollout},
         "APO": {"actor": rollout, "critic": rollout},
+        # One policy step and value_steps (3) critic steps per rollout.
+        "REINFORCE": {"actor": len(its), "critic": 3 * len(its)},
     }[agent]
 
 

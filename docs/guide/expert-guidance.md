@@ -239,6 +239,10 @@ each extension names in its `action_slot`:
   from those stages each episode. `"time"` is Ajax's own and not the paper's:
   `h` falls linearly to 0 at `decay_frac` of training, whatever the
   performance.
+  With `"performance"`, `h` stays at the horizon until the first evaluation,
+  after `eval_every` steps (10,000 by default), which always passes. A run
+  shorter than that logs `jsrl/expert_frac` at 1.0 throughout: the expert
+  drives every step. On a short run, lower `eval_every`.
 - **After it** (`"post_warmup"`): `ValueBox`, which lets the expert act
   wherever its value exceeds a threshold that rises over training. The
   step that enters this region ends the agent's episode in the stored
@@ -377,13 +381,28 @@ The agents in brackets are those that accept each piece, as
 [Compatibility](compatibility.md) lists them from the code. "Developed with
 Ajax" marks a feature with no external reference.
 
+Each piece is imported from its module:
+
+| Module | Pieces |
+| --- | --- |
+| `ajax.extensions.expert` | `ImitationLoss`, `OnlineBC`, `ExpertWarmup`, `JSRLCurriculum`, `ResidualPolicy`, `ExpertGains` |
+| `ajax.extensions.pretrain` | `ExpertPrefill`, `PriorData`, `CloningPretrain`, `MCPretrain`, `BellmanPretrain`, `PhiRefresh` |
+| `ajax.extensions.retained` | `RetainedDemonstrations`, `RLPD` |
+| `ajax.extensions.exploration` | `EDGEExploration` |
+| `ajax.extensions.target_mods` | `IBRL`, `LCBGatedBootstrap`, `CriticBlend`, `ValueBox` |
+| `ajax.extensions.cheq` | `CHEQ` |
+| `ajax.extensions.observe` | `ExpertActionInput` |
+| `ajax.extensions.structure` | `ExpertLaw` |
+
+The [Extensions](extensions.md) page has the full catalogue.
+
 | You want to | Use | Method |
 | --- | --- | --- |
 | Start the replay with good experience | `ExpertPrefill(n_steps)` (SAC, REDQ, ASAC, TQC, TD3, CrossQ, IQL, DQN); `PriorData` with a [transition dataset](../api/buffers.md) (SAC, TD3, REDQ, ASAC, TQC, CrossQ, IQL, DQN) | expert prefill; prior data in the replay as RLPD (Ball et al., 2023), without its symmetric sampling, and optional offline updates |
 | Keep good experience for the whole run | `RetainedDemonstrations(n_steps)`, with `CloningPretrain` for a BC start (SAC, TD3, REDQ, ASAC, RVISAC, TQC, CrossQ, IQL, DQN) | DDPGfD (Vecerik et al., 2017); BC start plus prefill (Bhatt et al., 2026) |
 | Learn online with half of each batch from recorded data | `RLPD` on LayerNorm critics (SAC, TD3, REDQ, ASAC, RVISAC, TQC, CrossQ, IQL, DQN) | RLPD (Ball et al., 2023) |
 | Clone the expert, warm up a fresh critic, then fine-tune | `porl(CloningPretrain(expert))`, the keyword arguments of SAC or REDQ | PORL (Xiao et al., 2025) |
-| Train on recorded transitions alone, then fine-tune online | `agent.train_offline(dataset, n_updates)` (SAC, TD3, REDQ, TQC, CrossQ, ASAC, RVI-SAC, DQN, IQL, DAgger) | offline training on the agent's own update; IQL (Kostrikov et al., 2022) |
+| Train on recorded transitions alone, then fine-tune online | `agent.train_offline(dataset, n_updates)` (<!-- agents: offline -->SAC, TD3, REDQ, TQC, CrossQ, ASAC, RVI-SAC, DQN, IQL, DAgger<!-- /agents -->) | offline training on the agent's own update; IQL (Kostrikov et al., 2022) |
 | Keep the actor near the dataset's actions | `ImitationLoss(None, target="replay", alpha=2.5)` (SAC, TD3, REDQ, ASAC) | TD3+BC (Fujimoto and Gu, 2021) on TD3 |
 | Keep the critic's target near the dataset's actions too | `TargetBC` with TD3+BC's term (TD3) | ReBRAC (Tarasov et al., 2023) |
 | Keep the critic low on actions the dataset lacks | `ConservativeQ` (SAC, REDQ, ASAC, AVG, IQL), `CalQL` (SAC, REDQ, IQL) | CQL (Kumar et al., 2020), Cal-QL (Nakamoto et al., 2023) |

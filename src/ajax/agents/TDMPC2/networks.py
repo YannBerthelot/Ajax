@@ -51,7 +51,7 @@ once) and gets its own dropout mask (``layers.py:16``,
 from __future__ import annotations
 
 import functools
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 import flax.linen as nn
 import jax
@@ -121,6 +121,8 @@ def simnorm(x: jax.Array, simnorm_dim: int = 8) -> jax.Array:
             f"SimNorm needs a width divisible by {simnorm_dim}, got {shape[-1]}"
         )
     groups = x.reshape(*shape[:-1], shape[-1] // simnorm_dim, simnorm_dim)
+    # The softmax in float32 whatever the layers' compute dtype.
+    groups = groups.astype(jnp.promote_types(groups.dtype, jnp.float32))
     return jax.nn.softmax(groups, axis=-1).reshape(shape)
 
 
@@ -143,7 +145,7 @@ def concat_inputs(
     return jnp.concatenate(parts, axis=-1)
 
 
-def simnorm_head(latent_dim: int, simnorm_dim: int) -> NormedMLP:
+def simnorm_head(latent_dim: int, simnorm_dim: int, dtype: Any = None) -> NormedMLP:
     """``NormedLinear(act=SimNorm)``: ``Linear -> LayerNorm(1e-5) -> SimNorm``.
 
     The last layer of the encoder and of the dynamics (``layers.py:85-100,
@@ -159,6 +161,7 @@ def simnorm_head(latent_dim: int, simnorm_dim: int) -> NormedMLP:
         norm_eps=1e-5,
         kernel_init=KERNEL_INIT,
         name="head",
+        dtype=dtype,
     )
 
 
@@ -169,6 +172,7 @@ class Encoder(nn.Module):
     num_enc_layers: int
     latent_dim: int
     simnorm_dim: int
+    dtype: Any = None
 
     @nn.compact
     def __call__(
@@ -176,8 +180,8 @@ class Encoder(nn.Module):
     ) -> jax.Array:
         x = concat_inputs(obs, task_emb)
         hidden = max(self.num_enc_layers - 1, 1)
-        x = NormedMLP.tdmpc2(hidden, self.enc_dim, name="trunk")(x)
-        return simnorm_head(self.latent_dim, self.simnorm_dim)(x)
+        x = NormedMLP.tdmpc2(hidden, self.enc_dim, name="trunk", dtype=self.dtype)(x)
+        return simnorm_head(self.latent_dim, self.simnorm_dim, self.dtype)(x)
 
 
 class Dynamics(nn.Module):
@@ -186,14 +190,15 @@ class Dynamics(nn.Module):
     mlp_dim: int
     latent_dim: int
     simnorm_dim: int
+    dtype: Any = None
 
     @nn.compact
     def __call__(
         self, z: jax.Array, action: jax.Array, task_emb: Optional[jax.Array] = None
     ) -> jax.Array:
         x = concat_inputs(z, task_emb, action)
-        x = NormedMLP.tdmpc2(2, self.mlp_dim, name="trunk")(x)
-        return simnorm_head(self.latent_dim, self.simnorm_dim)(x)
+        x = NormedMLP.tdmpc2(2, self.mlp_dim, name="trunk", dtype=self.dtype)(x)
+        return simnorm_head(self.latent_dim, self.simnorm_dim, self.dtype)(x)
 
 
 class RewardHead(nn.Module):
@@ -201,14 +206,16 @@ class RewardHead(nn.Module):
 
     mlp_dim: int
     num_bins: int
+    dtype: Any = None
 
     @nn.compact
     def __call__(
         self, z: jax.Array, action: jax.Array, task_emb: Optional[jax.Array] = None
     ) -> jax.Array:
         x = concat_inputs(z, task_emb, action)
-        x = NormedMLP.tdmpc2(2, self.mlp_dim, name="trunk")(x)
-        return linear(self.num_bins, "zeros", name="out")(x)
+        x = NormedMLP.tdmpc2(2, self.mlp_dim, name="trunk", dtype=self.dtype)(x)
+        out = linear(self.num_bins, "zeros", name="out", dtype=self.dtype)(x)
+        return out.astype(jnp.float32)
 
 
 class TerminationHead(nn.Module):
@@ -221,11 +228,14 @@ class TerminationHead(nn.Module):
     """
 
     mlp_dim: int
+    dtype: Any = None
 
     @nn.compact
     def __call__(self, z: jax.Array) -> jax.Array:
-        x = NormedMLP.tdmpc2(2, self.mlp_dim, name="trunk")(z)
-        return linear(1, KERNEL_INIT, name="out")(x)
+        x = NormedMLP.tdmpc2(2, self.mlp_dim, name="trunk", dtype=self.dtype)(z)
+        return linear(1, KERNEL_INIT, name="out", dtype=self.dtype)(x).astype(
+            jnp.float32
+        )
 
 
 class QFunction(nn.Module):
@@ -237,12 +247,16 @@ class QFunction(nn.Module):
     mlp_dim: int
     num_bins: int
     dropout: float
+    dtype: Any = None
 
     @nn.compact
     def __call__(self, x: jax.Array, deterministic: bool) -> jax.Array:
-        trunk = NormedMLP.tdmpc2(2, self.mlp_dim, dropout=self.dropout, name="trunk")
+        trunk = NormedMLP.tdmpc2(
+            2, self.mlp_dim, dropout=self.dropout, name="trunk", dtype=self.dtype
+        )
         x = trunk(x, deterministic=deterministic)
-        return linear(self.num_bins, "zeros", name="out")(x)
+        out = linear(self.num_bins, "zeros", name="out", dtype=self.dtype)(x)
+        return out.astype(jnp.float32)
 
 
 class QEnsemble(nn.Module):
@@ -264,6 +278,7 @@ class QEnsemble(nn.Module):
     mlp_dim: int
     num_bins: int
     dropout: float
+    dtype: Any = None
 
     @nn.compact
     def __call__(
@@ -282,9 +297,9 @@ class QEnsemble(nn.Module):
             out_axes=0,
             axis_size=self.num_q,
         )
-        return members(self.mlp_dim, self.num_bins, self.dropout, name="members")(
-            x, deterministic
-        )
+        return members(
+            self.mlp_dim, self.num_bins, self.dropout, self.dtype, name="members"
+        )(x, deterministic)
 
 
 class WorldModel(nn.Module):
@@ -305,16 +320,18 @@ class WorldModel(nn.Module):
     dropout: float
     simnorm_dim: int
     episodic: bool = False
+    dtype: Any = None
 
     def setup(self) -> None:
+        dtype = self.dtype
         self.encoder = Encoder(
-            self.enc_dim, self.num_enc_layers, self.latent_dim, self.simnorm_dim
+            self.enc_dim, self.num_enc_layers, self.latent_dim, self.simnorm_dim, dtype
         )
-        self.dynamics = Dynamics(self.mlp_dim, self.latent_dim, self.simnorm_dim)
-        self.reward = RewardHead(self.mlp_dim, self.num_bins)
-        self.q = QEnsemble(self.num_q, self.mlp_dim, self.num_bins, self.dropout)
+        self.dynamics = Dynamics(self.mlp_dim, self.latent_dim, self.simnorm_dim, dtype)
+        self.reward = RewardHead(self.mlp_dim, self.num_bins, dtype)
+        self.q = QEnsemble(self.num_q, self.mlp_dim, self.num_bins, self.dropout, dtype)
         if self.episodic:
-            self.termination = TerminationHead(self.mlp_dim)
+            self.termination = TerminationHead(self.mlp_dim, dtype)
 
     def encode(self, obs: jax.Array, task_emb: Optional[jax.Array] = None) -> jax.Array:
         """``z = h(obs, e)`` on the latent simplex product (``world_model.py:93-102``)."""
@@ -369,14 +386,16 @@ class PolicyPrior(nn.Module):
 
     mlp_dim: int
     action_dim: int
+    dtype: Any = None
 
     @nn.compact
     def __call__(
         self, z: jax.Array, task_emb: Optional[jax.Array] = None
     ) -> tuple[jax.Array, jax.Array]:
         x = concat_inputs(z, task_emb)
-        x = NormedMLP.tdmpc2(2, self.mlp_dim, name="trunk")(x)
-        out = linear(2 * self.action_dim, KERNEL_INIT, name="out")(x)
+        x = NormedMLP.tdmpc2(2, self.mlp_dim, name="trunk", dtype=self.dtype)(x)
+        out = linear(2 * self.action_dim, KERNEL_INIT, name="out", dtype=self.dtype)(x)
+        out = out.astype(jnp.float32)
         mean, raw_log_std = jnp.split(out, 2, axis=-1)
         return mean, raw_log_std
 
@@ -393,9 +412,14 @@ def make_world_model(config: TDMPC2Config) -> WorldModel:
         dropout=config.dropout,
         simnorm_dim=config.simnorm_dim,
         episodic=config.episodic,
+        dtype=jnp.dtype(config.compute_dtype),
     )
 
 
 def make_policy_prior(config: TDMPC2Config, action_dim: int) -> PolicyPrior:
     """The :class:`PolicyPrior` of ``config``'s sizes for ``action_dim`` actions."""
-    return PolicyPrior(mlp_dim=config.mlp_dim, action_dim=action_dim)
+    return PolicyPrior(
+        mlp_dim=config.mlp_dim,
+        action_dim=action_dim,
+        dtype=jnp.dtype(config.compute_dtype),
+    )

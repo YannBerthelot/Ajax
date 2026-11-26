@@ -466,14 +466,16 @@ class TrainEpisodeProbe(Probe):
 def tdmpc2_evaluator(agent: Any, num_episodes: int) -> Callable[[Any, Any], dict]:
     """``(states, keys) -> metrics``: ``num_episodes`` evaluation episodes of
     the planner in ``eval_mode`` per seed
-    (:meth:`~ajax.agents.TDMPC2.TDMPC2.TDMPC2.evaluate`, the agent's own
+    (:meth:`~ajax.agents.TDMPC2.TDMPC2.TDMPC2.evaluation_metrics`, the agent's own
     evaluation, tdmpc2_spec 4.21), every seed at once."""
     import jax
 
     _, context = agent.make_context(0)
 
     def evaluate(state: Any, key: Any) -> dict:
-        return agent.evaluate(state, key, context, num_episode_test=num_episodes)
+        return agent.evaluation_metrics(
+            state, key, context, num_episode_test=num_episodes
+        )
 
     return jax.jit(jax.vmap(evaluate))
 
@@ -605,10 +607,12 @@ def run_single_task(
         )
 
     def train(state: Any, n: int) -> Any:
-        return agent.train(seed=seeds, n_timesteps=n, initial_state=state)[0]
+        return agent.train(
+            seed=seeds, n_timesteps=n, initial_state=state, logging_config=None
+        )[0]
 
     def skeleton() -> Any:
-        return agent.train(seed=seeds, n_timesteps=0)[0]
+        return agent.train(seed=seeds, n_timesteps=0, logging_config=None)[0]
 
     run_spec = {
         "run": dataclasses.asdict(spec),

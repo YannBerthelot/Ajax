@@ -43,7 +43,10 @@ def _buffer() -> Any:
         command_return_init=R0,
         command_horizon_init=H0,
     )
-    state = cast(UDRLState, agent.train(seed=0, n_timesteps=12 * SEG * N_ENVS)[0])
+    state = cast(
+        UDRLState,
+        agent.train(seed=0, n_timesteps=12 * SEG * N_ENVS, logging_config=None)[0],
+    )
     return jax.tree.map(lambda x: x[0], state.buffer)
 
 

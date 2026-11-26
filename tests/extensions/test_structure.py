@@ -598,7 +598,7 @@ def test_collection_follows_the_env_report_or_else_the_command(reports: bool) ->
         batch_size=4,
         buffer_size=32,
     )
-    state, _ = agent.train(seed=0, n_timesteps=3)
+    state, _ = agent.train(seed=0, n_timesteps=3, logging_config=None)
     memory = state.collector_state.expert_state
     assert memory is not None
     integral = np.asarray(memory.integral)
@@ -721,7 +721,7 @@ def test_sac_trains_through_each_form(name: str) -> None:
         batch_size=4,
         buffer_size=32,
     )
-    state, _ = agent.train(seed=0, n_timesteps=16)
+    state, _ = agent.train(seed=0, n_timesteps=16, logging_config=None)
     replay = state.collector_state.buffer_state
     assert replay is not None
     assert np.isfinite(np.asarray(replay.experience["reward"])).all()

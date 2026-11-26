@@ -44,6 +44,7 @@ import numpy as np
 from flax import struct
 
 from ajax.agents.families import OwnReplayAgent, TrainContext
+from ajax.agents.presets import Preset
 from ajax.agents.TDMPC2 import core
 from ajax.agents.TDMPC2.buffer import (
     EpisodeBuffer,
@@ -73,6 +74,19 @@ from ajax.state import BaseAgentState, LoadedTrainState
 from ajax.types import FloatOrCallable
 
 logger = logging.getLogger(__name__)
+
+#: The only per-task settings in the latest official code: its gym module
+#: (Walker2d, HalfCheetah, BipedalWalker, LunarLander) caps the discount at
+#: 0.99, "makes comparison to other codebases easier", and raises rho, since
+#: "termination always happens at the end of a sequence" (the module's
+#: comments). Named after the module, so it covers the gymnasium MuJoCo
+#: tasks the reference does not list (Hopper among them).
+PRESETS = {
+    "MuJoCo": Preset(
+        {"discount_max": 0.99, "rho": 0.7},
+        "nicklashansen/tdmpc2@eece801 tdmpc2/envs/mujoco.py:57-58",
+    )
+}
 
 
 @dataclass(kw_only=True, eq=False, repr=False)
@@ -232,6 +246,11 @@ class TDMPC2(OwnReplayAgent):
             }
         )
         self.config.update(self.model_config.resolved(self.action_dim))
+
+    def set_compute_dtype(self, dtype: str) -> None:
+        """The world model's and the policy prior's layers compute in
+        ``dtype`` (:attr:`TDMPC2Config.compute_dtype`)."""
+        self.model_config = self.model_config.replace(compute_dtype=dtype)
 
     def run_capabilities(self) -> frozenset[str]:
         """The shared run's capabilities, with warmup_steps: whatever
@@ -416,7 +435,7 @@ class TDMPC2(OwnReplayAgent):
         )
         return agent_state, None
 
-    def evaluate(
+    def evaluation_metrics(
         self,
         agent_state: TDMPC2State,
         key: jax.Array,

@@ -75,7 +75,7 @@ and picks one of two iterations:
   transition)` and folds the extensions' `post_update`. Before
   `learning_starts` the actions are uniform and the metrics have the
   update's structure, filled with NaN, which the logger drops.
-- **`loop.on_policy(init, update, n_steps, ...)`** (PPO, APO, PQN): each
+- **`loop.on_policy(init, update, n_steps, ...)`** (PPO, APO, REINFORCE, PQN): each
   iteration collects an `n_steps` rollout per environment from the agent
   state `agent_state_at_rollout_start`, then runs `update(agent_state,
   rollout, agent_state_at_rollout_start)` and folds `post_update`. A
@@ -205,7 +205,7 @@ A new agent `FOO` declares itself on a family of `agents/families.py`: a
 replay agent on `ReplayAgent`, as SAC, TQC, REDQ, ASAC, CrossQ, TD3, IQL,
 DQN and DAgger do (read `agents/IQL/IQL.py` first); an agent updating on
 each step as it comes, without a replay, on `IncrementalAgent`, as AVG
-does; an on-policy agent on `OnPolicyAgent`, as PPO, APO and PQN do (read
+does; an on-policy agent on `OnPolicyAgent`, as PPO, APO, REINFORCE and PQN do (read
 `agents/PPO/PPO.py` first, and the on-policy family below); an agent whose
 iteration is its own on `OwnIterationAgent`, as UDRL and APG do (the
 own-iteration family below); an agent storing rows in a replay of its own,
@@ -375,7 +375,7 @@ without as an ordinary forward pass. `ImageObservations` adds the CNN encoder's 
 `loop.train` on the agent's own iteration: `iterate(agent_state, context)`
 acts and learns its way and applies the extensions' `post_update` where
 its order puts it, `report(agent_state, aux)` gives the training metrics an
-evaluation logs, `evaluate(agent_state, key, context, num_episode_test)` its
+evaluation logs, `evaluation_metrics(agent_state, key, context, num_episode_test)` its
 policy's, and `steps_per_iteration(context)` the env steps one iteration
 takes. A train call's options go to `configure_call(context, n_iterations,
 ...)`, which returns the call's context and how a resumed state is
@@ -391,7 +391,7 @@ which `make_train` puts in `context.buffer`. Each tick,
 `collect(agent_state, tick, context)` stores one row per env,
 `count_updates(agent_state, tick, context)` gives the updates of the
 absolute tick (DreamerV3's train ratio, TD-MPC2's seed-phase burst) and
-`update(agent_state, tick, context)` runs one; `report` and `evaluate` are
+`update(agent_state, tick, context)` runs one; `report` and `evaluation_metrics` are
 as in the own-iteration family. An agent may count its ticks its own way
 (`count_ticks`), restart what it logs after each log (`make_after_log`)
 and check a finished call (`check_run`, TD-MPC2's refusal of
@@ -534,10 +534,12 @@ running experiment; elsewhere set `JAX_PLATFORMS=cpu` while a GPU is busy.
 
 **CI** ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs the fast
 tier on CPU for every pull request and push to `main`: *Pre-commit*; *Tests*
-(three shards: the tests not marked slow, the probing harness's checks among
+(four shards: the tests not marked slow, the probing harness's checks among
 them, under coverage, a pytest-xdist worker per vCPU, at XLA's optimisation
-level 0 since these programs are tiny; the last shard runs whatever the first
-two do not name, so a new test file always runs); *Coverage* (the shards
+level 0 since these programs are tiny; the shards split the test files by
+recorded time, `--shard I/4 --shard-by file`, `tests/.file_durations`,
+`make file-durations`, and a file without a time still lands in one);
+*Coverage* (the shards
 combined, at least 90%); *Conformance* (each agent's training step against
 its original implementation); *Docs* (the documentation site, `mkdocs build
 --strict`). *Lint and Test*, the one check branch protection requires, passes

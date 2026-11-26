@@ -1,15 +1,24 @@
 import copy
+import difflib
 import inspect
-from collections.abc import Mapping, Sequence
-from functools import partial
-from typing import Any, Callable, ClassVar, Optional, Tuple, Union
+import warnings
+from collections.abc import Iterable, Mapping, Sequence
+from functools import partial, wraps
+from typing import Any, Callable, ClassVar, Optional, Tuple, TypeVar, Union, cast
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 from gymnax import EnvParams
 
-from ajax.agents.sweep import Sweep, member_row, member_values
+from ajax.agents.devices import checked_devices, train_on_devices
+from ajax.agents.sweep import (
+    Sweep,
+    by_configuration,
+    configuration_label,
+    member_row,
+    member_values,
+)
 from ajax.agents.sweep import check as check_sweep
 from ajax.agents.sweep import configurations as sweep_configurations
 from ajax.controller import (
@@ -29,6 +38,7 @@ from ajax.extensions.base import (
     check_extensions,
 )
 from ajax.extensions.capabilities import NotWired, run_capabilities
+from ajax.logging.progress import finished, run_logging
 from ajax.logging.wandb_logging import (
     LoggingConfig,
     init_logging,
@@ -37,6 +47,7 @@ from ajax.logging.wandb_logging import (
 )
 from ajax.networks.memory import MemoryConfig, parse_memory_config
 from ajax.networks.networks import CNNSpec
+from ajax.precision import resolve_precision
 from ajax.state import (
     LOG_STD_BOUNDS,
     BaseAgentState,
@@ -58,6 +69,72 @@ def run_config(
     config = {k: v for k, v in arguments.items() if k not in dropped}
     config.update({"algo_name": name})
     return config
+
+
+_Method = TypeVar("_Method", bound=Callable[..., Any])
+
+
+def unknown_argument(owner: str, name: str, known: Iterable[str]) -> str:
+    """The message for an argument ``owner`` (an agent, or one of its
+    methods) does not take: the arguments holding its name (learning_rate:
+    actor_learning_rate), then the closest spellings (n_step: n_steps)."""
+    known = sorted(known)
+    close = [other for other in known if name in other]
+    for other in difflib.get_close_matches(name, known, n=3):
+        if other not in close:
+            close.append(other)
+    meant = f" Did you mean {', '.join(close[:3])}?" if close else ""
+    return (
+        f"{owner} has no argument {name!r}.{meant} help({owner}) lists its arguments."
+    )
+
+
+def named_arguments(method: _Method) -> _Method:
+    """``method`` refusing a keyword it does not take, or a call without an
+    argument it needs, in the agent's name (PPO.render, not the class that
+    defines it) and with the names it takes; Python's own message has
+    neither."""
+    signature = inspect.signature(method)
+    names = [name for name in signature.parameters if name != "self"]
+    required = [
+        name
+        for name in names
+        if signature.parameters[name].default is inspect.Parameter.empty
+    ]
+
+    @wraps(method)
+    def call(self: Any, *args: Any, **kwargs: Any) -> Any:
+        owner = f"{type(self).__name__}.{method.__name__}"
+        for name in kwargs:
+            if name not in names:
+                raise TypeError(unknown_argument(owner, name, names))
+        missing = [name for name in required[len(args) :] if name not in kwargs]
+        if missing:
+            raise TypeError(
+                f"{owner} needs {', '.join(missing)}: {owner}({', '.join(names)})."
+                f" help({owner}) describes them."
+            )
+        return method(self, *args, **kwargs)
+
+    return cast(_Method, call)
+
+
+def warn_widths_without_activation(owner: str, name: str, layers: Any) -> None:
+    """Warn of an architecture that lists widths only, as SB3's
+    ``net_arch=[64, 64]`` does: Ajax names each layer's activation after its
+    width, and without one the layers compose to a single linear map."""
+    if not isinstance(layers, (tuple, list)) or len(layers) < 2:
+        return
+    if not all(str(layer).isnumeric() for layer in layers):
+        return
+    named = ", ".join(f'"{layer}", "tanh"' for layer in layers)
+    warnings.warn(
+        f"{owner}({name}={layers!r}) lists widths only, so its layers have no"
+        " activation between them and act as one linear layer. Name an"
+        f" activation after each width, as {name}=({named}).",
+        UserWarning,
+        stacklevel=4,
+    )
 
 
 def _seed_by_seed(train: Callable, keys: jax.Array, index: jax.Array) -> Any:
@@ -119,14 +196,35 @@ def run_horizon(
     ``start`` (its ``unit``): the run's ``total_timesteps``, by default the
     call's end, ``start + n_timesteps``. A horizon that ends before the call
     does is refused."""
+    if n_timesteps < 0:
+        raise ValueError(
+            f"n_timesteps={n_timesteps}: pass the number of {unit}s this call"
+            " trains, 0 or more."
+        )
     end = start + n_timesteps
     horizon = end if total_timesteps is None else int(total_timesteps)
     if horizon < end:
         raise ValueError(
             f"total_timesteps={horizon} ends before this call does: it "
-            f"trains from {unit} {start} for n_timesteps={n_timesteps}"
+            f"trains from {unit} {start} for n_timesteps={n_timesteps}."
+            " n_timesteps is what this call trains; total_timesteps is the"
+            " length of the whole run when several calls make it (resuming),"
+            " and is left out otherwise."
         )
     return horizon
+
+
+def checked_seeds(seed: Any) -> list[int]:
+    """``train``'s ``seed`` as the list of its integers; anything else is
+    refused here, before a float or a string fails deep in the run's setup."""
+    seeds = [seed] if np.ndim(seed) == 0 else list(seed)
+    for one in seeds:
+        if isinstance(one, bool) or not isinstance(one, (int, np.integer)):
+            raise TypeError(
+                f"seed={seed!r}: pass an integer, or a list of integers to"
+                " train one run per seed, such as seed=0 or seed=[0, 1, 2]."
+            )
+    return [int(one) for one in seeds]
 
 
 def with_shared_counters(state: Any, counters: dict[str, jax.Array]) -> Any:
@@ -138,6 +236,26 @@ def with_shared_counters(state: Any, counters: dict[str, jax.Array]) -> Any:
         collector = state.collector_state.replace(timestep=counters["timestep"])
         state = state.replace(collector_state=collector)
     return state
+
+
+def release_replaced(given: Any, resumed: Any) -> None:
+    """Frees the arrays of the state a run resumes from that the resumed
+    state no longer holds: a replay the resume grew or moved. A resume
+    donates the state it is given, and these would otherwise stay alive
+    beside their replacements for the whole call: late in a run resumed
+    chunk by chunk, the replay would take twice its memory."""
+
+    def buffers(leaf: jax.Array) -> set[int]:
+        return {shard.data.unsafe_buffer_pointer() for shard in leaf.addressable_shards}
+
+    def arrays(tree: Any) -> list[jax.Array]:
+        leaves = jax.tree.leaves(tree)
+        return [x for x in leaves if isinstance(x, jax.Array) and not x.is_deleted()]
+
+    kept = set().union(*(buffers(leaf) for leaf in arrays(resumed)))
+    for leaf in arrays(given):
+        if not buffers(leaf) & kept:
+            leaf.delete()
 
 
 #: The discount of the return whose spread normalises the rewards of an
@@ -216,7 +334,26 @@ class ActorCritic:
     # ajax.agents.sweep): numbers the training reads as numbers, which no
     # construction check reads. Each is covered by a test that a sweep trains
     # as separate runs of its configurations would.
+    #
+    # Declared where the field is: an agent's class names its own, a mixin
+    # (EntropyTemperature) the ones it brings, and each class's sweepable is
+    # the union over its bases (__init_subclass__), less its unsweepable.
     sweepable: ClassVar[frozenset[str]] = frozenset()
+    # The fields a base declares sweepable that this agent's sweep refuses,
+    # each with the reason the refusal gives.
+    unsweepable: ClassVar[Mapping[str, str]] = {}
+    # What construction builds from a field and keeps: the field's name, then
+    # the attribute built and the field of it that holds the value. A sweep
+    # member's copy rebuilds each one it sets (member); an agent building
+    # more from a sweepable field adds it here.
+    derived_at_construction: ClassVar[Mapping[str, tuple[str, str]]] = {
+        "actor_learning_rate": ("actor_optimizer_args", "learning_rate"),
+        "critic_learning_rate": ("critic_optimizer_args", "learning_rate"),
+    }
+    # train's precision when it is given none: the agent's original code's
+    # (ajax.precision). float32 for every agent so far; DreamerV3's original
+    # computes in bfloat16 (deviation D4).
+    default_precision: ClassVar[str] = "float32"
     #: Each leading row of the last train call's state: its seed and its
     #: configuration's swept values, configuration-major.
     members: list[dict[str, float]]
@@ -570,6 +707,13 @@ class ActorCritic:
         del initial_state
         return 0
 
+    def resume_offset_kwargs(self, initial_state: BaseAgentState) -> dict:
+        """:meth:`resume_iteration_offset` as the train function's keyword.
+        Only passed when non-zero: the default (0) keeps the call -- and the
+        train functions that predate the offset -- unchanged."""
+        offset = int(self.resume_iteration_offset(initial_state))
+        return {"iteration_offset": jnp.asarray(offset, jnp.int32)} if offset else {}
+
     def resumed_state(
         self, state: BaseAgentState, n_timesteps: int, train_options: dict
     ) -> BaseAgentState:
@@ -579,6 +723,16 @@ class ActorCritic:
         del n_timesteps, train_options
         return state
 
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        super().__init_subclass__(**kwargs)
+        declared: set[str] = set()
+        refused: dict[str, str] = {}
+        for base in reversed(cls.__mro__):
+            declared.update(vars(base).get("sweepable", ()))
+            refused.update(vars(base).get("unsweepable", {}))
+        cls.unsweepable = refused
+        cls.sweepable = frozenset(declared.difference(refused))
+
     def sweepable_fields(self) -> frozenset[str]:
         """The fields this agent's sweep may vary: :attr:`sweepable`, less
         those this configuration captures when built."""
@@ -586,8 +740,9 @@ class ActorCritic:
 
     def member(self, values: Mapping[str, Any]) -> "ActorCritic":
         """This agent as one member of a sweep: the fields named in values
-        set to them, traced numbers, and the optimiser configs construction
-        built from its learning rates rebuilt (ajax.agents.sweep).
+        set to them, traced numbers, and what construction built from them
+        rebuilt (derived_at_construction: the optimiser configs, from the
+        learning rates; ajax.agents.sweep).
 
         The copy is not constructed again: a sweepable field is one no
         construction check reads, and a traced value could not be checked.
@@ -597,16 +752,37 @@ class ActorCritic:
         member = copy.copy(self)
         for name, value in values.items():
             object.__setattr__(member, name, value)
-        for name, config in (
-            ("actor_learning_rate", "actor_optimizer_args"),
-            ("critic_learning_rate", "critic_optimizer_args"),
-        ):
+        for name, (built, held) in self.derived_at_construction.items():
             if name in values:
-                rebuilt = getattr(self, config).replace(
-                    learning_rate=getattr(member, name)
-                )
-                object.__setattr__(member, config, rebuilt)
+                rebuilt = getattr(self, built).replace(**{held: values[name]})
+                object.__setattr__(member, built, rebuilt)
         return member
+
+    def use_precision(self, precision: Optional[str], devices: Any = None) -> str:
+        """Set this call's compute dtype from train's ``precision`` (None:
+        :attr:`default_precision`) on ``devices``, record it in the run
+        config, and return it: ``"float32"`` or ``"bfloat16"``
+        (:func:`ajax.precision.resolve_precision`)."""
+        dtype = resolve_precision(
+            self.default_precision if precision is None else precision, devices
+        )
+        self.set_compute_dtype(dtype)
+        # An agent written without a run config or network config (a test's
+        # minimal one) trains in float32 as before.
+        config = getattr(self, "config", None)
+        if config is not None:
+            config.update(precision=dtype)
+        return dtype
+
+    def set_compute_dtype(self, dtype: str) -> None:
+        """Build the networks of the next call to compute in ``dtype``: the
+        shared networks read it from :attr:`network_args`; an agent with
+        networks of its own overrides this."""
+        network_args = getattr(self, "network_args", None)
+        if network_args is not None:
+            self.network_args = network_args.replace(
+                compute_dtype=None if dtype == "float32" else dtype
+            )
 
     def get_make_train(self) -> Callable:
         """:attr:`make_train` with the agent's own arguments
@@ -618,27 +794,48 @@ class ActorCritic:
             extensions=tuple(self.extension_stack.extensions),
         )
 
+    def smallest_evaluation_spacing(self) -> int:
+        """The environment steps of one iteration, between two of which a
+        run can evaluate: one step in each env."""
+        return self.env_args.n_envs
+
     def train(
         self,
         seed: int | Sequence[int] = 42,
         n_timesteps: int = int(1e6),
         num_episode_test: int = 10,
-        logging_config: Optional[LoggingConfig] = None,
+        logging_config: Union[LoggingConfig, None, str] = "default",
         on_ids_ready: Optional[Callable] = None,
         initial_state: Optional[BaseAgentState] = None,
         total_timesteps: Optional[int] = None,
         sweep: Optional[Sweep] = None,
+        devices: Optional[Sequence[Any]] = None,
+        precision: Optional[str] = None,
         **kwargs,
     ) -> tuple[BaseAgentState, Any]:
         """
         Train the agent, every seed at once.
 
         Args:
+            seed: One seed, or several: each trains a run of its own, all
+                in the same compiled program.
             n_timesteps (int): Timesteps this call trains for. An agent
                 that trains in iterations (an on-policy rollout of n_envs x
                 n_steps steps) trains the whole iterations it holds, at
                 least one, and warns when it is not a whole number of them.
             num_episode_test (int): Number of episodes for evaluation during training.
+            logging_config: the evaluation and logging
+                (``ajax.logging.LoggingConfig``): the policy is evaluated
+                every ``log_frequency`` steps on ``num_episode_test``
+                episodes, each run logs to the config's backends, and
+                ``out`` holds the evaluations. Not given (``"default"``):
+                about ten evaluations over the call, a printed line for
+                each, no backend. ``None``: no evaluation, no log and
+                nothing printed.
+            on_ids_ready: Called once before training with the runs'
+                identifiers, one per member, in order (an empty list
+                without a ``logging_config``): the ids its backends file
+                each run under.
             initial_state: a state (or ``(state, out)``) ``train`` returned,
                 to resume from: the run continues from its timestep.
             total_timesteps: the whole run's horizon, which every schedule
@@ -654,15 +851,36 @@ class ActorCritic:
                 configurations, over the agent's sweepable fields
                 (:meth:`sweepable_fields`). A sweep resumes with the same
                 seed and sweep.
+            devices: JAX devices (``jax.devices()``) to split the members
+                over, each training a slice of them at the same time; the
+                results come back on the first. A member trains as it does
+                on one device, but for rounding. ``None``: the default
+                device trains them all.
+            precision: what the networks compute in (``ajax.precision``):
+                ``"float32"``; ``"bfloat16"``, mixed precision (parameters,
+                optimiser, heads, losses and targets stay float32); or
+                ``"auto"``, bfloat16 where every device has bfloat16 units
+                (NVIDIA compute capability 8.0 or more, TPU), else float32.
+                ``None``: the agent's original code's precision
+                (:attr:`default_precision`). The run config records the
+                result; a run may resume in another precision.
 
         Returns ``(state, out)``, each leaf with a leading axis over the
         members: the seeds, or the sweep's configurations, each over the
         seeds, as :attr:`members` lists them. On the
-        shared loop (``ajax.agents.loop``) ``out`` is ``None`` without a
-        logging config, else the evaluations.
+        shared loop (``ajax.agents.loop``) ``out`` is ``None`` with
+        ``logging_config=None``, else the evaluations
+        (``ajax.logging.progress.Evaluations``: the dict of every logged
+        name, with ``returns`` and ``timesteps``).
         """
-        if isinstance(seed, int):
-            seed = [seed]
+        seed = checked_seeds(seed)
+        self._check_train_options(kwargs)
+        if num_episode_test < 1:
+            raise ValueError(
+                f"num_episode_test={num_episode_test}: an evaluation"
+                " averages at least one episode. Pass logging_config=None"
+                " for a run without evaluations."
+            )
 
         # ``agent.train()`` returns ``(state, out)``: accept either form.
         if isinstance(initial_state, tuple) and len(initial_state) == 2:
@@ -674,18 +892,22 @@ class ActorCritic:
                 " simulator's state lives in Python, outside the state, so the"
                 " episodes it was in cannot continue."
             )
+        devices = checked_devices(devices, in_python, logging_config)
+        self.use_precision(precision, devices)
         found = sweep_configurations(sweep)
         if found:
-            check_sweep(type(self).__name__, self.sweepable_fields(), list(found[0]))
+            check_sweep(
+                type(self).__name__,
+                self.sweepable_fields(),
+                list(found[0]),
+                self.unsweepable,
+            )
             if in_python:
                 raise ValueError(
                     "A Gymnasium environment trains its seeds one after"
                     " another: a sweep trains its members in one program."
                 )
-            if (
-                logging_config is not None
-                and logging_config.evaluation_device is not None
-            ):
+            if getattr(logging_config, "evaluation_device", None) is not None:
                 raise ValueError(
                     "A sweep's members evaluate between chunks of training: a"
                     " sweep takes no evaluation_device."
@@ -717,9 +939,21 @@ class ActorCritic:
         end = start + n_timesteps
         horizon = run_horizon(start, n_timesteps, total_timesteps)
         if initial_state is not None:
-            initial_state = self.resumed_state(initial_state, n_timesteps, kwargs)
+            resumed = self.resumed_state(initial_state, n_timesteps, kwargs)
+            release_replaced(initial_state, resumed)
+            initial_state = resumed
 
-        if logging_config is not None:
+        logging_config, printer = run_logging(
+            logging_config,
+            type(self).__name__,
+            [run_seed for _, run_seed in pairs],
+            n_timesteps,
+            end,
+            together=not in_python,
+            iteration_steps=self.smallest_evaluation_spacing(),
+            groups=[configuration_label(configuration) for configuration, _ in pairs],
+        )
+        if isinstance(logging_config, LoggingConfig):
             logging_config = logging_config.with_agent_config(self.config)
             self.run_ids = [new_run_id() for _ in pairs]
             for run_id, (configuration, run_seed) in zip(
@@ -771,21 +1005,18 @@ class ActorCritic:
         values = member_values([configuration for configuration, _ in pairs])
         index = jnp.arange(len(pairs))
         keys = jax.vmap(jax.random.PRNGKey)(jnp.array([s for _, s in pairs]))
-        if in_python:
-            result = _seed_by_seed(partial(run, values={}), keys, index)
-        elif initial_state is None:
-            result = jax.vmap(run)(keys, index, values)
-        else:
-            # Only passed when non-zero: the default (0) keeps the call --
-            # and the train functions that predate the offset -- unchanged.
-            iteration_offset = int(self.resume_iteration_offset(initial_state))
-            offset_kwargs = (
-                {}
-                if iteration_offset == 0
-                else {"iteration_offset": jnp.asarray(iteration_offset, jnp.int32)}
-            )
+        batched: tuple = (keys, index, values)
+        train_members: Callable = jax.vmap(run)
+        if initial_state is not None:
+            offset_kwargs = self.resume_offset_kwargs(initial_state)
 
-            def resume(key, index, values, state, counters, offset_kwargs):
+            def resume(counters, offset_kwargs, key, index, values, state):
+                # Copies: the training program takes over the buffers of the
+                # state the counters go into, and each device's slice
+                # passes through here.
+                counters, offset_kwargs = jax.tree.map(
+                    jnp.copy, (counters, offset_kwargs)
+                )
                 state = with_shared_counters(state, counters)
                 return run(
                     key,
@@ -799,9 +1030,17 @@ class ActorCritic:
             # The offset and the shared counters are unbatched (in_axes
             # None): every schedule and gate derived from them must stay
             # unbatched under the vmap.
-            result = jax.vmap(resume, in_axes=(0, 0, 0, 0, None, None))(
-                keys, index, values, initial_state, counters, offset_kwargs
+            batched = (keys, index, values, initial_state)
+            train_members = partial(
+                jax.vmap(resume, in_axes=(None, None, 0, 0, 0, 0)),
+                counters,
+                offset_kwargs,
             )
+
+        if in_python:
+            result = _seed_by_seed(partial(run, values={}), keys, index)
+        else:
+            result = train_on_devices(train_members, batched, devices)
         # Block until all XLA computation and debug.callbacks complete, then
         # drain and stop the logging worker.  Calling stop_async_logging()
         # inside the vmapped function was wrong: it ran as a Python side effect
@@ -809,8 +1048,70 @@ class ActorCritic:
         # worker before any log events were queued.
         jax.block_until_ready(result)
         stop_async_logging()
-        return result
+        return finished(result, printer)
 
+    def _check_train_options(self, options: Mapping[str, Any]) -> None:
+        """Refuse a keyword neither ``train`` nor this agent's train function
+        takes, before anything is built: left to the train function, the
+        error comes after the logging has started and names an internal."""
+        takes = inspect.signature(self.get_make_train()).parameters
+        if any(p.kind is inspect.Parameter.VAR_KEYWORD for p in takes.values()):
+            return
+        own = [
+            name
+            for name in inspect.signature(ActorCritic.train).parameters
+            if name not in ("self", "kwargs")
+        ]
+        for name in options:
+            if name not in takes:
+                owner = f"{type(self).__name__}.train"
+                raise TypeError(unknown_argument(owner, name, own))
+
+    def by_configuration(self, values: Any) -> list[tuple[dict, np.ndarray]]:
+        """The last train call's ``values``, a row per member (such as
+        ``evaluations.returns``), as ``(configuration, rows)`` pairs in the
+        sweep's order, each configuration's rows one per seed."""
+        return by_configuration(self.members, values)
+
+    def __repr__(self) -> str:
+        """The agent as the call that builds it: its class and the
+        arguments that differ from their defaults. An object (a prebuilt
+        environment, an extension) shows as its class."""
+        from ajax.checkpoint import agent_record  # it imports the agents' modules
+
+        record = agent_record(self)
+        shown = []
+        for name, parameter in inspect.signature(type(self)).parameters.items():
+            if name in record["arguments"]:
+                if record["arguments"][name] != parameter.default:
+                    shown.append(f"{name}={record['arguments'][name]!r}")
+            elif self.config.get(name) is not None:
+                shown.append(f"{name}=<{type(self.config[name]).__name__}>")
+        return f"{type(self).__name__}({', '.join(shown)})"
+
+    @named_arguments
+    def save(self, state: BaseAgentState, path: str) -> None:
+        """Write ``state`` and this agent's class and plain constructor
+        arguments to ``path``, for :meth:`load` to build both again
+        (``ajax.checkpoint``)."""
+        from ajax.checkpoint import save_checkpoint  # it imports the agents' modules
+
+        save_checkpoint(state, path, agent=self)
+
+    @classmethod
+    def load(
+        cls, path: str, train_options: Optional[dict] = None, **arguments: Any
+    ) -> tuple["ActorCritic", BaseAgentState]:
+        """``(agent, state)`` from a file :meth:`save` wrote for an agent of
+        this class. ``arguments``: the constructor arguments the file could
+        not store (objects: a prebuilt environment, extensions, an expert
+        policy), passed again, and any to replace
+        (:func:`ajax.checkpoint.load`)."""
+        from ajax.checkpoint import load
+
+        return load(path, cls, train_options, **arguments)
+
+    @named_arguments
     def train_offline(
         self,
         dataset: Any,
@@ -819,6 +1120,7 @@ class ActorCritic:
         num_episode_test: int = 10,
         logging_config: Optional[LoggingConfig] = None,
         on_ids_ready: Optional[Callable] = None,
+        precision: Optional[str] = None,
     ) -> tuple[BaseAgentState, Any]:
         """Train on a transition dataset alone, with no environment step.
 
@@ -828,7 +1130,8 @@ class ActorCritic:
         ``(state, out)`` as :meth:`train` does, with the state's timestep
         and evaluation count back at 0, so that ``train(initial_state=state,
         ...)`` fine-tunes online from it, its replay keeping the dataset's
-        rows (with ``learning_starts=0``, from the first step).
+        rows (with ``learning_starts=0``, from the first step). ``precision``
+        is :meth:`train`'s.
 
         Raises ``ValueError`` on an agent without a transition replay.
         """
@@ -845,6 +1148,7 @@ class ActorCritic:
             num_episode_test=num_episode_test,
             logging_config=logging_config,
             on_ids_ready=on_ids_ready,
+            precision=precision,
             offline_data=dataset,
         )
         collector = state.collector_state

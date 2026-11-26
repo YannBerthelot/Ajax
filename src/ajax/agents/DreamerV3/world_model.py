@@ -213,9 +213,9 @@ def world_model_loss(
     # with row 0; observations and flags 1..T; previous actions 0..T-1.
     carry = jax.lax.stop_gradient(
         RSSMState(
-            deter=jnp.asarray(batch.context_deter, jnp.float32),
+            deter=jnp.asarray(batch.context_deter, config.dtype),
             stoch=jax.nn.one_hot(
-                batch.context_stoch, config.classes, dtype=jnp.float32
+                batch.context_stoch, config.classes, dtype=config.dtype
             ),
         )
     )

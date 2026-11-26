@@ -61,7 +61,7 @@ def run(spec, arm: str, seeds: list, n_timesteps: int = 0, eval_every: int = -1)
     if eval_every == 0:
         from refcmp_jax import evaluate_final
 
-        state, _ = agent.train(seed=seeds, n_timesteps=n_timesteps)
+        state, _ = agent.train(seed=seeds, n_timesteps=n_timesteps, logging_config=None)
         curve = []
         for i, seed in enumerate(seeds):
             actor = jax.tree.map(lambda x, i=i: x[i], state.actor_state)

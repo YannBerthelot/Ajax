@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from types import SimpleNamespace
 
 import jax
 import jax.numpy as jnp
@@ -38,7 +39,14 @@ def test_dqn_variants_smoke():
         td_loss_fn=make_huber_td_loss(1.0),
         q_network_cls=DuelingQNetwork,
     )
-    agent.train(seed=42, n_timesteps=128)
+    state, _ = agent.train(seed=42, n_timesteps=128, logging_config=None)
+    # CleanRL's rule (the test below): an update at each step past
+    # learning_starts (32) that train_frequency (10, the default) divides,
+    # 40, 50, ..., 120. Catches a hook combination that skips the updates or
+    # diverges at once.
+    assert np.asarray(state.n_updates).tolist() == [9]
+    for leaf in jax.tree.leaves(state.actor_state.params):
+        assert np.isfinite(np.asarray(leaf)).all()
 
 
 @dataclass(frozen=True)
@@ -78,7 +86,7 @@ def test_dqn_updates_and_refreshes_its_target_at_cleanrl_s_steps():
         "target_update_interval": 4,
     }
     agent = DQN(env_id="CartPole-v1", batch_size=16, extensions=(record,), **schedule)
-    state, _ = agent.train(seed=0, n_timesteps=120)
+    state, _ = agent.train(seed=0, n_timesteps=120, logging_config=None)
     updated, refreshed = (np.asarray(x[0]) for x in state.ext_state[0])
     np.testing.assert_array_equal(np.flatnonzero(updated), np.arange(20, 121, 5))
     np.testing.assert_array_equal(np.flatnonzero(refreshed), np.arange(20, 121, 20))
@@ -106,6 +114,40 @@ def test_an_evaluation_between_updates_logs_the_last_update_s_metrics():
     np.testing.assert_allclose(np.ravel(out["policy/epsilon"]), expected, rtol=1e-5)
 
 
+def test_epsilon_holds_until_its_decay_start_then_decays():
+    """Catches a decay that starts at step 0 whatever epsilon_decay_start.
+    Held at 1 for 10 steps, then to 0.1 over 20 (two thirds of 30): the
+    updates at 10, 20 and 30 read 1, 0.1 + 0.9 * 10 / 20 = 0.55, and 0.1;
+    the evaluations between log the update before them."""
+    logging = LoggingConfig(log_frequency=5, backends=())
+    agent = DQN(
+        env_id="CartPole-v1",
+        architecture=("16", "relu"),
+        learning_starts=10,
+        batch_size=8,
+        epsilon_end=0.1,
+        epsilon_decay_start=10,
+        epsilon_decay_frac=20 / 30,
+    )
+    _, out = agent.train(
+        seed=0, n_timesteps=30, num_episode_test=1, logging_config=logging
+    )
+    expected = [np.nan, 1.0, 1.0, 0.55, 0.55, 0.1]
+    np.testing.assert_allclose(np.ravel(out["policy/epsilon"]), expected, rtol=1e-5)
+
+
+def test_the_atari_preset_s_epsilon_is_mnih_et_al_s():
+    """Catches a decay from step 0, or one that ends elsewhere. The
+    reference (google-deepmind/dqn@9d9b1d1, NeuralQLearner.lua:369-371, with
+    run_gpu's ep=1, ep_end=0.1, ep_endt=1e6, learn_start=5e4, steps=5e7):
+    ep_end + max(0, 0.9 * (1e6 - max(0, step - 5e4)) / 1e6), so 1 until
+    step 50,000, 0.55 at 550,000, 0.1 from 1,050,000."""
+    agent = DQN.preset("Atari", "CartPole-v1")
+    schedule = agent.make_epsilon_schedule(SimpleNamespace(total_timesteps=50_000_000))
+    steps = np.array([0, 50_000, 550_000, 1_050_000, 2_000_000])
+    np.testing.assert_allclose(schedule(steps), [1.0, 1.0, 0.55, 0.1, 0.1], rtol=1e-5)
+
+
 def test_dqn_defaults_are_cleanrl_s():
     """CleanRL's dqn.py Args (lines 47-71) and QNetwork (95-99): a default
     drifting from the reference fails. Its 500-step target refresh is 50
@@ -118,12 +160,23 @@ def test_dqn_defaults_are_cleanrl_s():
     assert (agent.learning_rate, agent.gamma, agent.tau) == (2.5e-4, 0.99, 1.0)
 
 
+def test_dqn_on_vector_observations_steps_as_cleanrl_s_adam():
+    """CleanRL's dqn.py:148, optim.Adam(lr=2.5e-4) at torch's defaults:
+    betas (0.9, 0.999), eps 1e-8."""
+    agent = DQN(env_id="CartPole-v1")
+    for args in (agent.actor_optimizer_args, agent.critic_optimizer_args):
+        assert (args.optimizer, args.learning_rate) == ("adam", 2.5e-4)
+        assert (args.beta_1, args.beta_2, args.eps) == (0.9, 0.999, 1e-8)
+
+
 @pytest.mark.parametrize("batch_size", [32, 64])
-def test_dqn_steps_as_its_reference_optimiser(batch_size):
+def test_dqn_on_images_steps_as_its_authors_optimiser(batch_size):
     """google-deepmind/dqn @9d9b1d1 (NeuralQLearner.lua:265-277, run_gpu:25):
     centered RMSProp at lr 2.5e-4, both averages at 0.95, eps 0.01 on a
     gradient summed over the batch, so 0.01 / batch_size**2 on a mean."""
-    agent = DQN(env_id="CartPole-v1", batch_size=batch_size)
+    agent = DQN(
+        env_id="CartPole-v1", batch_size=batch_size, cnn_image_shape=(84, 84, 4)
+    )
     for args in (agent.actor_optimizer_args, agent.critic_optimizer_args):
         assert (args.optimizer, args.learning_rate, args.beta_2) == (
             "centered_rmsprop",
@@ -133,11 +186,25 @@ def test_dqn_steps_as_its_reference_optimiser(batch_size):
         assert args.eps == pytest.approx(0.01 / batch_size**2)
 
 
-def test_the_default_loss_clips_the_td_error_at_one():
+# TD errors of 3, -0.5 and -2 on three samples: the gradient of each loss
+# with respect to Q, times the batch size, worked by hand.
+Q_TAKEN, TD_TARGET = jnp.array([0.0, 0.0, 0.0]), jnp.array([3.0, -0.5, -2.0])
+
+
+def test_the_default_loss_on_vector_observations_is_the_squared_error():
+    """CleanRL's dqn.py:201, F.mse_loss: the mean of (Q - y)^2, whose
+    gradient per sample is 2 (Q - y), unclipped."""
+    loss = DQN(env_id="CartPole-v1").default_td_loss()
+    grad = jax.grad(loss)(Q_TAKEN, TD_TARGET) * Q_TAKEN.size
+    assert jnp.allclose(grad, jnp.array([-6.0, 1.0, 4.0]))
+
+
+def test_the_default_loss_on_images_clips_the_td_error_at_one():
     """Huber 1 (NeuralQLearner.lua:224-226, clip_delta=1): its gradient is
     the TD error clipped to [-1, 1]."""
-    q, target = jnp.array([0.0, 0.0, 0.0]), jnp.array([3.0, -0.5, -2.0])
-    grad = jax.grad(compute_huber_1_td_loss)(q, target) * q.size
+    loss = DQN(env_id="CartPole-v1", cnn_image_shape=(84, 84, 4)).default_td_loss()
+    assert loss is compute_huber_1_td_loss
+    grad = jax.grad(loss)(Q_TAKEN, TD_TARGET) * Q_TAKEN.size
     assert jnp.allclose(grad, jnp.array([-1.0, 0.5, 1.0]))
 
 
@@ -195,7 +262,7 @@ def test_dqn_trains_minatar_s_network_on_minatar_and_refuses_tinier_images():
         batch_size=4,
         buffer_size=64,
     )
-    agent.train(seed=0, n_timesteps=32)
+    agent.train(seed=0, n_timesteps=32, logging_config=None)
     with pytest.raises(ValueError, match="pass a cnn_spec"):
         DQN(env_id="CartPole-v1", cnn_image_shape=(2, 2, 1))
 
@@ -222,7 +289,7 @@ def test_the_expert_fills_the_prefill_and_the_warm_up_rows_with_its_index():
     policy's rows after learning_starts are not."""
     extensions = (ExpertPrefill(n_steps=16), ExpertWarmup(fraction=1.0))
     agent = DQN(**EXPERT_RUN, extensions=extensions)
-    state, _ = agent.train(seed=0, n_timesteps=64)
+    state, _ = agent.train(seed=0, n_timesteps=64, logging_config=None)
     rows = jax.tree.map(lambda x: np.asarray(x[0]), state.collector_state.buffer_state)
     written = int(rows.current_index)
     assert written == 16 + 32  # the prefill, then 32 steps per env
@@ -239,7 +306,7 @@ def test_expert_value_metrics_read_the_q_network_at_the_stored_indices():
     stored index and value/q_gap that minus its value at the stored action,
     each a column of the Q table, on the replay batch the extension draws."""
     agent = DQN(**EXPERT_RUN, extensions=(ExpertValueMetrics(),))
-    state, _ = agent.train(seed=0, n_timesteps=64)
+    state, _ = agent.train(seed=0, n_timesteps=64, logging_config=None)
     state = jax.tree.map(lambda x: x[0], state)
     _, context = agent.make_context(64)
     metrics = context.extensions.extensions[0]

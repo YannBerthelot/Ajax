@@ -16,6 +16,7 @@ Expected values are worked by hand below.
 
 import dataclasses
 from dataclasses import dataclass
+from functools import partial
 from types import SimpleNamespace
 from typing import ClassVar
 
@@ -25,6 +26,7 @@ import numpy as np
 import pytest
 
 from ajax import APO, ASAC, AVG, DQN, IQL, PPO, REDQ, RVISAC, SAC, TD3, TQC, CrossQ
+from ajax.agents.loop import fresh_state
 from ajax.agents.reset_cost import create_reset_cost_state
 from ajax.extensions.base import Extension, ExtensionStack
 from ajax.extensions.capabilities import MissingCapability
@@ -32,6 +34,7 @@ from ajax.extensions.reset_cost import ResetCost
 from tests.probing import envs
 
 NET = ("16", "relu", "16", "relu")
+ON_PENDULUM = (SAC, TD3, REDQ, TQC, CrossQ)
 SEEN: list[dict] = []
 
 
@@ -108,7 +111,7 @@ def test_with_it_the_target_goes_on_through_terminations(stack):
         buffer_size=256,
         extensions=stack,
     )
-    agent.train(seed=0, n_timesteps=40)  # 8 updates
+    agent.train(seed=0, n_timesteps=40, logging_config=None)  # 8 updates
     jax.effects_barrier()
     terminated = np.concatenate([s["terminated"] for s in SEEN])
     dones = np.concatenate([s["dones"] for s in SEEN])
@@ -137,9 +140,19 @@ def test_it_refuses_agents_without_a_replay_a_next_action_or_a_discount(build):
 
 
 def test_it_runs_on_the_discounted_replay_agents():
-    for cls in (SAC, TD3, REDQ, TQC, CrossQ):
-        cls("Pendulum-v1", extensions=(ResetCost(),)).make_context(16)
-    DQN("CartPole-v1", extensions=(ResetCost(),)).make_context(16)
+    """On each, a fresh run's state carries the reset critic's state with the
+    cost and the rate at 0 (create_reset_cost_state's docstring). Catches an
+    agent accepted at construction whose run starts without that state."""
+    agents = [cls("Pendulum-v1", extensions=(ResetCost(),)) for cls in ON_PENDULUM]
+    agents.append(DQN("CartPole-v1", extensions=(ResetCost(),)))
+    for agent in agents:
+        loop, context = agent.make_context(16)
+        init = partial(agent.init, context=context)
+        key = jax.random.PRNGKey(0)
+        state = fresh_state(init, loop.extensions, 16, key, env_args=agent.env_args)
+        (reset,) = state.ext_state
+        assert np.asarray(reset.cost.params["cost"]).tolist() == 0.0
+        assert np.asarray(reset.rate).tolist() == 0.0
 
 
 def test_it_refuses_a_stack_reading_the_episode_a_termination_ended():
@@ -158,7 +171,7 @@ def test_a_discrete_agent_learns_its_reset_cost_on_one_hot_actions():
         batch_size=16,
         extensions=(ResetCost(architecture=("8", "relu")),),
     )
-    state, _ = agent.train(seed=0, n_timesteps=96)  # 64 updates
+    state, _ = agent.train(seed=0, n_timesteps=96, logging_config=None)  # 64 updates
     reset = state.ext_state[0]
     # CartPole's 4 observation columns and its 2 actions one-hot.
     assert reset.critic.params["params"]["Dense_0"]["kernel"].shape[-2:] == (6, 8)

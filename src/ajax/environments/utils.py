@@ -257,7 +257,10 @@ def _action_bounds(
     of ``env``'s continuous action box, or None for discrete actions.
 
     A dimension with an infinite bound gets ``(0, 1)``, as a ``[-1, 1]``
-    one. brax / playground actions live in ``[-1, 1]``. Per-env (batched)
+    one. brax / playground actions live in ``[-1, 1]``, unless the env
+    declares its own ``action_bounds`` ``(low, high)``, as the "mujoco:"
+    tasks do with Gymnasium's action space (each motor's ctrlrange).
+    Per-env (batched)
     gymnax params (``ajax.environments.system_class``) give each env its
     own box, ``[n_envs, *action_shape]``; ``n_envs``, the number of actions
     they apply to, must match.
@@ -265,8 +268,12 @@ def _action_bounds(
     if not check_if_environment_has_continuous_actions(env, env_params):
         return None
     if check_env_is_brax(env):
-        n_actions = get_action_dim(env)
-        return jnp.zeros(n_actions), jnp.ones(n_actions)
+        declared = getattr(get_raw_env(env), "action_bounds", None)
+        if declared is None:
+            n_actions = get_action_dim(env)
+            return jnp.zeros(n_actions), jnp.ones(n_actions)
+        low, high = (jnp.asarray(bound) for bound in declared)
+        return _centre_and_half_range(low, high)
 
     def box(params):
         space = env.action_space(params)
@@ -284,6 +291,12 @@ def _action_bounds(
         )
     else:
         low, high = jax.vmap(box)(env_params)
+    return _centre_and_half_range(low, high)
+
+
+def _centre_and_half_range(
+    low: jax.Array, high: jax.Array
+) -> tuple[jax.Array, jax.Array]:
     finite = jnp.isfinite(low) & jnp.isfinite(high)
     return (
         jnp.where(finite, (high + low) / 2, 0.0),
@@ -306,9 +319,10 @@ def agent_action_to_env(
     ``action_scale``).
     This is DreamerV3's ``ClipAction`` + ``NormalizeAction`` (a dimension
     with an infinite bound keeps the clipped action) and TD-MPC2's action
-    scaling. For ``[-1, 1]`` bounds -- every brax / playground env, gymnax
-    envs like MountainCarContinuous -- the map is exactly the clip, even
-    when the bounds are traced; gymnax Pendulum's torque is ``[-2, 2]``.
+    scaling. For ``[-1, 1]`` bounds -- brax / playground envs that declare
+    no ``action_bounds``, gymnax envs like MountainCarContinuous -- the map
+    is exactly the clip, even when the bounds are traced; gymnax Pendulum's
+    torque is ``[-2, 2]``, "mujoco:Pusher-v5"'s motors ``[-2, 2]``.
     Per-env (batched) gymnax params (``ajax.environments.system_class``)
     give per-env bounds: env ``e``'s action is mapped with its own system's
     bounds. Discrete actions pass through. Replay stores the agent's raw
@@ -383,6 +397,24 @@ def _to_agent_units(action: jax.Array, bounds: Optional[tuple[Any, Any]]) -> jax
     return (action - centre) / half
 
 
+def _checked_expert_action(action: Any, obs: Any, width: int) -> Any:
+    """``action`` when its last axis holds the env's ``width`` action
+    components (one, an index, on a discrete env), as the expert guide asks.
+    Without the check an action missing that axis broadcasts against the
+    agent's own, and the error names neither the expert nor the axis."""
+    shape = jnp.shape(action)
+    if len(shape) == 0 or shape[-1] != width:
+        seen = getattr(obs, "shape", None)
+        raise ValueError(
+            f"The expert policy returned an action of shape {shape} for an"
+            f" observation of shape {seen}: its last axis must hold the env's"
+            f" {width} action component(s). Index the observation's last axis"
+            " (obs[..., 0]) and keep the action's (action[..., None] for one"
+            " component)."
+        )
+    return action
+
+
 class ExpertInAgentUnits:
     """An expert written in env units, read in agent units (``[-1, 1]``).
 
@@ -401,7 +433,7 @@ class ExpertInAgentUnits:
     number of actions, the width of its one-hot.
     """
 
-    __slots__ = ("_bounds", "action_count", "expert")
+    __slots__ = ("_bounds", "_width", "action_count", "expert")
     _FORWARDED = frozenset({"init_state", "learnable_fields", "anchor_gains"})
 
     def __init__(
@@ -424,6 +456,7 @@ class ExpertInAgentUnits:
         self.action_count: Optional[int] = None
         if bounds is None:
             self.action_count = get_action_dim(env, env_params)
+        self._width = 1 if bounds is None else int(np.shape(bounds[0])[-1])
 
     @classmethod
     def wrap(
@@ -439,8 +472,10 @@ class ExpertInAgentUnits:
         # The call, not init_state, says what came back: an expert with a
         # state may also be called on observations alone (expert(obs)).
         if len(args) == 2:  # expert(state, obs) -> (action, state)
-            return _to_agent_units(out[0], self._bounds), out[1]
-        return _to_agent_units(out, self._bounds)
+            action = _checked_expert_action(out[0], args[1], self._width)
+            return _to_agent_units(action, self._bounds), out[1]
+        action = _checked_expert_action(out, args[0], self._width)
+        return _to_agent_units(action, self._bounds)
 
     def __getattr__(self, name: str) -> Any:
         if name in ExpertInAgentUnits._FORWARDED:
@@ -450,6 +485,7 @@ class ExpertInAgentUnits:
 
             def step_with_gains(state: Any, obs: Any, gains: Any) -> Any:
                 action, state = step(state, obs, gains)
+                action = _checked_expert_action(action, obs, self._width)
                 return _to_agent_units(action, self._bounds), state
 
             return step_with_gains

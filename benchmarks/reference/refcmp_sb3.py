@@ -115,13 +115,17 @@ def gymnax_vec_env(env_id: str, n_envs: int, seed: int, base=None):
     return GymnaxVecEnv()
 
 
-def run(spec, seeds: list) -> list:
+def run(spec, seeds: list, library=None) -> list:
+    """``library`` holds the agent classes: Stable-Baselines3 (None), or a
+    library with its interface (refcmp_sbx passes SBX)."""
     import numpy as np
-    import stable_baselines3 as sb3
     import torch
     from stable_baselines3.common.callbacks import BaseCallback
     from stable_baselines3.common.evaluation import evaluate_policy
     from stable_baselines3.common.noise import NormalActionNoise
+
+    if library is None:
+        import stable_baselines3 as library
 
     torch.set_num_threads(1)
 
@@ -154,7 +158,8 @@ def run(spec, seeds: list) -> list:
         kwargs = sb3_kwargs(spec)
         harness = kwargs.pop("_harness")
         policy_kwargs = {"net_arch": harness["net_arch"]}
-        if "activation" in harness:
+        if "activation" in harness and library.__name__ == "stable_baselines3":
+            # SBX's networks take JAX functions, and tanh is its PPO's own.
             policy_kwargs["activation_fn"] = {"tanh": torch.nn.Tanh}[
                 harness["activation"]
             ]
@@ -164,7 +169,7 @@ def run(spec, seeds: list) -> list:
             kwargs["action_noise"] = NormalActionNoise(
                 np.zeros(n), harness["action_noise_std"] * np.ones(n)
             )
-        model = getattr(sb3, spec.agent)(
+        model = getattr(library, spec.agent)(
             "MlpPolicy",
             env,
             seed=seed,
@@ -181,13 +186,14 @@ def run(spec, seeds: list) -> list:
     return curve
 
 
-def config(spec) -> dict:
-    """The SB3 constructor's resolved keywords and the harness's settings."""
-    import stable_baselines3 as sb3
+def config(spec, library=None) -> dict:
+    """The constructor's resolved keywords and the harness's settings."""
     from refcmp_worker import resolved
 
+    if library is None:
+        import stable_baselines3 as library
     kwargs = sb3_kwargs(spec)
-    return resolved(getattr(sb3, spec.agent).__init__, kwargs)
+    return resolved(getattr(library, spec.agent).__init__, kwargs)
 
 
 if __name__ == "__main__":

@@ -375,9 +375,9 @@ class TrainLoop:
     expert_policy: Any = None
     #: A transition dataset to train on alone (:meth:`offline`).
     offline_data: Optional[TransitionDataset] = None
-    #: Evaluate only in the last fifth of training (LoggingConfig.sweep, for
-    #: hyperparameter sweeps).
-    sweep: bool = False
+    #: Evaluate only in the last fifth of training
+    #: (LoggingConfig.evaluate_last_fifth_only).
+    evaluate_last_fifth_only: bool = False
     #: Scores the evaluations on a device of its own while training goes on
     #: (LoggingConfig.evaluation_device); None: each evaluation runs between
     #: chunks of training.
@@ -400,7 +400,15 @@ class TrainLoop:
         """The loop of one ``make_train`` call; starts the logging worker
         when ``logging_config`` names a backend."""
         log_frequency, evaluator = None, None
-        log_fn = partial(vmap_log, run_ids=run_ids)
+        to_backends = partial(vmap_log, run_ids=run_ids)
+        on_evaluation = getattr(logging_config, "on_evaluation", None)
+
+        def log_fn(metrics: dict, index: Any) -> None:
+            # In the training process first, then to the backends' worker.
+            if on_evaluation is not None:
+                on_evaluation(metrics, index)
+            to_backends(metrics, index)
+
         if logging_config is not None:
             if logging_config.backend:
                 start_async_logging()
@@ -425,7 +433,9 @@ class TrainLoop:
             end_timestep=end_timestep,
             expert_policy=expert_policy,
             offline_data=offline_data,
-            sweep=logging_config is not None and logging_config.sweep,
+            evaluate_last_fifth_only=(
+                logging_config is not None and logging_config.evaluate_last_fifth_only
+            ),
             evaluator=evaluator,
         )
 
@@ -454,18 +464,22 @@ class TrainLoop:
         ``per_iteration`` env steps (``unit`` names them): the iterations
         stop at a multiple of it, not at the call's end, so the run trains
         another number of steps than asked and an evaluation due at that end
-        never happens (its row stays NaN)."""
+        never happens: the evaluations returned hold no column for it."""
         if self.budget % per_iteration:
             end = self.start_timestep + self.budget
-            warnings.warn(
+            message = (
                 f"n_timesteps={self.budget} is not a multiple of the"
                 f" {per_iteration} env steps of one iteration ({unit}): the run"
                 f" stops at a multiple of {per_iteration}, so an evaluation due"
-                f" at timestep {end} does not happen (NaN)."
-                f" Pass a multiple of {per_iteration}.",
-                UserWarning,
-                stacklevel=2,
+                f" at timestep {end} does not happen."
+                f" Pass a multiple of {per_iteration}."
             )
+            if self.start_timestep + per_iteration > self.total_timesteps:
+                message += (
+                    " The one iteration that runs ends past the run's last"
+                    " timestep, so no evaluation is recorded."
+                )
+            warnings.warn(message, UserWarning, stacklevel=2)
 
     def n_rollouts(self, n_steps: int, timesteps: Optional[int] = None) -> int:
         """The iterations of :meth:`on_policy` for ``n_steps`` rollouts over
@@ -498,7 +512,7 @@ class TrainLoop:
         """Which ticks of this call (a NumPy array) evaluate_and_log's gate
         opens after, each tick taking steps_per_tick steps from the call's
         start_timestep: those whose steps reach a multiple of log_frequency.
-        The gate itself still decides (the horizon, a sweep's last fifth).
+        The gate itself still decides (the horizon, the last fifth alone).
         The ticks count from the call's first, as the families planning with
         it number them (their resume_iteration_offset is 0)."""
         f = self.log_frequency
@@ -640,7 +654,7 @@ class TrainLoop:
         (ajax.log.evaluate_and_log), the agent's family's agent_metrics and
         the extensions' eval metrics included; returns the state and the
         metrics (None without logging), only in the last fifth of training
-        in a sweep. An agent storing normalised observations evaluates with
+        when the logging configuration says so. An agent storing normalised observations evaluates with
         them normalised by its running statistics, unless its own controller
         says how it acts."""
         controller = make_run_controller(
@@ -648,8 +662,8 @@ class TrainLoop:
         )
         if controller != Controller():
             kwargs.update({"controller": controller})
-        if self.sweep:
-            kwargs.setdefault("sweep", True)
+        if self.evaluate_last_fifth_only:
+            kwargs.setdefault("last_fifth_only", True)
         return evaluate_and_log(
             agent_state,
             aux,

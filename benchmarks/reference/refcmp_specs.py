@@ -66,7 +66,7 @@ class Comparison:
     n_timesteps: int
     eval_every: int  # 0: one evaluation, of the final policy
     solved: float | None
-    reference: str  # "sb3" | "purejaxql" | "brax": envs/<reference> pins it
+    reference: str  # "sb3" | "sbx" | "purejaxql" | "brax" | "spinup": envs/<reference>
     reference_config: dict
     matched: dict
     source: str  # the reference's code
@@ -105,6 +105,16 @@ PENDULUM = (
     " episodes); SB3 steps it through refcmp_sb3.gymnax_vec_env"
 )
 
+CARTPOLE_SBX = (
+    "gymnax CartPole-v1, a port of Gymnasium's CartPole-v1 (dynamics,"
+    " termination, 500-step limit); SBX steps it through"
+    " refcmp_sb3.gymnax_vec_env"
+)
+PENDULUM_SBX = (
+    "gymnax Pendulum-v1, a port of Gymnasium's Pendulum-v1 (200-step"
+    " episodes); SBX steps it through refcmp_sb3.gymnax_vec_env"
+)
+
 # purejaxql's PQN against Ajax's: its settings' Ajax names, and what no Ajax
 # option matches.
 PUREJAXQL_RENAMES = {
@@ -138,13 +148,55 @@ AVG_DEVIATIONS = (
     ),
 )
 
+#: Spinning Up's VPG (vendor/openai_spinningup) against Ajax's REINFORCE, which
+#: takes its defaults: the settings both name, the Ajax keyword of each.
+SPINUP_RENAMES = {
+    "steps_per_epoch": "n_steps",
+    "pi_lr": "actor_learning_rate",
+    "vf_lr": "critic_learning_rate",
+    "train_v_iters": "value_steps",
+    "lam": "gae_lambda",
+}
+SPINUP_MATCHED = {
+    "n_envs": 1,
+    "n_steps": 4000,
+    "gamma": 0.99,
+    "actor_learning_rate": 3e-4,
+    "critic_learning_rate": 1e-3,
+    "value_steps": 80,
+    "gae_lambda": 0.97,
+    "baseline": True,
+    "normalize_advantage": True,
+    "actor_architecture": ("64", "tanh", "64", "tanh"),
+    "critic_architecture": ("64", "tanh", "64", "tanh"),
+    "normalize_observations": False,
+    "normalize_rewards": False,
+}
+SPINUP_UNMATCHED = (
+    "the advantages' normalisation: Ajax divides by their standard deviation"
+    " plus 1e-8, vpg by the bare deviation",
+    "processes: vpg's command line runs 4 MPI processes of 1,000 steps each;"
+    " the runner calls vpg() itself, one process of 4,000 steps, its defaults",
+    "evaluation: vpg has none; the runner's logger evaluates the deterministic"
+    " policy (the most likely action, the Gaussian's mean) after every"
+    " eval_every steps, as Ajax does",
+)
+SPINUP_SOURCE = (
+    "openai/spinningup@038665d spinup/algos/pytorch/vpg (vendored, unmodified),"
+    " run by refcmp_spinup.py"
+)
+
 COMPARISONS = {
     "PPO": Comparison(
         # Version 1 (the pilot, at c4aeac6) set fused_grad_clip, which clipped
         # both networks at 1.0 on top of each one's own clip at 0.5, so never
         # bound: each network was clipped on its own. Version 2 runs PPO's
         # one clip over both networks at 0.5, as SB3 clips its optimiser.
-        version=2,
+        # Version 3 writes out what version 2 ran implicitly, at 1adddad,
+        # before Ajax's PPO took ppo2's defaults: no value-loss clip (SB3's
+        # clip_range_vf is None) and no normalisation of observations or
+        # rewards (SB3 has none without VecNormalize).
+        version=3,
         renames={"learning_rate": ("actor_learning_rate", "critic_learning_rate")},
         # Ajax's value loss is vf_coef * 0.5 * MSE, SB3's vf_coef * MSE.
         scale={"vf_coef": 2.0},
@@ -191,7 +243,14 @@ COMPARISONS = {
             "max_grad_norm": 0.5,
             "adam_eps": 1e-5,
             "encoder_kernel_init": "orthogonal(1.4142135623730951)",
+            "normalize_observations": False,
+            "normalize_rewards": False,
+            "clip_value_loss": False,
         },
+        unmatched=(
+            "Adam: Ajax's PPO steps TensorFlow 1's form (ppo2's), which adds"
+            " eps before the bias correction; SB3 steps the usual one",
+        ),
         defaults={"n_envs": 8, "n_steps": 256},
     ),
     "PPO-inverted_pendulum": Comparison(
@@ -288,7 +347,14 @@ COMPARISONS = {
         defaults={"n_envs": 2048, "n_steps": 80, "episode_length": 1000},
     ),
     "DQN": Comparison(
+        # Version 2, before any protocol run. Ajax's DQN now updates every
+        # 10 steps by default (CleanRL's), so SB3's one update per step is
+        # written out; its default optimiser on vector observations is Adam
+        # at eps 1e-8 and its layers start as torch's nn.Linear, which are
+        # SB3's, so neither is unmatched any more. The margin is registered.
+        version=2,
         renames={
+            "train_freq": "train_frequency",
             "gradient_steps": "n_gradient_steps",
             "exploration_initial_eps": "epsilon_start",
             "exploration_final_eps": "epsilon_end",
@@ -299,11 +365,12 @@ COMPARISONS = {
         n_timesteps=100_000,
         eval_every=5_000,
         solved=475.0,
+        margin=25.0,  # 5% of 0-500
         reference="sb3",
         source="stable-baselines3's DQN, MlpPolicy",
         environment=CARTPOLE,
-        # One gradient step per env step, the only cadence Ajax's DQN has
-        # (SB3's train_freq=1, gradient_steps=1); targets are copied every
+        # One gradient step per env step on both sides (SB3's train_freq=1,
+        # gradient_steps=1); targets are copied every
         # 500 steps, which SB3 counts in env steps and Ajax in gradient
         # steps: the same here after warm-up.
         reference_config={
@@ -328,6 +395,7 @@ COMPARISONS = {
             "learning_starts": 1_000,
             "batch_size": 64,
             "gamma": 0.99,
+            "train_frequency": 1,
             "n_gradient_steps": 1,
             "target_update_interval": 500,
             "tau": 1.0,
@@ -338,10 +406,6 @@ COMPARISONS = {
             "architecture": ("128", "relu", "128", "relu"),
             "td_loss": "huber",  # SB3's smooth_l1_loss; Ajax's default is squared
         },
-        unmatched=(
-            "weight initialisation (torch default vs Ajax's)",
-            "Adam eps: 1e-5 in Ajax, 1e-8 in the reference",
-        ),
     ),
     "SAC": Comparison(
         # Version 2, before any protocol run. Ajax's SAC now has SB3's Adam
@@ -665,6 +729,199 @@ COMPARISONS = {
             " reward over the horizon, Ajax's the summed return",
             "network: ELU with LayerNorm and orthogonal(0.01) in Brax, ReLU in Ajax",
             "Adam eps: 1e-5 in Ajax, 1e-8 in the reference",
+        ),
+    ),
+    # SBX (sbx-rl 0.28.0) on the tasks, budgets, evaluations and margins of
+    # the SB3 comparisons above, so the three implementations read side by
+    # side. SBX keeps SB3's settings and buffers; its networks and updates
+    # are its own, read at sbx/ppo and sbx/sac of that release.
+    "PPO-sbx": Comparison(
+        # Version 1 left Ajax's value-loss clip on (its default, ppo2's),
+        # which SBX does not have (clip_range_vf=None): Ajax's curves dipped
+        # after reaching 500 and SBX's did not. Version 2 turns it off.
+        version=2,
+        renames={"learning_rate": ("actor_learning_rate", "critic_learning_rate")},
+        # Ajax's value loss is vf_coef * 0.5 * MSE, SBX's vf_coef * MSE
+        # (ppo.py, critic_loss).
+        scale={"vf_coef": 2.0},
+        agent="PPO",
+        env_id="CartPole-v1",
+        n_timesteps=98 * 2048,  # 98 rollouts of 8 envs x 256 steps
+        eval_every=7 * 2048,
+        solved=475.0,
+        margin=25.0,  # 5% of 0-500
+        reference="sbx",
+        source="sbx-rl 0.28.0's PPO, MlpPolicy",
+        environment=CARTPOLE_SBX,
+        reference_config={
+            "n_envs": 8,
+            "n_steps": 256,
+            "batch_size": 256,
+            "n_epochs": 10,
+            "learning_rate": 3e-4,
+            "gamma": 0.99,
+            "gae_lambda": 0.95,
+            "clip_range": 0.2,
+            "ent_coef": 0.0,
+            "vf_coef": 0.5,
+            "max_grad_norm": 0.5,
+            "normalize_advantage": True,
+            "net_arch": {"pi": [64, 64], "vf": [64, 64]},
+        },
+        # SBX's hidden layers are flax's Dense, lecun_normal with zero
+        # biases, under tanh (its PPO's own activation); its Adam eps is
+        # 1e-5 (ppo/policies.py); it normalises neither observations nor
+        # rewards.
+        matched={
+            "n_envs": 8,
+            "n_steps": 256,
+            "num_minibatches": 8,
+            "n_epochs": 10,
+            "actor_learning_rate": 3e-4,
+            "critic_learning_rate": 3e-4,
+            "actor_architecture": ("64", "tanh", "64", "tanh"),
+            "critic_architecture": ("64", "tanh", "64", "tanh"),
+            "gamma": 0.99,
+            "gae_lambda": 0.95,
+            "clip_range": 0.2,
+            "ent_coef": 0.0,
+            "vf_coef": 1.0,
+            "max_grad_norm": 0.5,
+            "normalize_advantage": True,
+            "adam_eps": 1e-5,
+            "encoder_kernel_init": "lecun_normal()",
+            "normalize_observations": False,
+            "normalize_rewards": False,
+            "clip_value_loss": False,
+        },
+        unmatched=(
+            "output layers: lecun_normal in SBX (its ortho_init is off), an"
+            " orthogonal policy layer of gain 0.01 and value layer of gain 1"
+            " in Ajax",
+            "gradient clip: SBX clips each network's gradient at"
+            " max_grad_norm in its own optimiser; Ajax clips the two"
+            " together",
+            "value weight: SBX's vf_coef scales the loss of the critic's own"
+            " optimiser, which Adam's step mostly cancels; in Ajax it sets"
+            " the critic's share of the joint clip",
+            "Adam: Ajax's PPO steps TensorFlow 1's form (ppo2's), which adds"
+            " eps before the bias correction; SBX steps the usual one",
+        ),
+        defaults={"n_envs": 8, "n_steps": 256},
+    ),
+    "SAC-sbx": Comparison(
+        agent="SAC",
+        env_id="Pendulum-v1",
+        n_timesteps=20_000,
+        eval_every=1_000,
+        solved=-200.0,
+        reference="sbx",
+        source="sbx-rl 0.28.0's SAC, MlpPolicy",
+        environment=PENDULUM_SBX,
+        # The SB3 comparison's settings (RL Zoo's Pendulum-v1 SAC), which
+        # are SBX's defaults with a 1e-3 learning rate.
+        reference_config={
+            "learning_rate": 1e-3,
+            "buffer_size": 20_000,
+            "learning_starts": 100,
+            "batch_size": 256,
+            "tau": 0.005,
+            "gamma": 0.99,
+            "train_freq": 1,
+            "gradient_steps": 1,
+            "policy_delay": 1,
+            "ent_coef": "auto",
+            "net_arch": [256, 256],
+        },
+        matched={
+            "n_envs": 1,
+            "actor_learning_rate": 1e-3,
+            "critic_learning_rate": 1e-3,
+            "alpha_learning_rate": 1e-3,
+            "buffer_size": 20_000,
+            "learning_starts": 100,
+            "batch_size": 256,
+            "tau": 0.005,
+            "gamma": 0.99,
+            "alpha_init": 1.0,
+            "target_entropy_per_dim": -1.0,
+            "policy_update_start": 0,
+            "alpha_update_start": 0,
+            "actor_architecture": ("256", "relu", "256", "relu"),
+            "critic_architecture": ("256", "relu", "256", "relu"),
+        },
+        unmatched=(
+            "weight initialisation: Glorot-uniform kernels in Ajax"
+            " (softlearning's), flax's lecun_normal in SBX; zero biases in"
+            " both",
+            "update order: SBX steps the critics, moves the targets, steps"
+            " the actor, then the temperature on the entropy of the sample"
+            " the actor's loss drew before its step (sac.py, _train); Ajax"
+            " steps the critics, the actor on its own sample, then the"
+            " temperature on a fresh sample of the stepped actor",
+        ),
+        # The SB3 comparison's margin: 10% of the reference's mean there.
+        margin=14.0,
+    ),
+    "REINFORCE": Comparison(
+        renames=SPINUP_RENAMES,
+        agent="REINFORCE",
+        env_id="CartPole-v1",
+        n_timesteps=50 * 4000,  # vpg's 50 epochs of 4,000 steps
+        eval_every=5 * 4000,
+        solved=475.0,
+        margin=25.0,  # 5% of 0-500
+        reference="spinup",
+        source=SPINUP_SOURCE,
+        environment="gymnax CartPole-v1, a port of Gymnasium's CartPole-v1"
+        " (dynamics, termination, 500-step limit); vpg steps it through"
+        " refcmp_spinup.OldGymEnv",
+        reference_config={
+            "steps_per_epoch": 4000,
+            "gamma": 0.99,
+            "pi_lr": 3e-4,
+            "vf_lr": 1e-3,
+            "train_v_iters": 80,
+            "lam": 0.97,
+            # The env's time limit: vpg bootstraps there, as Ajax does at a
+            # truncation (its default 1000 would end the episode at 500 as a
+            # termination).
+            "max_ep_len": 500,
+            "hidden_sizes": (64, 64),
+        },
+        matched=SPINUP_MATCHED,
+        unmatched=SPINUP_UNMATCHED,
+    ),
+    "REINFORCE-Pendulum": Comparison(
+        renames=SPINUP_RENAMES,
+        agent="REINFORCE",
+        env_id="Pendulum-v1",
+        n_timesteps=50 * 4000,
+        eval_every=5 * 4000,
+        solved=-200.0,
+        # 5% of the range a return takes, about -1,600 (no torque at the
+        # bottom) to 0.
+        margin=80.0,
+        reference="spinup",
+        source=SPINUP_SOURCE,
+        environment="gymnax Pendulum-v1, a port of Gymnasium's Pendulum-v1"
+        " (200-step episodes); vpg steps it through refcmp_spinup.OldGymEnv",
+        reference_config={
+            "steps_per_epoch": 4000,
+            "gamma": 0.99,
+            "pi_lr": 3e-4,
+            "vf_lr": 1e-3,
+            "train_v_iters": 80,
+            "lam": 0.97,
+            "max_ep_len": 200,  # the env's time limit, as for CartPole
+            "hidden_sizes": (64, 64),
+        },
+        matched=SPINUP_MATCHED,
+        unmatched=(
+            *SPINUP_UNMATCHED,
+            "actions: Ajax clips its Gaussian sample to [-1, 1] and maps it onto"
+            " the torque's [-2, 2], so its std counts twice in torque; vpg hands"
+            " the raw sample to the env, which clips it at +-2",
         ),
     ),
 }

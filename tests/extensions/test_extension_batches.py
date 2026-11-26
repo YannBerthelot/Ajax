@@ -25,7 +25,9 @@ def _record(*arrays: Any) -> float:
 
 def _train(cls: Any, kwargs: dict, extension: Extension) -> list:
     SEEN.clear()
-    cls(**kwargs, extensions=(extension,)).train(seed=0, n_timesteps=48)
+    cls(**kwargs, extensions=(extension,)).train(
+        seed=0, n_timesteps=48, logging_config=None
+    )
     jax.effects_barrier()
     return list(SEEN)
 
@@ -82,5 +84,5 @@ def test_without_an_expert_the_actor_loss_gets_no_raw_observations(agent: str) -
         actor_architecture=("8", "relu"),
         critic_architecture=("8", "relu"),
         extensions=(RawObservationsSeen(),),
-    ).train(seed=0, n_timesteps=16)
+    ).train(seed=0, n_timesteps=16, logging_config=None)
     assert RAW and all(raw is None for raw in RAW)

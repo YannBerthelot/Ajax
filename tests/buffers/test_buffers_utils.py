@@ -155,6 +155,26 @@ def test_init_buffer_schema_follows_its_options(env_id, action_dtype):
 # returned exactly as written.
 
 
+@pytest.mark.parametrize("rows_per_env", [None, 5], ids=["capacity", "run-sized"])
+def test_the_rows_a_replay_has_not_written_are_zero(rows_per_env) -> None:
+    """Contract (init_buffer): a fresh replay holds zeros, and a row stays
+    zero until it is written, so two runs' replays, and the states saved
+    from them, hold the same bytes. Catches a ring left as allocated:
+    flashbax allocates it with jnp.empty_like, uninitialised memory since
+    JAX 0.11 (often zero on a CPU, not on a GPU)."""
+    env_args = _env_args("Pendulum-v1")
+    buffer = get_buffer(16, 4, n_envs=2)
+    state = init_buffer(buffer, env_args, rows_per_env=rows_per_env)
+    for name, values in state.experience.items():
+        np.testing.assert_array_equal(values, 0, err_msg=name)
+
+    row = {k: jnp.ones(v[:, 0].shape, v.dtype) for k, v in state.experience.items()}
+    state = buffer.add(buffer.add(state, row), row)
+    for name, values in state.experience.items():
+        np.testing.assert_array_equal(values[:, :2], 1, err_msg=name)
+        np.testing.assert_array_equal(values[:, 2:], 0, err_msg=name)
+
+
 def _env_args(env_id: str, observers: tuple = ()) -> EnvironmentConfig:
     env, env_params = build_env_from_id(env_id)
     return EnvironmentConfig(

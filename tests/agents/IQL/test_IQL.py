@@ -39,7 +39,9 @@ def update_with_values():
     """One update of a tiny trained IQL with its target critics at ``q`` and
     its V at ``v`` everywhere, on the same batch and actor: its logs."""
     agent = IQL("Pendulum-v1", batch_size=8, actor_architecture=("8", "relu"))
-    state = jax.tree.map(lambda x: x[0], agent.train(seed=0, n_timesteps=16)[0])
+    state = jax.tree.map(
+        lambda x: x[0], agent.train(seed=0, n_timesteps=16, logging_config=None)[0]
+    )
     context = TrainContext(  # what the update reads: the replay, the extensions
         env_args=agent.env_args,
         network_args=agent.network_args,

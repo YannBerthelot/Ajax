@@ -20,10 +20,10 @@ from ajax.agents.minibatch import choose_rollout_split, get_actions_and_log_prob
 from ajax.agents.PPO.PPO import (
     PPO,
     PPOState,
-    _compute_gae,
     compute_policy_loss,
     compute_value_loss,
 )
+from ajax.agents.returns import compute_gae
 from ajax.environments.interaction import get_pi
 from ajax.environments.utils import get_state_action_shapes
 from ajax.extensions.base import Extension
@@ -112,7 +112,7 @@ def test_a_ppo_update_logs_each_networks_norm_before_the_clip() -> None:
         critic_architecture=NET,
         expose_recent_rollout=True,
     )
-    state, _ = agent.train(seed=0, n_timesteps=8)
+    state, _ = agent.train(seed=0, n_timesteps=8, logging_config=None)
     assert state.last_rollout is not None
     if state.last_rollout.obs.ndim == 4:  # a leading seed axis
         state = jax.tree.map(lambda x: x[0], state)
@@ -123,7 +123,7 @@ def test_a_ppo_update_logs_each_networks_norm_before_the_clip() -> None:
     actor, critic = state.actor_state, state.critic_state
     values = predict_value(critic, critic.params, rollout.obs).squeeze(0)
     next_values = predict_value(critic, critic.params, rollout.next_obs).squeeze(0)
-    gae, targets = _compute_gae(
+    gae, targets = compute_gae(
         values=values,
         next_values=next_values,
         rewards=rollout.reward,

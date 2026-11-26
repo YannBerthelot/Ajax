@@ -61,7 +61,7 @@ def test_a_replay_agent_keeps_the_envs_own_observations(name: str) -> None:
     agent = case.cls(env_id=env, n_envs=2, normalize_observations=True, **case.kwargs)
     assert agent.env_args.normalize_obs_in_agent
     assert not strip_ajax_wrappers(agent.env_args.env)[1].get("normalize_obs", False)
-    state, _ = agent.train(seed=0, n_timesteps=24)
+    state, _ = agent.train(seed=0, n_timesteps=24, logging_config=None)
     state = jax.tree.map(lambda x: x[0], state)  # the one seed
     rows = _replayed_rows(state)
     t = rows[:, 0]
@@ -126,7 +126,7 @@ def test_a_replay_agent_stores_the_envs_own_rewards(name: str) -> None:
     env = IdentityEnv(discrete=discrete)
     # Any: the replay agents hold a buffer, which ActorCritic does not declare.
     agent: Any = case.cls(env_id=env, n_envs=2, normalize_rewards=True, **case.kwargs)
-    state, _ = agent.train(seed=0, n_timesteps=24)
+    state, _ = agent.train(seed=0, n_timesteps=24, logging_config=None)
     state = jax.tree.map(lambda x: x[0], state)  # the one seed
     buffer_state = state.collector_state.buffer_state
     assert buffer_state is not None

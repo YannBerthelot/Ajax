@@ -64,13 +64,13 @@ def test_differential_gae_stops_at_episode_ends(
     _, context = agent.make_context(1_000)
     state = agent.init(jax.random.PRNGKey(0), context)
     seen: dict[str, Any] = {}
-    compute_gae = apo_module._compute_gae
+    compute_gae = apo_module.compute_gae
 
     def spy(*args: Any, **kwargs: Any) -> Any:
         seen["gae"], seen["targets"] = compute_gae(*args, **kwargs)
         return seen["gae"], seen["targets"]
 
-    monkeypatch.setattr(apo_module, "_compute_gae", spy)
+    monkeypatch.setattr(apo_module, "compute_gae", spy)
     rollout = _rollout()
     new_state, _ = agent.update(state, rollout, state, context)
 

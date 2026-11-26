@@ -395,8 +395,13 @@ def init_buffer(
         # each step (see ajax.networks.memory.flatten_carry).
         schema["actor_carry"] = jnp.zeros((actor_carry_dim,), dtype=jnp.float32)
     if rows_per_env is None:
-        return buffer.init(schema)
-    return init_ring(schema, env_args.n_envs, rows_per_env)
+        state = buffer.init(schema)
+    else:
+        state = init_ring(schema, env_args.n_envs, rows_per_env)
+    # flashbax allocates the ring with jnp.empty_like, uninitialised memory
+    # since JAX 0.11: the rows never written (which nothing samples) then
+    # differed from one run to the next, and with them a saved state's bytes.
+    return state.replace(experience=jax.tree.map(jnp.zeros_like, state.experience))
 
 
 class ReplayBatch(NamedTuple):

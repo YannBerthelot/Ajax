@@ -241,7 +241,7 @@ def _q12_read(agent: Any, s: Any, key: jax.Array) -> dict:
         [jnp.max(v[np.flatnonzero([k == p for k, _ in seqs])]) for p in PLANS]
     )
     _, context = agent.make_context(0)
-    ev = agent.evaluate(s, jax.random.split(key)[1], context, num_episode_test=8)
+    ev = agent.evaluation_metrics(s, jax.random.split(key)[1], context, 8)
     out |= {"rolled R gap": rolled[0] - rolled[1], "plan gap": best[0] - best[1:].max()}
     out["eval return"] = ev[f"Eval/{RET}"]
     return out | {"train return": s.collector_state.episodic_mean_return}

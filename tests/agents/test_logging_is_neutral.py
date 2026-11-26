@@ -131,7 +131,7 @@ def training_leaves(state: Any) -> dict[str, np.ndarray]:
 def test_a_logged_run_trains_as_the_same_run_unlogged(name: str) -> None:
     build, n_timesteps, log_frequency = RUNS[name]
     agent = build()
-    unlogged, _ = agent.train(seed=0, n_timesteps=n_timesteps)
+    unlogged, _ = agent.train(seed=0, n_timesteps=n_timesteps, logging_config=None)
     logging = LoggingConfig(log_frequency=log_frequency, backends=())
     logged, rows = agent.train(
         seed=0, n_timesteps=n_timesteps, num_episode_test=1, logging_config=logging

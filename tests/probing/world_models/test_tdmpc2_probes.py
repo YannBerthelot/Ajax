@@ -52,7 +52,9 @@ N_TIMESTEPS = 1000  # 2 envs x 500 steps: ~1000 updates
 
 def _train(env):
     agent = TDMPC2(env, n_envs=2, **PROBE)
-    state, _ = agent.train(seed=SEEDS, n_timesteps=N_TIMESTEPS, num_episode_test=1)
+    state, _ = agent.train(
+        seed=SEEDS, n_timesteps=N_TIMESTEPS, num_episode_test=1, logging_config=None
+    )
     return agent, state
 
 

@@ -26,7 +26,7 @@ Pinned sources:
 | Symlog-MSE | squared errors < 1e-8 zeroed; no ½ factor | no tolerance; no ½ factor | 2411f7d |
 | Slow critic | separate f32 module, hard copy after the first optimizer step, then EMA 0.02 | copy at creation, EMA 0.02 from step 1 | 2411f7d rule (`mix = 1` at update 0, then 0.02); created as a copy of the critic, which predicts what 2411f7d's separate module predicts until the first update replaces it (both output layers are zero) |
 | First `prevact` in the replay context | bug: previous unrelated batch's carry | `data[action][:, K-1]` | **fixed** (29eb964, an upstream bug fix) |
-| RMSNorm statistics | input dtype (bf16) | f32 | n/a (Ajax computes in f32, see D4) |
+| RMSNorm statistics | input dtype (bf16) | f32 | n/a (f32 by default; in bf16 the statistics stay f32, see D4) |
 | Policy tanh / sigmoid | after the f32 cast | on bf16 outputs | n/a (f32) |
 | Integer vector observations | cast to f32 and symlogged | one-hot, not symlogged | 2411f7d (Ajax observations are float) |
 | Stored stochastic latent | int32 class indices | f32 one-hot | indices (uint8 when classes ≤ 256) |
@@ -64,7 +64,7 @@ Pinned sources:
 | D1 | DreamerV3 | Asynchronous: acting parameters ≈ 2 driver iterations stale; one-batch prefetch; write-back and metrics one train call late; first batch prefetched before the gate | Synchronous | Infrastructure, not algorithmic |
 | D2 | DreamerV3 | Replay sampler RNG fixed to seed 0; the report stream pops the online queue every 180 s of wall-clock, and its loss pass reads the return normaliser without updating it (`agent.py:410`) | Seeded from the run seed; no report stream, so no non-updating loss pass | Infrastructure |
 | D3 | DreamerV3 | Updates interleaved between the per-env adds of one vector step | Updates after the tick's adds | Same rate; intra-tick order only |
-| D4 | DreamerV3 | bf16 compute (2411f7d: bf16 RMS statistics, f32 slow critic) | f32 | Numerics only; bf16 revisited at the GPU milestone |
+| D4 | DreamerV3 | bf16 compute, f32 parameters (`configs.yaml:24-25`). 2411f7d: bf16 RMS statistics; the slow critic's `dtype='float32'` sets its parameters' dtype only, its inputs and layers stay bf16 (`agent.py:77-78`, `nets.py:388, :603-610, :614`) | f32 by default; `train(precision="bfloat16" or "auto")` computes in bf16 with f32 parameters, logits, distributions and losses, RMS statistics in f32 | Numerics only. The default moves to `"auto"` after a learning check (owner, 2026-11-20) |
 | D5 | DreamerV3 | One decoder head per observation key (dict observations) | One head for the flat observation vector | Loss identical (sum of means); the per-tensor AGC partition differs (≤ 8 % clipped-gradient difference, probed) |
 | D6 | DreamerV3 | Optimizer and normaliser state checkpointed; Ratio state, online queue and replay RNG not | Everything checkpointed | Resume fidelity |
 | T7 | TD-MPC2 | Single environment | `n_envs > 1`: per-env t0 and warm-start mean, `n_envs` updates per stepping tick, seed phase / burst rule of `DESIGN.md` §4.4 | Generalisation; exact for `n_envs = 1` |

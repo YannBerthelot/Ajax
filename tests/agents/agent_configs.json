@@ -267,6 +267,7 @@
    "env_params": null,
    "episode_length": null,
    "epsilon_decay_frac": 0.5,
+   "epsilon_decay_start": 0,
    "epsilon_end": 0.05,
    "epsilon_start": 1.0,
    "eval_expert_policy": null,
@@ -368,6 +369,7 @@
     "bins": 255,
     "blocks": 8,
     "classes": 16,
+    "compute_dtype": "float32",
     "con_layers": 1,
     "con_scale": 1.0,
     "critic_layers": 3,
@@ -604,6 +606,50 @@
    "target_entropy_per_dim": -1.0,
    "tau": 0.005,
    "train_frequency": 1,
+   "weight_decay": 0.0
+  }
+ },
+ "REINFORCE": {
+  "config": {
+   "action_repeat": 1,
+   "actor_architecture": [
+    "64",
+    "tanh",
+    "64",
+    "tanh"
+   ],
+   "actor_learning_rate": 0.0003,
+   "algo_name": "REINFORCE",
+   "baseline": true,
+   "critic_architecture": [
+    "64",
+    "tanh",
+    "64",
+    "tanh"
+   ],
+   "critic_learning_rate": 0.001,
+   "encoder_kernel_init": "torch_linear",
+   "env_id": "fast",
+   "env_params": null,
+   "episode_length": null,
+   "expose_recent_rollout": false,
+   "extensions": [],
+   "gae_lambda": 0.97,
+   "gamma": 0.99,
+   "log_std_init": -0.5,
+   "log_std_state_independent": true,
+   "logits_kernel_init": "torch_linear",
+   "max_grad_norm": null,
+   "mean_kernel_init": "torch_linear",
+   "n_envs": 1,
+   "n_steps": 4000,
+   "normalize_advantage": true,
+   "normalize_observations": false,
+   "normalize_rewards": false,
+   "observation_clip": null,
+   "reward_normalization_gamma": null,
+   "value_kernel_init": "torch_linear",
+   "value_steps": 80,
    "weight_decay": 0.0
   }
  },
@@ -847,6 +893,7 @@
    "TDMPC2Config": {
     "batch_size": 256,
     "buffer_size": 1000000,
+    "compute_dtype": "float32",
     "consistency_coef": 20.0,
     "dropout": 0.01,
     "enc_dim": 256,
@@ -945,6 +992,7 @@
    "TDMPC2Config": {
     "batch_size": 1024,
     "buffer_size": 1000000,
+    "compute_dtype": "float32",
     "consistency_coef": 20.0,
     "dropout": 0.01,
     "enc_dim": 256,

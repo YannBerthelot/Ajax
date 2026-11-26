@@ -5,7 +5,7 @@ Written by `benchmarks/reference/refcmp_publish.py specs` from
 Each comparison is set before its runs and changed only as a new
 version (see the [protocol](protocol.md)).
 
-## PPO, version 2
+## PPO, version 3
 
 Ajax's PPO against stable-baselines3's PPO, MlpPolicy.
 
@@ -14,7 +14,7 @@ Ajax's PPO against stable-baselines3's PPO, MlpPolicy.
 - Evaluation: 10 episodes of the deterministic policy, every 14,336 steps; a seed's score is the last one's mean return.
 - AdaStop: n = 4, K = 24, alpha = 0.05.
 - Margin: ±25.
-- Spec hash: `ab1379d3e1e9ebb6`.
+- Spec hash: `4c713858f5fdf9f4`.
 - Reproduce: `uv run python benchmarks/reference/refcmp_protocol.py run PPO --cache DIR`
 
 | Reference setting | Value | Ajax setting | Value |
@@ -33,10 +33,11 @@ Ajax's PPO against stable-baselines3's PPO, MlpPolicy.
 | `net_arch` | `{'pi': [64, 64], 'vf': [64, 64]}` | - |  |
 | `activation` | `'tanh'` | - |  |
 
-Ajax settings without a reference counterpart: `num_minibatches=8`, `actor_architecture=('64', 'tanh', '64', 'tanh')`, `critic_architecture=('64', 'tanh', '64', 'tanh')`, `adam_eps=1e-05`, `encoder_kernel_init='orthogonal(1.4142135623730951)'`.
+Ajax settings without a reference counterpart: `num_minibatches=8`, `actor_architecture=('64', 'tanh', '64', 'tanh')`, `critic_architecture=('64', 'tanh', '64', 'tanh')`, `adam_eps=1e-05`, `encoder_kernel_init='orthogonal(1.4142135623730951)'`, `normalize_observations=False`, `normalize_rewards=False`, `clip_value_loss=False`.
 
 Not matched:
 
+- Adam: Ajax's PPO steps TensorFlow 1's form (ppo2's), which adds eps before the bias correction; SB3 steps the usual one
 
 ## PPO-inverted_pendulum, version 2
 
@@ -80,7 +81,7 @@ Not matched:
 - std, computed from the observation on both sides: softplus(x) + 0.001 in Brax, exp(x) clipped to [-20, 2] in Ajax; its weights start lecun_uniform in Brax, zero in Ajax
 - the value head's initialisation (lecun_uniform in Brax)
 
-## DQN, version 1
+## DQN, version 2
 
 Ajax's DQN against stable-baselines3's DQN, MlpPolicy.
 
@@ -88,8 +89,8 @@ Ajax's DQN against stable-baselines3's DQN, MlpPolicy.
 - Budget: 100,000 steps per seed.
 - Evaluation: 10 episodes of the deterministic policy, every 5,000 steps; a seed's score is the last one's mean return.
 - AdaStop: n = 4, K = 24, alpha = 0.05.
-- Margin: none registered yet.
-- Spec hash: `74aef7221269ae79`.
+- Margin: ±25.
+- Spec hash: `af56e616898f3977`.
 - Reproduce: `uv run python benchmarks/reference/refcmp_protocol.py run DQN --cache DIR`
 
 | Reference setting | Value | Ajax setting | Value |
@@ -99,7 +100,7 @@ Ajax's DQN against stable-baselines3's DQN, MlpPolicy.
 | `learning_starts` | `1000` | `learning_starts` | `1000` |
 | `batch_size` | `64` | `batch_size` | `64` |
 | `gamma` | `0.99` | `gamma` | `0.99` |
-| `train_freq` | `1` | - |  |
+| `train_freq` | `1` | `train_frequency` | `1` |
 | `gradient_steps` | `1` | `n_gradient_steps` | `1` |
 | `target_update_interval` | `500` | `target_update_interval` | `500` |
 | `exploration_fraction` | `0.2` | `epsilon_decay_frac` | `0.2` |
@@ -112,8 +113,7 @@ Ajax settings without a reference counterpart: `n_envs=1`, `tau=1.0`, `architect
 
 Not matched:
 
-- weight initialisation (torch default vs Ajax's)
-- Adam eps: 1e-5 in Ajax, 1e-8 in the reference
+- nothing known
 
 ## SAC, version 2
 
@@ -304,3 +304,136 @@ Not matched:
 - Brax clips each gradient entry to [-1, 1]; its loss is the mean reward over the horizon, Ajax's the summed return
 - network: ELU with LayerNorm and orthogonal(0.01) in Brax, ReLU in Ajax
 - Adam eps: 1e-5 in Ajax, 1e-8 in the reference
+
+## PPO-sbx, version 2
+
+Ajax's PPO against sbx-rl 0.28.0's PPO, MlpPolicy.
+
+- Environment: gymnax CartPole-v1, a port of Gymnasium's CartPole-v1 (dynamics, termination, 500-step limit); SBX steps it through refcmp_sb3.gymnax_vec_env.
+- Budget: 200,704 steps per seed.
+- Evaluation: 10 episodes of the deterministic policy, every 14,336 steps; a seed's score is the last one's mean return.
+- AdaStop: n = 4, K = 24, alpha = 0.05.
+- Margin: ±25.
+- Spec hash: `13af23980087f01a`.
+- Reproduce: `uv run python benchmarks/reference/refcmp_protocol.py run PPO-sbx --cache DIR`
+
+| Reference setting | Value | Ajax setting | Value |
+|---|---|---|---|
+| `n_envs` | `8` | `n_envs` | `8` |
+| `n_steps` | `256` | `n_steps` | `256` |
+| `batch_size` | `256` | - |  |
+| `n_epochs` | `10` | `n_epochs` | `10` |
+| `learning_rate` | `0.0003` | `actor_learning_rate`, `critic_learning_rate` | `0.0003`, `0.0003` |
+| `gamma` | `0.99` | `gamma` | `0.99` |
+| `gae_lambda` | `0.95` | `gae_lambda` | `0.95` |
+| `clip_range` | `0.2` | `clip_range` | `0.2` |
+| `ent_coef` | `0.0` | `ent_coef` | `0.0` |
+| `vf_coef` | `0.5` | `vf_coef` | `1.0` |
+| `max_grad_norm` | `0.5` | `max_grad_norm` | `0.5` |
+| `normalize_advantage` | `True` | `normalize_advantage` | `True` |
+| `net_arch` | `{'pi': [64, 64], 'vf': [64, 64]}` | - |  |
+
+Ajax settings without a reference counterpart: `num_minibatches=8`, `actor_architecture=('64', 'tanh', '64', 'tanh')`, `critic_architecture=('64', 'tanh', '64', 'tanh')`, `adam_eps=1e-05`, `encoder_kernel_init='lecun_normal()'`, `normalize_observations=False`, `normalize_rewards=False`, `clip_value_loss=False`.
+
+Not matched:
+
+- output layers: lecun_normal in SBX (its ortho_init is off), an orthogonal policy layer of gain 0.01 and value layer of gain 1 in Ajax
+- gradient clip: SBX clips each network's gradient at max_grad_norm in its own optimiser; Ajax clips the two together
+- value weight: SBX's vf_coef scales the loss of the critic's own optimiser, which Adam's step mostly cancels; in Ajax it sets the critic's share of the joint clip
+- Adam: Ajax's PPO steps TensorFlow 1's form (ppo2's), which adds eps before the bias correction; SBX steps the usual one
+
+## SAC-sbx, version 1
+
+Ajax's SAC against sbx-rl 0.28.0's SAC, MlpPolicy.
+
+- Environment: gymnax Pendulum-v1, a port of Gymnasium's Pendulum-v1 (200-step episodes); SBX steps it through refcmp_sb3.gymnax_vec_env.
+- Budget: 20,000 steps per seed.
+- Evaluation: 10 episodes of the deterministic policy, every 1,000 steps; a seed's score is the last one's mean return.
+- AdaStop: n = 4, K = 24, alpha = 0.05.
+- Margin: ±14.
+- Spec hash: `63640429b3d6ec09`.
+- Reproduce: `uv run python benchmarks/reference/refcmp_protocol.py run SAC-sbx --cache DIR`
+
+| Reference setting | Value | Ajax setting | Value |
+|---|---|---|---|
+| `learning_rate` | `0.001` | - |  |
+| `buffer_size` | `20000` | `buffer_size` | `20000` |
+| `learning_starts` | `100` | `learning_starts` | `100` |
+| `batch_size` | `256` | `batch_size` | `256` |
+| `tau` | `0.005` | `tau` | `0.005` |
+| `gamma` | `0.99` | `gamma` | `0.99` |
+| `train_freq` | `1` | - |  |
+| `gradient_steps` | `1` | - |  |
+| `policy_delay` | `1` | - |  |
+| `ent_coef` | `'auto'` | - |  |
+| `net_arch` | `[256, 256]` | - |  |
+
+Ajax settings without a reference counterpart: `n_envs=1`, `actor_learning_rate=0.001`, `critic_learning_rate=0.001`, `alpha_learning_rate=0.001`, `alpha_init=1.0`, `target_entropy_per_dim=-1.0`, `policy_update_start=0`, `alpha_update_start=0`, `actor_architecture=('256', 'relu', '256', 'relu')`, `critic_architecture=('256', 'relu', '256', 'relu')`.
+
+Not matched:
+
+- weight initialisation: Glorot-uniform kernels in Ajax (softlearning's), flax's lecun_normal in SBX; zero biases in both
+- update order: SBX steps the critics, moves the targets, steps the actor, then the temperature on the entropy of the sample the actor's loss drew before its step (sac.py, _train); Ajax steps the critics, the actor on its own sample, then the temperature on a fresh sample of the stepped actor
+
+## REINFORCE, version 1
+
+Ajax's REINFORCE against openai/spinningup@038665d spinup/algos/pytorch/vpg (vendored, unmodified), run by refcmp_spinup.py.
+
+- Environment: gymnax CartPole-v1, a port of Gymnasium's CartPole-v1 (dynamics, termination, 500-step limit); vpg steps it through refcmp_spinup.OldGymEnv.
+- Budget: 200,000 steps per seed.
+- Evaluation: 10 episodes of the deterministic policy, every 20,000 steps; a seed's score is the last one's mean return.
+- AdaStop: n = 4, K = 24, alpha = 0.05.
+- Margin: ±25.
+- Spec hash: `c4c27cd7acd2580b`.
+- Reproduce: `uv run python benchmarks/reference/refcmp_protocol.py run REINFORCE --cache DIR`
+
+| Reference setting | Value | Ajax setting | Value |
+|---|---|---|---|
+| `steps_per_epoch` | `4000` | `n_steps` | `4000` |
+| `gamma` | `0.99` | `gamma` | `0.99` |
+| `pi_lr` | `0.0003` | `actor_learning_rate` | `0.0003` |
+| `vf_lr` | `0.001` | `critic_learning_rate` | `0.001` |
+| `train_v_iters` | `80` | `value_steps` | `80` |
+| `lam` | `0.97` | `gae_lambda` | `0.97` |
+| `max_ep_len` | `500` | - |  |
+| `hidden_sizes` | `(64, 64)` | - |  |
+
+Ajax settings without a reference counterpart: `n_envs=1`, `baseline=True`, `normalize_advantage=True`, `actor_architecture=('64', 'tanh', '64', 'tanh')`, `critic_architecture=('64', 'tanh', '64', 'tanh')`, `normalize_observations=False`, `normalize_rewards=False`.
+
+Not matched:
+
+- the advantages' normalisation: Ajax divides by their standard deviation plus 1e-8, vpg by the bare deviation
+- processes: vpg's command line runs 4 MPI processes of 1,000 steps each; the runner calls vpg() itself, one process of 4,000 steps, its defaults
+- evaluation: vpg has none; the runner's logger evaluates the deterministic policy (the most likely action, the Gaussian's mean) after every eval_every steps, as Ajax does
+
+## REINFORCE-Pendulum, version 1
+
+Ajax's REINFORCE against openai/spinningup@038665d spinup/algos/pytorch/vpg (vendored, unmodified), run by refcmp_spinup.py.
+
+- Environment: gymnax Pendulum-v1, a port of Gymnasium's Pendulum-v1 (200-step episodes); vpg steps it through refcmp_spinup.OldGymEnv.
+- Budget: 200,000 steps per seed.
+- Evaluation: 10 episodes of the deterministic policy, every 20,000 steps; a seed's score is the last one's mean return.
+- AdaStop: n = 4, K = 24, alpha = 0.05.
+- Margin: ±80.
+- Spec hash: `0fe0c87547c080f5`.
+- Reproduce: `uv run python benchmarks/reference/refcmp_protocol.py run REINFORCE-Pendulum --cache DIR`
+
+| Reference setting | Value | Ajax setting | Value |
+|---|---|---|---|
+| `steps_per_epoch` | `4000` | `n_steps` | `4000` |
+| `gamma` | `0.99` | `gamma` | `0.99` |
+| `pi_lr` | `0.0003` | `actor_learning_rate` | `0.0003` |
+| `vf_lr` | `0.001` | `critic_learning_rate` | `0.001` |
+| `train_v_iters` | `80` | `value_steps` | `80` |
+| `lam` | `0.97` | `gae_lambda` | `0.97` |
+| `max_ep_len` | `200` | - |  |
+| `hidden_sizes` | `(64, 64)` | - |  |
+
+Ajax settings without a reference counterpart: `n_envs=1`, `baseline=True`, `normalize_advantage=True`, `actor_architecture=('64', 'tanh', '64', 'tanh')`, `critic_architecture=('64', 'tanh', '64', 'tanh')`, `normalize_observations=False`, `normalize_rewards=False`.
+
+Not matched:
+
+- the advantages' normalisation: Ajax divides by their standard deviation plus 1e-8, vpg by the bare deviation
+- processes: vpg's command line runs 4 MPI processes of 1,000 steps each; the runner calls vpg() itself, one process of 4,000 steps, its defaults
+- evaluation: vpg has none; the runner's logger evaluates the deterministic policy (the most likely action, the Gaussian's mean) after every eval_every steps, as Ajax does
+- actions: Ajax clips its Gaussian sample to [-1, 1] and maps it onto the torque's [-2, 2], so its std counts twice in torque; vpg hands the raw sample to the env, which clips it at +-2

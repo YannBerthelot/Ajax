@@ -480,7 +480,7 @@ class APG(GradientClipping, ExpertGuided, OwnIterationAgent):
         metrics.update(aux.extensions)
         return metrics
 
-    def evaluate(
+    def evaluation_metrics(
         self,
         agent_state: APGState,
         key: jax.Array,
@@ -616,6 +616,7 @@ def make_controller(
         pid=pid,
         squash=squash,
         cache_keys_values=True,
+        compute_dtype=network_args.compute_dtype,
     )
 
 

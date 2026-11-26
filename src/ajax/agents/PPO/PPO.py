@@ -7,7 +7,7 @@ policy for n_steps in each of n_envs envs
 (OnPolicyAgent); each line after that is a
 function below::
 
-    A_t = GAE(gamma, lambda) of V; V_targ = A_t + V(s_t)         _compute_gae
+    A_t = GAE(gamma, lambda) of V; V_targ = A_t + V(s_t)         compute_gae
     for each of n_epochs, for each minibatch of the rollout:      PPO.update
         r_t = pi(a_t | s_t) / pi_old(a_t | s_t)
         L_clip = -mean min(r_t A_t, clip(r_t, 1 - eps, 1 + eps) A_t)
@@ -65,6 +65,7 @@ from ajax.agents.recurrent import (
     get_policy_on_minibatch,
     predict_values_on_minibatch,
 )
+from ajax.agents.returns import compute_gae
 from ajax.agents.update_steps import (
     apply_gradients_clipped_together,
     compute_actor_critic_gradients,
@@ -109,7 +110,37 @@ PRESETS = {
             "share_encoder": True,
         },
         "openai/baselines@ea25b9e ppo2/defaults.py:15-22",
-    )
+    ),
+    # Another library's conventions, not a task of ppo2's: Stable-Baselines3's
+    # PPO defaults (2.9.0, ppo/ppo.py:84-95) in Ajax's names. It does not
+    # clip the value loss (clip_range_vf=None, :234-236), normalises nothing
+    # without a VecNormalize wrapper, and puts vf_coef 0.5 on the whole
+    # squared error (:244), which is 1.0 on Ajax's half. Its minibatches of
+    # 64, orthogonal layers (common/policies.py:616-621) and Adam eps
+    # (:472) are Ajax's defaults, written out so that a default changing
+    # later leaves the preset as SB3. Not matched: SB3 steps torch's Adam,
+    # Ajax's PPO TensorFlow 1's (networks.utils.scale_by_tf1_adam).
+    "SB3": Preset(
+        {
+            "n_steps": 2048,
+            "batch_size": 64,
+            "n_epochs": 10,
+            "actor_learning_rate": 3e-4,
+            "critic_learning_rate": 3e-4,
+            "gamma": 0.99,
+            "gae_lambda": 0.95,
+            "clip_range": 0.2,
+            "clip_value_loss": False,
+            "normalize_advantage": True,
+            "ent_coef": 0.0,
+            "vf_coef": 1.0,
+            "max_grad_norm": 0.5,
+            "adam_eps": 1e-5,
+            "normalize_observations": False,
+            "normalize_rewards": False,
+        },
+        "DLR-RM/stable-baselines3 2.9.0 ppo/ppo.py:84-95, :234-244",
+    ),
 }
 
 
@@ -456,7 +487,7 @@ class PPO(
         They enter the losses as inputs, computed before the losses are
         differentiated, so no gradient flows back through them (brax computes
         GAE inside its loss and stops the gradient there instead)."""
-        gae, value_targets = _compute_gae(
+        gae, value_targets = compute_gae(
             values=values,
             next_values=next_values,
             rewards=steps["rewards"],
@@ -619,50 +650,6 @@ class PPO(
 # -- PPO's equations, in the order the update calls them ---------------------
 # Not jitted on its own: gamma and gae_lambda may be a sweep member's traced
 # values (ActorCritic.train's sweep); the training program compiles it.
-def _compute_gae(
-    rewards: jax.Array,
-    values: jax.Array,
-    next_values: jax.Array,
-    terminateds: jax.Array,
-    truncateds: jax.Array,
-    gamma: float,
-    gae_lambda: float,
-) -> tuple[jax.Array, jax.Array]:
-    """GAE (Schulman et al., 2016) over a time-major rollout, in reverse:
-    delta_t = r_t + gamma V(s_{t+1}) (1 - terminated_t) - V(s_t) and
-    A_t = delta_t + gamma lambda (1 - done_t) A_{t+1}: a truncation cuts
-    the trace but still bootstraps. Returns (A, A + V)."""
-
-    def _get_advantages(
-        gae: jax.Array,
-        transition,
-    ) -> tuple[jax.Array, jax.Array]:
-        reward, value, next_value, terminated, truncated = transition
-
-        next_state_is_non_terminal = 1.0 - terminated
-        episode_continues = 1 - jnp.logical_or(terminated, truncated)
-
-        delta = reward + gamma * next_value * next_state_is_non_terminal - value
-        gae = delta + gamma * gae_lambda * episode_continues * gae
-
-        return gae, gae
-
-    # Unrolled: the same operations in fewer loop iterations. On a GPU each
-    # iteration of this small body costs a few kernel launches: a rollout of
-    # 2048 steps took about 22 ms rolled and 2 ms unrolled (GTX 1080 Ti, 10
-    # seeds); on a CPU either takes under 0.5 ms, with the same advantages to
-    # the bit.
-    _, advantages = jax.lax.scan(
-        f=_get_advantages,
-        init=jnp.zeros_like(values[-1]),
-        xs=(rewards, values, next_values, terminateds, truncateds),
-        reverse=True,
-        unroll=16,
-    )
-    returns = advantages + values
-    return advantages, returns
-
-
 def compute_value_loss(
     critic_params: FrozenDict,
     critic_state: LoadedTrainState,

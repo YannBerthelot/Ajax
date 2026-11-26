@@ -36,7 +36,7 @@ def test_a_run_reports_the_steps_its_networks_took() -> None:
         actor_architecture=net,
         critic_architecture=net,
     )
-    state, _ = agent.train(seed=0, n_timesteps=16)
+    state, _ = agent.train(seed=0, n_timesteps=16, logging_config=None)
     assert conftest._updates == int(np.max(np.asarray(state.critic_state.step))) == 4
 
 

@@ -54,7 +54,7 @@ def _windows(stored_state: bool) -> Any:
         sequence_length=8,
         stored_state=stored_state,
     )
-    state, _ = agent.train(seed=0, n_timesteps=400)
+    state, _ = agent.train(seed=0, n_timesteps=400, logging_config=None)
     state = jax.tree.map(lambda leaf: leaf[0], state)  # the one seed
     batch, _ = sample_and_burnin_sequences(
         state, agent.buffer, jax.random.PRNGKey(1), 0, stored_state=stored_state

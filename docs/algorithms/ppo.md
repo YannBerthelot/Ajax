@@ -96,12 +96,39 @@ network shared by the actor and the critic. The learning rate stays constant,
 as the defaults keep MuJoCo's. Atari's frame skip, frame stack and reward
 clipping are the environment's.
 
+`PPO.preset("SB3", env_id)` is for settings brought from Stable-Baselines3
+or SBX: it is SB3's PPO defaults (2.9.0, `ppo/ppo.py:84-95`) in Ajax's names.
+Ajax's own defaults follow OpenAI Baselines' ppo2, which differs from SB3 in
+three ways that change results, and the preset sets each to SB3's:
+
+| | Ajax's default (ppo2) | SB3 and SBX | The preset sets |
+|---|---|---|---|
+| Value loss | clipped around the rollout's value | not clipped (`clip_range_vf=None`) | `clip_value_loss=False` |
+| Observations and rewards | normalised (ppo2's `VecNormalize`) | as the environment gives them | `normalize_observations=False`, `normalize_rewards=False` |
+| `vf_coef` | weighs half the squared error | weighs the whole squared error | `vf_coef=1.0` for SB3's 0.5 |
+
+On CartPole, with SBX's settings but Ajax's value-loss clip left on, returns
+kept dipping after reaching 500; without it they stayed there, as SBX's did.
+
+Three things stay yours to set or cannot be matched:
+
+- **Minibatches.** SB3's `batch_size=64` is a minibatch's size. In Ajax it
+  gives 32 minibatches whatever `n_envs` is (see Notes), which is SB3's 64
+  samples with one environment only. With `n_envs=N`, pass
+  `num_minibatches=n_steps * N // 64` for minibatches of 64.
+- **SBX's networks.** SBX starts its layers as flax does
+  (`encoder_kernel_init="lecun_normal()"` matches the hidden ones) and clips
+  each network's gradient on its own; Ajax, as SB3, starts them orthogonal
+  and clips the two together.
+- **Adam.** Ajax's PPO steps TensorFlow 1's form of Adam, as ppo2; SB3 and
+  SBX step the usual one. The two differ over the first few thousand steps.
+
 ## Notes
 
 - **`batch_size` sets the number of minibatches, not their size.** Unless
   `num_minibatches` is positive, the rollout of `n_steps * n_envs` samples
   splits into `max(n_steps, batch_size) // min(n_steps, batch_size)`
-  minibatches. With the defaults that is 32 minibatches of 256 samples
+  minibatches. With the defaults that is 32 minibatches of 64 samples
   (`batch_size * n_envs`). This differs from Stable-Baselines3, where
   `batch_size` is the minibatch size.
 - **Shuffling.** Every epoch draws a new split of the rollout into

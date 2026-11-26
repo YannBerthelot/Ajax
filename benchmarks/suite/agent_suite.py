@@ -108,6 +108,13 @@ BENCHMARKS = {
         n_envs=10,
     ),
     "PPO": cheetah("one env, as the PPO paper's MuJoCo runs", n_envs=1),
+    "REINFORCE": cheetah(
+        "one env of 4,000-step rollouts, Spinning Up's vpg() defaults: 256"
+        " rollouts (2^20 is no whole number of them), evaluated every 8",
+        budget=256 * 4000,
+        eval_every=8 * 4000,
+        n_envs=1,
+    ),
     # Replay latents in host memory give the same numbers and cut GPU memory
     # from about 8.7 to 0.7 GB per seed, so 10 seeds fit one job (PR #426).
     "DreamerV3": cheetah(
@@ -169,7 +176,8 @@ GYMNASIUM_MUJOCO_FIXED_LENGTH = (
     "mujoco:Pusher-v5",
 )
 #: The ones whose episodes end when the body falls. Paper-era TD-MPC2 refuses
-#: them (it supports no terminations), so it runs on the tasks above only.
+#: them (it supports no terminations): it runs them in the latest code's
+#: episodic mode (owner, 2026-11-20).
 GYMNASIUM_MUJOCO_TERMINATING = (
     "mujoco:Hopper-v5",
     "mujoco:Walker2d-v5",
@@ -195,6 +203,21 @@ BENCHMARKS.update(
     )
 )
 BENCHMARKS.update(on_more_tasks(("TDMPC2",), GYMNASIUM_MUJOCO_FIXED_LENGTH))
+BENCHMARKS.update(
+    {
+        label: dataclasses.replace(
+            benchmark,
+            reason=benchmark.reason
+            + "; the latest code's episodic mode (deviation T29), the paper-era"
+            " agent refusing terminations; its budget counts rows, env steps plus"
+            " one per finished episode",
+            options={**benchmark.options, "episodic": True},
+        )
+        for label, benchmark in on_more_tasks(
+            ("TDMPC2",), GYMNASIUM_MUJOCO_TERMINATING
+        ).items()
+    }
+)
 #: The other MinAtar games gymnax runs.
 BENCHMARKS.update(
     on_more_tasks(
@@ -343,7 +366,10 @@ def time_agent(label: str, n_seeds: int, steps: int, physics: str = "jax") -> di
     spans.clear()
     began = time.perf_counter()
     state, _ = agent.train(
-        seed=seeds, n_timesteps=warm_up, total_timesteps=benchmark.budget
+        seed=seeds,
+        n_timesteps=warm_up,
+        total_timesteps=benchmark.budget,
+        logging_config=None,
     )
     warm_up_s = time.perf_counter() - began
     compile_s = covered_seconds(spans)
@@ -354,6 +380,7 @@ def time_agent(label: str, n_seeds: int, steps: int, physics: str = "jax") -> di
         n_timesteps=measured,
         total_timesteps=benchmark.budget,
         initial_state=state,
+        logging_config=None,
     )
     exec_s = time.perf_counter() - began - covered_seconds(spans)
     return {

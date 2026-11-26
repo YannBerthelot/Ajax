@@ -103,7 +103,7 @@ def test_rows_hold_the_experts_label_whoever_acted(iteration_steps, expert_acts)
         batch_size=16,
         buffer_size=64,
     )
-    state, _ = agent.train(seed=[0], n_timesteps=32)
+    state, _ = agent.train(seed=[0], n_timesteps=32, logging_config=None)
     np.testing.assert_allclose(replay(state)["a_expert"], 0.25, rtol=1e-6)
     later = replay(state, first=1)  # the first tick has beta 1 either way
     np.testing.assert_array_equal(later["is_expert"], float(expert_acts))
@@ -118,7 +118,7 @@ def test_a_discrete_run_stores_integer_actions_and_labels():
         batch_size=4,
         buffer_size=64,
     )
-    state, _ = agent.train(seed=[0], n_timesteps=32)
+    state, _ = agent.train(seed=[0], n_timesteps=32, logging_config=None)
     rows = replay(state)
     assert rows["action"].dtype == rows["a_expert"].dtype == np.int32
     np.testing.assert_array_equal(rows["a_expert"], 1)
@@ -150,7 +150,7 @@ def test_the_actor_learns_the_experts_labels_not_the_actions_taken(env_id, fit):
     # (collection stores its actions in the replay's layout).
     first_expert = push if continuous else choose_one
     init, _ = DAgger(env_id, expert_policy=first_expert, **kwargs).train(
-        seed=[0], n_timesteps=0
+        seed=[0], n_timesteps=0, logging_config=None
     )
     if continuous:
         expert, label = push, 0.25
@@ -158,7 +158,7 @@ def test_the_actor_learns_the_experts_labels_not_the_actions_taken(env_id, fit):
         label = 1 - int(_pi(init, jnp.zeros((1, 4))).mode()[0])
         expert = lambda obs: jnp.full(obs.shape[:-1] + (1,), label, jnp.int32)  # noqa: E731
     state, _ = DAgger(env_id, expert_policy=expert, **kwargs).train(
-        seed=[0], n_timesteps=64
+        seed=[0], n_timesteps=64, logging_config=None
     )
     obs = replay(state)["obs"]
     if continuous:
@@ -207,7 +207,7 @@ def test_a_fit_ends_each_iteration_with_epochs_over_every_stored_row(
         buffer_size=1000,
         fit=IterationFit(),
     )
-    state, _ = agent.train(seed=[0], n_timesteps=n_timesteps)
+    state, _ = agent.train(seed=[0], n_timesteps=n_timesteps, logging_config=None)
     np.testing.assert_array_equal(state.n_updates, fits)
     assert actor_steps(state) == steps
 
@@ -228,11 +228,19 @@ def test_a_run_resumed_between_fits_fits_as_one_call_does():
         buffer_size=128,
         fit=IterationFit(epochs=1),
     )
-    one_call, _ = agent.train(seed=[0], n_timesteps=64, total_timesteps=64)
-    first, _ = agent.train(seed=[0], n_timesteps=32, total_timesteps=64)
+    one_call, _ = agent.train(
+        seed=[0], n_timesteps=64, total_timesteps=64, logging_config=None
+    )
+    first, _ = agent.train(
+        seed=[0], n_timesteps=32, total_timesteps=64, logging_config=None
+    )
 
     resumed, _ = agent.train(
-        seed=[0], n_timesteps=32, total_timesteps=64, initial_state=first
+        seed=[0],
+        n_timesteps=32,
+        total_timesteps=64,
+        initial_state=first,
+        logging_config=None,
     )
 
     jax.tree.map(
@@ -286,7 +294,7 @@ def test_an_iteration_fit_actor_starts_as_the_references_gaussian():
     log-std is one parameter per action dimension starting at 0, so its std
     is 1 at every state."""
     state, _ = DAgger("Pendulum-v1", expert_policy=push, fit=IterationFit()).train(
-        seed=[0], n_timesteps=0
+        seed=[0], n_timesteps=0, logging_config=None
     )
     obs = jax.random.normal(jax.random.PRNGKey(0), (8, 3)) * 5.0
     np.testing.assert_allclose(_pi(state, obs).stddev(), 1.0)
@@ -294,7 +302,7 @@ def test_an_iteration_fit_actor_starts_as_the_references_gaussian():
 
 @pytest.mark.parametrize(
     "fit, spread",
-    list(zip(FITS, [(0.7, 1.3), (0.0, 0.0)], strict=True)),
+    list(zip(FITS, [(0.7, 1.3), (0.0, 1e-6)], strict=True)),
     ids=FIT_NAMES,
 )
 def test_the_actor_acts_by_sampling_under_an_iteration_fit(fit, spread):
@@ -302,7 +310,13 @@ def test_the_actor_acts_by_sampling_under_an_iteration_fit(fit, spread):
     samples (dagger.py:511): where the actor acted, the stored action is a
     draw around its mean, of std 1 at its start (62 rows: within 0.3). An
     OnlineFit's actor acts with its mean. A batch of 64 holds the fits back
-    to the last tick."""
+    to the last tick.
+
+    The mean is recomputed here by another compiled program than the one
+    that stored the action, so the two can differ in float32's last digits
+    (2.4e-7 at Pendulum's largest action, 2; seen: a std of 5e-10 on the
+    newest dependencies): 1e-6 allows that and is far below a sampled
+    action's spread."""
     agent = DAgger(
         "Pendulum-v1",
         expert_policy=push,
@@ -314,7 +328,7 @@ def test_the_actor_acts_by_sampling_under_an_iteration_fit(fit, spread):
         actor_learning_rate=0.0,
         fit=fit,
     )
-    state, _ = agent.train(seed=[0], n_timesteps=64)
+    state, _ = agent.train(seed=[0], n_timesteps=64, logging_config=None)
     rows = replay(state, first=1)  # the actor acts from the second tick
     np.testing.assert_array_equal(rows["is_expert"], 0.0)
     residual = rows["action"] - np.asarray(_pi(state, rows["obs"]).mean())

@@ -130,9 +130,10 @@ def test_config_defaults_are_the_paper_defaults(paper_config):
     """Every ``TDMPC2Config`` default is ``config.yaml``'s (the 5M model); the
     episodic mode's, which the paper era lacks, are the latest
     ``config.yaml``'s (``e9f5932``: ``episodic: false``, ``termination_coef:
-    1``; deviation T29)."""
+    1``; deviation T29). config.yaml names no compute dtype: the paper era
+    computes in float32 (tdmpc2_spec 1.26)."""
     default = TDMPC2Config()
-    latest = {"episodic": False, "termination_coef": 1.0}
+    latest = {"episodic": False, "termination_coef": 1.0, "compute_dtype": "float32"}
     names = [f.name for f in dataclasses.fields(default) if f.name not in latest]
     assert {n: getattr(default, n) for n in names} == {
         n: paper_config[n] for n in names

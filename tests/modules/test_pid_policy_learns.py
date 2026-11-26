@@ -52,7 +52,9 @@ def test_the_fixed_gains_learn_the_deadbeat_pid(name):
     agent = agent_cls(
         env, env_params=params, extensions=(setpoint_env.TERMS,), **COMMON, **kwargs
     )
-    state, _ = agent.train(seed=SEEDS, n_timesteps=steps, num_episode_test=4)
+    state, _ = agent.train(
+        seed=SEEDS, n_timesteps=steps, num_episode_test=4, logging_config=None
+    )
     gains = pid_gains(state.actor_state.params)
     for gain, best in setpoint_env.BEST_GAINS.items():
         learned = np.asarray(gains[gain]).reshape(len(SEEDS))

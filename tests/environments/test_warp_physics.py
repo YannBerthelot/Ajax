@@ -25,6 +25,7 @@ import pytest
 from ajax import APO, PPO, SAC
 from ajax.agents.DreamerV3.DreamerV3 import DreamerV3
 from ajax.agents.TDMPC2.TDMPC2 import TDMPC2
+from ajax.checkpoint import save_checkpoint
 from ajax.environments.create import build_env_from_id
 from ajax.logging import LoggingConfig
 from tests.agents.DreamerV3.test_dreamerv3_agent import TINY as DREAMER_TINY
@@ -182,4 +183,25 @@ def test_an_agent_trains_on_warp_physics(name: str):
 
     returns = np.asarray(evaluations["Eval/episodic mean reward"])
     assert returns.shape[0] == 2
+    assert np.all(np.isfinite(returns[:, -1]))
+
+
+@pytest.mark.slow
+def test_tdmpc2s_episodic_mode_returns_a_state_that_saves_on_warp(tmp_path):
+    """TD-MPC2's episodic mode on Hopper with one env, as the benchmark runs
+    it: the state it returns holds arrays, so it saves. Its held envs once
+    restored MuJoCo Warp's batch-wide contact counters as if they were per
+    env, and the state came back holding a leaked tracer."""
+    env, _ = build_env_from_id("mujoco:Hopper-v5", n_envs=1, physics="warp")
+    agent = TDMPC2(env, n_envs=1, episodic=True, **{**TDMPC2_TINY, "seed_steps": 256})
+
+    state, evaluations = agent.train(
+        seed=[0, 1],
+        n_timesteps=N_TIMESTEPS,
+        num_episode_test=2,
+        logging_config=LoggingConfig(log_frequency=N_TIMESTEPS // 2, backends=()),
+    )
+
+    save_checkpoint(state, str(tmp_path / "state.pkl"))
+    returns = np.asarray(evaluations["Eval/episodic mean reward"])
     assert np.all(np.isfinite(returns[:, -1]))

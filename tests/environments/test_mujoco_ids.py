@@ -59,10 +59,11 @@ def test_the_evaluation_rebuild_keeps_the_task_and_its_time_limit():
     assert evaluation_env.episode_length == 50
 
 
-# Pusher's motors take +-2 and InvertedPendulum's +-3, so a missing mapping
-# shows; gymnasium-mjx's own tests check every task's bounds (the Humanoids'
-# +-0.4 included), and its adapter does the mapping for all of them.
-@pytest.mark.parametrize("task_id", ["Pusher-v5", "InvertedPendulum-v5"])
+# InvertedPendulum's motor takes +-3, so a missing mapping shows; gymnasium-mjx's
+# own tests check every task's bounds (the Humanoids' +-0.4 included), and its
+# adapter does the mapping for all of them. Not Pusher: at the floors (MuJoCo
+# 3.7) its first step compiles for about 30 minutes.
+@pytest.mark.parametrize("task_id", ["InvertedPendulum-v5"])
 def test_an_agents_action_drives_the_motors_across_gymnasiums_action_space(task_id):
     space = gymnasium.make(task_id).action_space
     env, env_params = build_env_from_id(f"mujoco:{task_id}", n_envs=3)

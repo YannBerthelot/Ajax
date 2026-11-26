@@ -162,7 +162,10 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list) -> None:
     if config.getoption("--shard-by") == "file":
         picked = shards.assign_files(nodeids, shards.load(shards.FILE_DURATIONS), n)
     elif config.getoption("--shard-by") == "group":
-        groups = [i.stash.get(_GROUP, nodeid) for i, nodeid in zip(items, nodeids, strict=True)]
+        groups = [
+            i.stash.get(_GROUP, nodeid)
+            for i, nodeid in zip(items, nodeids, strict=True)
+        ]
         picked = shards.assign_groups(nodeids, groups, shards.load(), n)
     else:
         picked = shards.assign(nodeids, shards.load(), n)

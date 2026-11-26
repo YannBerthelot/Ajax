@@ -170,6 +170,11 @@ def _setup(name: str) -> tuple[Any, Any, dict, int]:
     return cls, env_id, kwargs, n_timesteps
 
 
+#: Each agent's tests read one cached run (``_run``): under CI's --dist
+#: loadgroup they go to one xdist worker (tests/conftest.py, xdist_group).
+SHARED_RUNS = "case"
+
+
 @functools.cache
 def _run(name: str) -> SimpleNamespace:
     cls, env_id, kwargs, n_timesteps = _setup(name)

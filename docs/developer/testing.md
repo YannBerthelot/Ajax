@@ -209,14 +209,15 @@ runs on CPU for every pull request and every push to `main`:
 | Job | What it runs |
 | --- | --- |
 | Pre-commit | ruff lint, ruff-format and mypy on every file |
-| Tests (4 shards) | the tests not marked slow (the probing harness's checks among them), conformance excluded, under coverage, a pytest-xdist worker per vCPU, at XLA optimisation level 0, on arm64 runners. The shards split the test files by recorded time (`--shard I/4 --shard-by file`, `tests/.file_durations`); a file without a recorded time still lands in one, so a new test file always runs somewhere |
-| Coverage | the four shards' data combined; fails below 90% |
+| Tests (6 shards) | the tests not marked slow (the probing harness's checks among them), conformance excluded, under coverage, a pytest-xdist worker per vCPU, at XLA optimisation level 0, on arm64 runners. The shards split the test files by recorded time (`--shard I/6 --shard-by file`, `tests/.file_durations`); a file without a recorded time still lands in one, so a new test file always runs somewhere |
+| Coverage | the six shards' data combined; fails below 90% |
 | Conformance | `tests/conformance`: one training step of each agent that has a check against its original implementation (above) |
 | Docs | `mkdocs build --strict` with the `docs` group alone: a broken link, a page left out of the navigation or a docstring naming a parameter the signature lacks fails it |
 | Lint and Test | passes only when every job above passed; the one check branch protection requires |
 
 The *Slow tier* workflow ([`slow.yml`](../../.github/workflows/slow.yml))
-runs the slow tier in six shards: daily on `main` when it changed, by hand,
+runs the slow tier in six shards of two xdist workers, a probe case's tests
+on one worker (they read one cached training): daily on `main` when it changed, by hand,
 and on a pull request each time the label `run-slow-tier` is added. A red run
 on `main` opens an issue and, when that is cheap, bisects the merges since
 the last green run. The *Release* workflow tags a version only once the slow

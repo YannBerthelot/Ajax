@@ -534,10 +534,11 @@ running experiment; elsewhere set `JAX_PLATFORMS=cpu` while a GPU is busy.
 
 **CI** ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs the fast
 tier on CPU for every pull request and push to `main`: *Pre-commit*; *Tests*
-(four shards: the tests not marked slow, the probing harness's checks among
-them, under coverage, a pytest-xdist worker per vCPU, at XLA's optimisation
+(six shards: the tests not marked slow, the probing harness's checks among
+them, under coverage on Python 3.14, which measures branches through
+`sys.monitoring` at almost no cost, a pytest-xdist worker per vCPU, at XLA's optimisation
 level 0 since these programs are tiny; the shards split the test files by
-recorded time, `--shard I/4 --shard-by file`, `tests/.file_durations`,
+recorded time, `--shard I/6 --shard-by file`, `tests/.file_durations`,
 `make file-durations`, and a file without a time still lands in one);
 *Coverage* (the shards
 combined, at least 90%); *Conformance* (each agent's training step against
@@ -549,8 +550,9 @@ the CPU).
 
 The *Slow tier* workflow ([slow.yml](.github/workflows/slow.yml)) runs
 everything that trains (`pytest -m slow`) on x86, the platform most users
-train on, in six shards by recorded duration (`--shard I/N`,
-`tests/.durations`, `make durations`): daily on main when main changed, by
+train on, in six shards by recorded duration (`--shard I/N --shard-by group`,
+`tests/.durations`, `make durations`), with a probe case's tests on one shard
+and one of its two xdist workers, since they read one cached training: daily on main when main changed, by
 hand, and on a pull request each time the label `run-slow-tier` is added. A
 pull request that changes how an agent trains gets the label before it
 merges. A red run on main opens an issue, and bisects the merges since the
@@ -624,7 +626,7 @@ lock.
   twice without the lock: at the newest versions allowed, on the newest
   Python, and with every direct dependency at its floor
   (`uv sync --resolution lowest-direct`), on the oldest. Each runs split
-  across four runners by file, as CI's test shards are.
+  across six runners by file, from the recorded times CI's test shards use.
 - **The lock is refreshed monthly** by Dependabot
   ([dependabot.yml](.github/dependabot.yml)), the JAX stack in one pull
   request.

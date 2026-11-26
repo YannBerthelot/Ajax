@@ -17,7 +17,7 @@ help:  ## Show this help message
 # ---------------------------------------------------------------------------
 # Canonical local-CI -- mirrors .github/workflows/ci.yml (the pull-request
 # gate, `ci`) and slow.yml (the slow tier, `ci-slow`): the same commands, CPU
-# environment and markers. CI splits ci-test across four runners and only
+# environment and markers. CI splits ci-test across six runners and only
 # adds reporting flags (--durations, -v). Use these instead of ad-hoc
 # commands so the local checks match what merges.
 # ---------------------------------------------------------------------------
@@ -31,11 +31,11 @@ ci-precommit:  ## pre-commit on all files (ruff lint + ruff-format + mypy)
 
 ci-test:  ## The fast tier: tests not marked slow (conformance aside) + coverage >= 90, one worker per core
 	uv run coverage erase
-	$(CPU_ENV) $(FAST_XLA) uv run pytest -n auto --cov --cov-report= --cov-fail-under=0 -m "not slow" --ignore=tests/conformance
+	$(CPU_ENV) $(FAST_XLA) uv run pytest -n auto --dist loadgroup --cov --cov-report= --cov-fail-under=0 -m "not slow" --ignore=tests/conformance
 	uv run coverage report --fail-under=90
 
 ci-slow:  ## The slow tier: every test that trains (tests/probing and the tests marked slow), without coverage
-	$(CPU_ENV) uv run pytest -m slow
+	$(CPU_ENV) uv run pytest -m slow -n 2 --dist loadgroup
 
 ci-probe:  ## Cross-agent probing tests (the known-answer probes)
 	$(CPU_ENV) uv run pytest tests/probing

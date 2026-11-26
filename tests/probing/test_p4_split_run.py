@@ -109,6 +109,11 @@ EQUIVALENT = {
     "PQN": Split(_make("PQN", PV, {**EPS, "num_minibatches": 2}), 768, 256, 512),
     "PPO": Split(_make("PPO", RD, NETS), 640, 320, 320),
     "UDRL": Split(_make("UDRL", PV, UDRL_KW), 128, 64, 64),
+    # Four 32-step rollouts, split after the second (REINFORCE updates once
+    # per rollout); no preset, so the run is the agent's own maths.
+    "REINFORCE": Split(
+        _make("REINFORCE", RD, {**NETS, "n_steps": 32}, None), 128, 64, 64
+    ),
     "DAgger": Split(_make("DAgger", RD, DAGGER_KW), 128, 64, 64),
     # IQL's run is short for the same reason as PQN's: at 400 steps its value
     # network rounded past the tolerance under JAX 0.11 (3.1 of it on macOS

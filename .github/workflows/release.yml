@@ -36,6 +36,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           fetch-depth: 0
       - id: check
         env:
@@ -100,10 +101,11 @@ jobs:
           ref: ${{ needs.check.outputs.sha }}
       - env:
           VERSION: ${{ inputs.version }}
+          SHA: ${{ needs.check.outputs.sha }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -a "v$VERSION" -m "Ajax $VERSION" "${{ needs.check.outputs.sha }}"
+          git tag -a "v$VERSION" -m "Ajax $VERSION" "$SHA"
           git push origin "v$VERSION"
 
   # Trusted publishing: PyPI accepts uploads from this workflow in the pypi
@@ -139,6 +141,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           ref: v${{ inputs.version }}
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -189,6 +192,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           ref: v${{ inputs.version }}
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:

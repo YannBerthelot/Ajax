@@ -7,6 +7,9 @@ updates:
     directories: ["/", "/.github/actions/*"]
     schedule:
       interval: monthly
+    # Wait a week after a release: most bad releases are pulled within days.
+    cooldown:
+      default-days: 7
     groups:
       actions:
         patterns: ["*"]
@@ -14,6 +17,9 @@ updates:
     directory: /
     schedule:
       interval: monthly
+    # Wait a week after a release: most bad releases are pulled within days.
+    cooldown:
+      default-days: 7
     versioning-strategy: lockfile-only
     groups:
       # Released together and often coupled: one pull request.

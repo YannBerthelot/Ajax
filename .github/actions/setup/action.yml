@@ -34,4 +34,8 @@ runs:
 
     - name: Install dependencies and the project
       shell: bash
-      run: ${{ inputs.sync }}
+      env:
+        SYNC: ${{ inputs.sync }}
+      # The command comes from the calling workflow; through env, so that the
+      # script text is never built from expression values.
+      run: eval "$SYNC"

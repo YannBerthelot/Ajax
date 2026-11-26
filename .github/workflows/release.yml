@@ -98,6 +98,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # This job pushes, so it keeps the token.
+          persist-credentials: true # zizmor: ignore[artipacked]
           ref: ${{ needs.check.outputs.sha }}
       - env:
           VERSION: ${{ inputs.version }}

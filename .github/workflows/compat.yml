@@ -45,10 +45,13 @@ jobs:
   # week from 2026-11-16 ("lost communication with the server", then a
   # shutdown signal at 81% on 2026-11-26): four JAX workers running ~1,200
   # tests each starved a 16 GB runner. A shard's workers run a quarter of
-  # that, and the lowest runs three workers, not one per vCPU.
+  # that, and the lowest runs three workers, not one per vCPU. On GitHub's
+  # arm64 runners, as CI's test shards: moving those from x86 took their cold
+  # shards from 21-38 to 8-13 min (PR #226), and these jobs are always cold
+  # (the versions differ from the lock's, so no compile cache is kept).
   compat:
     name: Compatibility (${{ matrix.name }}, shard ${{ matrix.shard }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 90
     strategy:
       fail-fast: false

@@ -39,25 +39,28 @@ env:
   JAX_PLATFORM_NAME: cpu
 
 jobs:
-  # Split across four runners by file, as CI's test shards are (from the
+  # Split across six runners by file, as CI's test shards are (from the
   # recorded times, tests/.file_durations). In one job per version set, the
   # newest took 1 h 10-1 h 17 and the lowest's runner died at 1.5-2 h every
   # week from 2026-11-16 ("lost communication with the server", then a
   # shutdown signal at 81% on 2026-11-26): four JAX workers running ~1,200
-  # tests each starved a 16 GB runner. A shard's workers run a quarter of
+  # tests each starved a 16 GB runner. A shard's workers run a sixth of
   # that, and the lowest runs three workers, not one per vCPU. On GitHub's
   # arm64 runners, as CI's test shards: moving those from x86 took their cold
   # shards from 21-38 to 8-13 min (PR #226), and these jobs are always cold
   # (the versions differ from the lock's, so no compile cache is kept).
+  # Six shards, not four: on arm64 the lowest's four took 16-19 min and two
+  # of their runners still died of memory, at 64% and 93% (2026-11-26), as a
+  # worker grows with every test it runs. A shard that passes 40 min hangs.
   compat:
     name: Compatibility (${{ matrix.name }}, shard ${{ matrix.shard }})
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 90
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
         name: [newest, lowest]
-        shard: [1, 2, 3, 4]
+        shard: [1, 2, 3, 4, 5, 6]
         include:
           - name: newest
             python: "3.14"
@@ -100,7 +103,7 @@ jobs:
           XLA_FLAGS: --xla_backend_optimization_level=0 --xla_llvm_disable_expensive_passes=true
         run: >-
           uv run --no-sync pytest tests -m "not slow"
-          --shard ${{ matrix.shard }}/4 --shard-by file -n ${{ matrix.workers }} --dist loadgroup
+          --shard ${{ matrix.shard }}/6 --shard-by file -n ${{ matrix.workers }} --dist loadgroup
           --ignore=tests/probing
           --ignore=tests/conformance
           --ignore=tests/agents/test_agent_pins.py

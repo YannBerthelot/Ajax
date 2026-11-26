@@ -135,6 +135,20 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list) -> None:
     items[:] = [i for i, keep in zip(items, mine, strict=False) if keep]
 
 
+def pytest_runtest_teardown(item: pytest.Item, nextitem: Optional[pytest.Item]) -> None:
+    """Drop the programs JAX compiled once a worker moves on to another file.
+    JAX keeps every program a process compiled, so a worker only grows: at
+    the dependency floors (JAX 0.10) the three workers of the compatibility
+    job's shard 4 reached 18.7 GB on bob and its 16 GB runner died twice
+    (2026-11-26); released between files, they held 14.1 GB over the same
+    tests, in no more time. A later file building the same program reads it
+    back from the persistent compile cache."""
+    if nextitem is None or nextitem.path != item.path:
+        import jax
+
+        jax.clear_caches()
+
+
 @pytest.hookimpl(hookwrapper=True)
 def pytest_runtest_protocol(item: pytest.Item, nextitem: Any) -> Any:
     global _updates

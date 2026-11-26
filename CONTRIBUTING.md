@@ -623,7 +623,8 @@ lock.
   slow every Monday, and on pull requests that change the dependencies,
   twice without the lock: at the newest versions allowed, on the newest
   Python, and with every direct dependency at its floor
-  (`uv sync --resolution lowest-direct`), on the oldest.
+  (`uv sync --resolution lowest-direct`), on the oldest. Each runs split
+  across four runners by file, as CI's test shards are.
 - **The lock is refreshed monthly** by Dependabot
   ([dependabot.yml](.github/dependabot.yml)), the JAX stack in one pull
   request.

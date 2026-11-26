@@ -8,6 +8,8 @@ PyPI as `ajax-rl`.
 
 The next release is 0.6.0: the first item changes results.
 
+- Ajax ships a `py.typed` marker (PEP 561), so mypy and pyright check calls
+  into Ajax against its annotations.
 - **Changes results: an agent's actions on `mujoco:InvertedPendulum-v5`
   and `mujoco:Pusher-v5` now span Gymnasium's action space.** Agents act
   in [-1, 1], and on `mujoco:` tasks that went to the motors unscaled.

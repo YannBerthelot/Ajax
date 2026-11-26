@@ -2,6 +2,14 @@
 # and releases). pyproject.toml's ranges stay as written: they change by hand.
 version: 2
 updates:
+  # The actions are pinned by commit; this keeps the pins current.
+  - package-ecosystem: github-actions
+    directories: ["/", "/.github/actions/*"]
+    schedule:
+      interval: monthly
+    groups:
+      actions:
+        patterns: ["*"]
   - package-ecosystem: uv
     directory: /
     schedule:

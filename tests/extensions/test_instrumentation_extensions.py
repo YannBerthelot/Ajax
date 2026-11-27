@@ -26,6 +26,7 @@ import pytest
 
 from ajax.agents.APG.APG import APG
 from ajax.agents.PPO.PPO import PPO
+from ajax.agents.SAC.SAC import SAC
 from ajax.extensions.capabilities import MissingCapability
 from ajax.extensions.instrumentation import (
     COND_METRIC_KEYS,
@@ -257,6 +258,18 @@ def test_critic_diagnostics_alone_keep_the_rollout_they_read():
     for key in COND_METRIC_KEYS:
         assert key in metrics, key
         assert np.isfinite(np.asarray(metrics[key])[evaluated]).all(), key
+
+
+@pytest.mark.parametrize("extension", [CriticDiagnostics, BiasVoreDecomposition])
+def test_a_replay_agents_measurements_read_its_own_replay(extension):
+    """Contract (docs/guide/extensions.md, "Measuring a replay agent's
+    critic"): without buffer=, a replay agent's measurements sample its
+    replay. Given nothing to read, they logged nothing."""
+    agent = SAC("Pendulum-v1", learning_starts=64, extensions=(extension(),))
+    logging = LoggingConfig(log_frequency=128, backends=())
+    _, evaluations = agent.train(seed=0, n_timesteps=128, logging_config=logging)
+    key = "Cond/critic_srank" if extension is CriticDiagnostics else "EVarEst/mse"
+    assert np.all(np.isfinite(np.asarray(evaluations[key])))
 
 
 def test_an_agent_with_neither_replay_nor_rollout_refuses_the_measurements():

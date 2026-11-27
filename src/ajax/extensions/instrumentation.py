@@ -27,7 +27,7 @@ maths are intentionally kept identical to the EVAREST sources.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Callable, ClassVar, Optional, Tuple
 
 import jax
@@ -136,7 +136,7 @@ def _sample_transitions(
     else:
         raise ValueError(
             "CriticDiagnostics / BiasVoreDecomposition need either a replay "
-            "buffer (off-policy, buffer=agent.buffer) or agent_state.last_rollout "
+            "(a replay agent's own, or buffer=) or agent_state.last_rollout "
             "(on-policy and incremental agents)."
         )
     n = math.prod(rows[0].shape[:-1])
@@ -256,9 +256,9 @@ class CriticDiagnostics(Extension):
     branch, the action is concatenated when the critic's parameters were
     built on the observation and action (:func:`critic_takes_action`).
 
-    Pass ``buffer=agent.buffer`` for off-policy agents whose buffer object
-    isn't on the agent state itself; on-policy and incremental agents keep
-    their last rollout for it.
+    A replay agent's measurements sample its own replay, unless buffer
+    names another; on-policy and incremental agents keep their last rollout
+    for them.
     """
 
     buffer: Any = None
@@ -268,6 +268,13 @@ class CriticDiagnostics(Extension):
     name: str = "conditioning_metrics"
     requires: ClassVar[frozenset[str]] = frozenset({"critic", "stored_steps"})
     reads_last_rollout: ClassVar[bool] = True
+
+    def bind_to_agent(self, **agent_context: Any) -> "CriticDiagnostics":
+        """The agent's own replay, when no buffer is given: a replay agent
+        passes it, and an on-policy agent has none (it keeps its rollout)."""
+        if self.buffer is not None or agent_context.get("buffer") is None:
+            return self
+        return replace(self, buffer=agent_context["buffer"])
 
     def _loc(self, agent_state: Any) -> str:
         if self.critic_loc != "auto":
@@ -375,6 +382,13 @@ class BiasVoreDecomposition(Extension):
     name: str = "bias_vore_decomposition"
     requires: ClassVar[frozenset[str]] = frozenset({"critic", "stored_steps"})
     reads_last_rollout: ClassVar[bool] = True
+
+    def bind_to_agent(self, **agent_context: Any) -> "BiasVoreDecomposition":
+        """The agent's own replay, when no buffer is given: a replay agent
+        passes it, and an on-policy agent has none (it keeps its rollout)."""
+        if self.buffer is not None or agent_context.get("buffer") is None:
+            return self
+        return replace(self, buffer=agent_context["buffer"])
 
     def _td_residual(
         self, agent_state: Any, transitions: Tuple[jax.Array, ...], rng: jax.Array
@@ -560,11 +574,12 @@ __all__ = [
 ]
 
 
+# ConditioningMetrics, CriticDiagnostics's old name, still imports, with a
+# warning, until a later release removes it (CLAUDE.md, refactoring rule 10:
+# expand, then contract). It is looked up when asked for, so the module's
+# members hold one class. A comment, not a docstring: the API reference
+# renders this module's documented functions, and this hook is none of them.
 def __getattr__(name: str) -> Any:
-    """ConditioningMetrics, CriticDiagnostics's old name, still imports, with
-    a warning, until a later release removes it (CLAUDE.md, refactoring rule
-    10: expand, then contract). It is looked up when asked for, so the
-    module's members hold one class."""
     if name == "ConditioningMetrics":
         warn_user(
             "ConditioningMetrics is now CriticDiagnostics; the old name still"

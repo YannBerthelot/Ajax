@@ -9,7 +9,7 @@ import jax
 import jax.numpy as jnp
 from jax.tree_util import Partial as partial
 
-from ajax.controller import init_observers, observe_features, _observe_inputs
+from ajax.controller import _observe_inputs, init_observers, observe_features
 from ajax.environments.interaction import (
     bootstrap_obs,
     get_final_obs,

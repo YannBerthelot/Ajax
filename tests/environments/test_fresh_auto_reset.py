@@ -18,7 +18,7 @@ import numpy as np
 import pytest
 from flax import struct
 
-from ajax.environments.create import build_env_from_id, _build_of
+from ajax.environments.create import _build_of, build_env_from_id
 from ajax.wrappers import FreshAutoResetWrapper, _call_if_any
 
 N_ENVS, EPISODE_LENGTH, N_STEPS, N_SEEDS = 2, 3, 9, 2  # 4 episode starts each

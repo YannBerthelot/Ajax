@@ -59,7 +59,7 @@ def test_playground_env_has_ajax_wrapper_stack():
     """``build_env_from_id`` must return a fully-wrapped env. Missing any
     wrapper in the stack manifests as cryptic vmap/rank errors deep inside
     SAC training; checking the outer type is a fast fail."""
-    from ajax.environments.create import build_env_from_id, _build_of
+    from ajax.environments.create import _build_of, build_env_from_id
     from ajax.wrappers import BatchRngWrapper
 
     env, _ = build_env_from_id(MULTI_DIM_ENV, n_envs=1, episode_length=200)

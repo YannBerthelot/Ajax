@@ -8,15 +8,15 @@ from jax.tree_util import Partial as partial
 
 from ajax.controller import (
     Controller,
+    _observe_inputs,
     call_expert,
     init_observers,
     observe_features,
-    _observe_inputs,
 )
 from ajax.environments.create import (
-    add_ajax_wrappers,
     _build_of,
     _rebuild_for_evaluation,
+    add_ajax_wrappers,
     strip_ajax_wrappers,
 )
 from ajax.environments.interaction import (

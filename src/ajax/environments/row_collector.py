@@ -85,8 +85,8 @@ import numpy as np
 from flax import struct
 
 from ajax.controller import (
-    observe_features,
     _observe_inputs,
+    observe_features,
     restart_observers,
 )
 from ajax.environments.create import _build_of

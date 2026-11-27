@@ -1,8 +1,9 @@
 # Quickstart
 
-This page trains an agent, reads its results, runs the trained policy and
-saves it. Each example runs on a laptop CPU in under a minute, compilation
-included.
+This page trains a first agent, reads its results, acts with the trained
+policy and saves it. It assumes Ajax is [installed](installation.md). Each
+example runs on a laptop CPU in under a minute, compilation included, and
+each builds on the ones before it.
 
 The same steps are a notebook,
 [`notebooks/quickstart.ipynb`](https://github.com/YannBerthelot/Ajax/blob/main/notebooks/quickstart.ipynb)
@@ -12,8 +13,8 @@ and complete scripts are in
 
 ## Train an agent
 
-An agent takes an environment id and its hyperparameters; `train` runs it.
-Here PPO learns CartPole with three seeds at once:
+An agent takes an environment id and its hyperparameters, and `train` runs
+it. Here PPO learns CartPole with three seeds at once:
 
 ```python
 from ajax import PPO
@@ -36,24 +37,25 @@ Done in 6.1 s. evaluations.returns has a row per seed and a column per evaluatio
 
 What happened:
 
-- `PPO("CartPole-v1", ...)` looked the id up in gymnax and built 8 copies of
-  the environment, which step in parallel inside each seed.
+- `PPO("CartPole-v1", ...)` found the id in
+  [gymnax](https://github.com/RobertTLange/gymnax), a library of
+  environments written in JAX, and built 8 copies of the environment, which
+  step in parallel within each seed.
 - `train` compiled the training, environment included, and ran the three
   seeds side by side. The first line's time includes the compilation.
-- Ten times over the run it evaluated each seed's policy on 10 test
+- Ten times over the run, it evaluated each seed's policy on 10 test
   episodes (`num_episode_test`) and printed their mean return, with the
-  lowest and highest seed. From the second evaluation, a line ends with the
-  time left, at the pace of the last interval between two evaluations.
+  lowest and highest seed. From the second evaluation on, a line ends with
+  the time left.
 
-`evaluations` holds what was printed, and every other logged value:
+## Read the results
+
+`evaluations` holds what was printed and every other logged value: a dict
+of each logged name to an array with a row per seed and a column per
+evaluation. `returns` and `timesteps` are the two most read:
 
 ```python
 import matplotlib.pyplot as plt
-
-from ajax import PPO
-
-agent = PPO("CartPole-v1", n_envs=8, n_steps=128)
-state, evaluations = agent.train(seed=[1, 2, 3], n_timesteps=40_960)
 
 steps = evaluations.timesteps  # [ 4096  8192 ... 40960]
 returns = evaluations.returns  # shape (3, 10): seeds x evaluations
@@ -65,113 +67,62 @@ plt.ylabel("evaluation return")
 plt.savefig("cartpole.png")
 ```
 
-It is a dict of every logged name to an array with one row per seed and one
-column per evaluation; `returns` and `timesteps` are its two most read
-entries. One seed has its row too: after `train(seed=0)`, the run's curve is
-`evaluations.returns[0]`. To choose when the evaluations come, or to log to TensorBoard or
-Weights & Biases, pass a `LoggingConfig` ([Logging](../guide/logging.md));
-`logging_config=None` trains with no evaluation and prints nothing, which is
-the fastest. [Training an agent](../guide/training.md) has the details.
-
-## JAX environments first, Gymnasium supported
-
-`"CartPole-v1"` above is [gymnax](https://github.com/RobertTLange/gymnax)'s
-CartPole, written in JAX, not Gymnasium's. **Ajax is meant to be used with
-JAX environments**: gymnax, Brax, MuJoCo Playground, Gymnasium's MuJoCo
-tasks in JAX (`"mujoco:<id>"`), or your own with gymnax's interface. The
-environment then compiles into the same program as the agent, and the whole
-run, every environment copy and every seed, stays on one device from start
-to end, a CPU or a GPU. That is where the speed comes from, and what the
-rest of this documentation assumes.
-
-**Gymnasium environments are supported too.** Ask for one with the
-`gymnasium:` prefix:
-
-```python
-from ajax import PPO
-
-agent = PPO("gymnasium:CartPole-v1", n_envs=8, n_steps=128)
-state, evaluations = agent.train(seed=[1, 2], n_timesteps=2_048)
-print(agent.evaluate(state, episodes=5).mean(axis=1))
-```
-
-The calls are the same, but the environment steps in Python:
-
-- every step leaves the compiled program and comes back, so training is
-  slower and a GPU does not help;
-- the seeds train one after another, not side by side;
-- some features refuse it (resuming from a saved state, action repeat,
-  gradients through the environment).
-
-Use it when your task has no JAX version, and a JAX environment whenever one
-exists. An id without the prefix never reaches Gymnasium, and building one
-warns that it steps in Python, naming the closest JAX tasks. Gymnasium's
-MuJoCo tasks need the `gymnasium` extra
-([Installation](installation.md#extras)).
-[Environments](../guide/environments.md) says where each source lists its
-ids, and
-[Gymnasium environments](../guide/environments.md#gymnasium-environments)
-the closest JAX task of each Gymnasium one.
+A single seed has its row too: after `train(seed=0)`, the run's curve is
+`evaluations.returns[0]`. To choose when the evaluations come, or to log to
+TensorBoard or Weights & Biases, pass a `LoggingConfig`
+([Logging](../guide/logging.md)). `logging_config=None` trains with no
+evaluation and prints nothing, which is the fastest.
+[Training an agent](../guide/training.md) has the details.
 
 ## Continuous actions
 
-The same pattern works for every agent. SAC on Pendulum:
+The same calls work for every agent. SAC on Pendulum:
 
 ```python
 from ajax import SAC
 
 # SAC waits learning_starts steps (10,000 by default) before its first update;
 # this short demonstration starts after 1,000.
-agent = SAC("Pendulum-v1", learning_starts=1_000)
-state, evaluations = agent.train(seed=[1, 2], n_timesteps=3_000)
+sac = SAC("Pendulum-v1", learning_starts=1_000)
+sac_state, sac_evaluations = sac.train(seed=[1, 2], n_timesteps=3_000)
 ```
 
 Three thousand steps show the mechanics, not a trained pendulum: give SAC
 tens of thousands of steps for that. The [algorithm pages](../algorithms/index.md)
-help pick an agent and list each one's defaults.
+help choose an agent and list each one's defaults.
 
 ## Use the trained policy
 
-`evaluate` runs fresh episodes of each seed's trained policy and
-returns their returns, one row per seed:
+`evaluate` plays fresh episodes with each seed's trained policy and returns
+their returns, a row per seed:
 
 ```python
-from ajax import PPO
-
-agent = PPO("CartPole-v1", n_envs=8, n_steps=128)
-state, _ = agent.train(seed=[0, 1], n_timesteps=16_384, logging_config=None)
-
-returns = agent.evaluate(state, episodes=20)  # shape (2, 20)
+returns = agent.evaluate(state, episodes=20)  # shape (3, 20)
 print(returns.mean(axis=1))  # each seed's score
 ```
 
-To watch it, `render` saves one episode of a seed's policy as an animation.
-It needs the `render` extra (`pip install "ajax-rl[render]"`):
+`render` saves one episode of a seed's policy as an animation, and returns
+its path. It needs the `render` extra (`pip install "ajax-rl[render]"`):
 
 ```python
-from ajax import PPO
-
-agent = PPO("CartPole-v1", n_envs=8, n_steps=128)
-state, _ = agent.train(seed=[0, 1], n_timesteps=16_384, logging_config=None)
-print(agent.render(state, "cartpole.gif", max_steps=100))  # where the GIF went
+print(agent.render(state, "cartpole.gif", max_steps=100))
 ```
 
 Drawing takes about a tenth of a second a frame, so `max_steps=100` keeps
-this to about ten seconds; without it the episode plays to its end, 500
+this to about ten seconds; without it, the episode plays to its end, 500
 steps for a policy that balances the pole.
-
-[Watch the policy](../guide/deploy.md#watch-the-policy) covers Brax and
-MuJoCo tasks.
+[Watch the policy](../guide/deploy.md#watch-the-policy) covers the other
+environments.
 
 To act in a loop of your own, `agent.predict(state, observation)` returns
 the first seed's action for an observation (`seed_index` picks another), in
-the environment's units, and
-`agent.policy(state)` carries a memory from step to step.
-[Train, evaluate, deploy](../guide/deploy.md) shows both.
+the environment's units. `agent.policy(state)` gives a policy that also
+carries a memory from step to step. [Train, evaluate, deploy](../guide/deploy.md)
+shows both.
 
 ## Save and load
 
-`agent.save` writes the state with the agent's class and arguments;
+`agent.save` writes the state with the agent's class and arguments, and
 `ajax.load` builds both again:
 
 ```python
@@ -179,32 +130,48 @@ import os
 import tempfile
 
 import ajax
-from ajax import PPO
 
-agent = PPO("CartPole-v1", n_envs=8, n_steps=128)
-state, _ = agent.train(seed=[0, 1], n_timesteps=8_192, logging_config=None)
 path = os.path.join(tempfile.mkdtemp(), "ppo_cartpole.pkl")
 agent.save(state, path)
 
 # Later, in another process.
 agent, state = ajax.load(path)
 print(agent.evaluate(state, episodes=5).mean(axis=1))
-state, _ = agent.train(seed=[0, 1], n_timesteps=8_192, initial_state=state)
+state, _ = agent.train(seed=[1, 2, 3], n_timesteps=8_192, initial_state=state)
 ```
 
+The last line trains the loaded run further.
 [Checkpoints and resuming](../guide/checkpoints.md) explains what a resume
 keeps, and which arguments must be passed again.
 
-## Where next
+## Gymnasium environments
 
-- [Train, evaluate, deploy](../guide/deploy.md): act with a trained policy in
-  a loop of your own, save it and load it elsewhere.
-- [Environments](../guide/environments.md): gymnax, Brax and MuJoCo
-  Playground ids, your own environments, normalisation and time limits.
-- [Networks and the PID policy](../guide/networks.md): layer sizes,
-  activations, encoders, and a policy that is a PID controller.
-- [Memory](../guide/memory.md): GRU, LSTM, transformer and Mamba blocks for
-  partially observed tasks.
-- [Extensions](../guide/extensions.md): learn from an expert, change the
-  critic's target, measure the critic.
-- [Logging](../guide/logging.md): Weights & Biases and TensorBoard.
+`"CartPole-v1"` above is gymnax's CartPole, not Gymnasium's. Ajax is meant
+for environments written in JAX: gymnax, Brax, MuJoCo Playground,
+Gymnasium's MuJoCo tasks in JAX (`"mujoco:<id>"`), or your own with gymnax's
+interface. The environment then compiles into the same program as the
+agent, and the whole run stays on one device, a CPU or a GPU: that is where
+the speed comes from.
+
+A [Gymnasium](https://gymnasium.farama.org) environment works with the same
+calls, asked for with the `gymnasium:` prefix:
+
+```python
+gymnasium_agent = PPO("gymnasium:CartPole-v1", n_envs=8, n_steps=128)
+gymnasium_state, _ = gymnasium_agent.train(seed=[1, 2], n_timesteps=2_048)
+print(gymnasium_agent.evaluate(gymnasium_state, episodes=5).mean(axis=1))
+```
+
+It steps in Python, so training is slower, a GPU does not help, the seeds
+train one after another, and some features refuse it. Use it when your task
+has no JAX version: building one warns that it steps in Python and names the
+closest JAX tasks. [Gymnasium environments](../guide/environments.md#gymnasium-environments)
+says what changes, and Gymnasium's MuJoCo tasks need the `gymnasium` extra
+([Installation](installation.md#extras)).
+
+## Next
+
+[Why Ajax](why-ajax.md) shows what else Ajax offers, and when another
+library fits better. Coming from Stable-Baselines3,
+[Coming from SB3](coming-from-sb3.md) puts its calls beside Ajax's. The user
+guide starts with [Training an agent](../guide/training.md).

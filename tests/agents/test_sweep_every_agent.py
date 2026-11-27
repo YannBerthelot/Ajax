@@ -11,7 +11,9 @@ sweeps"; ActorCritic.sweepable):
 - that member trains as a separate run built with the value does, up to
   float32 rounding, and as the same member of a sweep of the agent built
   with the value does: what the sweep sets is what construction would set;
-- every library agent has a row here or a stated reason for none.
+- every library agent has a row here or a stated reason for none, and
+  every agent with a row declares sweepable fields ("Every agent on the
+  shared training loop declares some").
 
 The values are half the agent's own: a learning rate, a discount, a
 coefficient and a noise scale all stay valid halved.
@@ -75,7 +77,7 @@ NO_ROW = {
 #: moved from the one that collected), so clip_range would reach nothing.
 BUILT_WITH: dict[str, dict[str, Any]] = {"PPO": {"n_epochs": 2}}
 
-SWEEPING = sorted(name for name, case in CASES.items() if case.cls.sweepable)
+SWEEPING = sorted(set(CASES).difference(NO_ROW))
 
 
 def build(case: Case, **fields: Any) -> Any:
@@ -110,6 +112,13 @@ def one_field_changes(agent: Any) -> tuple[list[str], list[dict[str, float]]]:
 def test_every_library_agent_has_a_row_or_a_reason() -> None:
     known = set(CASES).union(NO_ROW)
     assert {agent.__name__ for agent in library_agents()} <= known
+
+
+@pytest.mark.parametrize("name", SWEEPING)
+def test_every_agent_with_a_row_declares_sweepable_fields(name: str) -> None:
+    """Catches a declaration that never reaches its class (DQN's once sat
+    inside its docstring), which leaves the agent refusing every sweep."""
+    assert CASES[name].cls.sweepable, f"{name} declares no sweepable field"
 
 
 def test_a_mixins_fields_join_the_agents_own_less_those_it_refuses() -> None:

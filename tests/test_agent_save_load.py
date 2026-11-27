@@ -21,7 +21,7 @@ import pytest
 import ajax
 from ajax import PPO, SAC
 from ajax.checkpoint import agent_record, load, load_checkpoint, save_checkpoint
-from ajax.extensions.instrumentation import ConditioningMetrics
+from ajax.extensions.instrumentation import CriticDiagnostics
 from ajax.networks.memory import MemoryConfig
 from tests.probing import readouts
 
@@ -72,14 +72,14 @@ def test_another_class_s_file_is_refused(saved):
 def test_an_object_argument_is_passed_again(tmp_path):
     """Extensions are objects: the file names them, load refuses without
     them and builds the agent with those passed."""
-    agent = tiny_ppo(extensions=(ConditioningMetrics(),))
+    agent = tiny_ppo(extensions=(CriticDiagnostics(),))
     state, _ = agent.train(seed=0, n_timesteps=16, logging_config=None)
     path = str(tmp_path / "ppo.pkl")
     agent.save(state, path)
     with pytest.raises(ValueError, match="extensions"):
         ajax.load(path)
-    loaded_agent, _ = ajax.load(path, extensions=(ConditioningMetrics(),))
-    assert loaded_agent.extensions == (ConditioningMetrics(),)
+    loaded_agent, _ = ajax.load(path, extensions=(CriticDiagnostics(),))
+    assert loaded_agent.extensions == (CriticDiagnostics(),)
 
 
 def test_the_record_keeps_plain_arguments_and_names_the_objects():

@@ -1,54 +1,66 @@
 # Testing
 
-Ajax checks its code with two kinds of tests, and each answers a different
-question (the [conformance checks](#conformance-checks), below, are a third,
-against an agent's original implementation):
+Ajax checks itself in four ways:
 
-- **Unit tests** check one component against an exact contract, with no
-  learning. Where agents or extensions share a contract, the test is
-  generic: it runs every one of them, and a new agent or extension fails it
-  until it joins.
-- **Probes** are tiny generic environments with known answers. An agent
-  trains on one briefly, and the probe checks a capability of the whole
-  agent: that it learns the right value, picks the right action, counts the
-  right steps.
-
-Every test names the realistic bug it would catch, in its name or docstring.
-If you cannot name one, do not write the test. When a concern deserves
-protection, add a [planted fault](#planted-faults) and make sure a test
-catches it.
-
-A setting copied from a reference implementation (an ordering, a default, a
-constant) may have a test, which cites the reference. Whether a setting should
-follow the reference is a matter for code review.
-
-The two kinds do not overlap. A unit test can show that a TD target takes a
-`max` rather than a `mean`; it cannot show that the trained agent's values
-come out right, which needs the target, the buffer, the episode-end handling,
-the optimiser and the network to work together. A smoke test that trains on
-CartPole and checks the return proves little either: a broken agent often
-still solves CartPole.
+- **Unit tests** check each update's maths, and each component, against an
+  exact contract, with no learning: a TD target on a hand-built batch, a
+  loss's sign, GAE on a known trajectory.
+- **Probes** train an agent briefly on tiny environments whose answers are
+  known exactly, and check that it learns: the right value, the right
+  action, the right count of steps.
+- **Conformance tests** run one training step of an Ajax agent and of its
+  original implementation from the same state, with the same random
+  numbers, and compare the change each makes.
+- **Comparisons of learning results** train Ajax and a reference
+  implementation (Stable-Baselines3, Brax or the authors' code) on the same
+  task and budget, and let [AdaStop](../guide/comparing-agents.md) decide
+  how many seeds the answer takes. They are work in progress, run by hand
+  with [`benchmarks/reference`](../../benchmarks/reference/README.md) rather
+  than in CI; [Reproduction](../reproduction/index.md) has the protocol and
+  the results so far.
 
 Beside them, *pins* record what a tiny run produces today, so that a
-restructuring can show it changed nothing.
+restructuring can show it changed nothing. This page, for contributors, says
+where each kind lives, how CI runs it, and how to add a probe.
+
+## What a test is for
+
+Every test names the realistic bug it would catch, in its name or
+docstring. If you cannot name one, do not write the test. When a concern
+deserves protection, add a [planted fault](#planted-faults) and make sure a
+test catches it.
+
+A setting copied from a reference implementation (an ordering, a default, a
+constant) may have a test, which cites the reference. Whether a setting
+should follow the reference is a matter for code review.
+
+Unit tests and probes do not overlap. A unit test can show that a TD target
+takes a `max` rather than a `mean`; it cannot show that the trained agent's
+values come out right, which needs the target, the buffer, the episode-end
+handling, the optimiser and the network to work together. A smoke test that
+trains on CartPole and checks the return proves little either: a broken
+agent often still solves CartPole.
 
 ## Where the tests live
 
-| Kind | Where | CI job |
+| Kind | Where | Runs in |
 | --- | --- | --- |
 | Unit, one component | `tests/<area>/` (environments, networks, buffers, logging, ...), `tests/agents/<AGENT>/` | Tests |
-| Unit, generic contracts | `tests/agents/test_*_contract.py`, `tests/extensions/test_phase_contract.py`, `tests/extensions/test_no_silent_noop.py`, `tests/environments/test_wrapper_contract.py`, ... (below) | Tests, Slow tier |
+| Unit, generic contracts | `tests/agents/test_*_contract.py`, `tests/extensions/test_phase_contract.py`, `tests/extensions/test_no_silent_noop.py`, `tests/environments/test_wrapper_contract.py`, ... ([below](#generic-contracts)) | Tests, Slow tier |
 | Pins | `tests/agents/test_agent_pins.py`, `tests/agents/SAC/test_sac_parity.py`, `tests/extensions/test_sac_extensions_equivalence.py`, `tests/test_downstream_api.py` | Tests |
 | Slow | anywhere, marked `@pytest.mark.slow`: the option matrix, the resume contract, long trainings | Slow tier |
 | Probes | `tests/probing/` | Slow tier |
-| Conformance | `tests/conformance/` (below) | Conformance |
-| Learning checks | `benchmarks/world_models/learning_checks.py`: a world model learns its task at a small preset; hours on a CPU, run before merging such an agent | none |
+| Conformance | `tests/conformance/` | Conformance |
+| GPU | marked `@pytest.mark.large` (MuJoCo Warp) | by hand, on a GPU machine: CI's runners have none |
+| Learning checks | `benchmarks/world_models/learning_checks.py`: a world model learns its task at a small preset; hours on a CPU, run before merging such an agent | by hand |
 
 Every directory of `tests/` that holds Python files is a package, so tests
 import shared helpers by their full name (`from tests.environments.identity_env
 import IdentityEnv`); `tests/test_repo_hygiene.py` checks it.
 
-## The generic contract tests
+## Unit tests
+
+### Generic contracts
 
 These tests are written once and run over every agent, extension or wrapper
 that shares the contract. Each finds its subjects from the code (the
@@ -61,30 +73,31 @@ an episode with `c > 0` terminates at `t = 3`, the others are truncated at
 
 | Test | The contract |
 | --- | --- |
-| `tests/agents/test_agent_contract.py` | every agent on the shared loop builds its configs on each action space it acts in and refuses the other; a default run keeps no extension state; a run of two seeds and two envs folds its extensions in step and adds their metrics to every evaluation; the measurement extensions find its critic by themselves; the run config drops the instance; the evaluation key is apart from the training key, and each evaluation draws fresh keys; a continuous agent acts on the env's whole box; `episode_length` and `action_repeat` reach the env |
+| `tests/agents/test_agent_contract.py` | every agent on the shared loop builds its configs on each action space it acts in and refuses the other; a default run keeps no extension state; a run of two seeds and two envs folds its extensions in step and adds their metrics to every evaluation; the measurement extensions find its critic by themselves; the evaluation key is apart from the training key; a continuous agent acts on the env's whole box |
 | `tests/extensions/test_phase_contract.py` | for every agent and every phase it folds (`on_target`, `critic_loss`, `actor_loss`, `post_update`): each batch holds the keys the agent declares (`phase_batch_keys`) and the common ones; each fold gets a key of its own, never one the agent draws on; `critic_loss` gets the target `on_target` returned; a loss term moves the network it names, and that one only |
 | `tests/extensions/test_no_silent_noop.py` | every extension implementing `on_target`, `critic_loss` or `actor_loss` raises on a batch without what it reads, rather than return its input or 0 |
-| `tests/extensions/test_extension_phase_support.py` | each agent accepts exactly the phases it folds; a reader of phi\* needs `MCPretrain` |
+| `tests/extensions/test_extension_phase_support.py` | each agent accepts exactly the phases it folds and the capabilities it declares; an extension needing anything else is refused, naming it |
 | `tests/agents/test_compatibility.py` | every extension and network option (`memory`, `cnn`) on every agent, as the agent is built: it builds, or it is refused for a capability the algorithm lacks, or it is a gap pinned with the work that closes it; the matrix is [Compatibility](../guide/compatibility.md), rewritten with `AJAX_WRITE_COMPATIBILITY=1` |
 | `tests/environments/test_wrapper_contract.py` | every Ajax env wrapper survives copy, deepcopy and pickle, and reports the episode-end flags each step raised, alone and in the stacks `create.py` builds |
 | `tests/agents/test_transition_contract.py` | the transitions every agent hands `on_target` continue their own episode (a time-limited row's next observation is the final one, not the next episode's first), carry the flags the step raised, and carry the normalised rewards under reward normalisation |
 | `tests/agents/test_expert_consumers.py` | every agent taking an `expert_policy` gives it the raw observation, and a stateful expert its state; the cloning dataset holds its actions in agent units; the evaluation's expert return is its closed form |
 | `tests/test_evaluate.py`, `tests/extensions/test_instrumentation_extensions.py` | every output of the evaluation, and every metric of the measurement extensions, meets its closed form on a known rollout |
-| `tests/agents/test_reward_normalisation.py` | every agent taking `normalize_rewards` hands the normaliser the discount it documents (its own `gamma` by default, 0.99 without one, `reward_normalization_gamma` when given) and reports its Train and Eval returns in the env's units (UDRL's Train return is a strict xfail: a known bug); a constant reward is not divided by its zero spread, and rewards divided at replay or evaluation are clipped as collected |
-| `tests/agents/test_carry_restart.py` | the recurrent actors of PPO, SAC, ASAC, REDQ and TD3 remember only their current episode, for every memory kind: the carry each acts with is the actor's run from a fresh carry over the episode's observations (the fast tier runs each agent once and each kind at least once, the other rows are slow; APG's controller has its own test in `tests/agents/APG/test_episode_ends.py`) |
+| `tests/agents/test_reward_normalisation.py` | every agent taking `normalize_rewards` hands the normaliser the discount it documents (its own `gamma` by default, 0.99 without one, `reward_normalization_gamma` when given) and reports its Train and Eval returns in the env's units; a constant reward is not divided by its zero spread |
+| `tests/agents/test_carry_restart.py` | the recurrent actor of every agent taking memory remembers only its current episode, for every memory kind: the carry it acts with is the actor's run from a fresh carry over the episode's observations (APG's controller has its own test, `tests/agents/APG/test_episode_ends.py`) |
 | `tests/agents/test_option_smoke.py` (slow) | the option matrix: every pair of an agent's options, and every extension stacked into an agent that folds it, trains a tiny logged run that updates the policy and keeps every parameter finite |
-| `tests/agents/test_resume_contract.py` (slow) | a run split in two, its second half on a new agent instance, ends in the state one uninterrupted call reaches, every leaf alike (floats to a relative 1e-5): every agent of the contract table and APG, with the normalisation it takes and with memory where it takes one, every call told the run's horizon so the schedules run as in one call (the world models' own tests hold theirs); fast, a two-call DQN run's epsilon at every step is the one call's |
+| `tests/agents/test_resume_contract.py` (slow) | a run split in two, its second half on a new agent instance, ends in the state one uninterrupted call reaches, every leaf alike (floats to a relative 1e-5): every agent of the contract table and APG, with the normalisation it takes and with memory where it takes one (the world models' own tests hold theirs) |
 
 The option matrix and the resume contract train, so their main tests run in
-the slow tier; their completeness checks (every switch of a signature is in
-a row, every extension has a builder, every agent has a row) are fast and run
-with the other unit tests.
+the slow tier; their completeness checks (every switch of a signature, every
+extension and every agent has a row) are fast.
 
-What each agent computes is tested in its own directory, `tests/agents/<AGENT>/`:
-GAE on a known trajectory, a loss's sign, a target on a hand-built batch,
-and that every configuration value reaches the code that runs. That last
-kind exists because of a real bug: PPO once treated `num_minibatches=32` as
-1, and its CartPole smoke test still passed
+### Each agent's maths
+
+What each agent computes is tested in its own directory,
+`tests/agents/<AGENT>/`: GAE on a known trajectory, a loss's sign, a target
+on a hand-built batch, and that every configuration value reaches the code
+that runs. That last kind exists because of a real bug: PPO once treated
+`num_minibatches=32` as 1, and its CartPole smoke test still passed
 (`tests/agents/PPO/test_PPO_code.py`).
 
 ## Pins
@@ -118,10 +131,12 @@ check.
 | REDQ | watchernyu/REDQ (PyTorch) | `tests/conformance/test_redq_original.py` |
 | AVG | gauthamvasan/avg (PyTorch) | `tests/conformance/test_avg_original.py` |
 | ASAC | BobMak/asac (PyTorch, stable-baselines3) | `tests/conformance/test_asac_original.py` |
+| RVI-SAC | yhisaki/average-reward-drl (PyTorch) | `tests/conformance/test_rvisac_original.py` |
 | APO | xtma/apo on xtma/rlpyt (PyTorch) | `tests/conformance/test_apo_original.py` |
 | CrossQ | adityab/CrossQ (JAX, its own versions) | `tests/conformance/test_crossq_original.py` |
 | TQC | bayesgroup/tqc_pytorch (PyTorch, from Software Heritage) | `tests/conformance/test_tqc_original.py` |
 | ReBRAC (TD3 with TD3+BC's term and `TargetBC`) | tinkoff-ai/ReBRAC (JAX, the oldest flax that runs) | `tests/conformance/test_rebrac_original.py` |
+| IBRL's target and acting (on TD3 and REDQ) | hengyuan-hu/ibrl (PyTorch) | `tests/conformance/test_ibrl_original.py` |
 | PPO, MLP and CNN (shared encoder) | openai/baselines ppo2 (TensorFlow 1.15) | `tests/conformance/test_ppo2_original.py` |
 | Recurrent PPO (shared encoder), its parameters only | luchris429/purejaxrl `ppo_rnn.py` (JAX) | `tests/conformance/test_purejaxrl_rnn.py` |
 | Recurrent SAC and TD3 (`memory=MemoryConfig("gru")`), against the original with one GRU bias per gate, and the difference from it on its own | twni2016/pomdp-baselines (PyTorch) | `tests/conformance/test_ni_recurrent_original.py` |
@@ -135,38 +150,41 @@ training steps, `tests/agents/DreamerV3/*_parity.py`). Their records are
 committed fixtures, written by the scripts in `docs/world_models/parity`, and
 their tolerances are fixed per quantity rather than taken from rounding.
 
-The originals are vendored under `benchmarks/reference/vendor`. A PyTorch
-original runs in its own environment (`benchmarks/reference/envs/torch`),
-as do ASAC's and CrossQ's, on the versions their authors pinned
-(`benchmarks/reference/envs/asac`: stable-baselines3 2.4 and gymnasium
-1.0; `benchmarks/reference/envs/crossq`: jax, flax and Stable-Baselines3;
-`benchmarks/reference/envs/jax_offline`: ReBRAC's flax).
-Each environment is built on first use under `~/.cache/ajax/reference-envs`,
-once per lock file, so all checkouts share it; set `AJAX_REFERENCE_ENVS` to
-build them elsewhere.
-Each records its states to disk; CI keeps those records between runs while
-the original, its recorder and that environment's lock stay the same
-(`AJAX_CONFORMANCE_RECORDS`). TQC's original runs as written only on torch
-before 1.5, which has no arm64 wheels: it is recorded locally in
-`benchmarks/reference/envs/torch14` (x86 Python 3.8) and its records are
-committed under `tests/conformance/records`. So are ppo2's: TensorFlow 1.15
-runs in its official container on x86-64 Linux (`benchmarks/reference/envs/tf115`),
-and each case starts from a seeded state the test recomputes
-(`benchmarks/reference/conformance_start.py`), its largest layers kept at
-sampled positions, so that its Nature CNN's records stay under a megabyte.
-`tests/conformance/kit.py` holds the seams
-that make one step comparable without changing the code under test: a tape
-of the random draws, and the capture of an agent's update. A difference
-that is the original's convention or defect is registered with its reason
-(`benchmarks/reference/refcmp_specs.py`) and asserted by a test of its own;
-PQN's also appear in the [reproduction specifications](../reproduction/specs.md).
+### How the originals run
+
+- **Vendored.** The originals are vendored under
+  `benchmarks/reference/vendor`, except RVI-SAC's and IBRL's, whose
+  repositories have no licence: only their records are committed.
+- **In environments of their own.** A PyTorch original runs in
+  `benchmarks/reference/envs/torch`; ASAC's, CrossQ's and ReBRAC's on the
+  versions their authors pinned (`benchmarks/reference/envs/asac`:
+  stable-baselines3 2.4 and gymnasium 1.0; `benchmarks/reference/envs/crossq`:
+  jax, flax and Stable-Baselines3; `benchmarks/reference/envs/jax_offline`:
+  ReBRAC's flax). Each environment is built on first use under
+  `~/.cache/ajax/reference-envs`, once per lock file, so all checkouts share
+  it; set `AJAX_REFERENCE_ENVS` to build them elsewhere.
+- **Recorded.** Each original records its states to disk; CI keeps those
+  records between runs while the original, its recorder and that
+  environment's lock stay the same (`AJAX_CONFORMANCE_RECORDS`). TQC's
+  original runs only on torch before 1.5, which has no arm64 wheels, and
+  ppo2 on TensorFlow 1.15 in its official x86-64 container
+  (`benchmarks/reference/envs/torch14`, `benchmarks/reference/envs/tf115`):
+  both are recorded locally and their records committed under
+  `tests/conformance/records`, ppo2's from seeded states the test recomputes
+  (`benchmarks/reference/conformance_start.py`).
+
+`tests/conformance/kit.py` holds the seams that make one step comparable
+without changing the code under test: a tape of the random draws, and the
+capture of an agent's update. A difference that is the original's convention
+or defect is registered with its reason (`benchmarks/reference/refcmp_specs.py`)
+and asserted by a test of its own; PQN's also appear in the
+[reproduction specifications](../reproduction/specs.md).
 
 ## Running tests locally
 
 The full suite costs about an hour of CPU, so CI runs it on the pull request.
 Before pushing, run the cheap checks
-([CLAUDE.md](../../CLAUDE.md),
-"Commit requirement"):
+([CLAUDE.md](../../CLAUDE.md), "Commit requirement"):
 
 ```bash
 uv run pre-commit run --all-files            # ruff lint, ruff-format, mypy
@@ -176,59 +194,56 @@ uv run pytest tests/probing/test_framework.py  # any change under src/ajax
 uv run pytest tests/probing -k TD3           # a change to TD3's training: all its probe cells
 ```
 
-Two of these are process rules. A change under `src/ajax` runs
-`tests/probing/test_framework.py`, which trains nothing: every planted fault
-quotes a line of the source, so any source edit can break one. A change to an
-agent's training runs all of that agent's probe cells (`-k <Agent>` over
-`tests/probing`).
+The last two are rules: every planted fault quotes a line of the source, so
+any edit under `src/ajax` can break one, and `test_framework.py` checks them
+without training.
 
 `make ci` runs the pull-request gate (`ci-precommit`, `ci-test`,
 `ci-conformance`, and `docs`, the strict build of this site); `make ci-all`
-adds the slow tier (`ci-slow`). The `make` targets
-hide the GPU (`CUDA_VISIBLE_DEVICES=""`, `JAX_PLATFORMS=cpu`), so tests never
-compete with an experiment running on it. Outside `make`, set
-`JAX_PLATFORMS=cpu` while a GPU is busy.
+adds the slow tier (`ci-slow`). The `make` targets hide the GPU
+(`CUDA_VISIBLE_DEVICES=""`, `JAX_PLATFORMS=cpu`), so tests never compete with
+an experiment running on it. Outside `make`, set `JAX_PLATFORMS=cpu` while a
+GPU is busy.
 
-`pyproject.toml` registers one marker, `slow`, and runs pytest with
-`--strict-markers`, so a misspelt marker is an error rather than a test that
-silently runs in the wrong job.
+`pyproject.toml` registers two markers, `slow` and `large` (a test that needs
+a GPU, skipped without one), and runs pytest with `--strict-markers`, so a
+misspelt marker is an error rather than a test that silently runs in the
+wrong job.
 
 ## How CI splits the suite
 
 The tests come in two tiers. The *fast tier* is the tests not marked slow,
 which every pull request must pass. A fast test may train, but for at most
 128 gradient steps: `tests/conftest.py` fails a fast test past them, and
-lists those past about 30 s without failing them. The *slow tier*
-is every test that trains: `tests/probing` (marked slow as it is collected,
-but for the harness's own checks) and the tests marked slow elsewhere.
+lists those past about 30 s without failing them. The *slow tier* is every
+test that trains: `tests/probing` (marked slow as it is collected, but for
+the harness's own checks) and the tests marked slow elsewhere.
 [Contributing](contributing.md#testing) describes both.
 
-[`.github/workflows/ci.yml`](../../.github/workflows/ci.yml)
-runs on CPU for every pull request and every push to `main`:
+[`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) runs on CPU for
+every pull request and every push to `main`:
 
 | Job | What it runs |
 | --- | --- |
 | Pre-commit | ruff lint, ruff-format and mypy on every file |
 | Tests (6 shards) | the tests not marked slow (the probing harness's checks among them), conformance excluded, under coverage, a pytest-xdist worker per vCPU, at XLA optimisation level 0, on arm64 runners. The shards split the test files by recorded time (`--shard I/6 --shard-by file`, `tests/.file_durations`); a file without a recorded time still lands in one, so a new test file always runs somewhere |
-| Coverage | the six shards' data combined; fails below 90% |
+| Coverage | the six shards' coverage data combined and checked against a floor |
 | Conformance | `tests/conformance`: one training step of each agent that has a check against its original implementation (above) |
 | Docs | `mkdocs build --strict` with the `docs` group alone: a broken link, a page left out of the navigation or a docstring naming a parameter the signature lacks fails it |
 | Lint and Test | passes only when every job above passed; the one check branch protection requires |
 
 The *Slow tier* workflow ([`slow.yml`](../../.github/workflows/slow.yml))
 runs the slow tier in six shards of two xdist workers, a probe case's tests
-on one worker (they read one cached training): daily on `main` when it changed, by hand,
-and on a pull request each time the label `run-slow-tier` is added. A red run
-on `main` opens an issue and, when that is cheap, bisects the merges since
-the last green run. The *Release* workflow tags a version only once the slow
-tier has passed on `main`'s head.
+on one worker (they read one cached training): daily on `main` when it
+changed, by hand, and on a pull request each time the label `run-slow-tier`
+is added. A red run on `main` opens an issue and, when that is cheap,
+bisects the merges since the last green run. The *Release* workflow tags a
+version only once the slow tier has passed on `main`'s head.
 
-The test and conformance jobs restore Ajax's compile cache as the last push
-to `main` left it for that job, so a program a change leaves alone is loaded
-instead of compiled. A new push to a pull request cancels the run it
-supersedes. Nothing merges while any job is red; a failure that is
-pre-existing and unrelated to the change is called out explicitly instead of
-merged over.
+The test and conformance jobs restore the compile cache the last push to
+`main` left, so a program a change leaves alone is loaded, not compiled. A
+new push to a pull request cancels the run it supersedes. Nothing merges
+while any job is red.
 
 ## The probing framework
 
@@ -255,8 +270,13 @@ The directory [`tests/probing`](../../tests/probing) holds:
 | --- | --- |
 | `test_value_chains.py` | values and actions on short chains: max bootstrap and action indexing, discounting, entropy bonuses, normalisation, gradients through a transition (APG) |
 | `test_episode_ends.py` | terminations against time limits, rollout ends, parallel environments out of step, reward scale, average reward |
+| `test_average_reward.py` | RVI-SAC, and the `ValueCentering` and `ResetCost` it brought to every agent, on reset cycles |
 | `test_bookkeeping.py` | what an agent counts, logs, stores, draws and executes: step counters, UDRL's commands, an expert's warm-up, a declared action box |
 | `test_extensions.py` | every extension phase an agent claims to fold, through test-only extensions of known effect; the expert extensions' numbers |
+| `test_action_stage.py` | JSRL and EDGE handing the expert the step on every off-policy agent, the replay learning from the action executed |
+| `test_transforms.py` | residual RL and gain mode, on a known best action |
+| `test_imitation.py` | DAgger, and GAIL on PPO |
+| `test_offline.py` | offline training on logged rows, with no environment step |
 | `test_memory.py` | a recurrent agent acts on what an episode showed it and restarts at the episode's end |
 | `test_world_models.py` | answers reachable only through a learned model (TD-MPC2's horizon, multi-task twins, DreamerV3's imagination) |
 | `test_p4_split_run.py` | a run checkpointed, restored and resumed equals the run never interrupted |
@@ -279,9 +299,9 @@ CASES["p0a-DQN"] = Case(
     "p0a-DQN",
     (*Q_S1, *(Query(f"Q(s0, a={a})", G3, Q_S0_WRONG) for a in range(3)), GREEDY),
     _three_run("DQN"),  # train, then read Q at both states and the greedy action
-    2500,  # budget, in environment steps
-    (0.026, 0.021, 0.033, 0.037, 0.032, 0.029, 0.02),  # one tolerance per query
-    note="1250 qualified but 2 seeds of 3000-3031 read Q(s0) 0.047 off; cert 32/32",
+    625,  # budget, in environment steps
+    (0.021, 0.038, 0.074, 0.063, 0.061, 0.054, 0.02),  # one tolerance per query
+    note="with its reference optimiser (centered RMSProp) 625 qualifies, cert 31/32",
 )
 ```
 
@@ -325,8 +345,8 @@ check uses:
    3000-3031, and record the result in the case's `note`.
 
 ```bash
-uv run python -m tests.probing.verdict ladder test_value_chains p0a-DQN 1000 1250,2500,5000 a.json
-uv run python -m tests.probing.verdict ladder test_value_chains p0a-DQN 2000 1250,2500,5000 b.json
+uv run python -m tests.probing.verdict ladder test_value_chains p0a-DQN 1000 312,625,1250 a.json
+uv run python -m tests.probing.verdict ladder test_value_chains p0a-DQN 2000 312,625,1250 b.json
 uv run python -m tests.probing.verdict choose test_value_chains p0a-DQN a.json b.json
 uv run python -m tests.probing.verdict certify test_value_chains p0a-DQN   # seeds 3000-3031
 ```
@@ -360,10 +380,10 @@ caught by a fast test alone):
 
 ```json
 {"id": "P0a-D01-DQN", "path": "agents/DQN/DQN.py",
- "old": "    max_q_next = jnp.max(q_next, axis=-1, keepdims=True)\n",
- "new": "    max_q_next = jnp.mean(q_next, axis=-1, keepdims=True)\n",
+ "old": "    max_next_q_values = jnp.max(next_q_values, axis=-1, keepdims=True)\n",
+ "new": "    max_next_q_values = jnp.mean(next_q_values, axis=-1, keepdims=True)\n",
  "catches": ["test_value_chains.py::test_learns[p0a-DQN]"],
- "fast": ["tests/agents/test_agent_pins.py::test_a_tiny_run_reproduces_its_recorded_fingerprint[DQN]"]}
+ "fast": ["tests/agents/DQN/test_dqn_equations.py::test_the_target_bootstraps_on_the_largest_next_value_unless_terminated"]}
 ```
 
 `path` is under `src/ajax`; `old` must occur exactly once; `catches` lists
@@ -384,19 +404,14 @@ JAX_PLATFORMS=cpu uv run python -m tests.probing.faults /tmp/faults P0a-D01-DQN 
 
 A node catches a fault when it fails on an assertion, or on pytest's
 `Failed` (a refusal `pytest.raises` expected that did not come). Any other
-error is a crash, not a catch: a probe that crashed measured nothing, so a
-probe's check on what the library does is an assertion, and a fast test can
-crash only because the planted text meets its stand-in state, which the bug
-the fault stands for would not. An entry's `raises` names the one error its
-fast tests may fail with instead, where the bug itself cannot run in their
-setting (`faults.py` lists the cases).
+error is a crash, not a catch: a probe that crashed measured nothing. An
+entry's `raises` names the one error its fast tests may fail with instead,
+where the bug itself cannot run in their setting (`faults.py` lists the
+cases).
 
-CI does not plant faults; `test_framework.py` runs
-`test_every_planted_fault_applies_once_and_names_live_nodes`, which checks
-that each `old` text still occurs once and that each listed node still
-exists. This is why a change under `src/ajax` runs `test_framework.py`
-before the push: when a change moves the code a fault edits, update the
-fault's line and run it again.
+CI does not plant faults. `test_framework.py` checks that each `old` text
+still occurs once and that each listed node still exists: when a change
+moves the code a fault edits, update the fault's line and run it again.
 
 ### Known defects
 
@@ -408,9 +423,9 @@ hidden by loosening a tolerance.
 
 ### Size budgets
 
-The framework is meant to stay readable. `test_framework.py` caps each file's
-length (`CAPS`) and the whole directory at 7,000 lines, and requires at least
-one case for every agent `ajax` exports.
+The framework is meant to stay readable. `test_framework.py` caps each
+file's length (`CAPS`) and the directory's, and requires at least one case
+for every agent `ajax` exports.
 
 ## The bugs the probes target
 
@@ -422,7 +437,7 @@ goes wrong without crashing:
 | The bootstrap averages instead of maximising; the taken action's value, or the greedy action, is read at the wrong index | `P0a-D01-DQN`, `P0a-gather-up`, `P0a-greedy-up` |
 | The discount is squared, replaced by `1 - gamma`, or dropped | the value-chain cases: at the probe discount 0.62 those wrong answers sit about 0.24 or more from the right one |
 | A time limit is treated as a termination; the reset observation replaces the episode's final one; truncation is dropped | `P6-PPO-OR`, `P6-RESET-OBS`, `P6-GYMNAX-TRUNC-DROPPED` |
-| The reward scale is applied twice | `P5-S13`, `P5-REDQ-scaled-twice` |
+| The reward scale is applied twice | `P5-S13`, `P5-ASAC-S13` |
 | GAE runs forwards in time; the value bootstraps on the wrong observation; the configured lambda is ignored | `Q9-GAE-FORWARD`, `P09`, `Q9-PQN-LAMBDA` |
 | The entropy term has the wrong sign or is missing; the tanh log-probability misses its Jacobian, in the policy or in the target | `P07`, `S-entropy-sign`, `S-no-jacobian`, `S-pre-tanh-target` |
 | The observation normaliser is skipped in the target or at evaluation | `P1-sac-target-skips-agent-norm`, `P1-eval-skips-agent-norm` |

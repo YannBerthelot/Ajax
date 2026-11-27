@@ -4,13 +4,13 @@ from its records.
 Contract: a cell is the return at the last evaluation of each seed's latest
 attempt, shown as mean ± sample standard deviation, and only once every seed
 of the run reached the step budget; seeds run in parts are gathered. The
-README and the benchmark page carry exactly what the records give, and the
-performance page what the timing pass gives. The aggregate scores follow
-rliable (Agarwal et al., NeurIPS 2021): DeepMind Control returns over 1000,
-MinAtar returns over the game's best mean; the interquartile mean drops a
-quarter of the runs (rounded down) at each end; the interval is a 95%
-percentile bootstrap that draws seeds within each task; the profile is the
-fraction of runs strictly above each threshold.
+benchmark page carries exactly what the records give, and the performance
+page what the timing pass gives. The aggregate scores follow rliable
+(Agarwal et al., NeurIPS 2021): DeepMind Control returns over 1000, MinAtar
+returns over the game's best mean; the interquartile mean drops a quarter of
+the runs (rounded down) at each end; the interval is a 95% percentile
+bootstrap that draws seeds within each task; the profile is the fraction of
+runs strictly above each threshold.
 """
 
 import json
@@ -42,13 +42,10 @@ def test_published_tables_match_the_records():
     hand edits to the generated tables."""
     runs = publish.read_runs()
     page = publish.PAGE.read_text()
-    readme = publish.README.read_text()
     assert (
         publish.replace_block(page, "benchmark-tables", publish.page_block(runs))
         == page
     )
-    summary = publish.readme_block(runs)
-    assert publish.replace_block(readme, "benchmark-summary", summary) == readme
     performance = publish.PERFORMANCE_PAGE.read_text()
     timing = publish.timing_block(runs, publish.read_timings())
     assert publish.replace_block(performance, "agent-timing", timing) == performance

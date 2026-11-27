@@ -1,32 +1,34 @@
 # APO
 
-Average Policy Optimization is PPO for the average-reward criterion. Instead of
-discounting future rewards, it learns how much reward the policy earns per step
-on average and judges each action by how much better than that average it
-does. This suits continuing tasks, such as holding a setpoint, where there is
-no natural horizon and a discount factor only shortens the agent's view. The
-clipped surrogate and the GAE recursion are PPO's own code
-(`agents/PPO/PPO.py`), and the minibatch epochs those of the on-policy
-family (`agents/minibatch.py`); APO's own is in `agents/APO/APO.py`.
+Average Policy Optimization is PPO for the average-reward criterion.
+Instead of discounting future rewards, it learns how much reward the policy
+earns per step on average, and judges each action by how much better than
+that average it does.
 
 **Paper:** Ma et al., *Average-Reward Reinforcement Learning with Trust Region
 Methods*, 2021 ([arXiv:2106.03442](https://arxiv.org/abs/2106.03442)). Ajax
-follows the authors' official code, `xtma/apo`, where it is more specific
-than the paper.
+follows the authors' official code, `xtma/apo` at `bfcd997` (on their fork
+of rlpyt, `xtma/rlpyt` at `e28bb20`), where it is more specific than the
+paper.
 
-## Can I use?
+## When to use it
+
+APO suits continuing tasks, such as holding a setpoint, where there is no
+natural horizon and a discount factor only shortens the agent's view. On
+episodic tasks with a clear end, [PPO](ppo.md) is the usual choice. Its
+off-policy counterpart is [ASAC](asac.md).
 
 | Feature | APO |
 | --- | --- |
 | Discrete actions | yes |
-| Continuous actions | yes, a Gaussian around a tanh-bounded mean, clipped and mapped onto the environment's bounds |
+| Continuous actions | yes, a Gaussian around a `tanh`-bounded mean, clipped and mapped onto the environment's bounds |
 | Memory (`memory=`) | no |
 | Environments | gymnax, Brax, MuJoCo Playground |
 | Image observations | no |
 | PID policy | yes, `actor_architecture=PIDPolicy(...)` ([Networks](../guide/networks.md)) |
 | Several seeds in one call | yes, `train(seed=[...])` |
-| Extension phases | `pretrain`, `post_update`, `eval_metrics`, `observe`, `on_target`, `critic_loss`, `actor_loss`, `transform_action`, `actuate` |
-| Resume and checkpoints | yes; a split run equals the uninterrupted one (probe and resume contract) |
+| Extension phases | `pretrain`, `post_update`, `eval_metrics`, `observe`, `on_target`, `critic_loss`, `actor_loss`, `action`, `eval_action`, `transform_action`, `actuate`, `track_memory` ([which extensions run](../guide/compatibility.md)) |
+| Resume and checkpoints | yes; a run split by a checkpoint equals the run left whole |
 
 ## Example
 
@@ -45,32 +47,39 @@ This budget shows the calls; it is too short to learn the swing-up.
 
 ## Key hyperparameters
 
+The defaults are the official code's MuJoCo configuration
+(`apo/experiments/configs/mujoco/apg/mujoco_appo.py`). There is no
+discount, as in the authors' run grid (`run_exp.py`), which replaces the
+configuration's 0.99. The grid also sweeps `gae_lambda`, `alpha` and `nu`
+per task; the paper does not report which values it kept, so Ajax takes the
+configuration's.
+
 | Argument | Default | What it does |
 | --- | --- | --- |
-| `n_envs` | 10 | environments stepped in parallel |
-| `n_steps` | 200 | steps per environment in each rollout |
-| `num_minibatches` | 20 | minibatches per epoch; `n_steps * n_envs` must be a multiple of it |
-| `batch_size` | 64 | with `num_minibatches=0`, sets the number of minibatches as in [PPO](ppo.md) |
-| `n_epochs` | 10 | passes over the rollout per update, each reshuffled |
-| `actor_learning_rate`, `critic_learning_rate` | 3e-4 | the step sizes of the one Adam over both networks (see the notes) |
-| `adam_eps` | 1e-8 | Adam's epsilon |
-| `vf_coef` | 1 | the value loss's weight in the summed loss |
-| `alpha` | 0.1 | update rate of the running averages of the reward rate and of the values |
-| `nu` | 1 | weight of the value-bias penalty |
-| `gae_lambda` | 0.95 | GAE's lambda (there is no discount) |
-| `clip_range` | 0.2 | the ratio clip; a float or a schedule of the timestep |
-| `ent_coef` | 0.01 | entropy bonus weight, the official code's (see the notes) |
-| `max_grad_norm` | 10 | clips the gradient's global norm over both networks at once (`None` turns it off) |
-| `normalize_advantage` | False | standardise the advantages over the whole rollout |
-| `actor_architecture`, `critic_architecture` | `("64", "tanh", "64", "tanh")` | hidden layers, the official code's (see the notes) |
-| `normalize_observations`, `normalize_rewards` | False | running normalisation |
-| `reward_normalization_gamma` | None | with `normalize_rewards`, the discount of the return whose spread divides the rewards: 0.99 if None, 0 for the single reward's |
-| `expert_policy` | None | an expert whose return the evaluation reports next to the agent's (`Eval/expert bias`) |
-| `actor_bias_init`, `critic_bias_init` | None | the heads' bias initialisers by name ([Networks](../guide/networks.md)) |
-| `encoder_kernel_init` | `"torch_linear"` | the hidden layers start as torch's `nn.Linear`, as in the official code; any initialiser by name sets their kernels instead |
-| `log_std_bounds` | None | the `(low, high)` clip of the continuous actor's log-std; `None`, the official code's, leaves it unclipped (see the notes) |
-| `episode_length`, `action_repeat` | None, 1 | simulator steps per episode (1,000 when `None`) and per agent step, on Brax and Playground |
-| `expose_recent_rollout` | False | keep the last rollout on the state even when no extension reads it |
+| `n_envs` | `10` | environments stepped in parallel |
+| `n_steps` | `200` | steps per environment in each rollout |
+| `num_minibatches` | `20` | minibatches per epoch; `n_steps * n_envs` must be a multiple of it |
+| `batch_size` | `64` | with `num_minibatches=0`, sets the number of minibatches as in [PPO](ppo.md) |
+| `n_epochs` | `10` | passes over the rollout per update, each reshuffled |
+| `actor_learning_rate`, `critic_learning_rate` | `3e-4` | the step sizes of the one Adam over both networks (see the notes) |
+| `adam_eps` | `1e-8` | Adam's epsilon |
+| `vf_coef` | `1` | the value loss's weight in the summed loss |
+| `alpha` | `0.1` | update rate of the running averages of the reward rate and of the values |
+| `nu` | `1` | weight of the value-bias penalty |
+| `gae_lambda` | `0.95` | GAE's lambda |
+| `clip_range` | `0.2` | the ratio clip; a float or a schedule of the timestep |
+| `ent_coef` | `0.01` | entropy bonus weight |
+| `max_grad_norm` | `10` | clips the gradient's global norm over both networks at once; `None` turns it off |
+| `normalize_advantage` | `False` | standardise the advantages over the whole rollout |
+| `actor_architecture`, `critic_architecture` | `("64", "tanh", "64", "tanh")` | hidden layers |
+| `normalize_observations`, `normalize_rewards` | `False` | running normalisation |
+| `reward_normalization_gamma` | `None` | with `normalize_rewards`, the discount of the return whose spread divides the rewards: 0.99 if None, 0 for the single reward's |
+| `expert_policy` | `None` | an expert whose return the evaluation reports next to the agent's (`Eval/expert bias`) |
+| `actor_bias_init`, `critic_bias_init` | `None` | the heads' bias initialisers by name ([Networks](../guide/networks.md)) |
+| `encoder_kernel_init` | `"torch_linear"` | the hidden layers start as torch's `nn.Linear`; any initialiser by name sets their kernels instead |
+| `log_std_bounds` | `None` | the `(low, high)` clip of the continuous actor's log standard deviation; `None` leaves it unclipped |
+| `episode_length`, `action_repeat` | `None`, `1` | simulator steps per episode and per agent step, on Brax and Playground; `None` is 1,000 steps, or a `mujoco:` task's own time limit ([Environments](../guide/environments.md#brax-and-playground)) |
+| `expose_recent_rollout` | `False` | keep the last rollout on the state even when no extension reads it |
 | `extensions` | `()` | research features (see [Extensions](../guide/extensions.md)) |
 
 ## How it works
@@ -85,20 +94,36 @@ Without that penalty the values are defined only up to a constant and can
 drift. Each minibatch then takes one step of both networks down the sum of
 PPO's clipped surrogate, the value loss and the entropy bonus.
 
+## Differences from the reference
+
+Each is a default the constructor can set.
+
+- **Output layers.** The mean layer starts `lecun_uniform` and the value
+  layer `orthogonal(1.0)`, both with zero biases; the official code leaves
+  them at torch's `nn.Linear` default, as it does the hidden layers.
+- **Actions.** As for every agent, Ajax clips the sample to `[-1, 1]` and
+  maps it onto the environment's bounds
+  ([Environments](../guide/environments.md#actions)). The official code
+  hands the raw sample to the environment: its MuJoCo tasks clamp it to
+  their control range in the simulation, and Gymnasium's charge the
+  control cost on the unclamped action.
+
 ## Notes
 
 - **Episode ends.** As in the official code, the advantage chain stops at
   every episode end and the next value is dropped there, a time limit
-  included (the reference's done flag does not tell them apart), and a
-  time-limited step leaves the loss (`bootstrap_timelimit`): the losses
-  average over the other steps.
-- **Advantage normalisation** is off, as in the official code's config
-  (`mujoco_appo.py:15`). With `normalize_advantage=True` it runs once over
-  the whole rollout, not per minibatch as in Ajax's PPO, by the trained
-  steps' mean and unbiased standard deviation (floored at `1e-6`), as the
-  official code would (`apo/algos/apg/base.py:90-98`).
-- **Shuffling.** Every epoch draws a new split of the rollout into
-  minibatches, as APO's official code does.
+  included (the reference's done flag does not tell them apart). A step
+  that hit a time limit leaves the losses, which average over the other
+  steps.
+- **Minibatches.** Every epoch draws a new split of the rollout into
+  minibatches, as the official code does. `n_steps * n_envs` must be a
+  multiple of `num_minibatches`; with `num_minibatches=0`, `n_steps` and
+  `batch_size` must divide one another. The constructor refuses them
+  otherwise.
+- **Advantage normalisation** is off, as in the official configuration.
+  With `normalize_advantage=True` it runs once over the whole rollout, not
+  per minibatch as in Ajax's PPO, by the trained steps' mean and unbiased
+  standard deviation (floored at `1e-6`), as the official code would.
 - **Evaluation: the return and the reward rate count episodes
   differently.** Each evaluation runs the deterministic policy and logs
   both:
@@ -106,144 +131,62 @@ PPO's clipped surrogate, the value loss and the entropy bonus.
     over `num_episode_test` episodes, one per environment, as for every
     agent. `num_episode_test` defaults to 10.
   - `Eval/mean average reward`, the reward rate, follows the official
-    evaluation exactly, whatever `num_episode_test` is. It runs 10
-    environments of 1,000 steps each: `eval_n_envs=10` and
-    `eval_max_steps=int(1e4)`, which rlpyt splits over the environments
-    (`mujoco_appo.py:30-31`; `rlpyt/samplers/parallel/base.py:73`). Each
-    environment restarts when its episode ends, a time limit included. The
-    run stops after the step at which 10 trajectories have ended
-    (`eval_max_trajectories=10`, `mujoco_appo.py:32`), and every trajectory
-    that has ended by then counts. The rate is the mean over those
-    trajectories of return / length (`apo/envs/traj_info.py:10`); one still
-    running is left out.
+    evaluation, whatever `num_episode_test` is: 10 environments of 1,000
+    steps each, each restarting when its episode ends, a time limit
+    included. The run stops after the step at which 10 trajectories have
+    ended, and the rate is the mean, over every trajectory ended by then,
+    of its return divided by its length; one still running is left out.
 
   The official sampler checks the trajectory count every 0.1 s of wall
-  clock (`rlpyt/samplers/parallel/base.py:14, :127-135`), so where it stops
-  depends on timing. Ajax steps the 10 environments together and uses
-  rlpyt's serial rule, which checks after every step
-  (`rlpyt/samplers/serial/collectors.py:58-62`). With the default
-  `num_episode_test=10`, both measures read one run of the same 10
-  environments, so the rate adds steps only on a task whose time limit is
-  under 1,000. With any other `num_episode_test`, the rate runs 10
-  environments of its own.
-
-  Until November 2026 Ajax measured the rate on 10,000 further steps per
-  test episode, with the rewards averaged over all of them, ten times the
-  official budget at the default 10 episodes.
-- **Hidden layers.** The actor and the critic each have two hidden layers
-  of 64 `tanh` units, as the official code's mean and value networks:
-  `xtma/apo`'s config sets only `normalize_observation`
-  (`apo/experiments/configs/mujoco/apg/mujoco_appo.py:20`), so rlpyt's
-  `MujocoFfModel` builds both with its defaults
-  (`rlpyt/models/pg/mujoco_ff_model.py:21-22, :33-49`). They start as its
-  torch `Linear` layers (`rlpyt/models/mlp.py:27-31`) do: kernel and bias
-  uniform in `±1/sqrt(fan_in)` (`encoder_kernel_init="torch_linear"`;
-  torch 1.5.1, which rlpyt's environment files pin,
-  `torch/nn/modules/linear.py:79-84`). Not the official code's: the output
-  layers start as Ajax's, the mean layer `lecun_uniform` (below) and the
-  value layer `orthogonal(1.0)`, both with zero biases, where the official
-  code leaves them at torch's default too. Until October 2026 APO's hidden
-  layers were two of 128 units, starting orthogonal with zero biases; a
-  checkpoint saved then restores into an APO whose `actor_architecture`
-  and `critic_architecture` are both `("128", "tanh", "128", "tanh")`, and
-  the default network refuses it with that advice.
-- **Actor head.** A continuous APO's actor is the official code's:
-  `xtma/apo` at `bfcd997` runs rlpyt's `MujocoFfAgent` (`exp.py:17, :38`)
-  from the authors' fork, `xtma/rlpyt` at `e28bb20`. It is a Gaussian whose
-  mean is `tanh` of the mean layer
-  (`rlpyt/models/pg/mujoco_ff_model.py:23, :40-41`), with one learned
-  log-std per action dimension, starting at 0 (std 1) and not clipped
-  (`:24, :50, :78`; `rlpyt/agents/pg/gaussian.py:34-38` sets no bounds, no
-  clip and no squashing). The sample itself is not squashed: the
-  log-probability and the entropy bonus are the Gaussian's, of the raw
-  sample (`rlpyt/distributions/gaussian.py:81-97, :108-134, :208`). The
-  evaluation acts with the mean, as the official evaluation agent sets the
-  std to 0 (`apo/agents/mujoco_eval.py:15`). `log_std_bounds` adds a clip,
-  which the run config records. A PID policy's output takes the same
-  `tanh`, and its log-std the same clip. A discrete APO ignores the head.
-  Not the official code's: the mean layer starts `lecun_uniform` (torch's
-  default initialisation there). Until October 2026 APO squashed its
-  samples with `tanh` and clipped the log-std to `[-20, 2]`; the parameters
-  are the same, so a checkpoint saved then restores, with the same
-  deterministic action, `tanh` of the mean layer, and samples as the new
-  head does.
-- **Actions in the environment.** As for every agent, Ajax clips the
-  sample to `[-1, 1]` and maps it onto the environment's bounds
-  ([Environments](../guide/environments.md#actions)). The official code
-  hands the raw sample to the environment (`rlpyt/envs/gym.py:66-67`);
-  its MuJoCo tasks clamp it to their control range in the simulation, and
-  Gymnasium's charge the control cost on the unclamped action
-  (`gymnasium/envs/mujoco/hopper_v4.py:97, :138` in Gymnasium 1.2.0).
+  clock, so where it stops depends on timing; Ajax checks after every step,
+  as rlpyt's serial sampler does. With the default `num_episode_test=10`,
+  both measures read one run of the same 10 environments, so the rate adds
+  steps only on a task whose time limit is under 1,000. With any other
+  `num_episode_test`, the rate runs 10 environments of its own.
+- **Networks.** The actor and the critic each have two hidden layers of 64
+  `tanh` units, as the official code's mean and value networks. They start
+  as its torch `nn.Linear` layers do: kernel and bias uniform in
+  `±1/sqrt(fan_in)` (`encoder_kernel_init="torch_linear"`).
+- **Actor head.** A continuous APO's actor is the official code's: a
+  Gaussian whose mean is `tanh` of the mean layer, with one learned log
+  standard deviation per action dimension, starting at 0 and not clipped.
+  The sample itself is not squashed: the log-probability and the entropy
+  are the Gaussian's, of the raw sample. The evaluation acts with the mean,
+  as the official evaluation does. `log_std_bounds` adds a clip. A PID
+  policy's output takes the same `tanh`, and its log standard deviation the
+  same clip. A discrete APO ignores the head.
 - **Optimiser.** As in the official code, one Adam steps the whole model
-  (`apo/algos/apg/base.py:28`) at 3e-4, without a schedule
-  (`apo/experiments/configs/mujoco/apg/mujoco_appo.py:5, :16`), down the
-  clipped surrogate plus `vf_coef` (1, `appo.py:27`) times the value loss
-  minus `ent_coef` times the entropy (`apo/algos/apg/appo.py:145-158`),
-  once per minibatch. Its gradient is clipped to global norm 10 over every
-  parameter, actor and critic at once (`appo.py:106-112`,
-  `mujoco_appo.py:8`), with torch's formula (torch 1.5.1,
-  `torch/nn/utils/clip_grad.py:33-37`). Adam acts on each coordinate on its
-  own, so Ajax keeps one Adam state per network, both stepped together on
-  that one gradient: the same optimiser, with a learning rate per network
-  as torch's parameter groups allow. Until October 2026 each network took
-  its own step, clipped to norm 0.5 on its own; a checkpoint saved then
-  restores, its moments and step counts kept.
-- **Entropy bonus.** As in the official code, the loss subtracts 0.01
-  (`entropy_loss_coeff`, `mujoco_appo.py:9`) times the batch mean of the
-  policy's entropy (`appo.py:155-158`). A continuous APO's is its
+  once per minibatch, without a learning-rate schedule, down the clipped
+  surrogate plus `vf_coef` times the value loss minus `ent_coef` times the
+  entropy. Its gradient is clipped to global norm 10 over every parameter,
+  actor and critic at once, with torch's formula. Adam acts on each
+  coordinate on its own, so Ajax keeps one Adam state per network, both
+  stepped together on that one gradient: the same optimiser, with a
+  learning rate per network as torch's parameter groups allow.
+- **Entropy bonus.** As in the official code, the loss subtracts 0.01 times
+  the batch mean of the policy's entropy. A continuous APO's is its
   Gaussian's, `log_std + log sqrt(2 pi e)` summed over the action
-  dimensions (`rlpyt/distributions/gaussian.py:81-97, :102-103`); the
-  log-std does not depend on the state, so the bonus pushes it up and
-  leaves the mean alone. Until October 2026 the weight was 0; `ent_coef=0`
-  reproduces runs from then (the parameters are unchanged, so their
-  checkpoints restore).
-- **Remaining differences from the official code** (`xtma/apo` at
-  `bfcd997`, its config `apo/experiments/configs/mujoco/apg/mujoco_appo.py`,
-  on `xtma/rlpyt` at `e28bb20`), each a default the constructor can set:
-  - Output layers: the mean layer starts `lecun_uniform` and the value
-    layer `orthogonal(1.0)`, with zero biases, where the official code
-    leaves both at torch's `nn.Linear` default (see Hidden layers).
-  - Actions: the sample is clipped to `[-1, 1]` before the environment
-    (the notes above).
-- **Defaults.** The rollout (10 environments of 200 steps), its 20
-  minibatches over 10 epochs, `nu=1` and advantage normalisation off are
-  the official config's (`mujoco_appo.py:7, :12-15, :27-28`). The
-  discount is 1, as in the authors' run grid (`run_exp.py:52`), which
-  replaces the config's 0.99 (`mujoco_appo.py:10`). That grid also sweeps
-  `gae_lambda`, `alpha` and `nu` per task (`run_exp.py:53-55`); the paper
-  does not report which values it kept, so Ajax takes the config's. Until
-  November 2026 APO ran 4 environments of 2,048 steps with advantage
-  normalisation on and `nu=0.1`; `n_envs=4, n_steps=2048,
-  num_minibatches=0, batch_size=64, normalize_advantage=True, nu=0.1`
-  reproduces runs from then.
-- `n_steps * n_envs` must be a multiple of `num_minibatches`; with
-  `num_minibatches=0`, `n_steps` and `batch_size` must divide one another.
-  The constructor refuses them otherwise.
+  dimensions; the log standard deviation does not depend on the state, so
+  the bonus pushes it up and leaves the mean alone.
 - **Expert.** Cloning an expert into the actor before training is the
   `CloningPretrain` extension, and a cloning term during training the
   `ImitationLoss` extension; APO supports both
   ([Expert guidance](../guide/expert-guidance.md)). With `expert_policy` set,
   the rollout stores the expert's actions, from its state when it has one,
   and the evaluation also reports the expert's return.
-- APO is the on-policy counterpart of [ASAC](asac.md), the average-reward
-  off-policy agent.
 
 ## Results
 
 No learning curves are published for APO yet. A conformance check
 (`tests/conformance/test_apo_original.py`) makes one update of Ajax's APO
-and of xtma/apo's APPO from the same state and rollout, on two gymnax
-tasks, one of them with time limits, and compares both networks, the
-log-std, the optimiser, the reward rate and the value bias. Unit tests
-(`tests/agents/APO` and the contracts every agent shares) check its pieces
-against exact contracts, without learning, such as its differential
-advantages. The probes (`tests/probing`) train it briefly on tiny
-environments with known answers: the reward rate it learns, episode ends,
-extension phases, and a run split by a checkpoint matching the run left
-whole. On the CPU speed benchmark (`benchmarks/agent_bench.py`: Pendulum, 4
-environments, 8,000 steps) APO ran at 16,390 steps per second of execution
-(4,024 with compilation) at main `a8a13c2`
-([PERFORMANCE_REPORT.md](https://github.com/YannBerthelot/Ajax/blob/main/PERFORMANCE_REPORT.md)).
+and of the official code's from the same state and rollout, on two gymnax
+tasks, one of them with time limits, and compares both networks, the log
+standard deviation, the optimiser, the reward rate and the value bias. The
+probes (`tests/probing`) train it briefly on tiny environments with known
+answers: the reward rate it learns, episode ends, extension phases, and a
+run split by a checkpoint matching the run left whole.
+[Performance](../guide/performance.md) compares its speed with the other
+agents'.
 
 ## API
 

@@ -11,10 +11,9 @@ Ajax ships.
 
 An agent's constructor accepts its algorithm's own hyperparameters plus
 `extensions=()`, and nothing else. The documented exceptions are
-`expert_policy` (SAC, TD3, REDQ, AVG, APO), whose return each evaluation
-logs and which SAC also learns from; SAC's options that reach its network's
-input or its collection, which extensions do not reach yet
-([SAC](../algorithms/sac.md#expert-options)); and TD3's
+`expert_policy`, the expert an agent tracks along each trajectory, and
+`eval_expert_policy`, an expert whose return the evaluations log, which
+every agent but REINFORCE and the world models takes; and TD3's
 `action_pipeline`, kept for a downstream project. Do not add to them. If a
 new feature seems to need a keyword on an
 agent (`use_critic_blend=True`, an expert's weight), write an extension
@@ -71,15 +70,16 @@ extensions were given.
 | `init_state(agent_state, rng)` | the extension's state (`()`: none) | one entry each | every agent, fresh runs only |
 | `pretrain(agent_state, ext_state, context)` | `(agent_state, ext_state)` | in order, each sees the last one's agent state | every agent, fresh runs only |
 | `reward(agent_state, ext_state, batch, rewards, context)` | `(rewards, ext_state, metrics)`: the rollout's new rewards | in order, each transforms the last one's rewards | PPO, after each rollout, before its targets |
-| `on_target(agent_state, ext_state, batch, target, context)` | the new target, or `(target, metrics)` (below) | in order, each transforms the last one's target | SAC, TD3, TQC, REDQ, ASAC, CrossQ, IQL, AVG, DQN, PQN, PPO, APO |
-| `critic_loss(agent_state, ext_state, batch, context)` | a term added to the critic loss, or `(term, metrics)` | summed | SAC, TD3, TQC, REDQ, ASAC, CrossQ, IQL, AVG, DQN, PQN, PPO, APO |
-| `actor_loss(agent_state, ext_state, batch, context)` | a term added to the actor loss, or `(term, metrics)` | summed | SAC, TD3, TQC, REDQ, ASAC, CrossQ, IQL, AVG, PPO, APO, APG, UDRL |
-| `action(agent_state, ext_state, obs, rng, context)` | an action, or `None` to defer | the last non-`None` wins | the off-policy agents on the shared collector, with an expert policy, in the action stage (`action_slot`, below) |
+| `on_target(agent_state, ext_state, batch, target, context)` | the new target, or `(target, metrics)` (below) | in order, each transforms the last one's target | SAC, TD3, TQC, REDQ, ASAC, RVISAC, CrossQ, IQL, AVG, DQN, PQN, PPO, APO |
+| `critic_loss(agent_state, ext_state, batch, context)` | a term added to the critic loss, or `(term, metrics)` | summed | SAC, TD3, TQC, REDQ, ASAC, RVISAC, CrossQ, IQL, AVG, DQN, PQN, PPO, APO |
+| `actor_loss(agent_state, ext_state, batch, context)` | a term added to the actor loss, or `(term, metrics)` | summed | SAC, TD3, TQC, REDQ, ASAC, RVISAC, CrossQ, IQL, AVG, PPO, APO, APG, UDRL, DAgger |
+| `action(agent_state, ext_state, obs, rng, context)` | an action, or `None` to defer | the last non-`None` wins | every agent but APG and the world models, with an expert policy, in the action stage (`action_slot`, below); an extension acting there needs an off-policy update, which PPO, APO and REINFORCE lack |
 | `eval_action(agent_state, ext_state, obs, rng, context)` | an action, or `None`; `obs` is the evaluation's dict (`executed_action`, `expert_action`, `observations`, `raw_obs`), and `expert_mask` written into it counts towards `Eval/expert share` | the last non-`None` wins | the agents on the shared evaluation (all but APG, UDRL, DreamerV3, TDMPC2) |
-| `transform_action(actions, inputs)` | the executed action, from the policy's and the expert's (`ajax.controller.TransformInputs`): before the action is chosen; the replay stores it and the critics score it | one per agent | SAC, TD3, REDQ, TQC, CrossQ, ASAC, AVG, PPO, APO, IQL, APG and UDRL with an expert policy, in collection, their losses and evaluation |
-| `actuate(actions, inputs)` | `(env_actions, expert_state)`: the chosen action executed through the expert; the replay stores the chosen one, and `policy_action_dim(env_args, expert)` gives its width where it is not the env's | one per agent | SAC, TD3, REDQ, TQC, CrossQ, ASAC, AVG, PPO, APO, IQL, APG and UDRL with an expert policy (gain mode), in collection and evaluation |
+| `transform_action(actions, inputs)` | the executed action, from the policy's and the expert's (`ajax.controller.TransformInputs`): before the action is chosen; the replay stores it and the critics score it | one per agent | SAC, TD3, REDQ, TQC, CrossQ, ASAC, RVISAC, AVG, PPO, APO, IQL, APG and UDRL with an expert policy, in collection, their losses and evaluation |
+| `actuate(actions, inputs)` | `(env_actions, expert_state)`: the chosen action executed through the expert; the replay stores the chosen one, and `policy_action_dim(env_args, expert)` gives its width where it is not the env's | one per agent | SAC, TD3, REDQ, TQC, CrossQ, ASAC, RVISAC, AVG, PPO, APO, IQL, APG and UDRL with an expert policy (gain mode), in collection and evaluation |
 | `choose_warmup_action(uniform_actions, inputs)` | `(actions, expert_took)`: the actions a warm-up step takes instead of the uniform ones, and whether the expert took them (`ajax.controller.WarmupInputs`) | one per agent | the agents whose uniform warm-up takes one (<!-- agents: warmup-action -->SAC, ASAC, RVI-SAC, REDQ, CrossQ, TD3, IQL, DQN, AVG<!-- /agents -->), before `learning_starts` |
-| `choose_replay_action(executed_actions, policy_actions)` | the actions the replay row stores: by default the executed ones | one per agent | the replay agents (SAC, TD3, TQC, REDQ, ASAC, CrossQ and IQL), at each collection step |
+| `choose_replay_action(executed_actions, policy_actions)` | the actions the replay row stores: by default the executed ones | one per agent | <!-- agents: replay-action -->SAC, ASAC, RVI-SAC, REDQ, CrossQ, TQC, TD3, IQL, DQN and UDRL<!-- /agents -->, at each collection step |
+| `track_memory(expert, memory, obs, command, applied)` | the agent's expert's memory after the step, from `command`, the action sent, and `applied`, what the actuator made of it (both in agent units); by default the expert's own step | the first one's | the agents on the shared collector (all but APG, UDRL and the world models), after the environment steps |
 | `post_update(agent_state, ext_state, context)` | `(agent_state, ext_state)` | in order | every agent, after each update |
 | `eval_metrics(agent_state, ext_state, rng, context)` | a dict of metrics | merged | every agent, at each evaluation |
 | `observe(inputs, state)` | `(columns, state)`: the `(n_envs, observation_width(env_args))` columns appended to the observation `inputs` (`ajax.controller.ObserveInputs`) describes | in column order (`observes_normalised` first) | the shared collector and evaluation, whenever an observation arrives |
@@ -92,8 +92,8 @@ where the phase applies; the controller dispatches `action`,
 Each agent lists the phases it folds in
 `supported_extension_phases`. An extension implementing any other phase is
 rejected when the agent is built, instead of being silently ignored.
-DreamerV3, TD-MPC2 and its multi-task variant fold only the loop's phases
-(`pretrain`, `post_update`, `eval_metrics`).
+The world models fold only `pretrain`, `post_update` and `eval_metrics`, and
+DreamerV3 and TD-MPC2 `observe` too.
 
 `init_state` and `pretrain` run on a fresh run only. A resumed run's state
 already carries the extension's state and whatever pretraining produced.
@@ -312,12 +312,12 @@ context it binds, its batches and replay fields;
 | `context` (class attribute) | the agent-context keys it cannot work without | refuses it when its `extension_context`, the keys its `make_train` binds, lacks one (`NotWired`) |
 | `pretrain_context` (class attribute) | the `ExtensionContext` fields its `pretrain` reads (`env_args`, `update`, `buffer`) | refuses it when its loop does not fill one: its `pretrain_context` (`NotWired`) |
 | `batch_keys` (class attribute) and `reads()` | per phase, the batch keys it reads beyond those every agent folding the phase passes | refuses it when the agent's `phase_batch_keys` lacks one of them (`NotWired`) |
-| `buffer_fields` (class attribute, a frozenset) | replay fields beyond the agent's own that the extension reads, such as `raw_next_obs`, the environment's own next observation | stores them only when an extension declares them; rejects the ones it cannot store (SAC, TD3, REDQ, ASAC and AVG store `raw_next_obs`) |
+| `buffer_fields` (class attribute, a frozenset) | replay fields beyond the agent's own that the extension reads, such as `raw_next_obs`, the environment's own next observation | stores them only when an extension declares them; rejects the ones it cannot store (SAC, TD3, REDQ, CrossQ, TQC, ASAC, RVISAC, AVG and IQL store `raw_next_obs`) |
 | `expert_fields` (class attribute) and `experts()` | the fields holding an expert, written in env units, and the experts the extension calls itself | reads every expert in `expert_fields` in agent units (`ExtensionStack.with_experts`); keeps the raw observations and expert flags in replay for a run with an expert; refuses a stateful expert (one with `init_state`) that `experts()` would call without its state |
-| `reads_agent_expert_actions` (class attribute) | the extension reads the expert actions the agent stored, when its expert is the agent's `expert_policy` | lets a stateful expert through for it, on an agent that stores those actions (`stores_expert_actions`: SAC, TD3, REDQ, ASAC, AVG, APO) |
+| `reads_agent_expert_actions` (class attribute) | the extension reads the expert actions the agent stored, when its expert is the agent's `expert_policy` | lets a stateful expert through for it, on an agent that stores those actions (`stores_expert_actions`: SAC, TD3, REDQ, CrossQ, TQC, ASAC, RVISAC, AVG, DQN, APO, DAgger) |
 | `uses_expert_actions_as_policy_actions()` | the extension puts an expert's actions where the policy's go: as the actor's target, or as an action its critics score | refuses it under gain mode (`ExpertGains`), where the expert's actions are env actions and the policy's are gains (`NotWired`) |
 | `reads_step_in_episode` (class attribute) | the extension reads each env's step within its episode | the shared collector counts it only then (`JSRLCurriculum` reads it) |
-| `reads_last_rollout` (class attribute) | the extension reads the agent's latest rollout (`agent_state.last_rollout`) | an on-policy or incremental agent keeps it only then, or with `expose_recent_rollout` (`ConditioningMetrics` and `BiasVoreDecomposition` read it, and require `stored_steps`) |
+| `reads_last_rollout` (class attribute) | the extension reads the agent's latest rollout (`agent_state.last_rollout`) | an on-policy or incremental agent keeps it only then, or with `expose_recent_rollout` (`CriticDiagnostics` and `BiasVoreDecomposition` read it, and require `stored_steps`) |
 | `action_slot` (class attribute) | where in the action stage (`ajax.environments.action_stage`) an `action` override applies: `"pre_warmup"`, before the warm-up's choice, or `"post_warmup"`, after it | the collector runs `action` only with an `expert_policy`; an `action` without a slot is refused |
 
 `EDGEExploration` does not require `phi_star`: it reads phi\* when
@@ -330,7 +330,7 @@ These checks run when the agent is built:
 from dataclasses import dataclass
 from typing import ClassVar
 
-from ajax import PQN, SAC, TD3
+from ajax import DQN, PQN, SAC
 from ajax.extensions import Extension
 
 
@@ -362,7 +362,7 @@ class PhiStarReader(Extension):
 
 for build in (
     lambda: PQN("CartPole-v1", extensions=(ActorNudge(),)),  # PQN has no actor
-    lambda: TD3("Pendulum-v1", extensions=(NextObservationReader(),)),  # SAC stores it
+    lambda: DQN("CartPole-v1", extensions=(NextObservationReader(),)),  # SAC stores it
     lambda: SAC("Pendulum-v1", extensions=(PhiStarReader(),)),  # no MCPretrain
 ):
     try:
@@ -370,15 +370,15 @@ for build in (
     except ValueError as error:
         print(error)
 # PQN cannot run ActorNudge ('actor-nudge'), which needs actor (a policy network trained by gradient).
-# TD3 has what its extensions need, but does not pass it on yet: NextObservationReader ('next-observation-reader'): TD3 stores no ['raw_next_obs'] yet.
+# DQN has what its extensions need, but does not pass it on yet: NextObservationReader ('next-observation-reader'): DQN stores no ['raw_next_obs'] yet.
 # SAC cannot run PhiStarReader ('phi-star-reader'), which needs phi_star (add MCPretrain(expert_policy=...), which fits phi*, to the extensions).
 ```
 
 If the agent you target does not fold a phase you need, adding the fold to
 that agent is a change of its own, made in the agent's update, and the agent
-still must not know about your extension. One more limit: SAC, TD3, REDQ,
-ASAC and PPO built with `memory=` reject every extension when training
-starts; APG takes both.
+still must not know about your extension. One more limit: with `memory=`,
+every agent but APG refuses, when training starts, every extension but the
+observation features and `StorePolicyAction`.
 
 ## Taking context from the agent: `bind_to_agent`
 

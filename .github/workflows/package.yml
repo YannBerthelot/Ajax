@@ -102,7 +102,8 @@ jobs:
           wheel=$(ls "$RUNNER_TEMP"/dist/ajax_rl-*.whl)
           case "$CHECK" in
             # render: the quickstart plots (matplotlib) and draws an episode.
-            docs) requirements=("ajax-rl[playground,compare,reproduction,wandb,render] @ file://$wheel" "$adastop") ;;
+            # gymnasium-mjx: the README builds an agent on a "mujoco:" task.
+            docs) requirements=("ajax-rl[playground,gymnasium-mjx,compare,reproduction,wandb,render] @ file://$wheel" "$adastop") ;;
             core) requirements=("ajax-rl @ file://$wheel") ;;
             compare) requirements=("ajax-rl[compare] @ file://$wheel" "$adastop") ;;
             *) requirements=("ajax-rl[$CHECK] @ file://$wheel") ;;

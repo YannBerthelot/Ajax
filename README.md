@@ -221,7 +221,7 @@ each method's paper and the agents that take it.
 </table>
 
 The [documentation site](https://yannberthelot.github.io/Ajax/) has the user
-guide, one page per agent, the [API reference](https://yannberthelot.github.io/Ajax/api/agents/)
+guide, one page per agent, the [API reference](https://yannberthelot.github.io/Ajax/latest/api/agents/)
 and the [developer guide](https://yannberthelot.github.io/Ajax/latest/developer/architecture/).
 
 ## Related projects

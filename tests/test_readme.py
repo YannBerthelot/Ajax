@@ -130,7 +130,9 @@ def test_the_algorithms_index_lists_every_exported_agent_once():
 def test_the_docs_home_page_links_every_agent_page():
     """The home page's table of agents links the page of every agent the
     algorithms index lists: REINFORCE's was missing there after it shipped."""
-    home = re.findall(r"\]\(algorithms/(\w+)\.md", section(DOCS / "index.md", "The agents"))
+    home = re.findall(
+        r"\]\(algorithms/(\w+)\.md", section(DOCS / "index.md", "The agents")
+    )
     index = re.findall(
         r"^\| \[\w+\]\((\w+)\.md",
         section(DOCS / "algorithms" / "index.md", "Overview"),

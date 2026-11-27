@@ -3166,13 +3166,13 @@ PyPI as <code>ajax-rl</code>.</p>
   <code>gymnasium:</code> tasks. The other six <code>mujoco:</code> tasks, whose motors take ±1,
   are unchanged, as are Playground's own environments. Upgrade: results
   recorded on those two tasks before this change are not comparable.</li>
-<li><strong>Ajax needs JAX 0.11 or newer</strong> (was 0.10). On JAX 0.10's CPU backend
-  DreamerV3's latents kept on the host stayed in device memory, and jaxlib
-  0.10 at XLA's optimisation level 0 took minutes per MJX step on Pusher.
-  Upgrade: <code>pip install -U "jax&gt;=0.11"</code> (or <code>"jax[cuda]&gt;=0.11"</code>).</li>
+<li><strong>Ajax needs JAX 0.10.2 or newer</strong> (was 0.10.0). Before 0.10.2, JAX's
+  CPU backend kept a pinned_host placement in device memory, so DreamerV3's
+  latents kept on the host stayed on the device. Upgrade:
+  <code>pip install -U "jax&gt;=0.10.2"</code> (or <code>"jax[cuda]&gt;=0.10.2"</code>).</li>
 <li><strong>The <code>playground</code> extra needs MuJoCo 3.7 or newer</strong> (was 3.6). MJX 3.6
-  passes <code>a_min</code> to <code>jnp.clip</code>, which JAX 0.10, then Ajax's floor, no
-  longer accepts, so <code>"mujoco:"</code> and Playground tasks failed with <code>clip() got an
+  passes <code>a_min</code> to <code>jnp.clip</code>, which JAX 0.10, Ajax's floor, no longer
+  accepts, so <code>"mujoco:"</code> and Playground tasks failed with <code>clip() got an
   unexpected keyword argument 'a_min'</code> on an install at the floors.</li>
 <li><strong>New: <code>REINFORCE</code>, the plain policy gradient</strong> (Williams, 1992), as
   Spinning Up's Vanilla Policy Gradient runs it: one full-batch policy step

@@ -30,6 +30,4 @@ def warn_user(message: str, category: type[Warning] = UserWarning) -> None:
     and generated code."""
     # stacklevel=2 is what skip_file_prefixes sets anyway: counting starts at
     # warn_user's caller, past the skipped frames.
-    warnings.warn(
-        message, category, stacklevel=2, skip_file_prefixes=SKIPPED_PREFIXES
-    )
+    warnings.warn(message, category, stacklevel=2, skip_file_prefixes=SKIPPED_PREFIXES)

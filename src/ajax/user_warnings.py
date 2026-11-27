@@ -28,4 +28,8 @@ SKIPPED_PREFIXES = (_folder(__file__), _folder(jax.__file__), "<")
 def warn_user(message: str, category: type[Warning] = UserWarning) -> None:
     """``warnings.warn``, attributed to the first frame outside Ajax, JAX
     and generated code."""
-    warnings.warn(message, category, skip_file_prefixes=SKIPPED_PREFIXES)
+    # stacklevel=2 is what skip_file_prefixes sets anyway: counting starts at
+    # warn_user's caller, past the skipped frames.
+    warnings.warn(
+        message, category, stacklevel=2, skip_file_prefixes=SKIPPED_PREFIXES
+    )

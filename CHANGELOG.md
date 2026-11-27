@@ -43,7 +43,9 @@ What a user of 0.5.0 meets:
   REDQ, APG, TD-MPC2, UDRL and DQN on MinAtar, logged runs that evaluate
   between compiled chunks, and datasets loaded into the replay in one step.
 - **The agent benchmark** has 15 agents on 19 DeepMind Control and MinAtar
-  tasks, and Ajax's PPO, SAC and DQN were run beside SBX's and
+  tasks, summed up per suite in two figures (scores, and scores against
+  hours), and the performance page times each benchmarked agent on four CPU
+  cores. Ajax's PPO, SAC and DQN were run beside SBX's and
   Stable-Baselines3's under the reproduction protocol, with no difference
   shown at 96 seeds a side.
 - **Requirements:** JAX 0.10.2 or newer, and the `playground` extra takes
@@ -69,6 +71,12 @@ to do for each change that can break code or results.
   seeds and learning rates in a few lines. Every page it links to was
   shortened and checked against the code (names, defaults, outputs), and
   wide tables keep names on one line.
+- **Docs: the agent benchmark at a glance.** The benchmark page opens with
+  two figures per suite: the interquartile mean of the normalised final
+  returns beside the performance profile, as rliable draws them, and that
+  mean through training against the hours four CPU cores take. The
+  performance page's table of speeds comes from a timing pass of every
+  benchmarked agent (`benchmarks/suite/results/timing-0.6`).
 - **Progress lines give the time left.** From a run's second evaluation, each
   line `train` prints ends with the call's time left, at the pace of the last
   interval between two evaluations.

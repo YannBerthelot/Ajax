@@ -55,6 +55,8 @@
     
       <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
     
+      <link rel="stylesheet" href="../../stylesheets/extra.css">
+    
     <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
@@ -3432,11 +3434,12 @@ extension (<code>MissingCapability</code> and <code>NotWired</code> are <code>Va
 </tbody>
 </table>
 <h2 id="catalogue">Catalogue<a class="headerlink" href="#catalogue" title="Permanent link">&para;</a></h2>
-<p>Each table holds one module's extensions. "Works with" names the agents that
-accept the extension; <a href="../compatibility/">Compatibility</a> has the full matrix,
-generated from the code. "The off-policy actor-critics" are SAC, TD3, REDQ,
-CrossQ, TQC, ASAC, RVISAC, AVG and IQL, and "with an expert" means the agent
-was given an <code>expert_policy</code>.</p>
+<p>One table per module. "Works with" names the agents that accept the
+extension, and "details" links its explanation or its settings;
+<a href="../compatibility/">Compatibility</a>, generated from the code, has the full
+matrix. "The off-policy actor-critics" are SAC, TD3, REDQ, CrossQ, TQC,
+ASAC, RVISAC, AVG and IQL, and "with an expert" means the agent was given an
+<code>expert_policy</code>.</p>
 <p><strong>Learning from an expert</strong> (<code>ajax.extensions.expert</code>)</p>
 <table>
 <thead>
@@ -3450,49 +3453,49 @@ was given an <code>expert_policy</code>.</p>
 <tbody>
 <tr>
 <td><code>OnlineBC</code></td>
-<td>Pulls the actor's mean action towards the expert's, weighted by <code>φ*</code>'s value at each state and fading to zero over the first <code>critic_warmup_frac</code> of training. Logs <code>online_bc/term</code> and its weight, <code>online_bc/weight</code>.</td>
+<td>Pulls the actor's mean action towards the expert's, weighted by <code>φ*</code>'s value and fading out over <code>critic_warmup_frac</code> of training (<a href="../../api/extensions/#ajax.extensions.expert.OnlineBC">details</a>).</td>
 <td><code>actor_loss</code></td>
 <td>SAC with an expert and <code>MCPretrain</code></td>
 </tr>
 <tr>
 <td><code>ImitationLoss</code></td>
-<td>Adds TD3+BC's cloning term towards a fixed expert it holds, <code>coef · mean((μ(s) − a_E(s))²) / 4</code>. With the agent's own <code>expert_policy</code>, it reads the actions the agent stored, so the expert may be stateful. <code>anneal_frac</code> lowers its weight linearly to 0 at that fraction of training (kickstarting). <code>q_filter=True</code> counts only the rows where the critic rates the expert's action above the policy's (Q-filtered BC) and logs the share kept, <code>imitation/q_filter_frac</code>. <code>target="replay"</code> clones the replayed rows' own actions, so logged data needs no expert; <code>alpha</code> then makes the actor loss TD3+BC's, <code>λ</code> times the agent's own plus <code>coef · mean((μ(s) − a)²)</code> in the environment's units, <code>λ = alpha / mean|Q_1(s, μ(s))|</code> (<a href="../../algorithms/td3/#td3bc-offline">TD3+BC</a>). Logs <code>imitation/term</code> and the squared distance, <code>imitation/mse</code>.</td>
+<td>Adds TD3+BC's cloning term towards the expert's actions, weighted by <code>coef</code>. <code>q_filter=True</code> keeps the rows where the critic rates the expert higher; <code>target="replay"</code> clones the logged actions instead (<a href="../expert-guidance/#imitation-alongside-the-reward">details</a>).</td>
 <td><code>actor_loss</code>, <code>eval_metrics</code></td>
-<td>continuous actions: the off-policy actor-critics, APO and DAgger; with a stateless expert on IQL, PPO, APG and UDRL, which store no expert actions. <code>q_filter=True</code>: the off-policy actor-critics, without <code>ResidualPolicy</code>. <code>target="replay"</code>: the off-policy actor-critics but AVG, which keeps no replay</td>
+<td>continuous actions: the off-policy actor-critics, APO, DAgger, PPO, APG and UDRL (on IQL, PPO, APG and UDRL a stateless expert); <code>q_filter</code> needs a Q critic, <code>target="replay"</code> a replay</td>
 </tr>
 <tr>
 <td><code>ResidualPolicy</code></td>
-<td>Executes <code>clip(a_E + scale · a_π, −1, 1)</code>: the policy learns a correction to the expert. The replay stores the executed action and the critics score it; <code>critic_reads_residual=True</code> has them store and score the residual instead, and <code>zero_start=True</code> starts the policy as the expert.</td>
+<td>Executes <code>clip(a_E + scale · a_π, −1, 1)</code>, so the policy learns a correction to the expert; <code>zero_start=True</code> starts it as the expert (<a href="../expert-guidance/#collection">details</a>).</td>
 <td><code>pretrain</code>, <code>transform_action</code></td>
 <td>the off-policy actor-critics, PPO, APO, APG and UDRL, with an expert and continuous actions</td>
 </tr>
 <tr>
 <td><code>ExpertGains</code></td>
-<td>Gain mode: the policy's action <code>a</code> sets each of the expert's learnable gains to <code>anchor · max_factor^a</code> (<code>max_factor</code> 10 by default), and the expert acts with them; the replay and the critics hold the gains. Needs a stateful expert with <code>learnable_fields</code> (<code>register_learnable_gains</code>, or a <code>GainScheduledLaw</code>).</td>
+<td>Gain mode: the policy's action sets the expert's learnable gains, between <code>1 / max_factor</code> and <code>max_factor</code> times their anchors, and the expert acts with them (<a href="../expert-guidance/#learning-a-pids-gains-gain-mode">details</a>).</td>
 <td><code>actuate</code></td>
-<td>as <code>ResidualPolicy</code>, without <code>ExpertActionInput</code></td>
+<td>as <code>ResidualPolicy</code>, with a stateful expert exposing <code>learnable_fields</code></td>
 </tr>
 <tr>
 <td><code>ExpertWarmup</code></td>
-<td>During the warm-up, the expert takes a share <code>fraction</code> of the steps (one draw per step for every copy) and uniform random actions take the others; the replay flags the rows the expert took.</td>
+<td>During the warm-up, the expert takes a share <code>fraction</code> of the steps and uniform random actions the others (<a href="../expert-guidance/#warm-up">details</a>).</td>
 <td><code>choose_warmup_action</code></td>
 <td>the agents with a warm-up (<!-- agents: warmup-action -->SAC, TD3, REDQ, CrossQ, ASAC, RVI-SAC, AVG, IQL, DQN<!-- /agents -->), with an expert and <code>learning_starts</code> above 0</td>
 </tr>
 <tr>
 <td><code>JSRLCurriculum</code></td>
-<td>The expert acts for the first <code>h</code> steps of each episode, the policy afterwards. <code>schedule="performance"</code> (the paper's, the default) lowers <code>h</code> from the task's horizon a stage at a time when an evaluation of the combined policy passes; <code>"random"</code> draws it each episode; <code>"time"</code> (Ajax's own) lowers it to 0 over <code>decay_frac</code> of training. Logs <code>jsrl/horizon</code> and <code>jsrl/expert_frac</code>, and with <code>"performance"</code> <code>jsrl/stage</code> and <code>jsrl/best</code>.</td>
+<td>The expert acts for the first <code>h</code> steps of each episode and the policy afterwards; <code>schedule</code> lowers <code>h</code> to 0, by default as evaluations pass (the paper's) (<a href="../expert-guidance/#collection">details</a>).</td>
 <td><code>action</code>, <code>post_update</code>, <code>eval_metrics</code></td>
 <td>the off-policy actor-critics, DQN, PQN, DAgger and UDRL, with an expert</td>
 </tr>
 <tr>
 <td><code>StorePolicyAction</code></td>
-<td>An ablation of off-policy correctness: the replay stores the action the policy chose, not the one executed, so the rows an expert, a warm-up or a residual acted in no longer hold the action behind their reward and next observation.</td>
+<td>An ablation: the replay stores the action the policy chose, not the one executed (<a href="../../api/extensions/#ajax.extensions.expert.StorePolicyAction">details</a>).</td>
 <td><code>choose_replay_action</code></td>
 <td><!-- agents: replay-action -->SAC, TD3, REDQ, CrossQ, TQC, ASAC, RVI-SAC, IQL, DQN and UDRL<!-- /agents --></td>
 </tr>
 <tr>
 <td><code>ExpertValueMetrics</code></td>
-<td>Logs, on one replay batch per evaluation, the critic's value at the expert's actions (<code>value/q_expert_mean</code>), its gap to the value of the actions taken (<code>value/q_gap</code>) and, with <code>MCPretrain</code>, its gap to <code>φ*</code> (<code>value/phi_star_q_gap_ood</code>).</td>
+<td>Logs the critic's value at the expert's actions and its gap to the actions taken, on a replay batch at each evaluation (<a href="../expert-guidance/#evaluation">details</a>).</td>
 <td><code>eval_metrics</code></td>
 <td>SAC, TD3, REDQ, CrossQ, TQC, ASAC, RVISAC, IQL and DQN, with an expert</td>
 </tr>
@@ -3511,15 +3514,15 @@ was given an <code>expert_policy</code>.</p>
 <tbody>
 <tr>
 <td><code>OuterLoopReference</code></td>
-<td>The policy's action moves the targets the expert reads, each by at most its <code>max_change</code>, and the unchanged expert acts; the replay and the critics hold the changes.</td>
+<td>The policy's action moves the targets the expert reads, each by at most <code>max_change</code>, and the expert acts unchanged (<a href="../expert-guidance/#acting-around-a-controller">details</a>).</td>
 <td><code>actuate</code></td>
 <td>as <code>ResidualPolicy</code></td>
 </tr>
 <tr>
 <td><code>BumplessTracking</code></td>
-<td>The expert's memory follows the action applied, by the conditioning technique, from the columns its errors read.</td>
+<td>Keeps the expert's memory true to the action applied, from the readings in <code>reading_channels</code> (<a href="../expert-guidance/#acting-around-a-controller">details</a>).</td>
 <td><code>track_memory</code></td>
-<td>every agent with a stateful expert but APG and UDRL, whose collectors step the environment themselves</td>
+<td>every agent with a stateful expert but APG and UDRL</td>
 </tr>
 </tbody>
 </table>
@@ -3536,37 +3539,37 @@ was given an <code>expert_policy</code>.</p>
 <tbody>
 <tr>
 <td><code>ExpertActionInput</code></td>
-<td>Appends the expert's action at each observation, raw (it is an action), from the state the agent tracks the expert in.</td>
+<td>Appends the expert's action to each observation (<a href="../expert-guidance/#observation">details</a>).</td>
 <td><code>observe</code></td>
-<td>every agent with an expert but DAgger, which would read the label it learns; not under gain mode</td>
+<td>every agent with an expert but DAgger; not under gain mode</td>
 </tr>
 <tr>
 <td><code>ExpertStateInput</code></td>
-<td>Appends a stateful expert's internal state before its call at the observation (<code>ExpertStateInput.for_expert(expert)</code> sizes it).</td>
+<td>Appends a stateful expert's internal state, sized by <code>ExpertStateInput.for_expert(expert)</code> (<a href="../expert-guidance/#observation">details</a>).</td>
 <td><code>observe</code></td>
 <td>every agent with a stateful expert</td>
 </tr>
 <tr>
 <td><code>PIDTermsInput</code></td>
-<td>Appends a PID controller's terms for each tracking error <code>e = obs[target_idx] − obs[current_idx]</code>: the error, its integral (clamped at <code>integral_limit</code>) and its difference, with sampling period <code>dt</code>; raw, and started afresh each episode. A <a href="../networks/#the-pid-policy"><code>PIDPolicy</code></a> actor reads them.</td>
+<td>Appends a PID's terms for the error <code>obs[target_idx] − obs[current_idx]</code>, which a <a href="../networks/#the-pid-policy"><code>PIDPolicy</code></a> actor reads (<a href="../../api/extensions/#ajax.extensions.observe.PIDTermsInput">details</a>).</td>
 <td><code>observe</code></td>
-<td>every agent but <code>TDMPC2MultiTask</code>, whose dataset holds no feature columns</td>
+<td>every agent but <code>TDMPC2MultiTask</code></td>
 </tr>
 <tr>
 <td><code>PreviousAction</code></td>
-<td>Appends the action executed just before each observation, raw, in agent units: zero at an episode's first observation, a discrete action one-hot. A recurrent actor then reads its own past actions, as Ni et al. (2022)'s does (<a href="../memory/">Memory</a>).</td>
+<td>Appends the action executed before each observation, which recurrent networks read (<a href="../memory/">details</a>).</td>
 <td><code>observe</code></td>
 <td>every agent but <code>TDMPC2MultiTask</code></td>
 </tr>
 <tr>
 <td><code>PreviousReward</code></td>
-<td>Appends the reward paid for the action executed just before each observation, raw: zero at an episode's first observation. Ni et al. (2022)'s recurrent actor and critic read it with the previous action (<a href="../memory/">Memory</a>). <code>agent.policy</code>'s <code>act</code> then needs each reward.</td>
+<td>Appends the reward paid before each observation, which recurrent networks read (<a href="../memory/">details</a>).</td>
 <td><code>observe</code></td>
-<td>every agent but <code>TDMPC2MultiTask</code> and APG, whose rollout passes no reward yet</td>
+<td>every agent but <code>TDMPC2MultiTask</code> and APG</td>
 </tr>
 <tr>
 <td><code>TrainingProgressInput</code></td>
-<td>Appends the fraction of training done (<code>ajax.schedule.progress</code>); an evaluation holds the collector's.</td>
+<td>Appends the fraction of training done (<a href="../../api/extensions/#ajax.extensions.observe.TrainingProgressInput">details</a>).</td>
 <td><code>observe</code></td>
 <td>every agent but <code>TDMPC2MultiTask</code></td>
 </tr>
@@ -3585,7 +3588,7 @@ was given an <code>expert_policy</code>.</p>
 <tbody>
 <tr>
 <td><code>EDGEExploration</code></td>
-<td>Lets the expert act in place of the policy, step by step, as its <code>gate</code> decides. <code>"fixed"</code> (the default): with probability <code>fixed_prob</code>; <code>"argmax"</code>: whenever the critic rates the expert's action higher; <code>"boltzmann"</code>: with a probability that grows with that gap. These three fade out over <code>decay_frac</code> of training. <code>"lcb"</code>, <code>"argmax_lcb"</code> and <code>"thompson"</code> also weigh the critics' disagreement. Logs <code>edge/live_expert_frac</code> and its gate's schedule (<code>edge/decay</code> or <code>edge/beta</code>).</td>
+<td>Lets the expert act in place of the policy, step by step, as its <code>gate</code> decides: by default with probability <code>fixed_prob</code>, fading out over <code>decay_frac</code> of training (<a href="../expert-guidance/#collection">details</a>).</td>
 <td><code>action</code>, <code>eval_metrics</code></td>
 <td>the off-policy actor-critics, DAgger and UDRL, with an expert and continuous actions</td>
 </tr>
@@ -3604,31 +3607,31 @@ was given an <code>expert_policy</code>.</p>
 <tbody>
 <tr>
 <td><code>IBRL</code></td>
-<td>Adds <code>γ(1 − d) · max(Q(s′, a_E) − Q(s′, a′), 0)</code> to the target, so the values match acting with whichever of expert and policy looks better: <code>a′</code> is the next action the target scored, <code>Q</code> the minimum over the critics the target took its minimum over. With <code>hybrid_acting</code> (the default) it also acts with whichever of the two the target critics rate higher, in collection and evaluation. <code>soft_choice=True</code> draws that choice, with probability <code>sigmoid(soft_choice_beta · (Q(a_E) − Q(a)))</code> for the expert (<code>soft_choice_beta</code> 10 by default). On REDQ, and with <code>soft_choice</code>, the bonus can be negative (<a href="../expert-guidance/#critic">Expert guidance</a>). Logs <code>ibrl/bonus</code> and <code>ibrl/expert_wins</code>, and with <code>hybrid_acting</code> <code>ibrl/expert_frac</code>.</td>
+<td>Bootstraps the target on the better of the expert's and the policy's next actions, and by default (<code>hybrid_acting</code>) acts with the better of the two (<a href="../expert-guidance/#critic">details</a>).</td>
 <td><code>on_target</code>; <code>action</code>, <code>eval_action</code>, <code>eval_metrics</code> with <code>hybrid_acting</code></td>
-<td>SAC, TD3, REDQ, TQC and IQL; refused on an average-reward target (ASAC, RVISAC), which has no discount for the bonus, and without target critics (AVG, CrossQ)</td>
+<td>SAC, TD3, REDQ, TQC and IQL</td>
 </tr>
 <tr>
 <td><code>LCBGatedBootstrap</code></td>
-<td>Blends the policy's and the expert's next-action values in the target, weighted by a sigmoid of their pessimistic (lower-confidence-bound) scores. Logs its pessimism <code>lcb_bootstrap/beta</code> and its mean gate <code>lcb_bootstrap/p_expert</code>.</td>
+<td>Blends the policy's and the expert's next-action values in the target, weighted by their pessimistic (lower-confidence-bound) scores (<a href="../../api/extensions/#ajax.extensions.target_mods.LCBGatedBootstrap">details</a>).</td>
 <td><code>on_target</code>, <code>eval_metrics</code></td>
 <td>SAC, TD3, REDQ, TQC and IQL</td>
 </tr>
 <tr>
 <td><code>CriticBlend</code></td>
-<td>Blends the target with a one-step target on <code>φ*</code>, <code>(1 − α) y + α y_E</code>, with <code>α</code> falling from 1 to 0 over <code>critic_warmup_frac</code>. Logs <code>α</code> as <code>critic_blend/expert_weight</code>, and <code>critic_blend/target_gap</code>.</td>
+<td>Blends the target with a one-step target on <code>φ*</code>, whose share falls from 1 to 0 over <code>critic_warmup_frac</code> (<a href="../../api/extensions/#ajax.extensions.target_mods.CriticBlend">details</a>).</td>
 <td><code>on_target</code>, <code>eval_metrics</code></td>
 <td>SAC with <code>MCPretrain</code></td>
 </tr>
 <tr>
 <td><code>MCVarianceCorrection</code></td>
-<td>Where the critics' variance exceeds <code>threshold</code>, uses <code>φ*</code>'s value as the target. Logs <code>mc_variance/replaced_frac</code>.</td>
+<td>Uses <code>φ*</code>'s value as the target where the critics' variance exceeds <code>threshold</code> (<a href="../../api/extensions/#ajax.extensions.target_mods.MCVarianceCorrection">details</a>).</td>
 <td><code>on_target</code></td>
 <td>SAC with <code>MCPretrain</code></td>
 </tr>
 <tr>
 <td><code>ValueBox</code></td>
-<td>Lets the expert act where its value under <code>φ*</code> exceeds a threshold that rises from the lowest to the highest expert value over training. Logs <code>value_box/threshold</code>, <code>value_box/in_box_frac</code> and <code>value_box/expert_frac</code>.</td>
+<td>Lets the expert act where its value under <code>φ*</code> exceeds a threshold that rises over training (<a href="../expert-guidance/#collection">details</a>).</td>
 <td><code>action</code>, <code>eval_metrics</code></td>
 <td>SAC with an expert and <code>MCPretrain</code></td>
 </tr>
@@ -3647,46 +3650,44 @@ was given an <code>expert_policy</code>.</p>
 <tbody>
 <tr>
 <td><code>CloningPretrain</code></td>
-<td>Rolls the expert out for <code>n_steps</code> steps per copy and trains the actor to reproduce its actions (<code>epochs</code> passes in batches of <code>batch_size</code>, at the actor's learning rate); the agent's observation statistics start from the dataset's. Logs the mean loss of its first and last epoch, <code>cloning/first_loss</code> and <code>cloning/last_loss</code>.</td>
+<td>Before training, trains the actor to reproduce the expert's actions over <code>n_steps</code> steps of its rollouts per copy (<a href="../expert-guidance/#before-training">details</a>).</td>
 <td><code>pretrain</code>, <code>eval_metrics</code></td>
 <td>the off-policy actor-critics, APO and DAgger, with continuous actions</td>
 </tr>
 <tr>
 <td><code>MCPretrain</code></td>
-<td>Rolls the expert out, fits the expert critic <code>φ*</code> to its Monte-Carlo returns, records its value range, and by default nudges the agent's own critic towards it. Logs the range (<code>mc_pretrain/v_min</code>, <code>mc_pretrain/v_max</code>), the fit's first and last loss (<code>mc_pretrain/first_loss</code>, <code>mc_pretrain/last_loss</code>) and <code>φ*</code>'s mean value at the expert's actions, <code>mc_pretrain/q_expert_mean</code>.</td>
+<td>Before training, fits the expert critic <code>φ*</code> to the expert's Monte-Carlo returns, and by default nudges the agent's critic towards it (<a href="../expert-guidance/#before-training">details</a>).</td>
 <td><code>pretrain</code>, <code>eval_metrics</code></td>
 <td>SAC</td>
 </tr>
 <tr>
 <td><code>BellmanPretrain</code></td>
-<td>Runs <code>n_steps</code> ordinary critic updates on the replay before training, once <code>ExpertPrefill</code> or <code>PriorData</code> has filled it. Its values bootstrap from an untrained critic; kept for ablations. Logs the critic loss of its first and last update, <code>bellman_pretrain/first_loss</code> and <code>bellman_pretrain/last_loss</code>.</td>
+<td>Before training, runs <code>n_steps</code> ordinary critic updates on the replay <code>ExpertPrefill</code> or <code>PriorData</code> filled; kept for ablations (<a href="../expert-guidance/#before-training">details</a>).</td>
 <td><code>pretrain</code>, <code>eval_metrics</code></td>
 <td>SAC, TD3, REDQ and TQC, with <code>ExpertPrefill</code> or <code>PriorData</code></td>
 </tr>
 <tr>
 <td><code>PhiRefresh</code></td>
-<td>Every <code>interval</code> steps, refits <code>φ*</code> for <code>steps</code> updates on the replay rows where the expert acted.</td>
+<td>Refits <code>φ*</code> every <code>interval</code> steps on the replay rows where the expert acted (<a href="../../api/extensions/#ajax.extensions.pretrain.PhiRefresh">details</a>).</td>
 <td><code>post_update</code></td>
 <td>SAC with an expert and <code>MCPretrain</code></td>
 </tr>
 <tr>
 <td><code>PriorData</code></td>
-<td>Adds a transition dataset (<code>ajax.buffers.dataset</code>) to the replay, where it stays, and to the observation and reward statistics, then runs <code>offline_updates</code> of the agent's own update on it before acting. Pair it with <code>learning_starts=0</code>.</td>
+<td>Adds a transition <code>dataset</code> to the replay, then runs <code>offline_updates</code> of the agent's own update on it; pair it with <code>learning_starts=0</code> (<a href="../../api/extensions/#ajax.extensions.pretrain.PriorData">details</a>).</td>
 <td><code>pretrain</code></td>
 <td>SAC, TD3, REDQ, CrossQ, TQC, ASAC, RVISAC, IQL and DQN</td>
 </tr>
 <tr>
 <td><code>ExpertPrefill</code></td>
-<td>The expert acts <code>n_steps</code> steps in every copy before training, and its transitions go to the replay as collection writes its own, flagged as expert rows. They count once in the observation and reward statistics, as <code>PriorData</code>'s do, and in no timestep. <code>offline_updates</code> of the agent's own update then run on them. It runs before the other pre-training, which may read its rows.</td>
+<td>The expert acts <code>n_steps</code> steps in every copy before training, and its transitions go to the replay as expert rows (<a href="../expert-guidance/#before-training">details</a>).</td>
 <td><code>pretrain</code></td>
 <td>as <code>PriorData</code>, with an expert or an <code>expert</code> of its own</td>
 </tr>
 </tbody>
 </table>
 <p><strong>Rows kept for the whole run</strong> (<code>ajax.extensions.retained</code>)</p>
-<p>These put their rows in a ring of their own beside the one collection writes,
-so nothing evicts them. The update ratio, the critics and their architecture
-stay the agent's.</p>
+<p>These keep their rows in a ring of their own, which nothing evicts.</p>
 <table>
 <thead>
 <tr>
@@ -3699,25 +3700,24 @@ stay the agent's.</p>
 <tbody>
 <tr>
 <td><code>RetainedDemonstrations</code></td>
-<td>Keeps <code>n_steps</code> steps of the agent's expert per copy, or a transition <code>dataset</code>, for the whole run (DDPGfD). <code>share</code> is the part of each batch they fill; <code>None</code> draws each row over all the rows held. After <code>CloningPretrain</code>, with <code>share=0.5</code>, it is Rainbow-DemoRL's BC start plus prefill.</td>
+<td>Keeps <code>n_steps</code> steps of the expert per copy, or a transition <code>dataset</code>, for the whole run, as a <code>share</code> of each batch (DDPGfD) (<a href="../../api/extensions/#ajax.extensions.retained.RetainedDemonstrations">details</a>).</td>
 <td><code>pretrain</code></td>
-<td>as <code>PriorData</code>; the expert's rows need an expert</td>
+<td>as <code>PriorData</code></td>
 </tr>
 <tr>
 <td><code>RLPD</code></td>
-<td>The same rows at <code>share=0.5</code>, exact in every batch, on critics with LayerNorm: pass <code>critic_architecture=("256", "layernorm", "relu", "256", "layernorm", "relu")</code>, or <code>critic_layer_norm=False</code> for the ablation. <code>critic_subset</code> has each target bootstrap on that many target critics drawn at random. The original configuration is <code>REDQ</code> with those critics.</td>
+<td>The same rows as half of every batch, on critics with LayerNorm, which it checks unless <code>critic_layer_norm=False</code> (<a href="../../api/extensions/#ajax.extensions.retained.RLPD">details</a>).</td>
 <td><code>pretrain</code>, <code>on_target</code></td>
-<td>as <code>RetainedDemonstrations</code>; <code>critic_subset</code> needs a Q critic with targets and next actions, on an agent without a subset of its own</td>
+<td>as <code>PriorData</code></td>
 </tr>
 </tbody>
 </table>
 <p><strong>Fine-tuning a clone</strong> (<code>ajax.extensions.porl</code>)</p>
 <p><code>porl(cloning, presample_steps, epsilon, features)</code> returns the agent's
-keyword arguments for PORL (Xiao et al., 2025): <code>cloning</code> clones the expert,
-then only a fresh critic trains for <code>presample_steps</code> environment steps, then
-the agent trains as usual. A stateful expert needs its memory in <code>features</code>:
-<code>ExpertStateInput</code>, or <code>PIDTermsInput</code> for a PI whose anti-windup holds its
-integrator.</p>
+keyword arguments for PORL (Xiao et al., 2025): clone the expert, train only
+a fresh critic for <code>presample_steps</code> steps, then train as usual. A stateful
+expert needs its memory in <code>features</code> (<code>ExpertStateInput</code>, or
+<code>PIDTermsInput</code>).</p>
 <table>
 <thead>
 <tr>
@@ -3730,7 +3730,7 @@ integrator.</p>
 <tbody>
 <tr>
 <td><code>EpsilonGreedyPresample</code></td>
-<td>For the first <code>presample_steps</code> environment steps, each copy takes a uniform action with probability <code>epsilon</code> and the actor's mean otherwise, then the agent's own action. The replay stores the action taken, and the observation statistics stay where pre-training left them, so the clone's actions hold too.</td>
+<td>For the first <code>presample_steps</code> steps, acts with the actor's mean action, or a uniform one with probability <code>epsilon</code> (<a href="../../api/extensions/#ajax.extensions.porl.EpsilonGreedyPresample">details</a>).</td>
 <td><code>action</code>, <code>pretrain</code>, <code>post_update</code></td>
 <td>SAC, TD3, REDQ, CrossQ, TQC, ASAC, RVISAC, IQL, UDRL and DAgger, with continuous actions and no action transform</td>
 </tr>
@@ -3749,9 +3749,9 @@ integrator.</p>
 <tbody>
 <tr>
 <td><code>CHEQ</code></td>
-<td>Executes <code>(1 − λ) a_E + λ a_RL</code>, with <code>λ</code> falling from <code>lambda_max</code> to <code>lambda_min</code> as the critics' disagreement, a share of the spread of the values their targets bootstrap, rises from <code>u_low</code> to <code>u_high</code>. <code>λ</code> joins every observation, the replay stores <code>a_RL</code>, and a stateful expert needs <code>PIDTermsInput</code> or <code>ExpertStateInput</code> in the stack. Logs <code>cheq/weight</code>, <code>cheq/uncertainty</code> and <code>cheq/value_spread</code>.</td>
+<td>Executes a blend of the expert's and the policy's actions, the policy's weight falling from <code>lambda_max</code> to <code>lambda_min</code> as the critics disagree more (<a href="../../api/extensions/#ajax.extensions.cheq.CHEQ">details</a>).</td>
 <td><code>observe</code>, <code>action</code>, <code>eval_action</code>, <code>on_target</code>, <code>critic_loss</code>, <code>post_update</code>, <code>eval_metrics</code></td>
-<td>SAC, TD3, REDQ, CrossQ, ASAC, RVISAC and IQL, with an expert and two critics or more</td>
+<td>SAC, TD3, REDQ, CrossQ, ASAC, RVISAC and IQL, with an expert</td>
 </tr>
 </tbody>
 </table>
@@ -3768,21 +3768,21 @@ integrator.</p>
 <tbody>
 <tr>
 <td><code>ConservativeQ</code></td>
-<td>CQL(H)'s critic term: <code>alpha</code> times, for each critic, the logsumexp of its values at <code>n_actions</code> uniform actions and as many of the policy's at <code>s</code> and <code>s′</code> (each less its log-density), minus its value at the data's action. Logs <code>cql/term</code> and <code>cql/gap</code>.</td>
+<td>CQL's critic term, weighted by <code>alpha</code>: it pushes the critic's values down on actions away from the data's (<a href="../../algorithms/sac/#cql-and-cal-ql-offline">details</a>).</td>
 <td><code>critic_loss</code></td>
-<td>the off-policy actor-critics but TD3, whose deterministic policy has no density (<a href="../../algorithms/sac/#cql-and-cal-ql-offline">SAC</a>)</td>
+<td>the off-policy actor-critics but TD3</td>
 </tr>
 <tr>
 <td><code>CalQL</code></td>
-<td><code>ConservativeQ</code> with the policy actions' values floored at the row's return to go (Cal-QL), from a transition dataset's <code>return_to_go</code>; collected rows have none. Also logs <code>calql/bound_frac</code>, the share it raised.</td>
+<td><code>ConservativeQ</code> with the values floored at the dataset's return to go (<a href="../../algorithms/sac/#cql-and-cal-ql-offline">details</a>).</td>
 <td><code>critic_loss</code></td>
 <td>SAC, REDQ, CrossQ, TQC and IQL</td>
 </tr>
 <tr>
 <td><code>TargetBC</code></td>
-<td>ReBRAC's critic penalty: the target less <code>γ (1 − d) β Σ (ã′ − a′)²</code>, <code>ã′</code> the next actions the target scored and <code>a′</code> the dataset's next action (<code>next_action</code>; a row without one keeps its target). Logs <code>target_bc/penalty</code> and <code>target_bc/known_frac</code>.</td>
+<td>ReBRAC's critic penalty: the target less <code>beta</code> times the distance from its next actions to the dataset's (<a href="../../algorithms/td3/#rebrac-offline">details</a>).</td>
 <td><code>on_target</code></td>
-<td>SAC, TD3, REDQ, CrossQ and TQC (<a href="../../algorithms/td3/#rebrac-offline">ReBRAC</a>)</td>
+<td>SAC, TD3, REDQ, CrossQ and TQC</td>
 </tr>
 </tbody>
 </table>
@@ -3799,9 +3799,9 @@ integrator.</p>
 <tbody>
 <tr>
 <td><code>AdversarialReward</code></td>
-<td>GAIL: a discriminator, trained after each rollout to tell its rows from a transition dataset of demonstrations, replaces the rollout's rewards with <code>−log(1 − D(s, a))</code>; the environment's own reward is not used. It reads the action the environment runs, clipped to <code>[−1, 1]</code>. Logs <code>gail/reward</code>, <code>gail/disc_loss</code>, <code>gail/expert_acc</code> and <code>gail/policy_acc</code>.</td>
+<td>GAIL: a discriminator trained against the <code>demonstrations</code> dataset replaces the rollout's rewards (<a href="../../algorithms/ppo/#gail-imitation-by-a-discriminator">details</a>).</td>
 <td><code>reward</code></td>
-<td>PPO with continuous actions (<a href="../../algorithms/ppo/#gail-imitation-by-a-discriminator">PPO</a>)</td>
+<td>PPO with continuous actions</td>
 </tr>
 </tbody>
 </table>
@@ -3818,9 +3818,9 @@ integrator.</p>
 <tbody>
 <tr>
 <td><code>KernelRepulsion</code></td>
-<td>Adds <code>coef</code> times the mean similarity (an RBF kernel) between the critics' predictions, which pushes the critics of an ensemble apart. Logs <code>kernel_repulsion/term</code>, <code>kernel_repulsion/kernel</code> and <code>kernel_repulsion/bandwidth</code>.</td>
+<td>Adds <code>coef</code> times the similarity of the critics' predictions to the critic loss, pushing an ensemble's critics apart (<a href="../../api/extensions/#ajax.extensions.ensemble.KernelRepulsion">details</a>).</td>
 <td><code>critic_loss</code></td>
-<td>the off-policy actor-critics with two critics or more (AVG has one by default)</td>
+<td>the off-policy actor-critics with two critics or more</td>
 </tr>
 </tbody>
 </table>
@@ -3837,15 +3837,15 @@ integrator.</p>
 <tbody>
 <tr>
 <td><code>ValueCentering</code></td>
-<td>Subtracts from the target an offset learned as the reward rate (reward centering), so the values lose the constant <code>r(π) / (1 − γ)</code>. Its <code>rule</code> is one of <code>ajax.agents.centering</code>'s: <code>RVIBatchMean(rate)</code> (the default, 0.005), the batch mean of the next values the target read, followed slowly (RVI-SAC's); <code>TDErrorCentering(step_size)</code>, the mean TD error of the centred target; <code>ReferencePoint(observation, action)</code>, the target critics' value there (ASAC's <code>Q(0, 0)</code>). It comes last of the extensions shaping the target. On a task whose episodes terminate, centering also prices an episode's length, unless <code>ResetCost</code>, before it, has the target go on through terminations. Logs <code>centering/offset</code>.</td>
+<td>Subtracts from the target an offset learned as the reward rate (reward centering), as its <code>rule</code> says (<a href="../../api/extensions/#ajax.extensions.centering.ValueCentering">details</a>).</td>
 <td><code>on_target</code></td>
-<td>SAC, TD3, REDQ, CrossQ, TQC, AVG, IQL and DQN; refused on a lambda-return (PPO, PQN) and on the average-reward agents, which centre themselves (ASAC, RVISAC, APO)</td>
+<td>SAC, TD3, REDQ, CrossQ, TQC, AVG, IQL and DQN</td>
 </tr>
 <tr>
 <td><code>ResetCost</code></td>
-<td>Treats a termination as a step into the reset state: the target bootstraps on the reset observation the replay stores, and a terminated row is charged <code>c</code>. <code>c</code> is a Lagrange multiplier: a reset critic learns the policy's termination rate, and <code>c</code> rises while that rate exceeds <code>target_rate</code> (1e-3) and falls while it is below, never below 0. Its settings are RVI-SAC's (<code>ajax.agents.reset_cost.ResetCostSettings</code>). It refuses a stack reading the episode a termination ended (<code>IBRL</code>, <code>CriticBlend</code>, <code>LCBGatedBootstrap</code>, <code>CalQL</code>). Logs <code>reset_cost/cost</code>, <code>reset_cost/rate</code> and <code>reset_cost/critic_loss</code>.</td>
+<td>Treats a termination as a step into the reset state, charging terminated rows a cost that rises while the termination rate exceeds <code>target_rate</code> (<a href="../../api/extensions/#ajax.extensions.reset_cost.ResetCost">details</a>).</td>
 <td><code>on_target</code></td>
-<td>SAC, TD3, REDQ, CrossQ, TQC and DQN; refused on IQL (no next action), on AVG and the on-policy agents (their rollouts keep the final observation), and on ASAC and RVISAC, which price terminations themselves</td>
+<td>SAC, TD3, REDQ, CrossQ, TQC and DQN</td>
 </tr>
 </tbody>
 </table>
@@ -3862,7 +3862,7 @@ integrator.</p>
 <tbody>
 <tr>
 <td><code>MEW</code></td>
-<td>Minimum Excess Work (Adamczyk et al., 2026): sets the temperature in place of the agent's own rule, lowering it at each update by <code>beta &lt;- beta + speed / sqrt(beta * sum_k Cov(r_t, r_t+k))</code>, <code>alpha = 1 / beta</code>, the covariance that of the last <code>history</code> rewards per environment (from the replay; MEW keeps them itself on AVG). It waits for more than <code>history</code> steps per environment. <code>speed</code> 1e-6 and <code>history</code> 50,000 are the authors' code's. Logs <code>mew/friction</code>.</td>
+<td>Minimum Excess Work (Adamczyk et al., 2026): sets the entropy temperature from the rewards' covariance in place of the agent's own rule, at the pace <code>speed</code> sets (<a href="../../api/extensions/#ajax.extensions.annealing.MEW">details</a>).</td>
 <td><code>post_update</code>, <code>eval_metrics</code></td>
 <td>the maximum-entropy agents: SAC, REDQ, CrossQ, TQC, ASAC, RVISAC and AVG</td>
 </tr>
@@ -3881,21 +3881,21 @@ integrator.</p>
 <tbody>
 <tr>
 <td><code>CriticDiagnostics</code></td>
-<td>Logs the critic's effective rank (<code>Cond/critic_srank</code>), its fraction of dormant units, its feature and weight norms. It finds the critic from the agent's networks: an ensemble critic, or a Q-network.</td>
+<td>Logs whether the critic's features are degrading: their effective rank, dormant units and norms (<a href="#measuring-a-replay-agents-critic">details</a>).</td>
 <td><code>eval_metrics</code></td>
-<td>every agent with a critic (all but APG, UDRL and DAgger): from its replay, or from the latest rollout an on-policy or incremental agent keeps (AVG's is one step per copy)</td>
+<td>every agent with a critic</td>
 </tr>
 <tr>
 <td><code>BiasVoreDecomposition</code></td>
-<td>Splits the critic's squared one-step error into squared bias and variance (<code>EVarEst/bias_sq</code>, <code>EVarEst/var_resid</code>, <code>EVarEst/mse</code>, <code>EVarEst/abs_bias</code>), against a one-step target on its current parameters, or your own <code>value_target_fn</code>.</td>
+<td>Splits the critic's squared one-step error into squared bias and variance (<a href="#measuring-a-replay-agents-critic">details</a>).</td>
 <td><code>eval_metrics</code></td>
 <td>as <code>CriticDiagnostics</code></td>
 </tr>
 <tr>
 <td><code>BiasVorePenalty</code></td>
-<td>Adds <code>((1 − 2α)/α) · Var(residual)</code> to the critic loss; <code>alpha=0.5</code> adds nothing. Logs <code>bias_vore/penalty</code> and <code>bias_vore/residual_var</code>.</td>
+<td>Adds a penalty on the variance of the critic's residual, set by <code>alpha</code> (0.5 adds nothing) (<a href="../../api/extensions/#ajax.extensions.instrumentation.BiasVorePenalty">details</a>).</td>
 <td><code>critic_loss</code></td>
-<td>the off-policy actor-critics but TQC, whose critic regresses on quantiles, and PPO, APO, DQN and PQN</td>
+<td>the off-policy actor-critics but TQC, and PPO, APO, DQN and PQN</td>
 </tr>
 </tbody>
 </table>
@@ -3912,9 +3912,9 @@ integrator.</p>
 <tbody>
 <tr>
 <td><code>RepresentationProbe</code></td>
-<td>Reads the networks' activations and parameters on a fixed set of states every <code>probe_interval</code> steps, writes them to a directory and logs each layer's effective rank, alignment with the previous probe, activation norm and dead units (<a href="../representations/">guide</a>).</td>
+<td>Every <code>probe_interval</code> steps, records the networks' activations and parameters on fixed states to <code>run_directory</code>, and logs each layer's rank and dead units (<a href="../representations/">details</a>).</td>
 <td><code>pretrain</code>, <code>post_update</code>, <code>eval_metrics</code></td>
-<td>every agent whose networks read the observation but APG and UDRL; not the world models</td>
+<td>every agent whose networks read the observation, but APG and UDRL</td>
 </tr>
 </tbody>
 </table>

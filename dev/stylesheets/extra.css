@@ -1,0 +1,7 @@
+/* A table's first column names things (an extension, a module): keep its
+   inline code on one line, where Material would break it mid-word. A table
+   too wide for the page scrolls instead. */
+.md-typeset table:not([class]) td:first-child code {
+  white-space: nowrap;
+  word-break: normal;
+}

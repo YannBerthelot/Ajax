@@ -2799,16 +2799,27 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#unreleased" class="md-nav__link">
+  <a href="#060" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Unreleased
+        0.6.0
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Unreleased">
+    <nav class="md-nav" aria-label="0.6.0">
       <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#changes-since-050" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Changes since 0.5.0
+      
+    </span>
+  </a>
+  
+</li>
         
           <li class="md-nav__item">
   <a href="#upgrading-from-050" class="md-nav__link">
@@ -2997,16 +3008,27 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#unreleased" class="md-nav__link">
+  <a href="#060" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Unreleased
+        0.6.0
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Unreleased">
+    <nav class="md-nav" aria-label="0.6.0">
       <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#changes-since-050" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Changes since 0.5.0
+      
+    </span>
+  </a>
+  
+</li>
         
           <li class="md-nav__item">
   <a href="#upgrading-from-050" class="md-nav__link">
@@ -3153,8 +3175,55 @@
 <p>Versions follow semantic versioning; before 1.0, a breaking change bumps
 the minor version. Each release is tagged <code>vX.Y.Z</code> on main and published to
 PyPI as <code>ajax-rl</code>.</p>
-<h2 id="unreleased">Unreleased<a class="headerlink" href="#unreleased" title="Permanent link">&para;</a></h2>
-<p>The next release is 0.6.0: the first item changes results.</p>
+<h2 id="060">0.6.0<a class="headerlink" href="#060" title="Permanent link">&para;</a></h2>
+<p>What a user of 0.5.0 meets:</p>
+<ul>
+<li><strong>A first run shows itself.</strong> <code>train</code> with no <code>logging_config</code> now
+  evaluates about ten times and prints a line each time, with the time left;
+  a run with a <code>LoggingConfig</code> of yours says where it logs. The results come
+  back by name (<code>evaluations.returns</code>), <code>agent.evaluate</code> scores a trained
+  policy, and <code>agent.save</code> and <code>ajax.load</code> keep an agent with its state.</li>
+<li><strong>Clearer errors and warnings</strong>, after six newcomer trials: an unknown id
+  or argument names the closest ones, Stable-Baselines3's call shapes and
+  argument names get Ajax's answer, a state from another agent or
+  environment is refused saying so, a run that ends inside the warm-up says
+  it does not train, and warnings name your line.</li>
+<li><strong>The README and the docs it links to were rewritten</strong> for a first-time
+  user.</li>
+<li><strong>Defaults from each agent's reference code.</strong> PPO's are ppo2's MuJoCo
+  run (normalisation, value clipping, TensorFlow 1's Adam, one env, 64-64
+  tanh layers), DQN's are CleanRL's, APO, PQN, IQL and DAgger follow their
+  own code, and SAC, TD3, REDQ, ASAC, TQC and RVI-SAC with <code>memory=</code> build
+  Ni et al. (2022)'s networks. Results change; "Upgrading from 0.5.0" gives
+  the arguments that restore the earlier ones.</li>
+<li><strong>A new agent, REINFORCE</strong>, as Spinning Up's Vanilla Policy Gradient runs
+  it. Ajax has twenty agents.</li>
+<li><strong>Gymnasium's eleven MuJoCo tasks in JAX</strong> (<code>"mujoco:HalfCheetah-v5"</code> and
+  the others, with the <code>gymnasium-mjx</code> extra), and <strong>training on MuJoCo
+  Warp</strong> on an NVIDIA GPU, about five times faster than pure JAX for SAC
+  and PPO on an L40S.</li>
+<li><strong>Sweeps, devices and presets.</strong> <code>train(sweep=...)</code> trains several
+  configurations in one compiled program, <code>train(devices=...)</code> splits the
+  seeds over devices, and <code>Agent.preset(name, env_id)</code> takes the values an
+  agent's reference code tunes for one task (<code>PPO.preset("SB3", env_id)</code>,
+  Stable-Baselines3's).</li>
+<li><strong><code>agent.render</code></strong> saves an episode as an animation, and
+  <strong><code>train(precision=...)</code></strong> runs the networks in bfloat16.</li>
+<li><strong>Faster training in places, with the same maths</strong>: DreamerV3 on the GPU,
+  REDQ, APG, TD-MPC2, UDRL and DQN on MinAtar, logged runs that evaluate
+  between compiled chunks, and datasets loaded into the replay in one step.</li>
+<li><strong>The agent benchmark</strong> has 15 agents on 19 DeepMind Control and MinAtar
+  tasks, summed up per suite in two figures (scores, and scores against
+  hours), and the performance page times each benchmarked agent on four CPU
+  cores. Ajax's PPO, SAC and DQN were run beside SBX's and
+  Stable-Baselines3's under the reproduction protocol, with no difference
+  shown at 96 seeds a side.</li>
+<li><strong>Requirements:</strong> JAX 0.10.2 or newer, and the <code>playground</code> extra takes
+  MuJoCo 3.7 to 3.15. Ajax ships a <code>py.typed</code> marker.</li>
+</ul>
+<p>The changes in full follow. "Upgrading from 0.5.0", after them, gives what
+to do for each change that can break code or results.</p>
+<h3 id="changes-since-050">Changes since 0.5.0<a class="headerlink" href="#changes-since-050" title="Permanent link">&para;</a></h3>
 <ul>
 <li><strong>Deprecated: <code>ConditioningMetrics</code> is now <code>CriticDiagnostics</code>.</strong> The
   extension has a name that says what it logs: whether the critic's
@@ -3166,6 +3235,17 @@ PyPI as <code>ajax-rl</code>.</p>
   took the replay of a second agent built with the same settings, is needed
   no more.
   Upgrade: rename the import; drop <code>buffer=</code> unless it names another replay.</li>
+<li><strong>Docs:</strong> the README was rewritten for a first-time user: install, a
+  first run that acts and saves, the Stable-Baselines3 page, and a sweep of
+  seeds and learning rates in a few lines. Every page it links to was
+  shortened and checked against the code (names, defaults, outputs), and
+  wide tables keep names on one line.</li>
+<li><strong>Docs: the agent benchmark at a glance.</strong> The benchmark page opens with
+  two figures per suite: the interquartile mean of the normalised final
+  returns beside the performance profile, as rliable draws them, and that
+  mean through training against the hours four CPU cores take. The
+  performance page's table of speeds comes from a timing pass of every
+  benchmarked agent (<code>benchmarks/suite/results/timing-0.6</code>).</li>
 <li><strong>Progress lines give the time left.</strong> From a run's second evaluation, each
   line <code>train</code> prints ends with the call's time left, at the pace of the last
   interval between two evaluations.</li>
@@ -3953,19 +4033,81 @@ PyPI as <code>ajax-rl</code>.</p>
   so <code>fixed_alpha</code> works one way in SAC, ASAC and RVI-SAC. REDQ and AVG use SAC's soft Bellman target, and
   IQL's update reads as its value, actor and critic steps. Results do not
   change.</li>
-<li><strong>Known issue: the hopper and finger tasks with several seeds.</strong> An XLA
+<li>
+<p><strong>Known issue: the hopper and finger tasks with several seeds.</strong> An XLA
   bug stops Playground's <code>HopperHop</code>, <code>HopperStand</code>, <code>FingerSpin</code>,
   <code>FingerTurnEasy</code> and <code>FingerTurnHard</code> from compiling when they are batched
   two ways, such as several seeds evaluated over several episodes.
-  The environments guide gives the workaround, an XLA flag.</li>
+  The environments guide gives the workaround, an XLA flag.</p>
+</li>
+<li>
+<p><strong><code>train(devices=...)</code> splits the seeds over several devices.</strong> Each
+  device trains a consecutive slice of the seeds, or of a sweep's
+  configurations over the seeds, at the same time; the results come back
+  in the usual order on the first device. Without <code>devices</code> nothing
+  changes.</p>
+</li>
+<li><strong><code>agent.save(state, path)</code> and <code>load</code>.</strong> <code>save</code> writes the state with
+  the agent's class and its plain constructor arguments; <code>ajax.load(path)</code>
+  or <code>PPO.load(path)</code> returns <code>(agent, state)</code>. Arguments that are objects
+  (a prebuilt environment, extensions, an expert policy) are passed to
+  <code>load</code> again. <code>save_checkpoint</code> and <code>load_checkpoint</code> are unchanged, and
+  read these files too.</li>
+<li><strong>Fixed: training held extra copies of its state.</strong> Each evaluation
+  between chunks of training returned a copy of the whole state, replay
+  included. A resumed run also kept the shorter replay it had grown out of
+  until the call ended. Evaluations now update the state in place, and a
+  resume frees the replay it replaces. No result changes. A state passed
+  as <code>initial_state</code> was already used up by the call; now its old replay
+  is freed too.</li>
+<li><strong>Faster: training chunks compute only their last update's logs.</strong> A
+  logged run computed the update logs (losses, gradient norms, the
+  ensemble's spread) at every step and read them once per evaluation. Now
+  only the step before an evaluation computes them. Measured on an RTX 2080
+  Ti at 10 seeds: SAC 4.9%, TD3 4.6%, TQC 3.9% less time per step; CrossQ
+  and REDQ unchanged. Same steps in the same order; results move by
+  floating-point rounding at most.</li>
+<li><strong>Faster: CQL and Cal-QL score their sampled actions in one critic pass</strong>
+  where there were four. Same values to rounding.</li>
+<li><strong>New: <code>TDMPC2.preset("MuJoCo", env_id)</code>.</strong> The two settings the latest
+  official TD-MPC2 code changes for its gym MuJoCo tasks: <code>discount_max=0.99</code>
+  and <code>rho=0.7</code>. TD-MPC2's defaults are unchanged.</li>
+<li><strong>Changed default: a <code>train</code> call given no <code>logging_config</code> evaluates and
+  prints.</strong> It evaluates about ten times over the call (every tenth of its
+  steps, rounded up to whole iterations of the agent), prints a line for
+  each (the mean return over the seeds, with the lowest and highest), and
+  returns the evaluations where it returned <code>None</code>. <strong>Upgrade:</strong> pass
+  <code>logging_config=None</code> for the earlier behaviour: no evaluation, nothing
+  printed, <code>None</code> returned, and the fastest run. A call with a
+  <code>LoggingConfig</code> is unchanged.</li>
+<li><strong>New: the evaluations by name.</strong> <code>train</code>'s second value is still the
+  dict of logged names, and now also has <code>evaluations.returns</code> (seeds x
+  evaluations) and <code>evaluations.timesteps</code>.</li>
+<li><strong>New: <code>agent.evaluate(state, episodes=10, seed=0)</code></strong>, the returns of
+  fresh episodes of each seed's trained policy, one row per seed, acting as
+  <code>agent.policy</code> does; on a Gymnasium environment the episodes step in
+  Python, one seed after another. The hook of that
+  name on agents with their own loop (UDRL, APG, DreamerV3, TD-MPC2) is now
+  <code>evaluation_metrics</code>; <code>TDMPC2MultiTask.evaluate</code> is unchanged.</li>
+<li><strong>New: <code>LoggingConfig(on_evaluation=...)</code></strong>, a function called in the
+  training process with each seed's evaluation.</li>
 </ul>
 <h3 id="upgrading-from-050">Upgrading from 0.5.0<a class="headerlink" href="#upgrading-from-050" title="Permanent link">&para;</a></h3>
-<p>The default changes above each end with an "Upgrade:" line giving the
-arguments that restore the earlier behaviour: PPO (value clip, normalisation,
-one env and 64-64 layers), DQN, PQN, APO, REDQ's warm-up, DAgger's fit and
-<code>beta_schedule</code>, <code>normalize_rewards</code>, and the recurrent SAC family's networks
-and windows. Checkpoints of recurrent SAC-family agents and of DAgger saved
-before this version do not restore at the new defaults. The rest:</p>
+<p>The changes above that can break code or results each end with an "Upgrade:"
+line saying what to do, most often the arguments that restore the earlier
+behaviour: <code>train</code> without a <code>logging_config</code> (it now evaluates and prints),
+PPO (value clip, TensorFlow 1's Adam, normalisation, one env and 64-64
+layers, image PPO's shared encoder, recurrent PPO's heads), SAC's actor and
+temperature start, DQN and its Atari preset, PQN, APO, APG's controller,
+IQL's learning rate, REDQ's warm-up, DAgger's fit and <code>beta_schedule</code>,
+<code>normalize_rewards</code>, the recurrent SAC family's networks and windows, Adam's
+moments kept as one vector, the action range of <code>mujoco:InvertedPendulum-v5</code>
+and <code>mujoco:Pusher-v5</code>, the <code>mujoco:</code> tasks' extra, the renamed
+<code>LoggingConfig(sweep=...)</code> and <code>ConditioningMetrics</code>, <code>act</code> without a
+reward, and the JAX floor. Checkpoints of recurrent SAC-family agents and of
+DAgger saved before this version do not restore at the new defaults, and
+image and recurrent PPO checkpoints restore with the arguments their Upgrade
+lines give. The rest:</p>
 <ul>
 <li><strong>An expert must keep its action's last axis</strong>, as the expert guide has
   asked: <code>expert(obs)</code> returns <code>(..., action_dim)</code>, an index column <code>(..., 1)</code>
@@ -4043,85 +4185,14 @@ before this version do not restore at the new defaults. The rest:</p>
 <li><strong><code>ajax.state.with_batch_stats</code> is now <code>network_variables</code>.</strong> It returns the
   same variables, and also the encoder a network shares with another
   (<code>share_encoder</code>). <em>What to do:</em> rename the call; no result changes.</li>
-<li>
-<p><strong>The SAC family's update functions.</strong> <code>critic_value_readers</code> moved from
+<li><strong>The SAC family's update functions.</strong> <code>critic_value_readers</code> moved from
   <code>ajax.agents.critics</code> to <code>ajax.agents.update_steps</code>, and <code>critic_step</code>
   builds it unless an agent passes its own. The SAC family's TD targets and
   SAC's soft policy loss take their key as <code>key</code>, not <code>rng</code>.
   <code>SAC.compute_td_target</code> no longer takes <code>recurrent</code>, nor <code>pre_train</code>
   <code>bc_min_log_std</code> and <code>bc_action_clip_eps</code>, which no caller set (they are
   constants now). <em>What to do:</em> code calling these by keyword renames or
-  drops the argument; no result changes.</p>
-</li>
-<li>
-<p><strong><code>train(devices=...)</code> splits the seeds over several devices.</strong> Each
-  device trains a consecutive slice of the seeds, or of a sweep's
-  configurations over the seeds, at the same time; the results come back
-  in the usual order on the first device. Without <code>devices</code> nothing
-  changes.</p>
-</li>
-<li>
-<p><strong><code>agent.save(state, path)</code> and <code>load</code>.</strong> <code>save</code> writes the state with
-  the agent's class and its plain constructor arguments; <code>ajax.load(path)</code>
-  or <code>PPO.load(path)</code> returns <code>(agent, state)</code>. Arguments that are objects
-  (a prebuilt environment, extensions, an expert policy) are passed to
-  <code>load</code> again. <code>save_checkpoint</code> and <code>load_checkpoint</code> are unchanged, and
-  read these files too.</p>
-</li>
-<li>
-<p><strong>Fixed: training held extra copies of its state.</strong> Each evaluation
-  between chunks of training returned a copy of the whole state, replay
-  included. A resumed run also kept the shorter replay it had grown out of
-  until the call ended. Evaluations now update the state in place, and a
-  resume frees the replay it replaces. No result changes. A state passed
-  as <code>initial_state</code> was already used up by the call; now its old replay
-  is freed too.</p>
-</li>
-<li>
-<p><strong>Faster: training chunks compute only their last update's logs.</strong> A
-  logged run computed the update logs (losses, gradient norms, the
-  ensemble's spread) at every step and read them once per evaluation. Now
-  only the step before an evaluation computes them. Measured on an RTX 2080
-  Ti at 10 seeds: SAC 4.9%, TD3 4.6%, TQC 3.9% less time per step; CrossQ
-  and REDQ unchanged. Same steps in the same order; results move by
-  floating-point rounding at most.</p>
-</li>
-<li>
-<p><strong>Faster: CQL and Cal-QL score their sampled actions in one critic pass</strong>
-  where there were four. Same values to rounding.</p>
-</li>
-<li>
-<p><strong>New: <code>TDMPC2.preset("MuJoCo", env_id)</code>.</strong> The two settings the latest
-  official TD-MPC2 code changes for its gym MuJoCo tasks: <code>discount_max=0.99</code>
-  and <code>rho=0.7</code>. TD-MPC2's defaults are unchanged.</p>
-</li>
-<li>
-<p><strong>Changed default: a <code>train</code> call given no <code>logging_config</code> evaluates and
-  prints.</strong> It evaluates about ten times over the call (every tenth of its
-  steps, rounded up to whole iterations of the agent), prints a line for
-  each (the mean return over the seeds, with the lowest and highest), and
-  returns the evaluations where it returned <code>None</code>. <strong>Upgrade:</strong> pass
-  <code>logging_config=None</code> for the earlier behaviour: no evaluation, nothing
-  printed, <code>None</code> returned, and the fastest run. A call with a
-  <code>LoggingConfig</code> is unchanged.</p>
-</li>
-<li>
-<p><strong>New: the evaluations by name.</strong> <code>train</code>'s second value is still the
-  dict of logged names, and now also has <code>evaluations.returns</code> (seeds x
-  evaluations) and <code>evaluations.timesteps</code>.</p>
-</li>
-<li>
-<p><strong>New: <code>agent.evaluate(state, episodes=10, seed=0)</code></strong>, the returns of
-  fresh episodes of each seed's trained policy, one row per seed, acting as
-  <code>agent.policy</code> does; on a Gymnasium environment the episodes step in
-  Python, one seed after another. The hook of that
-  name on agents with their own loop (UDRL, APG, DreamerV3, TD-MPC2) is now
-  <code>evaluation_metrics</code>; <code>TDMPC2MultiTask.evaluate</code> is unchanged.</p>
-</li>
-<li>
-<p><strong>New: <code>LoggingConfig(on_evaluation=...)</code></strong>, a function called in the
-  training process with each seed's evaluation.</p>
-</li>
+  drops the argument; no result changes.</li>
 </ul>
 <h2 id="050">0.5.0<a class="headerlink" href="#050" title="Permanent link">&para;</a></h2>
 <p>What a user of 0.4.0 meets:</p>

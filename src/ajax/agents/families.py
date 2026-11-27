@@ -32,7 +32,6 @@ from __future__ import annotations
 import copy
 import dataclasses
 import inspect
-import warnings
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import KW_ONLY, dataclass
 from functools import partial, wraps
@@ -46,6 +45,7 @@ from gymnax import EnvParams
 from ajax.agents import update_steps
 from ajax.agents.base import (
     ActorCritic,
+    extra_positional_arguments,
     named_arguments,
     release_replaced,
     run_horizon,
@@ -123,6 +123,7 @@ from ajax.state import (
     Transition,
 )
 from ajax.types import BufferType, EnvType
+from ajax.user_warnings import warn_user
 
 #: The arguments of ActorCritic's initialiser: a field so named reaches it.
 ACTOR_CRITIC_ARGS = frozenset(
@@ -532,9 +533,17 @@ class DeclaredAgent(ActorCritic):
     #: The action spaces the algorithm acts in: "continuous", "discrete", "any".
     action_space: ClassVar[str] = "continuous"
 
-    def __new__(cls, *_positional: Any, **kwargs: Any) -> Self:
+    def __new__(cls, *positional: Any, **kwargs: Any) -> Self:
         # Python's own TypeError names an unknown argument and nothing else.
         parameters = inspect.signature(cls.__init__).parameters
+        takes = [
+            name
+            for name, parameter in parameters.items()
+            if parameter.kind is inspect.Parameter.POSITIONAL_OR_KEYWORD
+            and name != "self"
+        ]
+        if len(positional) > len(takes):
+            raise TypeError(extra_positional_arguments(cls.__name__, positional, takes))
         open_ended = any(
             parameter.kind is inspect.Parameter.VAR_KEYWORD
             for parameter in parameters.values()
@@ -625,12 +634,10 @@ class DeclaredAgent(ActorCritic):
         if len(image) != 3:
             return
         if self.cnn_image_shape is None:
-            warnings.warn(
+            warn_user(
                 f"The observations are images of shape {image}, read here by an"
                 " MLP on the flattened image. Pass"
-                f" cnn_image_shape={image} to read them with a CNN encoder.",
-                UserWarning,
-                stacklevel=4,
+                f" cnn_image_shape={image} to read them with a CNN encoder."
             )
         elif self.cnn_extra_obs_dim == 0 and tuple(self.cnn_image_shape) != image:
             raise ValueError(

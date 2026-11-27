@@ -38,23 +38,38 @@ the CHANGELOG's "Clearer errors and checks"):
     below 1; ``evaluate`` refuses what is no state, showing the call;
   - (docs/guide/logging.md, "Guard your script's entry point") a script
     that trains at its top level with a backend still trains, and is told
-    that its logs are missing and to guard its entry point.
+    that its logs are missing and to guard its entry point, with no
+    traceback before the message;
+  - (docs/getting-started/coming-from-sb3.md) Stable-Baselines3's call
+    shapes are answered with Ajax's: a policy name before the environment,
+    an observation where predict and save take the trained state, a
+    Gymnasium environment object, a Gymnasium id without its prefix, and
+    SB3's own argument names (verbose, net_arch, tensorboard_log) with where
+    Ajax takes each, or the SB3 page where no Ajax argument resembles them;
+  - a warning about a call names the caller's line, not Ajax's;
+  - (docs/guide/training.md, "The budget") a call that ends before the
+    agent's first update, at learning_starts, warns that it does not train.
 """
 
 import importlib.util
+import pathlib
 import subprocess
 import sys
 import warnings
 
+import gymnasium
 import gymnax
 import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from ajax import PPO, PQN, SAC
+import ajax
+from ajax import DQN, PPO, PQN, SAC
+from ajax.agents.base import SB3_PAGE
 from ajax.buffers.dataset import TransitionDataset, record
 from ajax.environments.create import build_env_from_id
+from ajax.environments.gymnasium import PythonEnvironmentWarning
 from ajax.logging import LoggingConfig
 from ajax.logging.progress import Evaluations
 from ajax.wrappers import ObservationWrapper
@@ -478,3 +493,117 @@ def test_an_unguarded_script_trains_and_is_told_its_logs_are_missing(tmp_path):
     assert "trained (1, 2)" in run.stdout
     assert "logs are missing" in run.stderr
     assert 'if __name__ == "__main__":' in run.stderr
+    assert "Traceback" not in run.stderr
+
+
+def test_a_policy_name_before_the_environment_names_the_one_positional_argument():
+    """Stable-Baselines3 takes PPO("MlpPolicy", env); Ajax the environment alone."""
+    with pytest.raises(TypeError, match=r"1 positional argument \(env_id\).*no policy"):
+        PPO("MlpPolicy", "CartPole-v1")
+
+
+def test_an_extra_positional_argument_shows_the_keyword_form():
+    with pytest.raises(TypeError, match=r"Pass the others by name"):
+        PPO("CartPole-v1", 8)
+
+
+@pytest.mark.parametrize(
+    ("call", "form"),
+    [
+        (
+            lambda agent: agent.predict(np.zeros(4, np.float32)),
+            "predict(state, observation)",
+        ),
+        (lambda agent: agent.save("ppo_cartpole"), "save(state, path)"),
+    ],
+    ids=["predict", "save"],
+)
+def test_a_call_without_the_trained_state_says_it_comes_first(trained, call, form):
+    agent, _ = trained
+    with pytest.raises(
+        TypeError, match="first argument is the trained state"
+    ) as refusal:
+        call(agent)
+    assert f"agent.{form}" in str(refusal.value)
+
+
+def test_a_gymnasium_environment_object_names_its_prefixed_id():
+    with pytest.raises(ValueError, match=r"'gymnasium:CartPole-v1'"):
+        PPO(gymnasium.make("CartPole-v1"))
+
+
+@pytest.mark.parametrize("env_id", ["HalfCheetah-v4", "ALE/Pong-v5"])
+def test_a_gymnasium_id_without_its_prefix_names_the_prefixed_form(env_id):
+    with pytest.raises(ValueError, match=f"'gymnasium:{env_id}'"):
+        PPO(env_id)
+
+
+@pytest.mark.parametrize(
+    ("argument", "where"),
+    [
+        ("verbose", "logging_config=None runs silently"),
+        ("net_arch", "actor_architecture and critic_architecture"),
+        ("tensorboard_log", "TensorBoardBackend"),
+    ],
+)
+def test_a_stable_baselines3_argument_says_where_ajax_takes_it(argument, where):
+    with pytest.raises(TypeError, match=f"Stable-Baselines3's {argument}: .*{where}"):
+        PPO("CartPole-v1", **{argument: 1})
+
+
+def test_a_stable_baselines3_name_like_no_ajax_one_points_to_the_sb3_page():
+    """SAC's gradient_steps resembles n_step (n-step returns), which it is not."""
+    with pytest.raises(TypeError) as refusal:
+        SAC("Pendulum-v1", gradient_steps=1)
+    assert SB3_PAGE in str(refusal.value)
+    assert "n_step" not in str(refusal.value)
+
+
+@pytest.mark.parametrize(
+    ("call", "category", "text"),
+    [
+        (lambda: PPO("gymnasium:CartPole-v1"), PythonEnvironmentWarning, "Python"),
+        (
+            lambda: PPO("CartPole-v1", n_envs=2, n_steps=64).train(
+                seed=0, n_timesteps=200, logging_config=None
+            ),
+            UserWarning,
+            "not a multiple",
+        ),
+    ],
+    ids=["gymnasium-environment", "budget-off-whole-rollouts"],
+)
+def test_a_warning_about_a_call_names_the_callers_line(call, category, text):
+    """The caller's line is outside the ajax package and is no generated code
+    (a dataclass's __init__ is "<string>"). Under pytest it can be
+    conftest.py's, whose fixture wraps train to count its updates."""
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        call()
+    about_the_call = [
+        warning
+        for warning in caught
+        if issubclass(warning.category, category) and text in str(warning.message)
+    ]
+    assert about_the_call
+    package = pathlib.Path(ajax.__file__).resolve().parent
+    for warning in about_the_call:
+        assert not warning.filename.startswith("<"), warning.filename
+        assert not pathlib.Path(warning.filename).resolve().is_relative_to(package)
+
+
+def test_a_call_ending_before_the_first_update_warns_that_it_does_not_train():
+    """DQN's first update waits for learning_starts=10,000 steps collected."""
+    with pytest.warns(
+        UserWarning, match="before the first update at learning_starts=10000"
+    ):
+        DQN("CartPole-v1").train(seed=0, n_timesteps=64, logging_config=None)
+
+
+def test_a_call_reaching_the_first_update_does_not_warn_of_it():
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        DQN("CartPole-v1", learning_starts=32).train(
+            seed=0, n_timesteps=64, logging_config=None
+        )
+    assert not [w for w in caught if "first update" in str(w.message)]

@@ -179,6 +179,17 @@ def get_env_type(env: EnvType) -> str:
         return "brax"
     if check_env_is_gymnax(env):
         return "gymnax"
+    if type(env).__module__.startswith("gymnasium"):
+        # Deferred: create imports this module.
+        from ajax.environments.create import GYMNASIUM_PREFIX
+
+        env_id = getattr(getattr(env, "spec", None), "id", None) or "CartPole-v1"
+        raise ValueError(
+            f"{type(env).__name__} is a Gymnasium environment object. Ajax builds"
+            " Gymnasium environments itself, from an id with the"
+            f" {GYMNASIUM_PREFIX!r} prefix: pass {GYMNASIUM_PREFIX + env_id!r}"
+            " instead."
+        )
     raise ValueError(f"Unsupported env type: {type(env)}")
 
 

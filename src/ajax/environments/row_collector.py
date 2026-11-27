@@ -76,7 +76,6 @@ rewards as stepped, the house return metric sums those rewards, and
 :func:`ajax.evaluate.evaluate_policy` evaluates the raw env.
 """
 
-import warnings
 from functools import partial
 from typing import Any, Literal, NamedTuple, Optional, Protocol
 
@@ -111,6 +110,7 @@ from ajax.environments.utils import (
     wrapper_chain,
 )
 from ajax.state import CollectorState, EnvironmentConfig
+from ajax.user_warnings import warn_user
 from ajax.wrappers import (
     AutoResetWrapper,
     NormalizeVecObservationBrax,
@@ -354,14 +354,13 @@ def collect_row(
         )
     else:
         if check_env_is_playground(env) and not getattr(env, "_ajax_fresh_reset", True):
-            warnings.warn(
+            warn_user(
                 "Dynamic reset mode on a mujoco_playground env built with"
                 " fresh_reset=False: its auto-reset returns a cached first"
                 " state, so episodes after the first do not start from a fresh"
                 " random state (deviation E20). Build the env with the default"
                 " fresh_reset=True, or use the static mode on fixed-length"
-                " tasks.",
-                stacklevel=2,
+                " tasks."
             )
         nxt = _dynamic_transition(cs, env_action, step_keys, env_args, mode)
 

@@ -5,7 +5,12 @@ Contract (docs/getting-started/quickstart.md, ``ActorCritic.train``,
   - a train call given no logging_config evaluates about ten times, prints
     a first line, one line per evaluation and a last line, and returns the
     evaluations, each after a whole number of the agent's iterations; logging_config=None evaluates nothing, prints nothing and
-    returns None; a LoggingConfig of the caller's prints nothing;
+    returns None; a LoggingConfig of the caller's prints one line, when the
+    run starts, saying how often it evaluates and where it logs (owner,
+    2026-11-27: such a run was silent until it returned);
+  - from a run's second evaluation, a line ends with the call's time left,
+    at the pace of the last interval between two evaluations; members
+    trained one after another count the runs still to come;
   - the last line gives the layout and shape of the returned returns, a
     row per seed (per run in a sweep), with one seed too, and printing the
     evaluations opens on the same layout;
@@ -26,11 +31,13 @@ import pytest
 from ajax import PPO
 from ajax.agents.sweep import by_configuration
 from ajax.evaluate import policy_returns
-from ajax.logging import LoggingConfig
+from ajax.logging import LoggingConfig, TensorBoardBackend
 from ajax.logging.progress import (
     Evaluations,
     ProgressPrinter,
     default_log_frequency,
+    describe_duration,
+    run_logging,
 )
 
 RETURN = "Eval/episodic mean reward"
@@ -138,11 +145,72 @@ def test_logging_config_none_is_silent_and_evaluates_nothing(capsys):
     assert capsys.readouterr().out == ""
 
 
-def test_a_logging_config_of_the_callers_prints_nothing(capsys):
+def test_a_logging_config_of_the_callers_prints_its_start_line_only(capsys):
     logging = LoggingConfig(log_frequency=16, backends=())
     _, evaluations = tiny_ppo().train(seed=0, n_timesteps=32, logging_config=logging)
     np.testing.assert_array_equal(evaluations.timesteps, [16, 32])
-    assert capsys.readouterr().out == ""
+    assert capsys.readouterr().out.splitlines() == [
+        "PPO, 1 run(s) of 32 steps: compiling, then an evaluation every 16 steps,"
+        " logged to memory only (train returns the evaluations). Nothing more"
+        " prints until train returns."
+    ]
+
+
+def test_the_start_line_of_a_logged_run_names_its_tensorboard_folder(capsys):
+    logging = LoggingConfig(log_frequency=1_000, backends=(TensorBoardBackend("runs"),))
+    run_logging(logging, "SAC", [0, 1], 3_000, 3_000, together=True)
+    assert (
+        "an evaluation every 1,000 steps, logged to TensorBoard in runs/tensorboard."
+        in (capsys.readouterr().out)
+    )
+
+
+def test_a_line_after_a_runs_first_evaluation_gives_the_time_left():
+    """The pace is the last interval's: 2 s for 100 steps, then 1 s."""
+    lines, now = [], [0.0]
+    printer = ProgressPrinter(
+        "PPO", ["seed 0"], 400, True, write=lines.append, clock=lambda: now[0]
+    )
+    timeline = [(100, 5.0), (200, 7.0), (300, 8.0), (350, 8.1), (400, 9.0)]
+    for step, elapsed in timeline:
+        now[0] = elapsed
+        printer({"timestep": np.array(step), RETURN: np.array(1.0)}, 0)
+    assert lines == [
+        "        100 / 400 steps | return 1.0 | 5.0 s",
+        # 0.02 s a step, 200 steps left.
+        "        200 / 400 steps | return 1.0 | 7.0 s, about 4 s left",
+        # 0.01 s a step, 100 steps left.
+        "        300 / 400 steps | return 1.0 | 8.0 s, about 1 s left",
+        # 0.002 s a step, 50 steps left: 0.1 s, too little to say.
+        "        350 / 400 steps | return 1.0 | 8.1 s",
+        "        400 / 400 steps | return 1.0 | 9.0 s",
+    ]
+
+
+def test_members_trained_one_after_another_count_the_runs_to_come():
+    """Seed 0's runs of 300 steps, evaluated every 100: after its second
+    evaluation, its last 100 steps and seed 1's 300, at 0.01 s a step."""
+    lines, now = [], [0.0]
+    printer = ProgressPrinter(
+        "PPO",
+        ["seed 0", "seed 1"],
+        300,
+        False,
+        write=lines.append,
+        clock=lambda: now[0],
+    )
+    for step, elapsed in [(100, 1.0), (200, 2.0)]:
+        now[0] = elapsed
+        printer({"timestep": np.array(step), RETURN: np.array(1.0)}, 0)
+    assert lines[-1].endswith("| seed 0 | 2.0 s, about 4 s left")
+
+
+@pytest.mark.parametrize(
+    "seconds, words",
+    [(45, "45 s"), (130, "2 min"), (5_400, "1 h 30 min"), (7_500, "2 h 05 min")],
+)
+def test_a_duration_reads_in_seconds_minutes_or_hours(seconds, words):
+    assert describe_duration(seconds) == words
 
 
 def test_an_unknown_logging_word_is_refused():

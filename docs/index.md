@@ -61,14 +61,11 @@ installing from a clone.
 
 ```python
 from ajax import PPO
-from ajax.logging import LoggingConfig
 
-agent = PPO("CartPole-v1")  # one environment, 2048-step rollouts: one update per 2,048 steps
-# Evaluate every 4 updates; backends=() keeps the results in memory only.
-logging = LoggingConfig(log_frequency=8_192, backends=())
-state, evaluations = agent.train(seed=[1, 2, 3], n_timesteps=40_960, logging_config=logging)
+agent = PPO("CartPole-v1", n_envs=8, n_steps=128)
+state, evaluations = agent.train(seed=[1, 2, 3], n_timesteps=40_960)  # prints a line per evaluation
 
-print(evaluations["Eval/episodic mean reward"])  # one row per seed, one column per evaluation
+print(evaluations.returns)  # one row per seed, one column per evaluation
 ```
 
 [Quickstart →](getting-started/quickstart.md){ .md-button .md-button--primary }
@@ -83,7 +80,7 @@ print(evaluations["Eval/episodic mean reward"])  # one row per seed, one column 
 | Offline, then online | [IQL](algorithms/iql.md) |
 | Incremental, no replay | [AVG](algorithms/avg.md) |
 | Value-based, discrete actions | [DQN](algorithms/dqn.md), [PQN](algorithms/pqn.md) |
-| On-policy | [PPO](algorithms/ppo.md), [APO](algorithms/apo.md) (average reward) |
+| On-policy | [PPO](algorithms/ppo.md), [APO](algorithms/apo.md) (average reward), [REINFORCE](algorithms/reinforce.md) (the plain policy gradient) |
 | Supervised, command-conditioned | [UDRL](algorithms/udrl.md) |
 | Imitation of an expert, no reward | [DAgger](algorithms/dagger.md) |
 | Differentiable simulation | [APG](algorithms/apg.md) |

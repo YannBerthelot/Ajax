@@ -12,12 +12,10 @@ scripts are given few steps, the notebook runs word for word.
 from __future__ import annotations
 
 import importlib.util
-import json
 
-import matplotlib
 import pytest
 
-from tests.doc_examples import ROOT
+from tests.doc_examples import ROOT, run_notebook
 
 EXAMPLES = sorted((ROOT / "examples").glob("*.py"))
 NOTEBOOKS = sorted((ROOT / "notebooks").glob("*.ipynb"))
@@ -48,27 +46,8 @@ def test_an_example_runs(script, tmp_path, monkeypatch):
     module.main(n_timesteps=STEPS[script.stem])
 
 
-def code_cells(notebook) -> list[str]:
-    """The notebook's code cells, without their shell and magic lines."""
-    cells = json.loads(notebook.read_text())["cells"]
-    sources = ["".join(cell["source"]) for cell in cells if cell["cell_type"] == "code"]
-    return [
-        "\n".join(
-            line
-            for line in source.splitlines()
-            if not line.lstrip().startswith(("!", "%"))
-        )
-        for source in sources
-    ]
-
-
 @pytest.mark.slow
 @pytest.mark.parametrize("notebook", NOTEBOOKS, ids=lambda notebook: notebook.stem)
 def test_a_notebook_s_cells_run_in_order(notebook, tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    # plt.show() must open no window, which would wait for it to close;
-    # forced, since an earlier test may have imported matplotlib already.
-    matplotlib.use("Agg", force=True)
-    namespace: dict = {"__name__": "__notebook__"}
-    for index, code in enumerate(code_cells(notebook)):
-        exec(compile(code, f"{notebook.name}, cell {index}", "exec"), namespace)
+    run_notebook(notebook)

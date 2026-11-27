@@ -105,16 +105,18 @@ def _known_ids() -> list[str]:
 def _unknown_env(env_id: str) -> ValueError:
     by_lower_case = {known.lower(): known for known in _known_ids()}
     close = difflib.get_close_matches(env_id.lower(), list(by_lower_case), n=3)
-    message = f"Environment {env_id} not found in gymnax, brax or MuJoCo Playground"
+    message = f"Environment {env_id} not found in gymnax, brax or MuJoCo Playground."
     if close:
         names = ", ".join(repr(by_lower_case[name]) for name in close)
-        message += f". Did you mean {names}?"
-    elif ":" in env_id:
-        message += (
-            f". The prefixes are {GYMNASIUM_PREFIX!r} (a Gymnasium environment,"
-            f" stepped in Python) and {MUJOCO_PREFIX!r} (Gymnasium's MuJoCo"
-            " tasks in JAX)."
-        )
+        message += f" Did you mean {names}?"
+    # An id copied from Gymnasium (HalfCheetah-v4, ALE/Pong-v5) needs a prefix,
+    # whichever ids its spelling resembles.
+    example = "CartPole-v1" if ":" in env_id else env_id
+    message += (
+        f" The prefixes are {GYMNASIUM_PREFIX!r} for a Gymnasium environment,"
+        f" stepped in Python ({GYMNASIUM_PREFIX + example!r}), and"
+        f" {MUJOCO_PREFIX!r} for Gymnasium's MuJoCo tasks in JAX."
+    )
     missing = [
         f"{name} (ajax-rl[{extra}])"
         for package, (extra, name) in _EXTRAS.items()

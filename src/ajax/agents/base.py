@@ -943,68 +943,23 @@ class ActorCritic:
         (``ajax.logging.progress.Evaluations``: the dict of every logged
         name, with ``returns`` and ``timesteps``).
         """
-        seed = checked_seeds(seed)
-        self._check_train_options(kwargs)
-        if num_episode_test < 1:
-            raise ValueError(
-                f"num_episode_test={num_episode_test}: an evaluation"
-                " averages at least one episode. Pass logging_config=None"
-                " for a run without evaluations."
-            )
-
-        # ``agent.train()`` returns ``(state, out)``: accept either form.
-        if isinstance(initial_state, tuple) and len(initial_state) == 2:
-            initial_state = initial_state[0]
+        seeds = checked_seeds(seed)
         in_python = steps_in_python(self.env_args.env)
-        if initial_state is not None and in_python:
-            raise ValueError(
-                "A Gymnasium environment cannot resume from a saved state: its"
-                " simulator's state lives in Python, outside the state, so the"
-                " episodes it was in cannot continue."
-            )
+        initial_state = self._check_call(
+            num_episode_test, initial_state, in_python, kwargs
+        )
         devices = checked_devices(devices, in_python, logging_config)
         self.use_precision(precision, devices)
-        found = sweep_configurations(sweep)
-        if found:
-            check_sweep(
-                type(self).__name__,
-                self.sweepable_fields(),
-                list(found[0]),
-                self.unsweepable,
-            )
-            if in_python:
-                raise ValueError(
-                    "A Gymnasium environment trains its seeds one after"
-                    " another: a sweep trains its members in one program."
-                )
-            if getattr(logging_config, "evaluation_device", None) is not None:
-                raise ValueError(
-                    "A sweep's members evaluate between chunks of training: a"
-                    " sweep takes no evaluation_device."
-                )
-        # Configuration-major: each configuration over the seeds.
-        pairs = [
-            (configuration, run_seed)
-            for configuration in (found or [{}])
-            for run_seed in seed
-        ]
-        if initial_state is not None:
-            rows = int(jax.tree.leaves(initial_state)[0].shape[0])
-            if rows != len(pairs):
-                raise ValueError(
-                    f"The state holds {rows} members and this call's seeds and"
-                    f" sweep make {len(pairs)}: a run resumes with the same"
-                    " seed and sweep."
-                )
-        self.members = [member_row(configuration, s) for configuration, s in pairs]
+        swept, pairs = self._plan_members(
+            sweep, seeds, initial_state, in_python, logging_config
+        )
         counters = (
             {}
             if initial_state is None
             else shared_counters(initial_state, self.per_seed_update_counts)
         )
         # The call trains from the run's timestep to its end, its schedules
-        # run to the horizon; the start and the end are passed only when
-        # they differ from 0 and the horizon, so other calls are unchanged.
+        # run to the horizon.
         start = int(counters.get("timestep", 0))
         end = start + n_timesteps
         horizon = run_horizon(start, n_timesteps, total_timesteps)
@@ -1012,65 +967,24 @@ class ActorCritic:
             resumed = self.resumed_state(initial_state, n_timesteps, kwargs)
             release_replaced(initial_state, resumed)
             initial_state = resumed
-
-        logging_config, printer = run_logging(
-            logging_config,
-            type(self).__name__,
-            [run_seed for _, run_seed in pairs],
-            n_timesteps,
-            end,
-            together=not in_python,
-            iteration_steps=self.smallest_evaluation_spacing(),
-            groups=[configuration_label(configuration) for configuration, _ in pairs],
+        logging_config, printer = self._start_logging(
+            logging_config, pairs, n_timesteps, end, in_python
         )
-        if isinstance(logging_config, LoggingConfig):
-            logging_config = logging_config.with_agent_config(self.config)
-            self.run_ids = [new_run_id() for _ in pairs]
-            for run_id, (configuration, run_seed) in zip(
-                self.run_ids, pairs, strict=False
-            ):
-                # Each member's run config holds its own values.
-                init_logging(
-                    run_id,
-                    logging_config.with_agent_config(configuration),
-                    run_seed=int(run_seed),
-                )
-
-        else:
-            self.run_ids = []
-
         if on_ids_ready is not None:
             on_ids_ready(self.run_ids)
-
-        def make_train(agent: ActorCritic) -> Callable:
-            return agent.get_make_train()(
-                env_args=agent.env_args,
-                actor_optimizer_args=agent.actor_optimizer_args,
-                critic_optimizer_args=agent.critic_optimizer_args,
-                network_args=agent.network_args,
-                total_timesteps=horizon,
-                num_episode_test=num_episode_test,
-                run_ids=self.run_ids,
-                logging_config=logging_config,
-                **({"start_timestep": start} if start else {}),
-                **({"end_timestep": end} if end != horizon else {}),
-                **kwargs,
-            )
-
-        # A sweep's members each build their train function while the vmap
-        # traces it, from their own values (member); without a sweep it is
-        # built once, here.
-        if found:
-
-            def run(key: Any, index: Any, values: dict, **options: Any) -> Any:
-                return make_train(self.member(values))(key, index, **options)
-
-        else:
-            train_jit = make_train(self)
-
-            def run(key: Any, index: Any, values: dict, **options: Any) -> Any:
-                del values  # none without a sweep
-                return train_jit(key, index, **options)
+        # The start and the end are passed only when they differ from 0 and
+        # the horizon, so other calls are unchanged.
+        call_options: dict[str, Any] = {
+            "total_timesteps": horizon,
+            "num_episode_test": num_episode_test,
+            "run_ids": self.run_ids,
+            "logging_config": logging_config,
+        }
+        if start:
+            call_options["start_timestep"] = start
+        if end != horizon:
+            call_options["end_timestep"] = end
+        run = self._make_member_runner(swept, call_options, kwargs)
 
         values = member_values([configuration for configuration, _ in pairs])
         index = jnp.arange(len(pairs))
@@ -1119,6 +1033,152 @@ class ActorCritic:
         jax.block_until_ready(result)
         stop_async_logging()
         return finished(result, printer)
+
+    def _check_call(
+        self,
+        num_episode_test: int,
+        initial_state: Any,
+        in_python: bool,
+        train_options: Mapping[str, Any],
+    ) -> Optional[BaseAgentState]:
+        """The state train resumes (None: a fresh run), once the call's
+        options, episodes and resume are checked."""
+        self._check_train_options(train_options)
+        if num_episode_test < 1:
+            raise ValueError(
+                f"num_episode_test={num_episode_test}: an evaluation"
+                " averages at least one episode. Pass logging_config=None"
+                " for a run without evaluations."
+            )
+
+        # ``agent.train()`` returns ``(state, out)``: accept either form.
+        if isinstance(initial_state, tuple) and len(initial_state) == 2:
+            initial_state = initial_state[0]
+        if initial_state is not None and in_python:
+            raise ValueError(
+                "A Gymnasium environment cannot resume from a saved state: its"
+                " simulator's state lives in Python, outside the state, so the"
+                " episodes it was in cannot continue."
+            )
+        return initial_state
+
+    def _plan_members(
+        self,
+        sweep: Optional[Sweep],
+        seeds: list[int],
+        initial_state: Any,
+        in_python: bool,
+        logging_config: Any,
+    ) -> tuple[bool, list[tuple[dict, int]]]:
+        """Whether a sweep varies the call's members, and the members:
+        (configuration, seed) pairs, which self.members records."""
+        found = sweep_configurations(sweep)
+        if found:
+            check_sweep(
+                type(self).__name__,
+                self.sweepable_fields(),
+                list(found[0]),
+                self.unsweepable,
+            )
+            if in_python:
+                raise ValueError(
+                    "A Gymnasium environment trains its seeds one after"
+                    " another: a sweep trains its members in one program."
+                )
+            if getattr(logging_config, "evaluation_device", None) is not None:
+                raise ValueError(
+                    "A sweep's members evaluate between chunks of training: a"
+                    " sweep takes no evaluation_device."
+                )
+        # Configuration-major: each configuration over the seeds.
+        pairs = [
+            (configuration, run_seed)
+            for configuration in (found or [{}])
+            for run_seed in seeds
+        ]
+        if initial_state is not None:
+            rows = int(jax.tree.leaves(initial_state)[0].shape[0])
+            if rows != len(pairs):
+                raise ValueError(
+                    f"The state holds {rows} members and this call's seeds and"
+                    f" sweep make {len(pairs)}: a run resumes with the same"
+                    " seed and sweep."
+                )
+        self.members = [member_row(configuration, s) for configuration, s in pairs]
+        return bool(found), pairs
+
+    def _start_logging(
+        self,
+        logging_config: Any,
+        pairs: list[tuple[dict, int]],
+        n_timesteps: int,
+        end: int,
+        in_python: bool,
+    ) -> tuple[Any, Any]:
+        """The logging config the train function takes and the printer of
+        the call's lines; under a LoggingConfig, a run for each member."""
+        logging_config, printer = run_logging(
+            logging_config,
+            type(self).__name__,
+            [run_seed for _, run_seed in pairs],
+            n_timesteps,
+            end,
+            together=not in_python,
+            iteration_steps=self.smallest_evaluation_spacing(),
+            groups=[configuration_label(configuration) for configuration, _ in pairs],
+        )
+        if isinstance(logging_config, LoggingConfig):
+            logging_config = logging_config.with_agent_config(self.config)
+            self.run_ids = [new_run_id() for _ in pairs]
+            for run_id, (configuration, run_seed) in zip(
+                self.run_ids, pairs, strict=False
+            ):
+                # Each member's run config holds its own values.
+                init_logging(
+                    run_id,
+                    logging_config.with_agent_config(configuration),
+                    run_seed=int(run_seed),
+                )
+
+        else:
+            self.run_ids = []
+        return logging_config, printer
+
+    def _make_member_runner(
+        self,
+        swept: bool,
+        call_options: Mapping[str, Any],
+        train_options: Mapping[str, Any],
+    ) -> Callable:
+        """run(key, index, values, **options), one member's training: its
+        train function takes the call's options and train's own."""
+
+        def make_train(agent: ActorCritic) -> Callable:
+            return agent.get_make_train()(
+                env_args=agent.env_args,
+                actor_optimizer_args=agent.actor_optimizer_args,
+                critic_optimizer_args=agent.critic_optimizer_args,
+                network_args=agent.network_args,
+                **call_options,
+                **train_options,
+            )
+
+        # A sweep's members each build their train function while the vmap
+        # traces it, from their own values (member); without a sweep it is
+        # built once, here.
+        if swept:
+
+            def run(key: Any, index: Any, values: dict, **options: Any) -> Any:
+                return make_train(self.member(values))(key, index, **options)
+
+        else:
+            train_jit = make_train(self)
+
+            def run(key: Any, index: Any, values: dict, **options: Any) -> Any:
+                del values  # none without a sweep
+                return train_jit(key, index, **options)
+
+        return run
 
     def _check_train_options(self, options: Mapping[str, Any]) -> None:
         """Refuse a keyword neither ``train`` nor this agent's train function

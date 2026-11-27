@@ -1916,13 +1916,37 @@ class OwnReplayAgent(DeclaredAgent):
         replay, resumed = self.prepare_replay(start_tick, sized_to, state)
         return resumed, {"replay": replay, "start_tick": start_tick}
 
-    @wraps(ActorCritic.train)
-    def train(self, *args: Any, **kwargs: Any) -> Any:
-        # check_run refuses, once trained, a run this agent's mode cannot
-        # learn (T10). ActorCritic.train does not check, so a caller can
-        # still read what such a run learned, as the TD-MPC2 chain probe
-        # does.
-        state, out = super().train(*args, **kwargs)
+    def train(
+        self,
+        seed: Union[int, Sequence[int]] = 42,
+        n_timesteps: int = int(1e6),
+        num_episode_test: int = 10,
+        logging_config: Any = "default",
+        on_ids_ready: Optional[Callable] = None,
+        initial_state: Any = None,
+        total_timesteps: Optional[int] = None,
+        sweep: Any = None,
+        devices: Optional[Sequence[Any]] = None,
+        precision: Optional[str] = None,
+        **kwargs: Any,
+    ) -> tuple[Any, Any]:
+        """ActorCritic.train, then check_run at the tick the call ended at:
+        a run this agent's mode cannot learn is refused once trained (T10).
+        ActorCritic.train does not check, so a caller can still read what
+        such a run learned, as the TD-MPC2 chain probe does."""
+        state, out = super().train(
+            seed=seed,
+            n_timesteps=n_timesteps,
+            num_episode_test=num_episode_test,
+            logging_config=logging_config,
+            on_ids_ready=on_ids_ready,
+            initial_state=initial_state,
+            total_timesteps=total_timesteps,
+            sweep=sweep,
+            devices=devices,
+            precision=precision,
+            **kwargs,
+        )
         self.check_run(state, self.call_end_tick)
         return state, out
 

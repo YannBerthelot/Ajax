@@ -793,7 +793,7 @@ class ActorCritic:
         del n_timesteps, train_options
         return state
 
-    def prepare_call(
+    def _prepare_call(
         self,
         state: Optional[BaseAgentState],
         n_timesteps: int,
@@ -811,7 +811,7 @@ class ActorCritic:
             return None, {}
         return self.resumed_state(state, n_timesteps, train_options), {}
 
-    def check_trained(self, state: BaseAgentState) -> None:
+    def _check_trained(self, state: BaseAgentState) -> None:
         """Check the state a train call ends with: nothing here."""
         del state
 
@@ -1031,7 +1031,7 @@ class ActorCritic:
         end = start + n_timesteps
         horizon = run_horizon(start, n_timesteps, total_timesteps)
         given = initial_state
-        initial_state, call_arguments = self.prepare_call(
+        initial_state, call_arguments = self._prepare_call(
             given, n_timesteps, start, horizon, kwargs
         )
         if given is not None:
@@ -1144,7 +1144,7 @@ class ActorCritic:
         jax.block_until_ready(result)
         stop_async_logging()
         state, out = finished(result, printer)
-        self.check_trained(state)
+        self._check_trained(state)
         return state, out
 
     def _check_train_options(self, options: Mapping[str, Any]) -> None:

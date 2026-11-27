@@ -48,11 +48,8 @@ from ajax.environments.obs_norm import mirror_obs_norm, seeded_obs_norm
 from ajax.environments.utils import raw_obs_columns
 from ajax.extensions.base import Extension, ExtensionContext, ExtensionStack
 from ajax.extensions.expert import extension_expert_actions, reads_stored_expert_actions
-from ajax.networks.networks import (
-    phi_star_critic_state,
-    predict_value,
-    take_actor_encoder,
-)
+from ajax.networks.networks import phi_star_critic_state, predict_value
+from ajax.networks.sharing import take_actor_encoder
 from ajax.random_keys import EXPERT_PREFILL_KEY_TAG
 from ajax.state import EnvironmentConfig, LoadedTrainState, Transition
 from ajax.types import BufferType

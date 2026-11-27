@@ -68,8 +68,8 @@ from ajax.networks.networks import (
     in_critic_units,
     predict_value,
     predict_value_sequence,
-    with_critic_encoder,
 )
+from ajax.networks.sharing import with_critic_encoder
 from ajax.networks.utils import RLKIT_FANIN, TORCH_LINEAR
 from ajax.state import BaseAgentState, LoadedTrainState, Transition
 from ajax.types import BufferType

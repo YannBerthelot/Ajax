@@ -19,7 +19,7 @@ import optax
 from ajax.agents.recurrent import q_values
 from ajax.extensions.base import ExtensionStack, merge_metrics
 from ajax.log import unevaluated
-from ajax.networks.networks import mirror_shared_encoder
+from ajax.networks.sharing import mirror_shared_encoder
 from ajax.random_keys import EXTENSIONS_KEY_TAG, derive_key, fold_index
 
 #: The keys of the extensions' batches the shared steps below build, which
@@ -260,7 +260,7 @@ def compute_actor_critic_gradients(
 
     value_loss takes the critic's parameters; policy_loss the actor's, then
     the critic's, from which an actor sharing the critic's encoder reads it
-    (networks.with_critic_encoder). Without a shared encoder the networks
+    (sharing.with_critic_encoder). Without a shared encoder the networks
     share no parameter, so each network's gradient is that of its own loss.
     With one, the encoder is the critic's: its gradient is the value loss's
     plus the policy loss's, as in ppo2's one network (ppo2/model.py:75-107).

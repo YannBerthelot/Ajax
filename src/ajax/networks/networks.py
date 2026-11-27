@@ -28,15 +28,7 @@ from ajax.networks.memory import (
     init_carry,
     parse_memory_config,
 )
-
-# Re-exported: these lived here before ajax.networks.sharing.
-from ajax.networks.sharing import (  # noqa: F401
-    _borrow_encoder,
-    mirror_shared_encoder,
-    shared_encoder_params,
-    take_actor_encoder,
-    with_critic_encoder,
-)
+from ajax.networks.sharing import _borrow_encoder, shared_encoder_params
 from ajax.networks.utils import (
     TORCH_LINEAR,
     dense,
@@ -51,7 +43,6 @@ from ajax.networks.values import (  # noqa: F401
     _apply_critic_action_units,
     _apply_critic_obs_norm,
     action_value_input,
-    critic_input,
     get_policy_updating_batch_statistics,
     in_critic_units,
     phi_star_critic_state,

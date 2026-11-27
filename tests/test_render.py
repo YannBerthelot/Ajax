@@ -17,7 +17,10 @@ docs/guide/deploy.md, "Watch the policy"):
     ``(height, width, 3)``, 8-bit or floats in [0, 1], and another shape is
     refused;
   - a classic-control drawing is written with Ajax's render extra, and
-    without pygame names that extra.
+    without pygame names that extra;
+  - drawing opens no audio device (on a machine without one, ALSA printed
+    eight error lines a frame), and leaves the caller's SDL_AUDIODRIVER,
+    set or not, as it was.
 """
 
 import importlib.util
@@ -170,6 +173,32 @@ def test_a_classic_control_drawing_needs_pygame_and_says_so(cartpole, tmp_path):
         agent.render(state, path, max_steps=3)
         with Image.open(path) as animation:
             assert animation.n_frames == 4
+
+
+@pytest.mark.skipif(
+    importlib.util.find_spec("pygame") is None,
+    reason="Gymnasium draws CartPole with pygame",
+)
+def test_a_drawing_opens_no_audio_device(cartpole, tmp_path, capfd, monkeypatch):
+    """On Linux without a sound card (CI's runners), pygame's audio start
+    printed ALSA's errors to the process's stderr; elsewhere there is nothing
+    to print, and the check passes either way."""
+    agent, state = cartpole
+    monkeypatch.delenv("SDL_AUDIODRIVER", raising=False)
+    agent.render(state, tmp_path / "cartpole.gif", max_steps=3)
+    assert "ALSA" not in capfd.readouterr().err
+    assert "SDL_AUDIODRIVER" not in os.environ
+
+
+@pytest.mark.skipif(
+    importlib.util.find_spec("pygame") is None,
+    reason="Gymnasium draws CartPole with pygame",
+)
+def test_a_drawing_keeps_the_callers_audio_driver(cartpole, tmp_path, monkeypatch):
+    agent, state = cartpole
+    monkeypatch.setenv("SDL_AUDIODRIVER", "disk")
+    agent.render(state, tmp_path / "cartpole.gif", max_steps=1)
+    assert os.environ["SDL_AUDIODRIVER"] == "disk"
 
 
 @pytest.mark.skipif(

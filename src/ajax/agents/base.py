@@ -75,7 +75,9 @@ _Method = TypeVar("_Method", bound=Callable[..., Any])
 
 
 #: The page mapping Stable-Baselines3's calls and arguments to Ajax's.
-SB3_PAGE = "https://yannberthelot.github.io/Ajax/latest/getting-started/coming-from-sb3/"
+SB3_PAGE = (
+    "https://yannberthelot.github.io/Ajax/latest/getting-started/coming-from-sb3/"
+)
 
 #: Stable-Baselines3 arguments with no counterpart of that name, and where
 #: Ajax takes each instead.
@@ -128,13 +130,14 @@ def unknown_argument(owner: str, name: str, known: Iterable[str]) -> str:
         message += f" For Stable-Baselines3's {name}: {SB3_ARGUMENTS[name]}."
     elif not close:
         message += (
-            f" Coming from Stable-Baselines3? {SB3_PAGE} maps its arguments to"
-            " Ajax's."
+            f" Coming from Stable-Baselines3? {SB3_PAGE} maps its arguments to Ajax's."
         )
     return message + f" help({owner}) lists its arguments."
 
 
-def extra_positional_arguments(owner: str, given: Sequence[Any], takes: Sequence[str]) -> str:
+def extra_positional_arguments(
+    owner: str, given: Sequence[Any], takes: Sequence[str]
+) -> str:
     """The message for an agent built with more positional arguments than it
     takes, as Stable-Baselines3's PPO("MlpPolicy", env) is."""
     message = (
@@ -144,7 +147,7 @@ def extra_positional_arguments(owner: str, given: Sequence[Any], takes: Sequence
     )
     if any(isinstance(value, str) and value.endswith("Policy") for value in given):
         message += (
-            " There is no policy to name, as Stable-Baselines3's \"MlpPolicy\":"
+            ' There is no policy to name, as Stable-Baselines3\'s "MlpPolicy":'
             " Ajax builds the network for the environment's observations."
         )
     return message
@@ -171,8 +174,11 @@ def named_arguments(method: _Method) -> _Method:
                 raise TypeError(unknown_argument(owner, name, names))
         missing = [name for name in required[len(args) :] if name not in kwargs]
         if missing:
-            message = f"{owner} needs {', '.join(missing)}: {owner}({', '.join(names)})."
-            if args and required[0] == "agent_state":
+            message = (
+                f"{owner} needs {', '.join(missing)}: {owner}({', '.join(names)})."
+            )
+            # predict names it agent_state, save state.
+            if args and required[0] in ("agent_state", "state"):
                 # agent.predict(obs) filled the state's place with the observation.
                 example = ", ".join(["state", *required[1:]])
                 message += (

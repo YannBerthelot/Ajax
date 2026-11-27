@@ -50,6 +50,7 @@ the CHANGELOG's "Clearer errors and checks"):
 """
 
 import importlib.util
+import pathlib
 import subprocess
 import sys
 import warnings
@@ -61,6 +62,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
+import ajax
 from ajax import PPO, PQN, SAC
 from ajax.agents.base import SB3_PAGE
 from ajax.buffers.dataset import TransitionDataset, record
@@ -506,14 +508,19 @@ def test_an_extra_positional_argument_shows_the_keyword_form():
 @pytest.mark.parametrize(
     ("call", "form"),
     [
-        (lambda agent: agent.predict(np.zeros(4, np.float32)), "predict(state, observation)"),
+        (
+            lambda agent: agent.predict(np.zeros(4, np.float32)),
+            "predict(state, observation)",
+        ),
         (lambda agent: agent.save("ppo_cartpole"), "save(state, path)"),
     ],
     ids=["predict", "save"],
 )
 def test_a_call_without_the_trained_state_says_it_comes_first(trained, call, form):
     agent, _ = trained
-    with pytest.raises(TypeError, match="first argument is the trained state") as refusal:
+    with pytest.raises(
+        TypeError, match="first argument is the trained state"
+    ) as refusal:
         call(agent)
     assert f"agent.{form}" in str(refusal.value)
 
@@ -565,6 +572,9 @@ def test_a_stable_baselines3_name_like_no_ajax_one_points_to_the_sb3_page():
     ids=["gymnasium-environment", "budget-off-whole-rollouts"],
 )
 def test_a_warning_about_a_call_names_the_callers_line(call, category, text):
+    """The caller's line is outside the ajax package and is no generated code
+    (a dataclass's __init__ is "<string>"). Under pytest it can be
+    conftest.py's, whose fixture wraps train to count its updates."""
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         call()
@@ -574,4 +584,7 @@ def test_a_warning_about_a_call_names_the_callers_line(call, category, text):
         if issubclass(warning.category, category) and text in str(warning.message)
     ]
     assert about_the_call
-    assert {warning.filename for warning in about_the_call} == {__file__}
+    package = pathlib.Path(ajax.__file__).resolve().parent
+    for warning in about_the_call:
+        assert not warning.filename.startswith("<"), warning.filename
+        assert not pathlib.Path(warning.filename).resolve().is_relative_to(package)

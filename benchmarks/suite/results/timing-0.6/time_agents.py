@@ -1,22 +1,21 @@
-"""Time the benchmark's agents for 0.6.0: the minutes one million steps take
-with 10 seeds trained together, on four CPU cores and on one GPU.
+"""Time the benchmark's agents for 0.6.0: environment steps per second with
+10 seeds trained together, on four CPU cores and on one GPU.
 
 usage, from the repository root, on the machine to time:
-    uv run python benchmarks/suite/results/timing-0.6/time_agents.py cpu SAC
-    uv run python benchmarks/suite/results/timing-0.6/time_agents.py gpu SAC
+    uv run python benchmarks/suite/results/timing-0.6/time_agents.py cpu SAC 4096
 
 The method of results/timing-gpu and PHASE0.md:
 - each agent is built with the benchmark's settings (agent_suite.py), except
   that the off-policy agents start their updates by step 256 (learning_starts,
   TD-MPC2's seed_steps), so that the timed call runs updates throughout;
-- a first call trains the seeds for a segment, longer only when the updates
-  start later than that, and compiles the run;
-- a second call, in the same process, resumes for a segment and is timed,
+- a first call trains the seeds for the segment's steps (more only when the
+  updates start later) and compiles the run;
+- a second call, in the same process, resumes for the segment and is timed,
   the seconds JAX spends compiling taken out: a resumed call compiles a
   program of its own, its start being part of it;
-- no evaluations run (logging_config=None); the minutes for one million
-  steps extrapolate the timed call.
-Each agent's record goes to cpu.jsonl or gpu.jsonl beside this file.
+- no evaluations run (logging_config=None).
+Segments are picked per agent and machine so that the timed call takes one to
+three minutes. Each record goes to cpu.jsonl or gpu.jsonl beside this file.
 """
 
 import argparse
@@ -37,53 +36,13 @@ from agent_bench import compile_spans, covered_seconds  # noqa: E402
 N_SEEDS = 10
 #: The step by which the off-policy agents start updating in these runs.
 UPDATES_BY = 256
-#: Steps per segment, about two minutes at the speeds of PHASE0.md and
-#: timing-gpu; a run rounds them up to whole iterations. PQN's GPU segment
-#: is half its budget, so that both calls fit in the run.
-SEGMENTS = {
-    "cpu": {
-        "SAC": 4096,
-        "TD3": 6144,
-        "REDQ": 128,
-        "TQC": 512,
-        "CrossQ": 192,
-        "ASAC": 4096,
-        "RVISAC": 4096,
-        "AVG": 24576,
-        "APO": 64000,
-        "PPO": 30720,
-        "DreamerV3": 16,
-        "TDMPC2": 64,
-        "DQN": 49152,
-        "PQN": 327680,
-        "PPO-MinAtar": 139264,
-        "UDRL": 49152,
-    },
-    "gpu": {
-        "SAC": 28672,
-        "TD3": 28672,
-        "REDQ": 5120,
-        "TQC": 16384,
-        "CrossQ": 10240,
-        "ASAC": 28672,
-        "RVISAC": 28672,
-        "AVG": 22528,
-        "APO": 146000,
-        "PPO": 26624,
-        "DreamerV3": 720,
-        "TDMPC2": 4096,
-        "DQN": 540672,
-        "PQN": 2621440,
-        "PPO-MinAtar": 1654784,
-        "UDRL": 217088,
-    },
-}
 #: The settings the record keeps from the process's environment.
 ENVIRONMENT = (
     "JAX_PLATFORMS",
     "CUDA_VISIBLE_DEVICES",
     "AJAX_NO_COMPILE_CACHE",
     "XLA_PYTHON_CLIENT_PREALLOCATE",
+    "XLA_FLAGS",
 )
 
 
@@ -131,11 +90,11 @@ def gpu_processes() -> Optional[list[str]]:
     return [line.strip() for line in result.stdout.splitlines() if line.strip()]
 
 
-def time_agent(label: str, machine: str) -> dict:
+def time_agent(label: str, machine: str, steps: int) -> dict:
     benchmark = agent_suite.BENCHMARKS[label]
     agent, options = build_for_timing(label)
     unit = agent_suite.iteration_steps(agent)
-    timed_steps = agent_suite.round_up(SEGMENTS[machine][label], unit)
+    timed_steps = agent_suite.round_up(steps, unit)
     first_steps = agent_suite.round_up(
         max(timed_steps, first_update_step(agent) + unit), unit
     )
@@ -167,7 +126,9 @@ def time_agent(label: str, machine: str) -> dict:
         "first_s": round(first_s, 1),
         "resume_compile_s": round(resume_compile_s, 1),
         "exec_s": round(exec_s, 2),
-        "minutes_per_million_steps": round(exec_s / timed_steps * 1e6 / 60, 2),
+        # A seed's steps count each of its envs; the run's count every seed.
+        "run_steps_per_s": round(timed_steps / exec_s, 1),
+        "env_steps_per_s": round(N_SEEDS * timed_steps / exec_s, 1),
         "peak_memory_gb": agent_suite.peak_memory_gb(),
         "device_peak_memory_gb": agent_suite.device_peak_memory_gb(),
         "cores": sorted(os.sched_getaffinity(0)),
@@ -180,13 +141,13 @@ def time_agent(label: str, machine: str) -> dict:
 
 def main(argv: Optional[list[str]] = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("machine", choices=sorted(SEGMENTS))
-    parser.add_argument("labels", nargs="+", choices=sorted(SEGMENTS["cpu"]))
+    parser.add_argument("machine", choices=("cpu", "gpu"))
+    parser.add_argument("label", choices=sorted(agent_suite.BENCHMARKS))
+    parser.add_argument("steps", type=int, help="the segment's steps per seed")
     args = parser.parse_args(argv)
-    for label in args.labels:
-        record = time_agent(label, args.machine)
-        agent_suite.append(HERE / f"{args.machine}.jsonl", record)
-        print(json.dumps(record), flush=True)
+    record = time_agent(args.label, args.machine, args.steps)
+    agent_suite.append(HERE / f"{args.machine}.jsonl", record)
+    print(json.dumps(record), flush=True)
     return 0
 
 

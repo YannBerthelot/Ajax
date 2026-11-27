@@ -1,32 +1,38 @@
 # IQL
 
 Implicit Q-Learning learns from a fixed dataset without ever asking its
-critic about actions the data does not contain, which offline RL's critics
+critic about actions the data does not contain, which offline critics
 overrate. A state value V(s) is fitted as an upper expectile of the critic
-over the dataset's own actions, which approximates the best of them without
-a max. The critic then regresses on `r + γ V(s')`. The actor copies the
-dataset's actions, each weighted by how much better than V it was
-(advantage-weighted regression).
+over the dataset's own actions, which approximates the best of them
+without a max. The critic then regresses on `r + γ V(s')`, and the actor
+copies the dataset's actions, each weighted by how much better than V it
+was (advantage-weighted regression).
 
 **Paper:** Kostrikov, Nair and Levine, *Offline Reinforcement Learning with
 Implicit Q-Learning*, ICLR 2022
 ([arXiv:2110.06169](https://arxiv.org/abs/2110.06169)). The defaults and
-the update order are the authors' JAX code, ikostrikov/implicit_q_learning
-at `09d7002` (`learner.py`, `critic.py`, `actor.py`, `policy.py`,
-`configs/`).
+the update order are the authors' JAX code's,
+`ikostrikov/implicit_q_learning` at `09d7002`.
 
-## Can I use?
+## When to use it
+
+IQL suits learning from a dataset with no simulator to explore in, such as
+logged runs or a plant's history; it can then fine-tune online with the
+same update. For a minimal alternative, see [TD3+BC](td3.md#td3bc-offline):
+TD3 with a cloning term.
 
 | Feature | IQL |
 | --- | --- |
-| Continuous actions | yes; the actor's mean is tanh-bounded |
 | Discrete actions | no |
-| Offline training | yes, `train_offline(dataset, n_updates)` |
-| Online fine-tuning | yes, `train(initial_state=...)` after it, the same update |
+| Continuous actions | yes, a Gaussian on a `tanh` mean, its samples clipped to `[-1, 1]` and mapped onto the environment's bounds |
 | Memory (`memory=`) | no |
 | Environments | gymnax, Brax, MuJoCo Playground |
+| Image observations | no |
+| PID policy | yes, `actor_architecture=PIDPolicy(...)` ([Networks](../guide/networks.md)) |
 | Several seeds in one call | yes, `train(seed=[...])` |
-| Extension phases | `pretrain`, `post_update`, `eval_metrics`, `observe`, `on_target`, `critic_loss`, `actor_loss`, `transform_action`, `actuate`, `choose_warmup_action`, `choose_replay_action` |
+| Offline training | yes, `train_offline` ([Training](../guide/training.md#training-offline)), then online with `train(initial_state=...)` |
+| Extension phases | `pretrain`, `post_update`, `eval_metrics`, `observe`, `on_target`, `critic_loss`, `actor_loss`, `action`, `eval_action`, `transform_action`, `actuate`, `choose_warmup_action`, `choose_replay_action`, `track_memory` ([which extensions run](../guide/compatibility.md)) |
+| Resume and checkpoints | yes; a run split by a checkpoint equals the run left whole |
 
 ## Example
 
@@ -52,39 +58,48 @@ print(offline["Eval/episodic mean reward"])
 state, online = agent.train(seed=[0], n_timesteps=1_000, initial_state=state)
 ```
 
-Evaluations log, next to the return, the losses of the value, the actor
-and the critics (`value/value_loss`, `value/actor_loss`,
-`value/critic_loss`), the mean advantage `q - V(s)` on the batch
-(`value/advantage`) and the mean advantage weight (`value/weight`).
+Evaluations also log the value's, the actor's and the critics' losses
+(`value/value_loss`, `value/actor_loss`, `value/critic_loss`), the mean
+advantage `q - V(s)` (`value/advantage`) and weight (`value/weight`).
 
 ## Key hyperparameters
 
+The defaults are the authors' locomotion configuration. The [API](#api)
+section lists every argument.
+
 | Argument | Default | What it does |
 | --- | --- | --- |
-| `expectile` | 0.7 | the expectile V fits (0.5: the mean; towards 1: the best action in the data). The reference uses 0.7 on locomotion, 0.9 on antmaze |
-| `temperature` | 3.0 | the advantage weights' inverse temperature, `min(exp(temperature (q - V)), 100)`; 10 on antmaze |
-| `gamma`, `tau` | 0.99, 0.005 | discount; Polyak rate of the target critics |
-| `actor_learning_rate`, `critic_learning_rate`, `value_learning_rate` | 3e-4 | Adam step sizes (eps 1e-8, optax's) |
+| `n_envs` | `1` | parallel environments, online |
+| `expectile` | `0.7` | the expectile V fits (0.5: the mean; towards 1: the best action in the data); 0.9 on AntMaze |
+| `temperature` | `3.0` | the advantage weights' inverse temperature, `min(exp(temperature (q - V)), 100)`; 10 on AntMaze |
+| `actor_learning_rate`, `critic_learning_rate`, `value_learning_rate` | `3e-4` | Adam step sizes (epsilon `1e-8`, optax's) |
+| `actor_learning_rate_decay` | `"cosine"` | the actor's rate decays to 0 by a cosine over the run's updates; `None` keeps it constant ([Notes](#notes)) |
 | `actor_architecture`, `critic_architecture` | `("256", "relu", "256", "relu")` | hidden layers, also the value's |
-| `batch_size`, `buffer_size` | 256, 1,000,000 | replay batch; capacity, which must hold the dataset |
-| `reward_scale` | 1.0 | multiplies the rewards in the critic's target |
-| `learning_starts` | 0 | online: steps before the first update (the replay holds the dataset already) |
-| `normalize_observations` | False | running observation normalisation of the actor and the critics |
-| `expert_policy` | `None` | an expert the collector tracks (online): its actions feed the observation features and a residual policy (`ResidualPolicy`), and the evaluation reports its return next to the agent's |
-| `extensions` | `()` | research features (see [Extensions](../guide/extensions.md)) |
+| `gamma` | `0.99` | discount |
+| `tau` | `0.005` | Polyak rate of the target critics |
+| `buffer_size` | `1_000_000` | replay capacity, which must hold the dataset |
+| `batch_size` | `256` | rows per update |
+| `learning_starts` | `0` | online: steps before the first update (the replay holds the dataset already) |
+| `reward_scale` | `1.0` | multiplies the rewards in the critics' target |
+| `max_grad_norm` | `None` | gradient clipping |
+| `normalize_observations`, `normalize_rewards` | `False` | running normalisation ([Environments](../guide/environments.md)) |
+| `episode_length`, `action_repeat` | `None`, `1` | simulator steps per episode and per agent step, on Brax and Playground ([Environments](../guide/environments.md)) |
+| `expert_policy` | `None` | an expert the run tracks online, for the observation features and `ResidualPolicy`; each evaluation logs its return next to the agent's |
+| `extensions` | `()` | research features ([Extensions](../guide/extensions.md)) |
 
 ## Presets
 
-`IQL.preset("AntMaze", env_id)` takes the reference's AntMaze config,
-`expectile=0.9` and `temperature=10` (ikostrikov/implicit_q_learning@`09d7002`,
-`configs/antmaze_config.py:15-16`; [Presets](../guide/training.md#presets)). The reference also preprocesses each
-dataset's rewards, which a preset cannot do:
+`IQL.preset("AntMaze", env_id)` takes the authors' AntMaze configuration,
+`expectile=0.9` and `temperature=10` (`configs/antmaze_config.py:15-16`;
+[Presets](../guide/training.md#presets)). The reference also preprocesses
+each dataset's rewards, which a preset cannot do:
 
-- on AntMaze it subtracts 1 from them (`train_offline.py:68-69`): shift your
-  dataset's rewards before training;
+- on AntMaze it subtracts 1 from them (`train_offline.py:68-69`): shift
+  your dataset's rewards before training;
 - on the locomotion tasks it scales them by 1000 over the range of the
   dataset's episode returns (`:35-52`): pass
-  `reward_scale=1000 / (max_return - min_return)`, computed from your dataset.
+  `reward_scale=1000 / (max_return - min_return)`, computed from your
+  dataset.
 
 ## How it works
 
@@ -95,37 +110,42 @@ Each update samples one replay batch and runs, in the reference's order:
    V)²`.
 2. **Actor.** It maximises `E[w log π(a|s)]` with `w = min(exp(temperature
    (q − V(s))), 100)`, with V the value just updated. The policy is a
-   Gaussian on a tanh mean, with one learned log-std per action dimension,
-   clipped to [−5, 2]. Online, its samples act clipped to [−1, 1] and the
-   replay keeps them clipped, as the reference does. The evaluations act with
-   its mean.
+   Gaussian on a `tanh` mean, with one learned log-std per action
+   dimension, clipped to `[−5, 2]`. Online, its samples act clipped to
+   `[−1, 1]` and the replay keeps them clipped, as the reference does. The
+   evaluations act with its mean.
 3. **Critics.** Two Q critics regress on `reward_scale · r + γ (1 −
    terminated) V(s')`, their squared errors summed.
 4. **Targets.** The target critics move by Polyak averaging at rate `tau`.
 
+## Differences from the reference
+
+The update follows the reference's equations and order
+([How it works](#how-it-works)); no conformance check runs it against the
+reference's code. `normalize_rewards`, off by default, is Ajax's: it
+divides the rewards by a running standard deviation that counts the
+dataset's rows and each step collected, as on the other agents.
+
 ## Notes
 
-- **Learning-rate schedule.** The actor's learning rate decays to 0 by a
-  cosine over the run's updates, as in the reference's offline training
-  (`actor_learning_rate_decay="cosine"`). `actor_learning_rate_decay=None`
-  keeps it constant, as the reference's fine-tuning config does. A decayed
-  rate carries into a `train(initial_state=...)` that fine-tunes the state:
-  pass `None` to both calls to fine-tune at a constant rate.
-- **Rewards.** The reference scales a locomotion dataset's rewards by 1000
-  over its range of episode returns, and subtracts 1 from antmaze's. Compute
-  the factor from your dataset and pass it as `reward_scale` (or shift the
-  dataset's rewards).
-- **The value's input.** V reads the observation as the actor and the
-  critics do: normalised with `normalize_observations=True` (until 0.6.0, V
-  read it raw).
+- **Learning-rate schedule.** The actor's cosine decay is the reference's
+  offline training's. A decayed rate carries into a
+  `train(initial_state=...)` that fine-tunes the state: to fine-tune at a
+  constant rate, as the reference's fine-tuning configuration does, build
+  the agent with `actor_learning_rate_decay=None`.
+- **The value's input.** With `normalize_observations=True`, V reads the
+  normalised observations, as the actor and the critics do.
+- **Initialisation.** As in the authors' code: orthogonal kernels with gain
+  `sqrt(2)`.
 
 ## Results
 
-No learning curves are published for IQL yet. Unit tests
-(`tests/agents/IQL`) check the expectile loss and the reference's defaults.
-The probe (`tests/probing/test_offline.py`) trains IQL offline on logged
-one-step rows: V must reach the expectile of their returns, and the actor
-the advantage-weighted mean of their actions, with the weights clipped.
+The repository records no learning curves for IQL yet. A probe
+(`tests/probing/test_offline.py`) trains it offline on logged one-step
+rows: V must reach the expectile of their returns, and the actor the
+advantage-weighted mean of their actions, with the weights clipped.
+[Performance](../guide/performance.md) compares its speed with the other
+agents'.
 
 ## API
 

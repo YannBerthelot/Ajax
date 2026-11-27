@@ -5,59 +5,14 @@ hide:
 
 # Ajax
 
-<p align="center">
-  <b>Reinforcement-learning agents in JAX, compiled end to end with the environment,<br/>
-  including average-reward, expert-guided and world-model agents.</b><br/>
-  A whole training run, environment and every seed included, one compiled program.
-</p>
-
-Compared with [Stable-Baselines3](https://github.com/DLR-RM/stable-baselines3)
-and its JAX version [SBX](https://github.com/araffin/sbx), Ajax differs in
-four ways:
-
-- **[End to end on the accelerator](guide/performance.md)**: the environment
-  and the training loop compile into one JAX program, as in
-  [PureJaxRL](https://github.com/luchris429/purejaxrl),
-  [Rejax](https://github.com/keraJLi/rejax),
-  [Stoix](https://github.com/EdanToledo/Stoix) and
-  [Brax](https://github.com/google/brax)'s training agents, with no Python
-  step between them, on a CPU or a GPU.
-- **Average-reward agents**: [ASAC](algorithms/asac.md),
-  [RVI-SAC](algorithms/rvisac.md) and [APO](algorithms/apo.md) maximise the
-  reward per step, with no discount, for tasks that never end.
-- **[Expert-guided agents](guide/expert-guidance.md)**: learn from a
-  controller you already have, or from recorded transitions, by cloning,
-  imitation, residual policies, hand-over, prior data in the replay or
-  offline training.
-  [Choosing the pieces](guide/expert-guidance.md#choosing-the-pieces) names
-  each method and its paper: TD3+BC, Q-filtered cloning, kickstarting,
-  residual RL, JSRL, IBRL, RLPD's prior data, IQL, CQL, Cal-QL, ReBRAC,
-  GAIL, DAgger.
-- **[World models](guide/world-models.md)**: DreamerV3 and TD-MPC2, following
-  the code behind their papers' results.
-
-[Why Ajax](getting-started/why-ajax.md) shows each with an example and
-compares Ajax with SB3, SBX, PureJaxRL, Brax, Stoix, Rejax, TorchRL and
-Tianshou, including
-when to use them instead.
-
-Ajax has twenty agents, from SAC and PPO to DreamerV3 and TD-MPC2. Each
-implements a published paper, and its page lists where it departs from it.
-Several seeds train side by side in one program, on a CPU or a GPU. Research
-features (learning from an expert, exploration rules, diagnostics) are
-[extensions](guide/extensions.md), passed as `extensions=(...)` rather than
-added as new arguments to the agents. An agent refuses, when built, an
-extension it cannot run; [Compatibility](guide/compatibility.md) shows which
-agent runs which.
+Ajax is a library of reinforcement-learning agents written in JAX. A
+training run, with its environment and all its seeds, compiles into one
+program that runs on a CPU or a GPU. These pages show how to install it,
+train and use its agents, and extend them.
 
 ```bash
-pip install ajax-rl                 # imports as ajax; Python 3.12 or newer
-pip install "ajax-rl[playground]"   # adds Brax and MuJoCo Playground environments
-pip install "ajax-rl[cuda]"         # adds CUDA, on Linux with an NVIDIA GPU
+pip install ajax-rl  # imports as ajax; Python 3.12 or newer
 ```
-
-[Installation](getting-started/installation.md) covers the other extras and
-installing from a clone.
 
 ```python
 from ajax import PPO
@@ -68,9 +23,49 @@ state, evaluations = agent.train(seed=[1, 2, 3], n_timesteps=40_960)  # prints a
 print(evaluations.returns)  # one row per seed, one column per evaluation
 ```
 
-[Quickstart →](getting-started/quickstart.md){ .md-button .md-button--primary }
-[Why Ajax →](getting-started/why-ajax.md){ .md-button }
+[Get started →](getting-started/installation.md){ .md-button .md-button--primary }
+[Coming from SB3 →](getting-started/coming-from-sb3.md){ .md-button }
 [Choose an algorithm →](algorithms/index.md){ .md-button }
+
+## Why Ajax
+
+Ajax has twenty agents, each following the code behind its paper's results.
+Next to [Stable-Baselines3](https://github.com/DLR-RM/stable-baselines3) and
+its JAX version [SBX](https://github.com/araffin/sbx), it offers:
+
+- **[Speed](getting-started/why-ajax.md#one-program-for-the-whole-run)**: the
+  environment steps inside the compiled program, beside the agent, with no
+  Python between two steps.
+- **[Many runs in one call](getting-started/why-ajax.md#one-program-for-the-whole-run)**:
+  every seed, and every value of a hyperparameter sweep, trains in the same
+  program.
+- **[Variations that combine](getting-started/why-ajax.md#variations-that-combine)**:
+  a memory, an image encoder, a PID policy or an
+  [extension](guide/extensions.md) is an argument of the same agent, and an
+  agent refuses, when built, one it cannot run.
+- **[Checked against the original code](getting-started/why-ajax.md#checked-against-the-original-code)**:
+  unit tests of each update's maths, probes with known answers, and
+  conformance tests against the original implementations.
+- **[Average reward](getting-started/why-ajax.md#average-reward-agents)**,
+  **[world models](getting-started/why-ajax.md#world-models)** and
+  **[offline training](guide/training.md#training-offline)** beside the
+  usual discounted, model-free agents.
+- **[Learning from an expert](getting-started/why-ajax.md#learning-from-an-expert-or-from-data)**:
+  start from a controller you already have, or from recorded transitions.
+
+[Why Ajax](getting-started/why-ajax.md) explains each, with examples,
+compares Ajax with SB3, SBX, PureJaxRL, Brax, Stoix, Rejax, TorchRL and
+Tianshou, and says when one of them fits better.
+
+## Getting started
+
+1. [Installation](getting-started/installation.md): pip, the extras, a GPU.
+2. [Quickstart](getting-started/quickstart.md): train an agent, read its
+   results, act with it and save it.
+3. [Why Ajax](getting-started/why-ajax.md): what Ajax offers, and when
+   another library fits better.
+4. [Coming from SB3](getting-started/coming-from-sb3.md): Stable-Baselines3's
+   calls and defaults beside Ajax's.
 
 ## The agents
 
@@ -86,55 +81,28 @@ print(evaluations.returns)  # one row per seed, one column per evaluation
 | Differentiable simulation | [APG](algorithms/apg.md) |
 | World models | [DreamerV3](algorithms/dreamerv3.md), [TD-MPC2 and its multi-task variant](algorithms/tdmpc2.md) |
 
+Each page gives the agent's paper, its defaults and where it departs from
+the original; [Algorithms](algorithms/index.md) helps choose one.
+
 ## What else is in the box
 
-- [Extensions](guide/extensions.md): expert guidance, exploration, critic-target
-  changes, actor and critic pre-training, offline RL, adversarial imitation
-  and diagnostics, each usable with the agents that run the training phases
-  it touches.
-- [Presets](guide/training.md#presets): the settings an agent's reference
-  code tunes for one task, as `Agent.preset(task, env_id)`.
-- [Hyperparameter sweeps](guide/training.md#hyperparameter-sweeps):
-  `train(sweep=...)` trains several configurations, each with every seed, in
-  one compiled program.
-- [Training offline](guide/training.md#training-offline): a replay agent
-  trains on a transition dataset before it acts, then fine-tunes online.
-- [Expert guidance](guide/expert-guidance.md): learn from an existing
-  controller, which reads the environment's raw observations and answers in
-  its action units.
-- [Memory](guide/memory.md): GRU, LSTM, transformer or Mamba blocks, with
-  R2D2-style sequence replay.
-- [Networks](guide/networks.md): hidden layers, initialisers, a shared
-  encoder, and hidden layers per output head
-  ([`head_architecture`](guide/networks.md#layers-per-head)).
-- [PID policy](guide/networks.md#the-pid-policy): a PID controller as the actor, whose learned
-  gains deploy as a plain PID.
-- [Differentiable simulation](guide/differentiable-simulation.md): APG through
-  gymnax dynamics, across distributions of physical parameters.
-- [World models](guide/world-models.md): DreamerV3 and TD-MPC2, following the
-  paper-era official code.
-- [Environments](guide/environments.md): gymnax, Brax and MuJoCo Playground by
-  id, with wrappers for normalisation, observation noise, reference tracking
-  and more; every continuous agent's `[-1, 1]` actions are mapped onto the
-  environment's bounds.
-- [Gymnasium's MuJoCo tasks in JAX](guide/environments.md#gymnasiums-mujoco-tasks-in-jax)
-  (`"mujoco:<id>"`) and [MuJoCo Warp physics](guide/environments.md#mujoco-warp-on-a-gpu)
-  on an NVIDIA GPU (`physics="warp"`).
-- [Normalisation](guide/environments.md#normalisation): running observation
-  statistics, and rewards divided by the spread of the discounted return
-  (`normalize_rewards`).
-- [Logging](guide/logging.md) and [checkpoints](guide/checkpoints.md):
-  evaluations as arrays, W&B or TensorBoard, resuming in another process.
-- [Evaluating on another device](guide/logging.md#evaluating-on-another-device):
-  with `LoggingConfig(evaluation_device=...)`, training goes on while a
-  thread scores the policy.
-- [Performance](guide/performance.md): every seed in one program, a persistent
-  compile cache, one per machine and JAX version.
-- [Comparing agents](guide/comparing-agents.md): AdaStop, which trains more
-  seeds only while the answer is unclear, and confidence intervals for one
-  agent's metrics.
-- [Reproduction](reproduction/index.md): Ajax agents trained beside reference
-  implementations on the same JAX environment, under a written protocol.
+| Feature | What it gives |
+| --- | --- |
+| [Presets](guide/training.md#presets) | the settings an agent's reference code tunes for a task: `Agent.preset(task, env_id)` |
+| [Hyperparameter sweeps](guide/training.md#hyperparameter-sweeps) | `train(sweep=...)`: several configurations, each with every seed, in one program |
+| [Expert guidance](guide/expert-guidance.md) | cloning, imitation, prior data and hand-over, from a controller in the environment's own units |
+| [Memory](guide/memory.md) | GRU, LSTM, transformer or Mamba blocks, with R2D2-style sequence replay |
+| [Networks](guide/networks.md) | hidden layers, initialisers, CNN encoders, a shared encoder, [layers per head](guide/networks.md#layers-per-head) |
+| [The PID policy](guide/networks.md#the-pid-policy) | a PID controller as the actor, whose learned gains deploy as a plain PID |
+| [Environments](guide/environments.md) | gymnax, Brax and MuJoCo Playground by id, wrappers, and any Gymnasium environment (`"gymnasium:<id>"`) |
+| [Gymnasium's MuJoCo tasks in JAX](guide/environments.md#gymnasiums-mujoco-tasks-in-jax) | `"mujoco:<id>"`, and [MuJoCo Warp](guide/environments.md#mujoco-warp-on-a-gpu) physics on an NVIDIA GPU |
+| [Normalisation](guide/environments.md#normalisation) | running observation statistics, and rewards divided by the spread of the discounted return |
+| [Differentiable simulation](guide/differentiable-simulation.md) | APG through gymnax dynamics, across distributions of physical parameters |
+| [Logging](guide/logging.md) | evaluations as arrays, Weights & Biases or TensorBoard, [evaluation on another device](guide/logging.md#evaluating-on-another-device) |
+| [Checkpoints](guide/checkpoints.md) | save a run and resume it in another process |
+| [Performance](guide/performance.md) | seeds, CPU or GPU, and the persistent compile cache |
+| [Comparing agents](guide/comparing-agents.md) | AdaStop, which trains more seeds only while the answer is unclear, and confidence intervals |
+| [Reproduction](reproduction/index.md) | Ajax agents trained beside reference implementations, under a written protocol |
 
 ## Documentation
 
@@ -142,11 +110,10 @@ print(evaluations.returns)  # one row per seed, one column per evaluation
 
 - **Use it**
 
-    [Installation](getting-started/installation.md) ·
-    [Quickstart](getting-started/quickstart.md) ·
-    [Why Ajax](getting-started/why-ajax.md) ·
-    [Coming from SB3](getting-started/coming-from-sb3.md) ·
     [Training an agent](guide/training.md) ·
+    [Train, evaluate, deploy](guide/deploy.md) ·
+    [Environments](guide/environments.md) ·
+    [Extensions](guide/extensions.md) ·
     [Algorithms](algorithms/index.md)
 
 - **Look it up**
@@ -172,5 +139,6 @@ print(evaluations.returns)  # one row per seed, one column per evaluation
 
 </div>
 
-Ajax is MIT-licensed. [TargetGym](https://github.com/YannBerthelot/TargetGym),
-its sibling project, provides JAX environments for holding a setpoint.
+Ajax is MIT-licensed. Its sibling project
+[TargetGym](https://github.com/YannBerthelot/TargetGym) provides JAX
+environments for holding a setpoint.

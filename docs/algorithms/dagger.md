@@ -14,8 +14,8 @@ HumanCompatibleAI/imitation at `e5ef188`
 
 ## When to use it
 
-Use DAgger when you have an expert you can query, such as a controller,
-and want a policy that acts like it. Copying only the expert's own
+Use DAgger when you can query an expert, such as a controller, and want a
+policy that acts like it. Copying only the expert's own
 trajectories (behaviour cloning) never shows the policy the states its own
 mistakes lead to; DAgger collects exactly those. To improve on the expert
 with a reward, see [below](#dagger-and-imitationloss).
@@ -30,6 +30,7 @@ with a reward, see [below](#dagger-and-imitationloss).
 | Several seeds in one call | yes, `train(seed=[...])` |
 | Offline training | yes, `train_offline` ([Training](../guide/training.md#training-offline)) |
 | Extension phases | `pretrain`, `post_update`, `eval_metrics`, `observe`, `actor_loss`, `action`, `eval_action`, `track_memory` ([which extensions run](../guide/compatibility.md)) |
+| Resume and checkpoints | yes |
 
 ## Example
 
@@ -134,9 +135,9 @@ that the mean of the `beta_i` goes to 0.
 - **Rewards are not used.** They are recorded, and the evaluations measure
   them, but the policy learns from the expert's actions alone. The critic
   built beside the actor is unused.
-- **The expert's next action.** The replay stores the expert's action at each
-  state only. Its action at the next state (`next_a_expert`), which only
-  critic modules read, stays zero.
+- **The expert's next action.** The replay stores the expert's action at
+  each state only; at the next state (`next_a_expert`, which only critic
+  modules read) it stays zero.
 
 ## DAgger and `ImitationLoss`
 
@@ -155,8 +156,8 @@ No learning curves are published for DAgger yet. The probes
 (`tests/probing/test_imitation.py`) train it on a four-state chain where
 one state is reached only by the learner's mistakes. The policy must take
 the expert's action there, which cloning the expert's own states never
-teaches. One cell runs the default fit and `beta`; two more, the online
-fit, for continuous and for discrete actions.
+teaches. One cell runs the defaults; two run the online fit, on
+continuous and discrete actions.
 
 ## API
 

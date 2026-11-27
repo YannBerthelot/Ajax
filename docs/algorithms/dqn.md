@@ -161,8 +161,7 @@ skip and stack, no-op starts and reward clipping are the environment's.
 - **Network.** A plain MLP without LayerNorm (Mnih et al.'s network has
   none) and a linear head. As in the authors' Torch7 code, every layer
   starts as `nn.Linear` does, kernel and bias uniform in
-  `±1/sqrt(fan_in)`. It lives in `state.actor_state`, so the shared
-  evaluation reads it like any actor.
+  `±1/sqrt(fan_in)`.
 - **Images.** With `cnn_image_shape` and no `cnn_spec`, DQN builds Mnih et
   al.'s network (`MNIH_CNN`: 32, 64 and 64 channels, kernels 8, 4 and 3,
   strides 4, 2 and 1, no padding, then 512 units) when the image is at

@@ -30,7 +30,6 @@ from collections.abc import Sequence
 from typing import Any, Optional
 
 import jax
-import jax.numpy as jnp
 
 logger = logging.getLogger(__name__)
 
@@ -76,15 +75,3 @@ def resolve_precision(precision: str, devices: Optional[Sequence[Any]] = None) -
             ", ".join(sorted({str(device.device_kind) for device in devices})),
         )
     return precision
-
-
-def cast_floating(tree: Any, dtype: Any) -> Any:
-    """``tree`` with its float32 leaves cast to ``dtype``: parameters read in
-    the compute dtype, whose gradient reaches the float32 ones."""
-
-    def cast(leaf: Any) -> Any:
-        if hasattr(leaf, "dtype") and leaf.dtype == jnp.float32:
-            return leaf.astype(dtype)
-        return leaf
-
-    return jax.tree.map(cast, tree)

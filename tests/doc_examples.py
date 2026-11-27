@@ -108,14 +108,14 @@ def examples(source: pathlib.Path) -> list[tuple[str, Callable[[], None]]]:
     """A docs directory's pages and notebooks, or a README's blocks, each
     named."""
     if source.is_dir():
-        pages = [
+        pages: list[tuple[str, Callable[[], None]]] = [
             (
                 page.relative_to(source.parent).as_posix(),
                 functools.partial(run_page, page),
             )
             for page in example_pages(source)
         ]
-        notebooks = [
+        notebooks: list[tuple[str, Callable[[], None]]] = [
             (
                 notebook.relative_to(source.parent).as_posix(),
                 functools.partial(run_notebook, notebook),

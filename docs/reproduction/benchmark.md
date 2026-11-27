@@ -8,6 +8,41 @@ they have had since 2026-11-13; the other agents' rows
 are from the earlier commits named below. How Ajax's agents
 compare with other implementations is in the [results](results.md).
 
+## At a glance
+
+These figures put each suite on one scale, as
+[rliable](https://github.com/google-research/rliable) does (Agarwal et al.,
+[Deep RL at the Edge of the Statistical Precipice](https://arxiv.org/abs/2108.13264),
+NeurIPS 2021): DeepMind Control returns are divided by 1000, their maximum,
+and MinAtar returns by the game's best mean in the tables below. A run is one
+task and one seed; a suite's aggregates hold the agents that ran all its
+tasks. `benchmarks/suite/publish.py` draws them from the records.
+
+=== "DeepMind Control"
+
+    ![DeepMind Control: interquartile mean and performance profile of the normalised final returns](benchmark-figures/control-scores.svg)
+
+    ![DeepMind Control: interquartile mean of the normalised returns against hours on four CPU cores](benchmark-figures/control-time.svg)
+
+=== "MinAtar"
+
+    ![MinAtar: interquartile mean and performance profile of the normalised final returns](benchmark-figures/minatar-scores.svg)
+
+    ![MinAtar: interquartile mean of the normalised returns against hours on four CPU cores](benchmark-figures/minatar-time.svg)
+
+In the first figure, the dot is the interquartile mean of an agent's final
+returns, the mean of the middle half of its runs, which a few outlying runs
+move little, and the bar is its 95% interval, from resampling the seeds of
+each task. On the right, each line gives the fraction of runs that ended
+above each score: a line that stays high further to the right did well on
+more of its runs.
+
+The second figure follows the interquartile mean through training against the
+hours four CPU cores take to reach each evaluation, at the speed the
+[timing pass](../guide/performance.md#cpu-or-gpu) measured rather than each
+run's own wall clock, since the runs used several machines. Its CheetahRun
+panel adds the five agents that ran that task only.
+
 ## Setup
 
 - **Tasks.** Fifteen DeepMind Control tasks on MuJoCo Playground, trained for

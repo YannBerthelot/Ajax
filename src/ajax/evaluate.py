@@ -9,12 +9,10 @@ from jax.tree_util import Partial as partial
 
 from ajax.controller import (
     Controller,
-    ObserveInputs,
     call_expert,
     init_observers,
     observe_features,
-    previous_action_input,
-    previous_reward_input,
+    observe_inputs,
 )
 from ajax.environments.interaction import (
     APPLIED_ACTION_KEY,
@@ -517,17 +515,16 @@ def step_environment(
         if controller.observers:
             fresh = init_observers(controller.observers, obs.shape[0])
             observer_states = tree_where_reset(new_done, fresh, observer_states)
-            inputs = ObserveInputs(
+            inputs = observe_inputs(
+                controller.observers,
                 _expert_obs(new_state, env, mode, env_params),
+                env,
+                env_params,
+                actions,
+                new_rewards,
                 expert=expert_policy,
                 expert_state=new_expert_state if expert_is_stateful else None,
                 progress=progress_now,
-                previous_action=previous_action_input(
-                    controller.observers, actions, obs.shape[0], env, env_params
-                ),
-                previous_reward=previous_reward_input(
-                    controller.observers, new_rewards, obs.shape[0]
-                ),
             )
             obs, observer_states = observe_features(
                 obs, inputs, controller.observers, observer_states
@@ -729,17 +726,14 @@ def _start_rollout(
     observer_states = None
     if controller.observers:
         stateful = expert_policy is not None and hasattr(expert_policy, "init_state")
-        inputs = ObserveInputs(
+        inputs = observe_inputs(
+            controller.observers,
             _expert_obs(state, env, mode, env_params),
+            env,
+            env_params,
             expert=expert_policy,
             expert_state=expert_state if stateful else None,
             progress=frozen_progress(agent_state),
-            previous_action=previous_action_input(
-                controller.observers, None, num_episodes, env, env_params
-            ),
-            previous_reward=previous_reward_input(
-                controller.observers, None, num_episodes
-            ),
         )
         first_obs, observer_states = observe_features(
             first_obs,
@@ -1119,14 +1113,14 @@ def evaluate_policy(
     ) -> tuple[jax.Array, Any]:
         """obs with the features, after action and the reward it earned
         (None: a reset)."""
-        previous_action = previous_action_input(
-            observers, action, num_episodes, env, env_params
-        )
-        inputs = ObserveInputs(
+        inputs = observe_inputs(
+            observers,
             obs.astype(jnp.float32),
+            env,
+            env_params,
+            action,
+            reward,
             progress=progress_now,
-            previous_action=previous_action,
-            previous_reward=previous_reward_input(observers, reward, num_episodes),
         )
         return observe_features(obs, inputs, observers, states)
 

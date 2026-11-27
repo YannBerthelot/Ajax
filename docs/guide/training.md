@@ -261,11 +261,12 @@ latent policy or planner. Their pages say what they log.
 - **With no `logging_config` given**, the run evaluates about ten times
   (every tenth of `n_timesteps`, rounded up to a whole number of the agent's
   iterations, such as PPO's rollouts), prints a line for each (the mean return over the seeds, with the lowest
-  and highest) and `out` holds the evaluations.
+  and highest; from the second, the time left) and `out` holds the evaluations.
 - **With `logging_config=None`**, `out` is `None` and nothing is printed.
   The evaluation is not even compiled into the program: the fastest run.
 - **With a `LoggingConfig`**, the run evaluates every `log_frequency` steps,
-  logs to its backends, prints nothing, and `out` holds the evaluations.
+  logs to its backends, prints one line when it starts (how often it
+  evaluates and where it logs), and `out` holds the evaluations.
 
 The evaluations are a dictionary from each logged name to an array of shape
 `(seeds, evaluations)`, with two entries by name: `out.returns` (the mean

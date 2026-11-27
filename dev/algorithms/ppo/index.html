@@ -3624,7 +3624,7 @@ kept dipping after reaching 500; without it they stayed there, as SBX's did.</p>
   observations normalised with the statistics of the step that collected them,
   as SB3's <code>VecNormalize</code> and CleanRL do.</li>
 <li><strong>Extensions.</strong> PPO folds the loss and target phases, so instrumentation such
-  as <code>ConditioningMetrics</code> works on it (PPO keeps its latest rollout for it).
+  as <code>CriticDiagnostics</code> works on it (PPO keeps its latest rollout for it).
   It has no <code>action</code> phase: extensions that act
   during collection need SAC. A recurrent PPO refuses extensions. See
   <a href="../../guide/extensions/">Extensions</a>.</li>

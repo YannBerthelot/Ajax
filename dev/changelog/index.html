@@ -3154,6 +3154,16 @@ PyPI as <code>ajax-rl</code>.</p>
 <h2 id="unreleased">Unreleased<a class="headerlink" href="#unreleased" title="Permanent link">&para;</a></h2>
 <p>The next release is 0.6.0: the first item changes results.</p>
 <ul>
+<li><strong>Deprecated: <code>ConditioningMetrics</code> is now <code>CriticDiagnostics</code>.</strong> The
+  extension has a name that says what it logs: whether the critic's
+  features are degrading (their effective rank, the fraction of dormant
+  units, the feature and weight norms). Its metrics keep their keys
+  (<code>Cond/...</code>). <code>ConditioningMetrics</code> still works: importing it warns
+  (<code>FutureWarning</code>) and gives <code>CriticDiagnostics</code>. On a replay agent it, and
+  <code>BiasVoreDecomposition</code>, now read the agent's own replay: <code>buffer=</code>, which
+  took the replay of a second agent built with the same settings, is needed
+  no more.
+  Upgrade: rename the import; drop <code>buffer=</code> unless it names another replay.</li>
 <li><strong>Progress lines give the time left.</strong> From a run's second evaluation, each
   line <code>train</code> prints ends with the call's time left, at the pace of the last
   interval between two evaluations.</li>

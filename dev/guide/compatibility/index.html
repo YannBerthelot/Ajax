@@ -3204,35 +3204,6 @@
 <td>not yet</td>
 </tr>
 <tr>
-<td><code>ConditioningMetrics</code></td>
-<td>yes</td>
-<td>yes</td>
-<td>yes</td>
-<td>yes</td>
-<td>yes</td>
-<td>yes</td>
-<td>yes</td>
-<td>yes</td>
-<td>yes</td>
-<td>no</td>
-<td>yes</td>
-<td>yes</td>
-<td>yes</td>
-<td>yes</td>
-<td>yes</td>
-<td>yes</td>
-<td>yes</td>
-<td>not yet</td>
-<td>not yet</td>
-<td>not yet</td>
-<td>not yet</td>
-<td>yes</td>
-<td>yes</td>
-<td>yes</td>
-<td>yes</td>
-<td>yes</td>
-</tr>
-<tr>
 <td><code>ConservativeQ</code></td>
 <td>yes</td>
 <td>no</td>
@@ -3289,6 +3260,35 @@
 <td>not yet</td>
 <td>not yet</td>
 <td>not yet</td>
+</tr>
+<tr>
+<td><code>CriticDiagnostics</code></td>
+<td>yes</td>
+<td>yes</td>
+<td>yes</td>
+<td>yes</td>
+<td>yes</td>
+<td>yes</td>
+<td>yes</td>
+<td>yes</td>
+<td>yes</td>
+<td>no</td>
+<td>yes</td>
+<td>yes</td>
+<td>yes</td>
+<td>yes</td>
+<td>yes</td>
+<td>yes</td>
+<td>yes</td>
+<td>not yet</td>
+<td>not yet</td>
+<td>not yet</td>
+<td>not yet</td>
+<td>yes</td>
+<td>yes</td>
+<td>yes</td>
+<td>yes</td>
+<td>yes</td>
 </tr>
 <tr>
 <td><code>EDGEExploration</code></td>
@@ -4407,7 +4407,6 @@
 <li><code>CalQL</code> needs q_critic, replay: not on PPO, REINFORCE</li>
 <li><code>CalQL</code> needs replay: not on AVG</li>
 <li><code>CloningPretrain</code> needs actor, continuous_actions: not on DQN, PQN</li>
-<li><code>ConditioningMetrics</code> needs critic, stored_steps: not on APG</li>
 <li><code>ConservativeQ</code> needs actor, continuous_actions, policy_density: not on DQN, PQN</li>
 <li><code>ConservativeQ</code> needs continuous_actions, critic, policy_density, q_critic: not on DAgger/discrete</li>
 <li><code>ConservativeQ</code> needs continuous_actions, critic, q_critic: not on UDRL/discrete</li>
@@ -4421,6 +4420,7 @@
 <li><code>CriticBlend</code> needs discounted, q_critic: not on APO, APO/discrete</li>
 <li><code>CriticBlend</code> needs q_critic: not on PPO, PPO/discrete, REINFORCE, REINFORCE/discrete, DreamerV3, DreamerV3/discrete</li>
 <li><code>CriticBlend</code> needs scalar_target: not on TQC</li>
+<li><code>CriticDiagnostics</code> needs critic, stored_steps: not on APG</li>
 <li><code>EDGEExploration</code> needs continuous_actions: not on UDRL/discrete, DAgger/discrete, DreamerV3/discrete, DQN, PQN</li>
 <li><code>EDGEExploration</code> needs continuous_actions, off_policy: not on PPO/discrete, APO/discrete, REINFORCE/discrete</li>
 <li><code>EDGEExploration</code> needs off_policy: not on APG, PPO, APO, REINFORCE</li>
@@ -4562,7 +4562,7 @@
 <li>MCPretrain binds only on SAC (batch module-reach): <code>CriticBlend</code> on TD3 REDQ CrossQ AVG DQN PQN IQL; <code>MCPretrain</code> on TD3 REDQ TQC CrossQ AVG PPO PPO/discrete DQN PQN IQL REINFORCE REINFORCE/discrete; <code>MCVarianceCorrection</code> on TD3 REDQ CrossQ IQL; <code>OnlineBC</code> on TD3 REDQ TQC CrossQ AVG IQL; <code>PhiRefresh</code> on TD3 REDQ TQC CrossQ DQN IQL; <code>ValueBox</code> on TD3 REDQ TQC CrossQ AVG DQN PQN IQL</li>
 <li>the agent binds no context for it yet: <code>BellmanPretrain</code> on ASAC RVISAC DQN IQL; <code>CloningPretrain</code> on APG PPO UDRL; <code>RepresentationProbe</code> on APG UDRL UDRL/discrete</li>
 <li>its collector steps the env itself, with no track_memory phase yet: <code>BumplessTracking</code> on APG UDRL UDRL/discrete</li>
-<li>no form for this agent yet (cross-entropy for discrete actors; a policy's encoder): <code>CloningPretrain</code> on PPO/discrete APO/discrete UDRL/discrete DAgger/discrete DreamerV3/discrete; <code>ImitationLoss</code> on PPO/discrete APO/discrete UDRL/discrete DAgger/discrete DreamerV3/discrete; <code>ConditioningMetrics</code> on UDRL UDRL/discrete DAgger DAgger/discrete</li>
+<li>no form for this agent yet (cross-entropy for discrete actors; a policy's encoder): <code>CloningPretrain</code> on PPO/discrete APO/discrete UDRL/discrete DAgger/discrete DreamerV3/discrete; <code>ImitationLoss</code> on PPO/discrete APO/discrete UDRL/discrete DAgger/discrete DreamerV3/discrete; <code>CriticDiagnostics</code> on UDRL UDRL/discrete DAgger DAgger/discrete</li>
 <li>world models fold no loss phase for extensions and build their own encoders: <code>CriticBlend</code> on TDMPC2 TDMPC2MultiTask; <code>IBRL</code> on TDMPC2 TDMPC2MultiTask; <code>KernelRepulsion</code> on TDMPC2 TDMPC2MultiTask; <code>LCBGatedBootstrap</code> on TDMPC2 TDMPC2MultiTask; <code>MCVarianceCorrection</code> on TDMPC2 TDMPC2MultiTask; <code>OnlineBC</code> on TDMPC2 TDMPC2MultiTask; <code>ValueBox</code> on TDMPC2 TDMPC2MultiTask; <code>ExpertValueMetrics</code> on TDMPC2 TDMPC2MultiTask; <code>ImitationLoss(q_filter=True)</code> on TDMPC2 TDMPC2MultiTask; <code>ImitationLoss(target='replay', alpha=2.5)</code> on TDMPC2 TDMPC2MultiTask; <code>ConservativeQ</code> on TDMPC2 TDMPC2MultiTask; <code>CalQL</code> on TDMPC2 TDMPC2MultiTask; <code>TargetBC</code> on TDMPC2 TDMPC2MultiTask; <code>JSRLCurriculum</code> on TDMPC2 DreamerV3 DreamerV3/discrete TDMPC2MultiTask; <code>MCPretrain</code> on TDMPC2 DreamerV3 DreamerV3/discrete TDMPC2MultiTask; <code>BiasVorePenalty</code> on TDMPC2 DreamerV3 DreamerV3/discrete TDMPC2MultiTask; <code>cnn</code> on TDMPC2 DreamerV3 DreamerV3/discrete TDMPC2MultiTask; <code>EDGEExploration</code> on TDMPC2 DreamerV3 TDMPC2MultiTask; <code>EpsilonGreedyPresample</code> on TDMPC2 DreamerV3 TDMPC2MultiTask; <code>BellmanPretrain</code> on TDMPC2 TDMPC2MultiTask; <code>CloningPretrain</code> on TDMPC2 DreamerV3 TDMPC2MultiTask; <code>ImitationLoss</code> on TDMPC2 DreamerV3 TDMPC2MultiTask</li>
 <li>imagination has no observation for the expert to read: inherent, refused as unwired: <code>ExpertActionInput</code> on TDMPC2 DreamerV3 DreamerV3/discrete TDMPC2MultiTask; <code>ExpertStateInput</code> on TDMPC2 DreamerV3 DreamerV3/discrete TDMPC2MultiTask</li>
 <li>it trains offline on logged observations, which hold no feature columns: inherent, refused as unwired: <code>TrainingProgressInput</code> on TDMPC2MultiTask; <code>PIDTermsInput</code> on TDMPC2MultiTask; <code>PreviousAction</code> on TDMPC2MultiTask; <code>PreviousReward</code> on TDMPC2MultiTask</li>

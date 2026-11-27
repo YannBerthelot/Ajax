@@ -5589,13 +5589,30 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#ajax.extensions.instrumentation.ConditioningMetrics" class="md-nav__link">
+  <a href="#ajax.extensions.instrumentation.CriticDiagnostics" class="md-nav__link">
     <span class="md-ellipsis">
       
-        ConditioningMetrics
+        CriticDiagnostics
       
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="CriticDiagnostics">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#ajax.extensions.instrumentation.CriticDiagnostics.bind_to_agent" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        bind_to_agent
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
         
@@ -5607,6 +5624,23 @@
       
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="BiasVoreDecomposition">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#ajax.extensions.instrumentation.BiasVoreDecomposition.bind_to_agent" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        bind_to_agent
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
         
@@ -9265,13 +9299,30 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#ajax.extensions.instrumentation.ConditioningMetrics" class="md-nav__link">
+  <a href="#ajax.extensions.instrumentation.CriticDiagnostics" class="md-nav__link">
     <span class="md-ellipsis">
       
-        ConditioningMetrics
+        CriticDiagnostics
       
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="CriticDiagnostics">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#ajax.extensions.instrumentation.CriticDiagnostics.bind_to_agent" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        bind_to_agent
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
         
@@ -9283,6 +9334,23 @@
       
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="BiasVoreDecomposition">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#ajax.extensions.instrumentation.BiasVoreDecomposition.bind_to_agent" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        bind_to_agent
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
         
@@ -17994,10 +18062,10 @@ continuous ones).</p>
         <p>EVarEst measurement / instrumentation as composable :class:<code>Extension</code>s.</p>
 <p>The measurement code of EVAREST's <code>evarest/rl/</code>, foldable into any Ajax
 agent (SAC, DQN, REDQ, TD3 off-policy; PPO, PQN, APO, AVG on-policy):
-<code>extensions=[ConditioningMetrics(), BiasVoreDecomposition(...), ...]</code>.</p>
+<code>extensions=[CriticDiagnostics(), BiasVoreDecomposition(...), ...]</code>.</p>
 <h4 id="ajax.extensions.instrumentation--coverage">Coverage<a class="headerlink" href="#ajax.extensions.instrumentation--coverage" title="Permanent link">&para;</a></h4>
 <ul>
-<li>:class:<code>ConditioningMetrics</code>     — eval_metrics phase, plasticity
+<li>:class:<code>CriticDiagnostics</code>       — eval_metrics phase, plasticity
   diagnostics (srank, dormant fraction, feat / weight L2 norms).
   Reads the agent's replay buffer (off-policy) OR
   <code>agent_state.last_rollout</code> (on-policy and incremental agents keep it
@@ -18037,16 +18105,16 @@ maths are intentionally kept identical to the EVAREST sources.</p>
 
 
 
-<h3 id="ajax.extensions.instrumentation.ConditioningMetrics" class="doc doc-heading">
-            <span class="doc doc-object-name doc-class-name">ConditioningMetrics</span>
+<h3 id="ajax.extensions.instrumentation.CriticDiagnostics" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">CriticDiagnostics</span>
 
 
   <span class="doc doc-labels">
       <small class="doc doc-label doc-label-dataclass"><code>dataclass</code></small>
   </span>
 
-<a href="#ajax.extensions.instrumentation.ConditioningMetrics" class="headerlink" title="Permanent link">&para;</a></h3>
-<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">ConditioningMetrics</span><span class="p">(</span>
+<a href="#ajax.extensions.instrumentation.CriticDiagnostics" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">CriticDiagnostics</span><span class="p">(</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">buffer</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="n">on_policy_batch</span><span class="o">=</span><span class="mi">256</span><span class="p">,</span>
 <a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    <span class="n">critic_loc</span><span class="o">=</span><span class="s2">&quot;auto&quot;</span><span class="p">,</span>
@@ -18061,8 +18129,11 @@ maths are intentionally kept identical to the EVAREST sources.</p>
 
 
 
-        <p>Plasticity diagnostics on a state batch sampled from the agent's
-visited-state distribution.</p>
+        <p>At each evaluation, logs whether the critic's features are degrading:
+their effective rank, the fraction of dormant units, and the feature and
+weight norms.</p>
+<p>These plasticity diagnostics are measured on a state batch sampled from
+the agent's visited-state distribution.</p>
 <p>Reads the critic's encoder features:
 * <code>critic_loc='critic'</code> + <code>concat_action=True</code>  ⇒ Q(obs,act)
   ensemble critic on <code>critic_state</code>.
@@ -18076,9 +18147,9 @@ from the agent's name or the batch source: the critic branch when
 <code>apply_encoder_ensemble</code>), the actor branch otherwise; on the critic
 branch, the action is concatenated when the critic's parameters were
 built on the observation and action (:func:<code>critic_takes_action</code>).</p>
-<p>Pass <code>buffer=agent.buffer</code> for off-policy agents whose buffer object
-isn't on the agent state itself; on-policy and incremental agents keep
-their last rollout for it.</p>
+<p>A replay agent's measurements sample its own replay, unless buffer
+names another; on-policy and incremental agents keep their last rollout
+for them.</p>
 
 
 
@@ -18100,6 +18171,27 @@ their last rollout for it.</p>
 
 
 
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="ajax.extensions.instrumentation.CriticDiagnostics.bind_to_agent" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">bind_to_agent</span>
+
+
+<a href="#ajax.extensions.instrumentation.CriticDiagnostics.bind_to_agent" class="headerlink" title="Permanent link">&para;</a></h4>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">bind_to_agent</span><span class="p">(</span><span class="o">**</span><span class="n">agent_context</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>The agent's own replay, when no buffer is given: a replay agent
+passes it, and an on-policy agent has none (it keeps its rollout).</p>
+
+
+    </div>
+
+</div>
 
 
 
@@ -18142,7 +18234,7 @@ their last rollout for it.</p>
 <p>Ports the math from EVAREST <code>loss.py</code> /
 <code>mechanism.make_evarest_decomposition_metrics</code>. The residual is
 reconstructed from the agent's <em>current</em> critic on a measurement
-batch sampled the same way :class:<code>ConditioningMetrics</code> samples
+batch sampled the same way :class:<code>CriticDiagnostics</code> samples
 (replay buffer for off-policy, <code>last_rollout</code> for on-policy and
 incremental agents).</p>
 <p>By default it is the critic's one-step TD residual under the current
@@ -18180,6 +18272,27 @@ business, as are GAE, Q(lambda) and average-reward targets. Pass
 
 
 
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="ajax.extensions.instrumentation.BiasVoreDecomposition.bind_to_agent" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">bind_to_agent</span>
+
+
+<a href="#ajax.extensions.instrumentation.BiasVoreDecomposition.bind_to_agent" class="headerlink" title="Permanent link">&para;</a></h4>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">bind_to_agent</span><span class="p">(</span><span class="o">**</span><span class="n">agent_context</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>The agent's own replay, when no buffer is given: a replay agent
+passes it, and an on-policy agent has none (it keeps its rollout).</p>
+
+
+    </div>
+
+</div>
 
 
 

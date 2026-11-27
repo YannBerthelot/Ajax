@@ -686,7 +686,7 @@ class Critic(nn.Module):
 
     def apply_encoder(self, x: jax.Array) -> jax.Array:
         """The encoder's features alone, without the value head (read by
-        :class:`ajax.extensions.instrumentation.ConditioningMetrics`)."""
+        :class:`ajax.extensions.instrumentation.CriticDiagnostics`)."""
         return self.encoder(x)
 
 
@@ -740,7 +740,7 @@ class MultiCritic(nn.Module):
         # mapped over its leading (num,) axis so each member evolves its
         # own memory. NOTE: the recurrent in_axes spec matches __call__'s
         # 3-arg signature; apply_encoder (1 arg) is only used by
-        # ConditioningMetrics, which therefore needs a feedforward critic.
+        # CriticDiagnostics, which therefore needs a feedforward critic.
         member_memory = None if self.share_encoder else self.memory
         in_axes = (None, 0, None) if member_memory is not None else None
         Vmapped = nn.vmap(
@@ -818,7 +818,7 @@ class MultiCritic(nn.Module):
 
     def apply_encoder_ensemble(self, x: jax.Array) -> jax.Array:
         """Per-ensemble-member encoder features, shape ``(num, ..., d)``
-        (:class:`ajax.extensions.instrumentation.ConditioningMetrics`); a
+        (:class:`ajax.extensions.instrumentation.CriticDiagnostics`); a
         shared encoder's, on an ensemble axis of one."""
         if self.share_encoder:
             if self.query_dim:

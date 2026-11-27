@@ -848,7 +848,7 @@
 "tests/extensions/test_instrumentation_extensions.py::test_a_cnn_critic_reads_the_observation_alone": 4.6,
 "tests/extensions/test_instrumentation_extensions.py::test_a_metric_takes_its_closed_form[Cond/critic_srank]": 1.1,
 "tests/extensions/test_instrumentation_extensions.py::test_bias_vore_penalty_alpha_nonhalf_runs": 2.8,
-"tests/extensions/test_instrumentation_extensions.py::test_conditioning_and_decomposition_compose_on_ppo": 4.2,
+"tests/extensions/test_instrumentation_extensions.py::test_critic_diagnostics_and_decomposition_compose_on_ppo": 4.2,
 "tests/extensions/test_offline_regularisers.py::test_expert_prefill_rows_keep_minus_inf": 2.9,
 "tests/extensions/test_offline_regularisers.py::test_the_replay_keeps_a_datasets_return_and_minus_inf_for_collected_rows": 9.1,
 "tests/extensions/test_offline_regularisers.py::test_without_a_floor_calql_is_cql_and_a_floor_above_every_value_binds_all": 8.0,

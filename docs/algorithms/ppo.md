@@ -197,7 +197,7 @@ Three things stay yours to set or cannot be matched:
   observations normalised with the statistics of the step that collected them,
   as SB3's `VecNormalize` and CleanRL do.
 - **Extensions.** PPO folds the loss and target phases, so instrumentation such
-  as `ConditioningMetrics` works on it (PPO keeps its latest rollout for it).
+  as `CriticDiagnostics` works on it (PPO keeps its latest rollout for it).
   It has no `action` phase: extensions that act
   during collection need SAC. A recurrent PPO refuses extensions. See
   [Extensions](../guide/extensions.md).

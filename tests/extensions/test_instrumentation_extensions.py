@@ -3,7 +3,7 @@
 End-to-end checks that each of the three EVarEst measurement /
 instrumentation extensions:
 
-* :class:`ConditioningMetrics`
+* :class:`CriticDiagnostics`
 * :class:`BiasVoreDecomposition`
 * :class:`BiasVorePenalty`      — additive critic-loss penalty
 
@@ -32,7 +32,7 @@ from ajax.extensions.instrumentation import (
     EVAREST_DECOMP_KEYS,
     BiasVoreDecomposition,
     BiasVorePenalty,
-    ConditioningMetrics,
+    CriticDiagnostics,
     _sample_transitions,
     critic_takes_action,
     dormant_fraction,
@@ -193,12 +193,12 @@ def _train_ppo_with_extensions(extensions, n_steps=32):
     return agent.train(seed=42, n_timesteps=128, logging_config=EVALUATE)
 
 
-def test_conditioning_and_decomposition_compose_on_ppo():
+def test_critic_diagnostics_and_decomposition_compose_on_ppo():
     """Both fold into PPO's eval_metrics phase together: the Cond/* and
     EVarEst/* keys are among the evaluations ``train`` returns."""
     out = _train_ppo_with_extensions(
         [
-            ConditioningMetrics(on_policy_batch=16),
+            CriticDiagnostics(on_policy_batch=16),
             BiasVoreDecomposition(on_policy_batch=16),
         ]
     )
@@ -227,7 +227,7 @@ def test_an_agent_keeps_its_rollout_for_the_measurements_unasked(name):
         env_id=case.envs[-1],
         n_envs=2,
         **case.kwargs,
-        extensions=(ConditioningMetrics(), BiasVoreDecomposition()),
+        extensions=(CriticDiagnostics(), BiasVoreDecomposition()),
     )
     _, metrics = agent.train(
         seed=0, n_timesteps=case.n_timesteps, logging_config=EVALUATE_OFTEN
@@ -238,8 +238,8 @@ def test_an_agent_keeps_its_rollout_for_the_measurements_unasked(name):
         assert np.isfinite(np.asarray(metrics[key])[evaluated]).all(), key
 
 
-def test_conditioning_metrics_alone_keep_the_rollout_they_read():
-    """Contract: ConditioningMetrics asks an on-policy agent to keep its last
+def test_critic_diagnostics_alone_keep_the_rollout_they_read():
+    """Contract: CriticDiagnostics asks an on-policy agent to keep its last
     rollout without BiasVoreDecomposition beside it (which asks for it too),
     and without expose_recent_rollout: its Cond/ keys are finite."""
     case = CASES["PPO"]
@@ -247,7 +247,7 @@ def test_conditioning_metrics_alone_keep_the_rollout_they_read():
         env_id=case.envs[-1],
         n_envs=2,
         **case.kwargs,
-        extensions=(ConditioningMetrics(),),
+        extensions=(CriticDiagnostics(),),
     )
     _, metrics = agent.train(
         seed=0, n_timesteps=case.n_timesteps, logging_config=EVALUATE_OFTEN
@@ -262,7 +262,7 @@ def test_conditioning_metrics_alone_keep_the_rollout_they_read():
 def test_an_agent_with_neither_replay_nor_rollout_refuses_the_measurements():
     """Contract: without a replay or a kept rollout (APG), the measurements
     have no steps to read: the agent refuses them, naming stored_steps."""
-    for extension in (ConditioningMetrics(), BiasVoreDecomposition()):
+    for extension in (CriticDiagnostics(), BiasVoreDecomposition()):
         with pytest.raises(MissingCapability) as refusal:
             APG("Pendulum-v1", extensions=(extension,))
         assert "stored_steps" in refusal.value.missing[type(extension).__name__]
@@ -315,7 +315,7 @@ def test_a_metric_takes_its_closed_form(key):
     )
     residual = jnp.tile(jnp.array([0.5, -3.5]), 4)
     extensions = (
-        ConditioningMetrics(critic_loc="critic", concat_action=False),
+        CriticDiagnostics(critic_loc="critic", concat_action=False),
         BiasVoreDecomposition(value_target_fn=lambda *_: (jnp.zeros(8), residual)),
     )
     key0 = jax.random.PRNGKey(0)
@@ -376,3 +376,18 @@ def test_the_q_residual_bootstraps_on_sacs_next_action_sample():
     target = 2.0 * reward + 0.9 * (1.0 - done) * (next_q - 0.3 * log_prob)
     expected = value(jnp.concatenate([obs, act], -1)) - target
     assert jnp.allclose(residual, expected, atol=1e-6)
+
+
+# --------------------------------------------------------------------------
+# The old name
+# --------------------------------------------------------------------------
+
+
+def test_the_old_name_warns_and_gives_the_same_class():
+    """Contract (CHANGELOG, Unreleased): ConditioningMetrics, the extension's
+    name before CriticDiagnostics, still imports until a later release. The
+    import warns (FutureWarning) naming CriticDiagnostics and gives that
+    class."""
+    with pytest.warns(FutureWarning, match="CriticDiagnostics"):
+        from ajax.extensions.instrumentation import ConditioningMetrics
+    assert ConditioningMetrics is CriticDiagnostics

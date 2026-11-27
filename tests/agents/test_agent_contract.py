@@ -54,7 +54,7 @@ from ajax.extensions.instrumentation import (
     COND_METRIC_KEYS,
     EVAREST_DECOMP_KEYS,
     BiasVoreDecomposition,
-    ConditioningMetrics,
+    CriticDiagnostics,
 )
 from ajax.extensions.observe import TrainingProgressInput
 from ajax.logging.wandb_logging import LoggingConfig
@@ -355,7 +355,7 @@ def _extended_run(case: Case) -> SimpleNamespace:
     if case.critic:
         buffer = getattr(case.cls(**kwargs), "buffer", None)
         extensions += [
-            ConditioningMetrics(buffer=buffer),
+            CriticDiagnostics(buffer=buffer),
             BiasVoreDecomposition(buffer=buffer),
         ]
     shared = evaluate
@@ -427,7 +427,7 @@ def test_a_run_observes_its_features(name: str, extended_run: Any) -> None:
 def test_the_instrumentation_finds_the_critic_on_its_own(
     name: str, extended_run: Any
 ) -> None:
-    """ConditioningMetrics and BiasVoreDecomposition, with no per-agent
+    """CriticDiagnostics and BiasVoreDecomposition, with no per-agent
     setting, find the critic (on critic_state, taking the observation or
     the observation and action, or a Q-network on actor_state) and their
     batch (the replay buffer or the exposed rollout): each evaluation of an
@@ -438,7 +438,7 @@ def test_the_instrumentation_finds_the_critic_on_its_own(
         kwargs = {"env_id": case.envs[-1], "n_envs": 2, **case.kwargs}
         buffer = getattr(case.cls(**kwargs), "buffer", None)
         extensions = [
-            ConditioningMetrics(buffer=buffer),
+            CriticDiagnostics(buffer=buffer),
             BiasVoreDecomposition(buffer=buffer),
         ]
         with pytest.raises(MissingCapability, match="needs critic"):

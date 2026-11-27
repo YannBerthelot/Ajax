@@ -71,6 +71,8 @@ receives. There are fifteen: `pretrain`, `reward`, `observe`, `on_target`,
 `actuate`, `choose_warmup_action`, `choose_replay_action`, `track_memory`,
 `post_update` and `eval_metrics`.
 
+The phases an agent runs are those its code declares, in
+`supported_extension_phases`; this table and each agent's page list them.
 Every agent runs `pretrain`, `post_update` and `eval_metrics`, which belong to
 the shared training loop. The others depend on what the agent's update and
 collection have:
@@ -97,7 +99,8 @@ or after the warm-up's choice, which the extension names in its
 [Expert guidance](expert-guidance.md#collection) describes both.
 
 Running a phase is not enough: the agent must also have what the extension
-needs, as the next section explains.
+needs, as the next section explains: PPO, APO and REINFORCE run `action` but
+refuse the extensions acting there, which need an off-policy update.
 
 ## What an agent has, and what an extension needs
 
@@ -195,7 +198,7 @@ was given an `expert_policy`.
 | Extension | What it does | Phases | Works with |
 | --- | --- | --- | --- |
 | `OnlineBC` | Pulls the actor's mean action towards the expert's, weighted by `φ*`'s value at each state and fading to zero over the first `critic_warmup_frac` of training. Logs `online_bc/term` and its weight, `online_bc/weight`. | `actor_loss` | SAC with an expert and `MCPretrain` |
-| `ImitationLoss` | Adds TD3+BC's cloning term towards a fixed expert it holds, `coef · mean((μ(s) − a_E(s))²) / 4`. With the agent's own `expert_policy`, it reads the actions the agent stored, so the expert may be stateful. `anneal_frac` lowers its weight linearly to 0 at that fraction of training (kickstarting). `q_filter=True` counts only the rows where the critic rates the expert's action above the policy's (Q-filtered BC) and logs the share kept, `imitation/q_filter_frac`. `target="replay"` clones the replayed rows' own actions, so logged data needs no expert; `alpha` then makes the actor loss TD3+BC's, `λ` times the agent's own plus `coef · mean((μ(s) − a)²)` in the environment's units, `λ = alpha / mean|Q_1(s, μ(s))|` ([TD3+BC](../algorithms/td3.md#td3bc-offline)). Logs `imitation/term` and the squared distance, `imitation/mse`. | `actor_loss`, `eval_metrics` | continuous actions: the off-policy actor-critics, APO and DAgger; PPO, APG and UDRL with a stateless expert, as they store no expert actions. `q_filter=True`: the off-policy actor-critics, without `ResidualPolicy`. `target="replay"`: the off-policy actor-critics but AVG, which keeps no replay |
+| `ImitationLoss` | Adds TD3+BC's cloning term towards a fixed expert it holds, `coef · mean((μ(s) − a_E(s))²) / 4`. With the agent's own `expert_policy`, it reads the actions the agent stored, so the expert may be stateful. `anneal_frac` lowers its weight linearly to 0 at that fraction of training (kickstarting). `q_filter=True` counts only the rows where the critic rates the expert's action above the policy's (Q-filtered BC) and logs the share kept, `imitation/q_filter_frac`. `target="replay"` clones the replayed rows' own actions, so logged data needs no expert; `alpha` then makes the actor loss TD3+BC's, `λ` times the agent's own plus `coef · mean((μ(s) − a)²)` in the environment's units, `λ = alpha / mean|Q_1(s, μ(s))|` ([TD3+BC](../algorithms/td3.md#td3bc-offline)). Logs `imitation/term` and the squared distance, `imitation/mse`. | `actor_loss`, `eval_metrics` | continuous actions: the off-policy actor-critics, APO and DAgger; with a stateless expert on IQL, PPO, APG and UDRL, which store no expert actions. `q_filter=True`: the off-policy actor-critics, without `ResidualPolicy`. `target="replay"`: the off-policy actor-critics but AVG, which keeps no replay |
 | `ResidualPolicy` | Executes `clip(a_E + scale · a_π, −1, 1)`: the policy learns a correction to the expert. The replay stores the executed action and the critics score it; `critic_reads_residual=True` has them store and score the residual instead, and `zero_start=True` starts the policy as the expert. | `pretrain`, `transform_action` | the off-policy actor-critics, PPO, APO, APG and UDRL, with an expert and continuous actions |
 | `ExpertGains` | Gain mode: the policy's action `a` sets each of the expert's learnable gains to `anchor · max_factor^a` (`max_factor` 10 by default), and the expert acts with them; the replay and the critics hold the gains. Needs a stateful expert with `learnable_fields` (`register_learnable_gains`, or a `GainScheduledLaw`). | `actuate` | as `ResidualPolicy`, without `ExpertActionInput` |
 | `ExpertWarmup` | During the warm-up, the expert takes a share `fraction` of the steps (one draw per step for every copy) and uniform random actions take the others; the replay flags the rows the expert took. | `choose_warmup_action` | the agents with a warm-up (<!-- agents: warmup-action -->SAC, TD3, REDQ, CrossQ, ASAC, RVI-SAC, AVG, IQL, DQN<!-- /agents -->), with an expert and `learning_starts` above 0 |

@@ -280,7 +280,7 @@ Ajax has two PID components, which do different jobs:
 | --- | --- | --- |
 | Acts on | the network's own output signal | the tracking-error terms in the observation |
 | Role | the last layer of a larger controller | the whole actor |
-| Agents | APG | SAC, TD3, REDQ, ASAC, AVG, PPO, APO |
+| Agents | APG | SAC, TD3, REDQ, TQC, ASAC, RVI-SAC, AVG, IQL, PPO, APO |
 | Deploys as | the network plus the layer | a plain PID with the learned gains |
 
 ## Your own controller

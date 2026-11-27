@@ -26,12 +26,12 @@ it with [TD-MPC2](tdmpc2.md), which plans with its model at every step.
 | Feature | DreamerV3 |
 | --- | --- |
 | Discrete actions | yes |
-| Continuous actions | yes |
+| Continuous actions | yes, a Gaussian around a `tanh`-bounded mean, clipped and mapped onto the environment's bounds |
 | Memory | built in: the world model is recurrent (`memory=` is not accepted) |
 | Environments | gymnax, Brax, MuJoCo Playground |
 | Observations | flat vectors only; the environment must not normalise observations or rewards |
 | Several seeds in one call | yes, `train(seed=[...])` |
-| Extension phases | `pretrain`, `post_update`, `eval_metrics`, `observe` (the features join the observation the encoder reads and the decoder reconstructs) |
+| Extension phases | `pretrain`, `post_update`, `eval_metrics`, `observe` (the features join the observation the encoder reads and the decoder reconstructs; [which extensions run](../guide/compatibility.md)) |
 | Resume and checkpoints | yes; a resumed run continues the schedules and the replay, and equals the run left whole |
 
 ## Example
@@ -72,21 +72,21 @@ observations (its defaults block has the 200m widths and a ratio of 32).
 
 | Argument | Default | What it does |
 | --- | --- | --- |
-| `n_envs` | 16 | environments stepped in parallel |
+| `n_envs` | `16` | environments stepped in parallel |
 | `model_size` | `"12m"` | preset of `"1m"`, `"12m"`, `"25m"`, `"50m"`, `"100m"`, `"200m"`, `"400m"`; sets `units`, `deter`, `hidden`, `classes` |
-| `train_ratio` | 512 | replayed steps trained per collected row |
-| `batch_size`, `batch_length` | 16, 64 | sequences per batch, and their length |
-| `imag_horizon` | 15 | imagined steps per start state |
-| `return_horizon` | 333 | `1 / (1 - gamma)`: sets the discount |
-| `lam` | 0.95 | lambda of the imagined returns |
-| `learning_rate` | 4e-5 | a float or a schedule of the update count; a 1,000-update linear warmup (`warmup`) multiplies it |
-| `agc`, `eps` | 0.3, 1e-20 | adaptive gradient clipping, and LaProp's epsilon |
-| `actent` | 3e-4 | actor entropy scale |
-| `free_nats` | 1.0 | free bits of the KL losses |
-| `dyn_scale`, `rep_scale` | 1.0, 0.1 | dynamics and representation loss scales |
-| `replay_capacity` | 5,000,000 | rows kept, over all environments |
-| `replay_on_host` | False | keep the stored latents in pinned host memory instead of the accelerator's |
-| `action_repeat`, `episode_length` | 1, 1000 | simulator steps per agent step, and per episode (Brax, Playground) |
+| `train_ratio` | `512` | replayed steps trained per collected row |
+| `batch_size`, `batch_length` | `16`, `64` | sequences per batch, and their length |
+| `imag_horizon` | `15` | imagined steps per start state |
+| `return_horizon` | `333` | `1 / (1 - gamma)`: sets the discount |
+| `lam` | `0.95` | lambda of the imagined returns |
+| `learning_rate` | `4e-5` | a float or a schedule of the update count; a 1,000-update linear warmup (`warmup`) multiplies it |
+| `agc`, `eps` | `0.3`, `1e-20` | adaptive gradient clipping, and LaProp's epsilon |
+| `actent` | `3e-4` | actor entropy scale |
+| `free_nats` | `1.0` | free bits of the KL losses |
+| `dyn_scale`, `rep_scale` | `1.0`, `0.1` | dynamics and representation loss scales |
+| `replay_capacity` | `5_000_000` | rows kept, over all environments |
+| `replay_on_host` | `False` | keep the stored latents in pinned host memory instead of the accelerator's |
+| `episode_length`, `action_repeat` | `1000`, `1` | simulator steps per episode and per agent step, on Brax and Playground ([Environments](../guide/environments.md#brax-and-playground)) |
 
 The other arguments (network depths, `bins`, `unimix`, the other loss
 scales, the slow critic, the return normaliser) are in the [API](#api)

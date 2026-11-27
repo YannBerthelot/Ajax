@@ -24,7 +24,7 @@ research on command-conditioned policies.
 | Feature | UDRL |
 | --- | --- |
 | Discrete actions | yes |
-| Continuous actions | yes, `tanh`-bounded, mapped onto the environment's bounds |
+| Continuous actions | yes, a `tanh`-squashed Gaussian, mapped onto the environment's bounds |
 | Memory (`memory=`) | no |
 | Environments | gymnax, Brax, MuJoCo Playground |
 | Image observations | yes, a CNN encoder (`cnn_image_shape`) |
@@ -59,23 +59,23 @@ training metrics of those iterations (`Train/episodic mean reward`,
 
 | Argument | Default | What it does |
 | --- | --- | --- |
-| `n_envs` | 1 | environments stepped in parallel |
-| `n_steps` | 64 | length of the segment collected per iteration |
-| `buffer_capacity` | 64 | segments kept in the replay |
-| `n_updates_per_iter` | 64 | gradient steps per iteration |
-| `batch_size` | 64 | samples per gradient step |
-| `actor_learning_rate` | 3e-4 | Adam step size |
+| `n_envs` | `1` | environments stepped in parallel |
+| `n_steps` | `64` | length of the segment collected per iteration |
+| `buffer_capacity` | `64` | segments kept in the replay |
+| `n_updates_per_iter` | `64` | gradient steps per iteration |
+| `batch_size` | `64` | samples per gradient step |
+| `actor_learning_rate` | `3e-4` | Adam step size |
 | `actor_architecture` | `("128", "relu", "128", "relu")` | hidden layers |
-| `max_grad_norm` | None | gradient clipping by global norm |
-| `gamma` | 1.0 | discount of the returns-to-go logged as `Train/mean_rtg`, a diagnostic only: commands, the top-K statistics and the training targets sum rewards undiscounted, as in the paper |
-| `command_return_init`, `command_horizon_init` | 1.0, 100.0 | the first command |
-| `command_topk` | 32 | best episodes the next command is built from |
-| `command_return_boost` | 1.0 | multiplies the top episodes' mean return |
-| `command_target_tau` | 1.0 | smoothing of the command (1: replaced every iteration) |
-| `command_scale_r`, `command_scale_h` | 0.02, 0.01 | scaling of the command before the network |
-| `normalize_observations`, `normalize_rewards`, `reward_normalization_gamma` | False, False, None | running normalisation; the rewards' divisor is the spread of the return discounted by `reward_normalization_gamma`, `gamma` if None |
-| `cnn_image_shape`, `cnn_extra_obs_dim`, `cnn_spec` | None, 0, None | convolutional encoder for flat image observations, the features after the image, and the encoder's layers; the command joins the encoder's output |
-| `episode_length`, `action_repeat` | None, 1 | simulator steps per episode (1,000 when `None`) and per agent step, on Brax and Playground |
+| `max_grad_norm` | `None` | gradient clipping by global norm |
+| `gamma` | `1.0` | discount of the returns-to-go logged as `Train/mean_rtg`, a diagnostic only: commands, the top-K statistics and the training targets sum rewards undiscounted, as in the paper |
+| `command_return_init`, `command_horizon_init` | `1.0`, `100.0` | the first command |
+| `command_topk` | `32` | best episodes the next command is built from |
+| `command_return_boost` | `1.0` | multiplies the top episodes' mean return |
+| `command_target_tau` | `1.0` | smoothing of the command (1: replaced every iteration) |
+| `command_scale_r`, `command_scale_h` | `0.02`, `0.01` | scaling of the command before the network |
+| `normalize_observations`, `normalize_rewards`, `reward_normalization_gamma` | `False`, `False`, `None` | running normalisation; the rewards' divisor is the spread of the return discounted by `reward_normalization_gamma`, `gamma` if None |
+| `cnn_image_shape`, `cnn_extra_obs_dim`, `cnn_spec` | `None`, `0`, `None` | convolutional encoder for flat image observations, the features after the image, and the encoder's layers; the command joins the encoder's output |
+| `episode_length`, `action_repeat` | `None`, `1` | simulator steps per episode and per agent step, on Brax and Playground; `None` is 1,000 steps, or a `mujoco:` task's own time limit ([Environments](../guide/environments.md#brax-and-playground)) |
 | `expert_policy` | `None` | an expert the rollout runs alongside: a residual policy (`ResidualPolicy`) or gain mode (`ExpertGains`) acts through it and the observation features read it |
 | `eval_expert_policy` | `None` | an expert whose return each evaluation logs, which takes no other part in the run |
 | `extensions` | `()` | research features (see [Extensions](../guide/extensions.md)) |

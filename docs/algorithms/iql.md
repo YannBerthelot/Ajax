@@ -83,7 +83,7 @@ section lists every argument.
 | `reward_scale` | `1.0` | multiplies the rewards in the critics' target |
 | `max_grad_norm` | `None` | gradient clipping |
 | `normalize_observations`, `normalize_rewards` | `False` | running normalisation ([Environments](../guide/environments.md)) |
-| `episode_length`, `action_repeat` | `None`, `1` | simulator steps per episode and per agent step, on Brax and Playground ([Environments](../guide/environments.md)) |
+| `episode_length`, `action_repeat` | `None`, `1` | simulator steps per episode and per agent step, on Brax and Playground; `None` is 1,000 steps, or a `mujoco:` task's own time limit ([Environments](../guide/environments.md#brax-and-playground)) |
 | `expert_policy` | `None` | an expert the run tracks online, for the observation features and `ResidualPolicy`; each evaluation logs its return next to the agent's |
 | `extensions` | `()` | research features ([Extensions](../guide/extensions.md)) |
 

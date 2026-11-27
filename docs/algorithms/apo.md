@@ -27,7 +27,7 @@ off-policy counterpart is [ASAC](asac.md).
 | Image observations | no |
 | PID policy | yes, `actor_architecture=PIDPolicy(...)` ([Networks](../guide/networks.md)) |
 | Several seeds in one call | yes, `train(seed=[...])` |
-| Extension phases | `pretrain`, `post_update`, `eval_metrics`, `observe`, `on_target`, `critic_loss`, `actor_loss`, `eval_action`, `transform_action`, `actuate`, `track_memory` ([which extensions run](../guide/compatibility.md)) |
+| Extension phases | `pretrain`, `post_update`, `eval_metrics`, `observe`, `on_target`, `critic_loss`, `actor_loss`, `action`, `eval_action`, `transform_action`, `actuate`, `track_memory` ([which extensions run](../guide/compatibility.md)) |
 | Resume and checkpoints | yes; a run split by a checkpoint equals the run left whole |
 
 ## Example
@@ -56,30 +56,30 @@ configuration's.
 
 | Argument | Default | What it does |
 | --- | --- | --- |
-| `n_envs` | 10 | environments stepped in parallel |
-| `n_steps` | 200 | steps per environment in each rollout |
-| `num_minibatches` | 20 | minibatches per epoch; `n_steps * n_envs` must be a multiple of it |
-| `batch_size` | 64 | with `num_minibatches=0`, sets the number of minibatches as in [PPO](ppo.md) |
-| `n_epochs` | 10 | passes over the rollout per update, each reshuffled |
-| `actor_learning_rate`, `critic_learning_rate` | 3e-4 | the step sizes of the one Adam over both networks (see the notes) |
-| `adam_eps` | 1e-8 | Adam's epsilon |
-| `vf_coef` | 1 | the value loss's weight in the summed loss |
-| `alpha` | 0.1 | update rate of the running averages of the reward rate and of the values |
-| `nu` | 1 | weight of the value-bias penalty |
-| `gae_lambda` | 0.95 | GAE's lambda |
-| `clip_range` | 0.2 | the ratio clip; a float or a schedule of the timestep |
-| `ent_coef` | 0.01 | entropy bonus weight |
-| `max_grad_norm` | 10 | clips the gradient's global norm over both networks at once; `None` turns it off |
-| `normalize_advantage` | False | standardise the advantages over the whole rollout |
+| `n_envs` | `10` | environments stepped in parallel |
+| `n_steps` | `200` | steps per environment in each rollout |
+| `num_minibatches` | `20` | minibatches per epoch; `n_steps * n_envs` must be a multiple of it |
+| `batch_size` | `64` | with `num_minibatches=0`, sets the number of minibatches as in [PPO](ppo.md) |
+| `n_epochs` | `10` | passes over the rollout per update, each reshuffled |
+| `actor_learning_rate`, `critic_learning_rate` | `3e-4` | the step sizes of the one Adam over both networks (see the notes) |
+| `adam_eps` | `1e-8` | Adam's epsilon |
+| `vf_coef` | `1` | the value loss's weight in the summed loss |
+| `alpha` | `0.1` | update rate of the running averages of the reward rate and of the values |
+| `nu` | `1` | weight of the value-bias penalty |
+| `gae_lambda` | `0.95` | GAE's lambda |
+| `clip_range` | `0.2` | the ratio clip; a float or a schedule of the timestep |
+| `ent_coef` | `0.01` | entropy bonus weight |
+| `max_grad_norm` | `10` | clips the gradient's global norm over both networks at once; `None` turns it off |
+| `normalize_advantage` | `False` | standardise the advantages over the whole rollout |
 | `actor_architecture`, `critic_architecture` | `("64", "tanh", "64", "tanh")` | hidden layers |
-| `normalize_observations`, `normalize_rewards` | False | running normalisation |
-| `reward_normalization_gamma` | None | with `normalize_rewards`, the discount of the return whose spread divides the rewards: 0.99 if None, 0 for the single reward's |
-| `expert_policy` | None | an expert whose return the evaluation reports next to the agent's (`Eval/expert bias`) |
-| `actor_bias_init`, `critic_bias_init` | None | the heads' bias initialisers by name ([Networks](../guide/networks.md)) |
+| `normalize_observations`, `normalize_rewards` | `False` | running normalisation |
+| `reward_normalization_gamma` | `None` | with `normalize_rewards`, the discount of the return whose spread divides the rewards: 0.99 if None, 0 for the single reward's |
+| `expert_policy` | `None` | an expert whose return the evaluation reports next to the agent's (`Eval/expert bias`) |
+| `actor_bias_init`, `critic_bias_init` | `None` | the heads' bias initialisers by name ([Networks](../guide/networks.md)) |
 | `encoder_kernel_init` | `"torch_linear"` | the hidden layers start as torch's `nn.Linear`; any initialiser by name sets their kernels instead |
-| `log_std_bounds` | None | the `(low, high)` clip of the continuous actor's log standard deviation; `None` leaves it unclipped |
-| `episode_length`, `action_repeat` | None, 1 | simulator steps per episode (1,000 when `None`) and per agent step, on Brax and Playground |
-| `expose_recent_rollout` | False | keep the last rollout on the state even when no extension reads it |
+| `log_std_bounds` | `None` | the `(low, high)` clip of the continuous actor's log standard deviation; `None` leaves it unclipped |
+| `episode_length`, `action_repeat` | `None`, `1` | simulator steps per episode and per agent step, on Brax and Playground; `None` is 1,000 steps, or a `mujoco:` task's own time limit ([Environments](../guide/environments.md#brax-and-playground)) |
+| `expose_recent_rollout` | `False` | keep the last rollout on the state even when no extension reads it |
 | `extensions` | `()` | research features (see [Extensions](../guide/extensions.md)) |
 
 ## How it works

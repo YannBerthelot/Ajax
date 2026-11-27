@@ -105,7 +105,8 @@ state, _ = agent.train(seed=seeds, n_timesteps=0, total_timesteps=total)
 if checkpoint_exists(path):
     state = restore_into(state, path)
 
-while (done := int(state.collector_state.timestep[0])) < total:
+done = int(state.collector_state.timestep[0])
+while done < total:
     state, _ = agent.train(
         seed=seeds,
         n_timesteps=min(chunk, total - done),
@@ -113,6 +114,7 @@ while (done := int(state.collector_state.timestep[0])) < total:
         total_timesteps=total,  # the schedules run over the whole run
     )
     save_checkpoint(state, path)
+    done = int(state.collector_state.timestep[0])
 print(state.collector_state.timestep)  # [2000 2000]
 ```
 

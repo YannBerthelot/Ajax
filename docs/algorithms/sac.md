@@ -79,7 +79,7 @@ lists every argument.
 | `max_grad_norm` | `None` | gradient clipping of the actor and the critics |
 | `normalize_observations`, `normalize_rewards` | `False` | running normalisation ([Environments](../guide/environments.md)) |
 | `memory`, `burn_in`, `sequence_length`, `stored_state` | `None`, `0`, `64`, `False` | recurrent memory and its sequence replay ([Memory](../guide/memory.md)) |
-| `episode_length`, `action_repeat` | `None`, `1` | simulator steps per episode and per agent step, on Brax and Playground ([Environments](../guide/environments.md)) |
+| `episode_length`, `action_repeat` | `None`, `1` | simulator steps per episode and per agent step, on Brax and Playground; `None` is 1,000 steps, or a `mujoco:` task's own time limit ([Environments](../guide/environments.md#brax-and-playground)) |
 | `extensions` | `()` | research features ([Extensions](../guide/extensions.md)) |
 
 ### Expert options
@@ -139,8 +139,8 @@ critic fitted on its Monte-Carlo returns, runs on SAC alone.
 - **Memory.** With `memory=`, SAC replays 64 sequences of 64 steps, each
   from a zero memory, as Ni et al. (2022) do, with R2D2's `burn_in` and
   `stored_state` as options (Kapturowski et al. 2019). Of the extensions
-  it then takes only observation features and the warm-up's or the
-  replay's action choices, refusing the others when training starts.
+  it then takes only the observation features and `StorePolicyAction`,
+  refusing the others when training starts.
 
 ## CQL and Cal-QL: offline
 

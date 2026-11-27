@@ -27,7 +27,7 @@ transition gradients and the reference-tracking wrapper.
 | --- | --- |
 | Discrete actions | no |
 | Continuous actions | yes, `tanh`-bounded by default (`squash=True`), mapped onto the environment's bounds |
-| Memory (`memory=`) | yes: GRU, LSTM, transformer, Mamba |
+| Memory (`memory=`) | yes: GRU, LSTM, transformer, Mamba, with `expert_policy` and extensions ([Memory](../guide/memory.md)) |
 | Environments | gymnax environments with transition gradients: Pendulum, MountainCarContinuous, PointRobot, Reacher, Swimmer |
 | Families of systems | yes, `system_class=` |
 | Several seeds in one call | yes, `train(seed=[...])` |
@@ -97,23 +97,23 @@ stages = [  # the nominal pendulum first, then the whole family
 
 | Argument | Default | What it does |
 | --- | --- | --- |
-| `n_envs` | 8 | systems drawn and simulated in parallel per update |
-| `horizon` | 100 | closed-loop steps differentiated through |
-| `learning_rate` | 5e-4 | AdamW step size |
-| `weight_decay` | 0.0 | AdamW weight decay (0 is plain Adam) |
-| `beta_1`, `beta_2` | 0.9, 0.999 | Adam's moment rates (its epsilon is torch's 1e-8) |
-| `lr_schedule` | None | `"warmup_cosine"`: linear warmup over `warmup_steps` updates, then cosine decay over the call's updates (see the notes) |
-| `warmup_steps`, `lr_end_fraction` | 0, 0.1 | warmup length, and the final rate as a fraction of `learning_rate` |
-| `max_grad_norm` | 1.0 | gradient clipping by global norm, on because backpropagating through 100 steps diverged without it in Ajax's runs; `None` turns it off |
+| `n_envs` | `8` | systems drawn and simulated in parallel per update |
+| `horizon` | `100` | closed-loop steps differentiated through |
+| `learning_rate` | `5e-4` | AdamW step size |
+| `weight_decay` | `0.0` | AdamW weight decay (0 is plain Adam) |
+| `beta_1`, `beta_2` | `0.9`, `0.999` | Adam's moment rates (its epsilon is torch's 1e-8) |
+| `lr_schedule` | `None` | `"warmup_cosine"`: linear warmup over `warmup_steps` updates, then cosine decay over the call's updates (see the notes) |
+| `warmup_steps`, `lr_end_fraction` | `0`, `0.1` | warmup length, and the final rate as a fraction of `learning_rate` |
+| `max_grad_norm` | `1.0` | gradient clipping by global norm, on because backpropagating through 100 steps diverged without it in Ajax's runs; `None` turns it off |
 | `actor_architecture` | `("128", "relu", "128", "relu")` | MLP in front of the memory or output; `()` for a linear embedding |
-| `memory` | None | memory block (`MemoryConfig` or a dict) |
-| `pid` | None | `PIDHeadConfig`: close the controller with a learnable PID layer |
-| `squash` | True | bound actions to [-1, 1] with `tanh`; without it they are clipped there |
-| `system_class` | None | distribution over the environment's parameters; `None` trains on `env_params` only |
-| `controller_factory` | None | builds a custom controller module (see `Controller` in `ajax.agents.APG.networks`) |
-| `expert_policy` | None | an expert the rollout runs alongside: a residual policy (`ResidualPolicy`) or gain mode (`ExpertGains`) acts through it and the observation features read it, the gradient running through the expert too |
-| `eval_expert_policy` | None | the expert whose return each evaluation logs instead of `expert_policy`'s, acting alone on the evaluation's systems |
-| `episode_length`, `action_repeat` | None, 1 | accepted as by every agent; on gymnax environments, the only ones APG takes, the episode length is the environment's and the repeat must be 1 |
+| `memory` | `None` | memory block (`MemoryConfig` or a dict) |
+| `pid` | `None` | `PIDHeadConfig`: close the controller with a learnable PID layer |
+| `squash` | `True` | bound actions to [-1, 1] with `tanh`; without it they are clipped there |
+| `system_class` | `None` | distribution over the environment's parameters; `None` trains on `env_params` only |
+| `controller_factory` | `None` | builds a custom controller module (see `Controller` in `ajax.agents.APG.networks`) |
+| `expert_policy` | `None` | an expert the rollout runs alongside: a residual policy (`ResidualPolicy`) or gain mode (`ExpertGains`) acts through it and the observation features read it, the gradient running through the expert too |
+| `eval_expert_policy` | `None` | the expert whose return each evaluation logs instead of `expert_policy`'s, acting alone on the evaluation's systems |
+| `episode_length`, `action_repeat` | `None`, `1` | accepted as by every agent; on gymnax environments, the only ones APG takes, the episode length is the environment's and the repeat must be 1 |
 
 ## Presets
 
@@ -163,7 +163,7 @@ the `APG` docstrings).
   zero biases where it has any (`MemoryConfig(init="nanogpt")`). Other
   memory kinds keep flax's.
 - **Curriculum.** `train_curriculum` resumes each stage from the previous
-  one's parameters and, by default, restarts the optimizer and its schedule
+  one's parameters and, by default, restarts the optimiser and its schedule
   at each stage. All stages must share `n_envs`, the network and the PID
   layer.
 - **Tasks.** `ajax.environments.model_reference` turns a plant into a

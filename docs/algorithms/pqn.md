@@ -66,7 +66,7 @@ configuration is a [preset](#presets).
 | `td_loss_fn` | `None` | the loss; `None` is half the squared error (the authors'), `make_huber_td_loss(delta)` the Huber loss |
 | `cnn_image_shape`, `cnn_extra_obs_dim`, `cnn_spec` | `None`, `0`, `None` | convolutional encoder for flat image observations; `None` builds the reference network (see the notes) |
 | `expose_recent_rollout` | `False` | keep the last rollout on `state.last_rollout` even when no extension reads it |
-| `episode_length`, `action_repeat` | `None`, `1` | simulator steps per episode (1,000 when `None`) and per agent step, on Brax and Playground |
+| `episode_length`, `action_repeat` | `None`, `1` | simulator steps per episode and per agent step, on Brax and Playground; `None` is 1,000 steps, or a `mujoco:` task's own time limit ([Environments](../guide/environments.md#brax-and-playground)) |
 | `expert_policy` | `None` | an expert, as an action index per row (see the notes) |
 | `extensions` | `()` | research features (see [Extensions](../guide/extensions.md)) |
 
@@ -141,10 +141,9 @@ Atari's frame skip, life loss and reward clipping are the environment's.
 The [reproduction results](../reproduction/results.md) set PQN beside its
 authors' code on CartPole and Asterix-MinAtar, with learning curves: they
 are similar on CartPole, and the Asterix comparison is inconclusive so far.
-A
-conformance check (`tests/conformance/test_pqn_purejaxql.py`) runs one
-training iteration of each from the same state with the same random
-numbers and compares them step by step. The probes (`tests/probing`) train
+A conformance check (`tests/conformance/test_pqn_purejaxql.py`) runs one
+training iteration of each from the same state with the same random numbers
+and compares them step by step. The probes (`tests/probing`) train
 it briefly on tiny environments with known answers: its Q(lambda) returns,
 discounting, episode ends, extension phases, and a run split by a
 checkpoint matching the run left whole. [Performance](../guide/performance.md)

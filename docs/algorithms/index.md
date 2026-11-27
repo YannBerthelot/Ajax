@@ -12,28 +12,28 @@ several seeds in a single compiled program.
 
 ## Overview
 
-| Agent | Family | Paper | Actions | Memory | Update phases |
-| --- | --- | --- | --- | --- | --- |
-| [SAC](sac.md) | off-policy actor-critic | Haarnoja et al. 2018 ([arXiv:1801.01290](https://arxiv.org/abs/1801.01290)) | continuous | yes | `on_target`, `critic_loss`, `actor_loss` |
-| [ASAC](asac.md) | off-policy actor-critic, average reward | Adamczyk et al. 2025 ([arXiv:2501.09080v2](https://arxiv.org/abs/2501.09080v2)) | continuous | yes | `on_target`, `critic_loss`, `actor_loss` |
-| [RVISAC](rvisac.md) | off-policy actor-critic, average reward, RVI Q-learning (RVI-SAC) | Hisaki and Ono, ICML 2024 ([arXiv:2408.01972](https://arxiv.org/abs/2408.01972)) | continuous | yes | `on_target`, `critic_loss`, `actor_loss` |
-| [REDQ](redq.md) | off-policy actor-critic, critic ensemble | Chen et al. 2021 ([arXiv:2101.05982](https://arxiv.org/abs/2101.05982)) | continuous | yes | `on_target`, `critic_loss`, `actor_loss` |
-| [CrossQ](crossq.md) | off-policy actor-critic, batch renormalisation, no target networks | Bhatt et al., ICLR 2024 ([arXiv:1902.05605](https://arxiv.org/abs/1902.05605)) | continuous | no | `on_target`, `critic_loss`, `actor_loss` |
-| [TQC](tqc.md) | off-policy actor-critic, distributional critics, truncated target | Kuznetsov et al., ICML 2020 ([arXiv:2005.04269](https://arxiv.org/abs/2005.04269)) | continuous | yes | `on_target`, `critic_loss`, `actor_loss` |
-| [TD3](td3.md) | off-policy actor-critic, deterministic policy | Fujimoto et al. 2018 ([arXiv:1802.09477](https://arxiv.org/abs/1802.09477)) | continuous | yes | `on_target`, `critic_loss`, `actor_loss` |
-| [IQL](iql.md) | offline actor-critic, expectile value | Kostrikov, Nair and Levine, ICLR 2022 ([arXiv:2110.06169](https://arxiv.org/abs/2110.06169)) | continuous | no | `on_target`, `critic_loss`, `actor_loss` |
-| [AVG](avg.md) | incremental actor-critic, no replay | Vasan et al. 2024 ([arXiv:2411.15370](https://arxiv.org/abs/2411.15370)) | continuous | no | `on_target`, `critic_loss`, `actor_loss` |
-| [DQN](dqn.md) | value-based, replay | Mnih et al., Nature 2015 | discrete | no | `on_target`, `critic_loss` |
-| [PQN](pqn.md) | value-based, parallel environments, no replay | Gallici et al. 2024 | discrete | no | `on_target`, `critic_loss` |
-| [PPO](ppo.md) | on-policy policy gradient | Schulman et al. 2017 ([arXiv:1707.06347](https://arxiv.org/abs/1707.06347)) | both | yes | `reward`, `on_target`, `critic_loss`, `actor_loss` |
-| [APO](apo.md) | on-policy policy gradient, average reward | Ma et al. 2021 ([arXiv:2106.03442](https://arxiv.org/abs/2106.03442)) | both | no | `on_target`, `critic_loss`, `actor_loss` |
-| [REINFORCE](reinforce.md) | on-policy policy gradient, one step per rollout | Williams 1992 | both | no | none |
-| [UDRL](udrl.md) | command-conditioned supervised learning | Schmidhuber 2019 ([arXiv:1912.02875](https://arxiv.org/abs/1912.02875)) | both | no | `actor_loss` |
-| [DAgger](dagger.md) | imitation by dataset aggregation, no reward | Ross, Gordon and Bagnell, AISTATS 2011 ([arXiv:1011.0686](https://arxiv.org/abs/1011.0686)) | both | no | `actor_loss` |
-| [APG](apg.md) | gradients through a differentiable simulator | Busetto et al. 2024 ([arXiv:2411.06482](https://arxiv.org/abs/2411.06482)) for `APG.contextual_controller` | continuous | yes | `actor_loss` |
-| [DreamerV3](dreamerv3.md) | model-based, learns in imagination | Hafner et al. 2023, Nature 2025 ([arXiv:2301.04104v2](https://arxiv.org/abs/2301.04104v2)) | both | built in | none |
-| [TDMPC2](tdmpc2.md) | model-based, plans at every step | Hansen, Su and Wang, ICLR 2024 ([arXiv:2310.16828](https://arxiv.org/abs/2310.16828)) | continuous | no | none |
-| [TDMPC2MultiTask](tdmpc2.md#multi-task-tdmpc2multitask) | model-based, offline, several tasks | the same paper | continuous | no | none |
+| Agent | Family | Paper | Actions | Memory |
+| --- | --- | --- | --- | --- |
+| [SAC](sac.md) | off-policy actor-critic | Haarnoja et al. 2018 ([arXiv:1801.01290](https://arxiv.org/abs/1801.01290)) | continuous | yes |
+| [ASAC](asac.md) | off-policy actor-critic, average reward | Adamczyk et al. 2025 ([arXiv:2501.09080v2](https://arxiv.org/abs/2501.09080v2)) | continuous | yes |
+| [RVISAC](rvisac.md) | off-policy actor-critic, average reward, RVI Q-learning (RVI-SAC) | Hisaki and Ono, ICML 2024 ([arXiv:2408.01972](https://arxiv.org/abs/2408.01972)) | continuous | yes |
+| [REDQ](redq.md) | off-policy actor-critic, critic ensemble | Chen et al. 2021 ([arXiv:2101.05982](https://arxiv.org/abs/2101.05982)) | continuous | yes |
+| [CrossQ](crossq.md) | off-policy actor-critic, batch renormalisation, no target networks | Bhatt et al., ICLR 2024 ([arXiv:1902.05605](https://arxiv.org/abs/1902.05605)) | continuous | no |
+| [TQC](tqc.md) | off-policy actor-critic, distributional critics, truncated target | Kuznetsov et al., ICML 2020 ([arXiv:2005.04269](https://arxiv.org/abs/2005.04269)) | continuous | yes |
+| [TD3](td3.md) | off-policy actor-critic, deterministic policy | Fujimoto et al. 2018 ([arXiv:1802.09477](https://arxiv.org/abs/1802.09477)) | continuous | yes |
+| [IQL](iql.md) | offline actor-critic, expectile value | Kostrikov, Nair and Levine, ICLR 2022 ([arXiv:2110.06169](https://arxiv.org/abs/2110.06169)) | continuous | no |
+| [AVG](avg.md) | incremental actor-critic, no replay | Vasan et al. 2024 ([arXiv:2411.15370](https://arxiv.org/abs/2411.15370)) | continuous | no |
+| [DQN](dqn.md) | value-based, replay | Mnih et al., Nature 2015 | discrete | no |
+| [PQN](pqn.md) | value-based, parallel environments, no replay | Gallici et al. 2024 | discrete | no |
+| [PPO](ppo.md) | on-policy policy gradient | Schulman et al. 2017 ([arXiv:1707.06347](https://arxiv.org/abs/1707.06347)) | both | yes |
+| [APO](apo.md) | on-policy policy gradient, average reward | Ma et al. 2021 ([arXiv:2106.03442](https://arxiv.org/abs/2106.03442)) | both | no |
+| [REINFORCE](reinforce.md) | on-policy policy gradient, one step per rollout | Williams 1992 | both | no |
+| [UDRL](udrl.md) | command-conditioned supervised learning | Schmidhuber 2019 ([arXiv:1912.02875](https://arxiv.org/abs/1912.02875)) | both | no |
+| [DAgger](dagger.md) | imitation by dataset aggregation, no reward | Ross, Gordon and Bagnell, AISTATS 2011 ([arXiv:1011.0686](https://arxiv.org/abs/1011.0686)) | both | no |
+| [APG](apg.md) | gradients through a differentiable simulator | Busetto et al. 2024 ([arXiv:2411.06482](https://arxiv.org/abs/2411.06482)) for `APG.contextual_controller` | continuous | yes |
+| [DreamerV3](dreamerv3.md) | model-based, learns in imagination | Hafner et al. 2023, Nature 2025 ([arXiv:2301.04104v2](https://arxiv.org/abs/2301.04104v2)) | both | built in |
+| [TDMPC2](tdmpc2.md) | model-based, plans at every step | Hansen, Su and Wang, ICLR 2024 ([arXiv:2310.16828](https://arxiv.org/abs/2310.16828)) | continuous | no |
+| [TDMPC2MultiTask](tdmpc2.md#multi-task-tdmpc2multitask) | model-based, offline, several tasks | the same paper | continuous | no |
 
 - **Actions:** *both* means discrete and continuous action spaces. Agents
   that take only one kind check it at construction.
@@ -41,14 +41,10 @@ several seeds in a single compiled program.
   Mamba block; see [Memory](../guide/memory.md)). With memory, every agent
   but APG refuses an `expert_policy` and most extensions. DreamerV3's world
   model is recurrent by design.
-- **Update phases:** the [extension](../guide/extensions.md) phases the
-  agent's update applies: a change to its targets (`on_target`), a loss
-  term (`critic_loss`, `actor_loss`), or new rewards (`reward`). Every
-  agent also runs `pretrain`, `post_update` and `eval_metrics`, and most
-  the collection phases (`observe`, `action` and others): each agent's page
-  lists them all, and [Compatibility](../guide/compatibility.md) says which
-  extension runs on which agent. An extension that needs a phase the agent
-  does not run is refused at construction.
+- **Extensions:** the phases each agent runs are in
+  [Extensions](../guide/extensions.md#which-agent-runs-which-phase) and on
+  its page, and [Compatibility](../guide/compatibility.md) says which
+  extension runs on which agent.
 - **Continuous actions:** every continuous agent acts in `[-1, 1]`, squashed
   by `tanh` or clipped there, and Ajax maps that range onto the
   environment's bounds before each step: `centre + half_range * action`. On

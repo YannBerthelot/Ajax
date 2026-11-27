@@ -648,9 +648,10 @@ action of 1 applies a torque of 2.
   environment: collection, evaluation and expert rollouts. Replay buffers
   and rollouts store the action in agent units.
 - SAC, TQC, RVI-SAC, CrossQ, TD3, REDQ, ASAC, AVG, UDRL and APG (by
-  default) squash their actions into `[-1, 1]` with `tanh`. PPO and
-  REINFORCE sample an unbounded Gaussian (PPO unless `squash=True`), and APO
-  and IQL one whose mean is bounded by `tanh`: the map clips their samples.
+  default) squash their actions into `[-1, 1]` with `tanh`. PPO, REINFORCE
+  and DAgger sample an unbounded Gaussian (PPO unless `squash=True`), and
+  APO, IQL and DreamerV3 one whose mean is bounded by `tanh`: the map clips
+  their samples, as TD-MPC2's planner clips its actions.
 
 `ajax.environments.utils.agent_action_to_env` is the map and
 `env_action_to_agent` its inverse, which does not clip. An expert policy

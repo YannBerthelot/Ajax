@@ -21,7 +21,7 @@ logging = LoggingConfig(
 
 | Field | Default | Meaning |
 | --- | --- | --- |
-| `log_frequency` | 10,000 | environment steps between evaluations |
+| `log_frequency` | `10_000` | environment steps between evaluations |
 | `backends` | `(TensorBoardBackend(folder),)` | where each run logs ([below](#backends)); `()` logs nowhere, and `train` still returns the evaluations |
 | `config` | `{}` | a dictionary stored with each run, with the agent's run configuration added ([below](#the-run-configuration)) |
 | `run_name` | `None` | each run's name prefix: a run is named `<run_name>_<run id>` |
@@ -357,7 +357,7 @@ process takes them off and writes them. The worker:
 - is drained and stopped when `train` returns, so every metric is written
   before `train` hands back the state.
 
-The worker starts only when a run has a backend. The callback has one cost:
-JAX never stores a program that contains one in its persistent compile
-cache, so a run with a `LoggingConfig` compiles again in every new process
-([Performance](performance.md)).
+The worker starts only when a run has a backend. JAX 0.10 never stores a
+program that contains a callback in its persistent compile cache, so there a
+run with a `LoggingConfig` compiles again in every new process; JAX 0.11
+caches it ([Performance](performance.md)).

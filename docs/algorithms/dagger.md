@@ -30,7 +30,7 @@ with a reward, see [below](#dagger-and-imitationloss).
 | Several seeds in one call | yes, `train(seed=[...])` |
 | Offline training | yes, `train_offline` ([Training](../guide/training.md#training-offline)) |
 | Extension phases | `pretrain`, `post_update`, `eval_metrics`, `observe`, `actor_loss`, `action`, `eval_action`, `track_memory` ([which extensions run](../guide/compatibility.md)) |
-| Resume and checkpoints | yes |
+| Resume and checkpoints | yes; a run split by a checkpoint equals the run left whole |
 
 ## Example
 
@@ -65,18 +65,18 @@ at the last step (`dagger/expert_frac`).
 | Argument | Default | What it does |
 | --- | --- | --- |
 | `expert_policy` | required | the expert to imitate, as in [Expert guidance](../guide/expert-guidance.md#the-expert) |
-| `eval_expert_policy` | None | another expert whose return each evaluation logs in place of `expert_policy`'s |
+| `eval_expert_policy` | `None` | another expert whose return each evaluation logs in place of `expert_policy`'s |
 | `beta_schedule` | `LinearBetaSchedule(15)` | the expert's probability of acting in iteration `i`, falling linearly from 1 to 0 over 15 iterations; `ExponentialBetaSchedule(decay)` gives `beta_i = decay ** (i - 1)` |
-| `iteration_steps` | 500 | timesteps (over all environments) per iteration |
+| `iteration_steps` | `500` | timesteps (over all environments) per iteration |
 | `fit` | `IterationFit(epochs=4, entropy_weight=1e-3)` | how the policy fits the labels: 4 epochs over the whole replay at each iteration's end; `OnlineFit()`, one gradient step per environment step (see below) |
-| `n_envs` | 1 | environments stepped in parallel |
-| `buffer_size` | 1,000,000 | labelled states kept |
-| `batch_size` | 32 | labelled states per gradient step (a minibatch of an epoch, for `IterationFit`) |
-| `actor_learning_rate` | 1e-3 | Adam step size (eps 1e-8, torch's) |
+| `n_envs` | `1` | environments stepped in parallel |
+| `buffer_size` | `1_000_000` | labelled states kept |
+| `batch_size` | `32` | labelled states per gradient step (a minibatch of an epoch, for `IterationFit`) |
+| `actor_learning_rate` | `1e-3` | Adam step size (eps 1e-8, torch's) |
 | `actor_architecture` | `("32", "tanh", "32", "tanh")` | hidden layers |
-| `max_grad_norm` | None | gradient clipping by global norm |
-| `normalize_observations` | False | running observation normalisation |
-| `episode_length`, `action_repeat` | None, 1 | simulator steps per episode and per agent step, on Brax and Playground |
+| `max_grad_norm` | `None` | gradient clipping by global norm |
+| `normalize_observations` | `False` | running observation normalisation |
+| `episode_length`, `action_repeat` | `None`, `1` | simulator steps per episode and per agent step, on Brax and Playground; `None` is 1,000 steps, or a `mujoco:` task's own time limit ([Environments](../guide/environments.md#brax-and-playground)) |
 | `extensions` | `()` | research features (see [Extensions](../guide/extensions.md)) |
 
 ## How it works
@@ -109,10 +109,11 @@ for discrete actions. The paper's analysis holds for any no-regret online
 learner (Sec. 4), and an online fit costs one step per environment step,
 where each `IterationFit` fit costs more as the replay grows.
 
-The default `beta` schedule is the reference code's. The paper prefers its parameter-free `beta_i = I(i = 1)`, which it reports "often
-performs best in practice" (Sec. 3): `ExponentialBetaSchedule(0.0)`. Any
-decay in (0, 1] gives its exponential schedule. The guarantee needs only
-that the mean of the `beta_i` goes to 0.
+The default `beta` schedule is the reference code's. The paper prefers its
+parameter-free `beta_i = I(i = 1)`, which it reports "often performs best
+in practice" (Sec. 3): `ExponentialBetaSchedule(0.0)`. Any decay in (0, 1]
+gives its exponential schedule. The guarantee needs only that the mean of
+the `beta_i` goes to 0.
 
 ## Differences from the reference
 
@@ -141,9 +142,10 @@ that the mean of the `beta_i` goes to 0.
 
 ## DAgger and `ImitationLoss`
 
-A replay agent (SAC, TD3, REDQ, ASAC) given an `expert_policy` and
-`ImitationLoss` with the same expert stores the expert's action at every
-state it visits and pulls its actor towards those actions on replay batches.
+A replay agent (SAC, TD3, REDQ, CrossQ, TQC, ASAC, RVI-SAC) given an
+`expert_policy` and `ImitationLoss` with the same expert stores the
+expert's action at every state it visits and pulls its actor towards those
+actions on replay batches.
 That is DAgger's aggregation with `beta_i = I(i = 1)`, plus the agent's
 reinforcement-learning loss, its critic and its exploration noise. Use
 DAgger to imitate without a reward, or as the imitation baseline. Use

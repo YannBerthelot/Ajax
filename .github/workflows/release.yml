@@ -18,9 +18,11 @@ on:
         required: true
 
 # Read-only by default (actions: read finds earlier slow runs); each job that
-# writes asks for it: the slow tier opens an issue when red and reads pull
-# requests to name a bisected merge, tag pushes the tag, verify opens an issue
-# when the published release fails.
+# writes asks for it: the slow tier opens an issue when red, reads pull
+# requests to name a bisected merge and deletes its older compile caches, tag
+# pushes the tag, verify opens an issue when the published release fails. A
+# called workflow's jobs get no more than the calling job grants
+# (tests/test_workflows.py).
 permissions:
   contents: read
   actions: read
@@ -62,7 +64,7 @@ jobs:
     if: needs.check.outputs.green == 'false'
     permissions:
       contents: read
-      actions: read
+      actions: write
       issues: write
       pull-requests: read
     uses: ./.github/workflows/slow.yml

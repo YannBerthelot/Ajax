@@ -105,10 +105,12 @@ Each update samples one replay batch and runs, in the reference's order:
 
 ## Notes
 
-- **Learning-rate schedule.** For offline training the reference decays the
-  actor's learning rate to 0 by a cosine over its updates. For that, pass
-  `actor_learning_rate=optax.cosine_decay_schedule(3e-4, n_updates)`.
-  Fine-tuning runs keep it constant, as here by default.
+- **Learning-rate schedule.** The actor's learning rate decays to 0 by a
+  cosine over the run's updates, as in the reference's offline training
+  (`actor_learning_rate_decay="cosine"`). `actor_learning_rate_decay=None`
+  keeps it constant, as the reference's fine-tuning config does. A decayed
+  rate carries into a `train(initial_state=...)` that fine-tunes the state:
+  pass `None` to both calls to fine-tune at a constant rate.
 - **Rewards.** The reference scales a locomotion dataset's rewards by 1000
   over its range of episode returns, and subtracts 1 from antmaze's. Compute
   the factor from your dataset and pass it as `reward_scale` (or shift the

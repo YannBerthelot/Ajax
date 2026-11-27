@@ -481,6 +481,20 @@ class TrainLoop:
                 )
             warn_user(message)
 
+    def warn_if_inside_warmup(self, learning_starts: int) -> None:
+        """Warn when the call ends before the first update, at
+        ``learning_starts`` steps collected: the run collects random steps
+        and its evaluations score a policy that never trained, which a short
+        test run met in silence."""
+        end = self.start_timestep + self.budget
+        if self.budget > 0 and end < learning_starts:
+            warn_user(
+                f"This call ends at timestep {end}, before the first update at"
+                f" learning_starts={learning_starts} steps collected: the agent"
+                " does not train, and its evaluations score the untrained"
+                " policy. Pass more n_timesteps, or a lower learning_starts."
+            )
+
     def n_rollouts(self, n_steps: int, timesteps: Optional[int] = None) -> int:
         """The iterations of :meth:`on_policy` for ``n_steps`` rollouts over
         ``timesteps`` (``None``: the budget, warning when it is not whole
@@ -982,6 +996,8 @@ class TrainLoop:
                 agent_state, aux, index, recurrent, **(eval_kwargs or {})
             )
 
+        if n_updates is None:
+            self.warn_if_inside_warmup(learning_starts)
         if num_ticks is None:
             self.warn_if_partial(self.env_args.n_envs, "n_envs")
             num_ticks = self.budget // self.env_args.n_envs

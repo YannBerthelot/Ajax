@@ -1,20 +1,23 @@
-"""What a train call shows and returns without a logging configuration of
-its own: a line per evaluation, printed in the training process
+"""What a train call shows and returns: without a logging configuration of
+its own, a line per evaluation, printed in the training process
 (:class:`ProgressPrinter`), and the evaluations by name
-(:class:`Evaluations`)."""
+(:class:`Evaluations`); with one, the line it starts with, saying where it
+logs."""
 
 from __future__ import annotations
 
+import os
 import threading
 import time
-import warnings
 from collections.abc import Mapping, Sequence
-from typing import Any, Callable
+from typing import Any, Callable, Optional
 
 import jax
 import numpy as np
 
+from ajax.logging.backends import TensorBoardBackend, WandbBackend
 from ajax.logging.wandb_logging import LoggingConfig
+from ajax.user_warnings import warn_user
 
 RETURN = "Eval/episodic mean reward"
 TIMESTEP = "timestep"
@@ -84,6 +87,16 @@ def _unflatten(names: tuple, values: Sequence[Any]) -> Evaluations:
 jax.tree_util.register_pytree_node(Evaluations, _flatten, _unflatten)
 
 
+def describe_duration(seconds: float) -> str:
+    """A duration as a person reads it: seconds, then minutes, then hours."""
+    if seconds < 90:
+        return f"{seconds:.0f} s"
+    if seconds < 90 * 60:
+        return f"{seconds / 60:.0f} min"
+    hours, minutes = divmod(round(seconds / 60), 60)
+    return f"{hours} h {minutes:02d} min"
+
+
 def summary(scores: Sequence[float], unit: str) -> str:
     """The mean return of ``scores``, with their range when several."""
     text = f"return {np.mean(scores):.1f}"
@@ -96,7 +109,10 @@ def summary(scores: Sequence[float], unit: str) -> str:
 
 class ProgressPrinter:
     """Prints a run's progress: a first line when training starts, one per
-    evaluation, one at the end.
+    evaluation, one at the end. From a run's second evaluation, a line ends
+    with the call's time left, at the pace of the last interval between two
+    evaluations: the first one's time holds the compilation, and the one
+    after it can hold a second.
 
     It is called in the training process with each member's metrics at each
     evaluation (``LoggingConfig.on_evaluation``). ``together``: the members
@@ -125,6 +141,10 @@ class ProgressPrinter:
         self.started = clock()
         self.waiting: dict[int, dict[int, float]] = {}
         self.lock = threading.Lock()
+        # Each run's first evaluation step and its last (step, elapsed); one
+        # run when the members train together, else one per member's label.
+        self.first_step: dict[Any, int] = {}
+        self.last_seen: dict[Any, tuple[int, float]] = {}
 
     def start(self) -> None:
         self.started = self.clock()
@@ -132,6 +152,25 @@ class ProgressPrinter:
             f"{self.title}: compiling, then a line per evaluation"
             " (pass logging_config=None for a silent run with none)."
         )
+
+    def time_left(self, step: int, elapsed: float, label: Any) -> Optional[float]:
+        """The call's seconds left after run ``label``'s evaluation at
+        ``step``: None on its first evaluation and its last. Members trained
+        one after another add the runs still to come, each as long as this
+        one (its first evaluation comes one interval after its start)."""
+        first = self.first_step.setdefault(label, step)
+        previous = self.last_seen.get(label)
+        self.last_seen[label] = (step, elapsed)
+        if previous is None or step >= self.end_timestep:
+            return None
+        previous_step, previous_elapsed = previous
+        interval = step - previous_step
+        seconds_per_step = (elapsed - previous_elapsed) / interval
+        steps_left = self.end_timestep - step
+        if not self.together:
+            runs_after = len(self.labels) - 1 - self.labels.index(label)
+            steps_left += runs_after * (self.end_timestep - first + interval)
+        return seconds_per_step * steps_left
 
     def __call__(self, metrics: Mapping[str, Any], index: Any) -> None:
         step = int(np.asarray(metrics[TIMESTEP]))
@@ -153,7 +192,11 @@ class ProgressPrinter:
         text += summary(scores, "runs" if self.groups else "seeds")
         if label is not None:
             text += f" | {label}"
-        self.write(f"{text} | {elapsed:.1f} s")
+        text += f" | {elapsed:.1f} s"
+        left = self.time_left(step, elapsed, label)
+        if left is not None:
+            text += f", about {describe_duration(left)} left"
+        self.write(text)
         if len(self.groups) != len(scores):
             return
         for group in dict.fromkeys(self.groups):
@@ -167,6 +210,44 @@ class ProgressPrinter:
         if isinstance(evaluations, Evaluations) and RETURN in evaluations:
             text += " " + evaluations.layout("run" if self.groups else "seed")
         self.write(text)
+
+
+def run_title(agent_name: str, seeds: Sequence[int], n_timesteps: int) -> str:
+    """What a train call's first line names: the agent, its runs, their steps."""
+    return f"{agent_name}, {len(seeds)} run(s) of {n_timesteps:,} steps"
+
+
+def logging_destinations(logging_config: LoggingConfig) -> str:
+    """Where ``logging_config``'s runs are logged, in words."""
+    destinations = []
+    for backend in logging_config.run_backends:
+        if isinstance(backend, TensorBoardBackend):
+            folder = os.path.join(backend.folder, "tensorboard")
+            destinations.append(f"TensorBoard in {folder}")
+        elif isinstance(backend, WandbBackend):
+            project = f" (project {backend.project})" if backend.project else ""
+            destinations.append(f"Weights & Biases{project}")
+        else:
+            destinations.append(type(backend).__name__)
+    if not destinations:
+        return "memory only (train returns the evaluations)"
+    return " and ".join(destinations)
+
+
+def announce_logged_run(logging_config: LoggingConfig, title: str) -> str:
+    """The line a run with a logging configuration of the caller's starts
+    with: without it, such a run was silent until train returned, minutes
+    later, with no word of where it logged."""
+    when = f"an evaluation every {logging_config.log_frequency:,} steps"
+    if logging_config.evaluate_last_fifth_only:
+        when += " of the last fifth"
+    line = (
+        f"{title}: compiling, then {when}, logged to"
+        f" {logging_destinations(logging_config)}."
+    )
+    if logging_config.on_evaluation is None:
+        line += " Nothing more prints until train returns."
+    return line
 
 
 def run_logging(
@@ -189,14 +270,14 @@ def run_logging(
     if not isinstance(logging_config, str):
         frequency = getattr(logging_config, "log_frequency", None)
         if frequency is not None and 0 < end_timestep < frequency:
-            warnings.warn(
+            warn_user(
                 f"log_frequency={frequency} is past this run's last timestep"
                 f" ({end_timestep}): no evaluation happens, and the evaluations"
                 " come back empty. Pass LoggingConfig(log_frequency=...) of at"
-                f" most {end_timestep}.",
-                UserWarning,
-                stacklevel=3,
+                f" most {end_timestep}."
             )
+        if isinstance(logging_config, LoggingConfig) and n_timesteps >= 1:
+            print(announce_logged_run(logging_config, run_title(agent_name, seeds, n_timesteps)))
         return logging_config, None
     if logging_config != "default":
         raise ValueError(
@@ -206,7 +287,7 @@ def run_logging(
     if n_timesteps < 1:
         return None, None
     printer = ProgressPrinter(
-        f"{agent_name}, {len(seeds)} run(s) of {n_timesteps:,} steps",
+        run_title(agent_name, seeds, n_timesteps),
         [f"seed {seed}" for seed in seeds],
         end_timestep,
         together=together,

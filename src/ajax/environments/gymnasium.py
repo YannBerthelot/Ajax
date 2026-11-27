@@ -22,7 +22,6 @@ run's key, rather than Ajax's episode keys.
 """
 
 import copy
-import warnings
 from dataclasses import dataclass
 from functools import partial
 from typing import Any, Callable, Optional
@@ -35,6 +34,8 @@ from flax import struct
 from gymnax.environments import environment, spaces
 from jax.custom_batching import custom_vmap
 from jax.experimental import io_callback
+
+from ajax.user_warnings import warn_user
 
 
 class PythonEnvironmentWarning(UserWarning):
@@ -322,7 +323,7 @@ class GymnasiumEnv(environment.Environment):
                 " space starting at 0 or a one-dimensional Box."
             )
         self._copies = _Copies(make, isinstance(self._action_space, spaces.Discrete))
-        warnings.warn(warning_text(env_id), PythonEnvironmentWarning, stacklevel=2)
+        warn_user(warning_text(env_id), PythonEnvironmentWarning)
 
     @property
     def default_params(self) -> GymnasiumParams:

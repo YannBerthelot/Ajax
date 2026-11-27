@@ -75,7 +75,7 @@ Each evaluation records:
 | `Train/non-finite env steps` | on Brax and Playground envs: the steps the simulator diverged on so far, over all the seed's envs ([Environments](environments.md#diverging-simulators)) |
 | `<group>/<metric>` | the agent's training metrics, such as `value/critic_loss` or `policy/policy_loss` |
 
-Extensions add their own, such as `ConditioningMetrics`'s
+Extensions add their own, such as `CriticDiagnostics`'s
 `Cond/critic_srank`. UDRL logs `timestep`, its training metrics
 (`Train/episodic mean reward`, `Train/actor_loss`, `Train/mean_rtg`,
 `Train/mean_horizon`, `Train/n_completed_episodes`), its evaluation's return,

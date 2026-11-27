@@ -197,6 +197,9 @@ def docs(reps: int = 200) -> None:
     lines = [
         "# Results",
         "",
+        "The statistical protocol for comparing learning results is work in",
+        "progress; a robust one is upcoming.",
+        "",
         "Written by `benchmarks/reference/refcmp_publish.py docs` from the",
         "records the dataset publishes. Ajax is its matched arm. The",
         "difference is Ajax's mean final return minus the reference's, with",

@@ -3073,8 +3073,9 @@ from the experience they collect. A <em>world model</em> agent first learns a mo
 of the environment, a network that predicts what happens next and what
 reward follows, and then uses that model to decide how to act. Learning the
 model reuses every transition many times, so these agents tend to need fewer
-environment steps; the price is more computation per step.</p>
-<p>Ajax has two world-model agents, each reproducing its paper's official code:</p>
+environment steps; the price is more computation per step. This page explains
+Ajax's two world-model agents in plain words, how to choose between them,
+and what they cost. Each reproduces its paper's official code:</p>
 <ul>
 <li><strong><a href="../../algorithms/dreamerv3/">DreamerV3</a></strong> (Hafner, Pasukonis, Ba and
   Lillicrap, <em>Mastering Diverse Domains through World Models</em>, 2023; Nature,
@@ -3133,7 +3134,7 @@ tasks, with a learned task embedding; it does not plan while training.</p>
 <tr>
 <td>Episodes that end early (terminations)</td>
 <td>yes, a model head predicts them</td>
-<td>refused by default; <code>episodic=True</code> accepts them</td>
+<td>an error by default, raised after training; <code>episodic=True</code> accepts them</td>
 </tr>
 <tr>
 <td>Partial observability</td>
@@ -3171,25 +3172,28 @@ tasks, with a learned task embedding; it does not plan while training.</p>
 <ul>
 <li><strong>Discrete actions or hidden state:</strong> DreamerV3.</li>
 <li><strong>Continuous control with fixed-length episodes</strong> (the DeepMind Control
-  tasks, for example): TD-MPC2, whose paper-era code is written for exactly
-  that. With terminations, it needs <code>episodic=True</code>, grafted from its later
-  code.</li>
+  tasks, for example): TD-MPC2, whose paper-era code is written for them.
+  With terminations, pass <code>episodic=True</code>, taken from its later code.</li>
 <li><strong>One model for many tasks:</strong> <code>TDMPC2MultiTask</code>.</li>
 <li><strong>A cheap baseline or a quick experiment:</strong> neither. Both are slow on a CPU
   (see below); start with a model-free agent such as <a href="../../algorithms/sac/">SAC</a>
   or <a href="../../algorithms/ppo/">PPO</a>.</li>
 </ul>
-<p>Both take flat observation vectors only, and want the environment's raw
-observations and rewards: do not normalise them, the agents do their own
-scaling as their papers do. Both run gymnax, Brax and MuJoCo Playground
-environments, and act in <code>[-1, 1]</code> mapped onto the environment's bounds,
-as their papers and every Ajax agent do (<a href="../environments/#actions">Actions</a>).
-Both take <code>action_repeat</code> and <code>episode_length</code> for their papers' DeepMind
-Control protocol (<code>action_repeat=2</code>, <code>episode_length=1000</code> simulator
-steps). Both evaluate on fresh episodes at each evaluation, as every agent
-does (<a href="../training/#evaluation">Training</a>). Both take extensions in the
-phases every agent runs (<code>pretrain</code>, <code>post_update</code>, <code>eval_metrics</code>) and no
-others.</p>
+<p>What both share:</p>
+<ul>
+<li><strong>Flat observation vectors only, raw.</strong> Do not normalise observations or
+  rewards: the agents scale them themselves, as their papers do.</li>
+<li><strong>gymnax, Brax and MuJoCo Playground environments</strong>, with actions in
+  <code>[-1, 1]</code> mapped onto the environment's bounds, as in every Ajax agent
+  (<a href="../environments/#actions">Actions</a>).</li>
+<li><strong>Their papers' DeepMind Control protocol</strong>: <code>action_repeat=2</code> and
+  <code>episode_length=1000</code> simulator steps.</li>
+<li><strong>Fresh episodes at each evaluation</strong>, as every agent
+  (<a href="../training/#evaluation">Training</a>).</li>
+<li><strong>Extensions in the phases every agent runs</strong> (<code>pretrain</code>, <code>post_update</code>,
+  <code>eval_metrics</code>) and the observation features (<code>observe</code>); the multi-task
+  agent takes no observation features.</li>
+</ul>
 <h2 id="examples">Examples<a class="headerlink" href="#examples" title="Permanent link">&para;</a></h2>
 <p>The smallest presets on Pendulum, as a first look. On a laptop CPU, the
 DreamerV3 run below took about five minutes and the TD-MPC2 run about two
@@ -3217,21 +3221,24 @@ DreamerV3 run below took about five minutes and the TD-MPC2 run about two
 hyperparameter, and the multi-task pipeline (single-task runs, then
 <code>export_episodes</code> and <code>pool_tasks</code>, then <code>TDMPC2MultiTask</code>).</p>
 <h2 id="cost">Cost<a class="headerlink" href="#cost" title="Permanent link">&para;</a></h2>
-<p>Both agents are much heavier than the model-free ones. In the CPU learning
+<p>Both are much heavier than the model-free agents. In the CPU learning
 checks recorded in <a href="https://github.com/YannBerthelot/Ajax/blob/main/PERFORMANCE_REPORT.md">PERFORMANCE_REPORT.md</a>, on a
 busy shared machine, TD-MPC2 at <code>model_size=1</code> took 45 minutes for 6,000
 Pendulum steps over two seeds, and DreamerV3 at <code>"1m"</code> 68 minutes for 20,000
 Pendulum rows. Plan on a GPU for anything beyond a check.</p>
-<p>Memory grows with the replay. DreamerV3 stores about 8 KB per row at <code>"12m"</code>
-on a 24-dimensional observation: the paper's DeepMind Control protocol
-(250,000 rows) needs about 2 GB of replay per seed, and about 3 GB with the
-training step's working set. TD-MPC2's whole-episode replay is smaller: about
-124 MB per seed for a million steps of DMC Walker. It holds at most the
-run's steps (<code>min(buffer_size, steps)</code>, as the reference clamps it), so a
-short run allocates less. Seeds trained together multiply these figures.
-Each agent reports its own figure for a configuration as
-<code>replay_bytes_per_seed</code>, which the loggers also record with the run's
-configuration.</p>
+<p>Memory grows with the replay, and seeds trained together multiply it:</p>
+<ul>
+<li><strong>DreamerV3</strong> stores about 8 KB per row at <code>"12m"</code> on a 24-dimensional
+  observation. The paper's DeepMind Control protocol (250,000 rows) needs
+  about 2 GB of replay per seed, and about 3 GB with the training step's
+  working set.</li>
+<li><strong>TD-MPC2</strong>'s whole-episode replay is smaller: about 124 MB per seed for a
+  million steps of DMC Walker. It holds at most the run's steps
+  (<code>min(buffer_size, steps)</code>, as the reference clamps it), so a short run
+  allocates less.</li>
+</ul>
+<p>Each agent reports its figure for a configuration as <code>replay_bytes_per_seed</code>,
+which the loggers record with the run's configuration.</p>
 <h2 id="fidelity">Fidelity<a class="headerlink" href="#fidelity" title="Permanent link">&para;</a></h2>
 <p>Each agent follows the code that produced its paper's numbers, not the
 latest version of the official repository: DreamerV3 <code>danijar/dreamerv3</code>
@@ -3240,8 +3247,8 @@ at <code>2411f7d</code> plus one later bug fix (<code>29eb964</code>), TD-MPC2
 Ajax follows the code; paper typos are treated as typos. Asynchronous or
 unseeded parts of the reference infrastructure are made synchronous and
 seeded, so a run is reproducible from its seed. Every place where Ajax
-departs from the reference is listed, with its impact, in the deviations
-register.</p>
+departs from the reference is listed, with its impact, in the
+<a href="../../world_models/deviations/">deviations register</a>.</p>
 <p>How far this has been checked:</p>
 <ul>
 <li><strong>Component by component.</strong> Tests compare Ajax's pieces with literal
@@ -3251,16 +3258,16 @@ register.</p>
   CartPole protocol in three pre-registered rounds; the training statistics
   of the two agree within their seed ranges in most measurement windows
   (<a href="https://github.com/YannBerthelot/Ajax/blob/main/docs/world_models/reference_comparison/README.md">reference comparison</a>).</li>
-<li><strong>Against the published curves.</strong> The scripts, reference data and
-  acceptance criteria for the GPU validation are written
-  (<a href="../../world_models/VALIDATION/">Validation</a>); the GPU runs have not been
-  made yet. Ajax runs the MuJoCo Playground ports of the DeepMind Control
+<li><strong>Against the published curves.</strong> The GPU validation's scripts, reference
+  data and acceptance criteria are written
+  (<a href="../../world_models/VALIDATION/">Validation</a>); its runs have not been made
+  yet. Ajax runs the MuJoCo Playground ports of the DeepMind Control
   tasks, whose physics differ from the originals, so any comparison is
   approximate.</li>
 </ul>
 <h2 id="design-notes">Design notes<a class="headerlink" href="#design-notes" title="Permanent link">&para;</a></h2>
-<p>The design notes hold the full specifications, written from the papers and
-the pinned official code and checked line by line by an independent reader.</p>
+<p>The full specifications, written from the papers and the pinned code, and
+checked line by line by an independent reader:</p>
 <table>
 <thead>
 <tr>

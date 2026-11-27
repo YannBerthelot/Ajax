@@ -1656,10 +1656,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#can-i-use" class="md-nav__link">
+  <a href="#when-to-use-it" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Can I use?
+        When to use it
       
     </span>
   </a>
@@ -1678,6 +1678,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#key-hyperparameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Key hyperparameters
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#presets" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1689,10 +1700,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#key-hyperparameters" class="md-nav__link">
+  <a href="#differences-from-the-reference" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Key hyperparameters
+        Differences from the reference
       
     </span>
   </a>
@@ -3082,10 +3093,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#can-i-use" class="md-nav__link">
+  <a href="#when-to-use-it" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Can I use?
+        When to use it
       
     </span>
   </a>
@@ -3104,6 +3115,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#key-hyperparameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Key hyperparameters
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#presets" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3115,10 +3137,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#key-hyperparameters" class="md-nav__link">
+  <a href="#differences-from-the-reference" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Key hyperparameters
+        Differences from the reference
       
     </span>
   </a>
@@ -3322,22 +3344,25 @@
 
 
 <h1 id="dreamerv3">DreamerV3<a class="headerlink" href="#dreamerv3" title="Permanent link">&para;</a></h1>
-<p>DreamerV3 learns a model of the environment and trains its policy inside that
-model. A recurrent world model learns, from replayed sequences, to predict the
-next latent state, the reward and whether the episode continues. An actor and a
-critic then learn mostly from trajectories imagined by the model. All three
-are trained together, one gradient step per update, with the LaProp optimizer
-and adaptive gradient clipping.</p>
+<p>DreamerV3 learns a model of the environment and trains its policy inside
+that model. A recurrent world model learns, from replayed sequences, to
+predict the next latent state, the reward and whether the episode
+continues; an actor and a critic then learn mostly from trajectories the
+model imagines.</p>
 <p><strong>Paper:</strong> Hafner, Pasukonis, Ba and Lillicrap, <em>Mastering Diverse Domains
 through World Models</em>, arXiv:2301.04104v2, 2023; Nature, 2025
 (<a href="https://arxiv.org/abs/2301.04104v2">arXiv:2301.04104v2</a>). Official code:
-<a href="https://github.com/danijar/dreamerv3">danijar/dreamerv3</a>.</p>
-<p>Ajax reproduces the code that produced the paper's numbers (commit <code>2411f7d</code>)
-plus one later upstream bug fix (<code>29eb964</code>, the replay context). The
+<a href="https://github.com/danijar/dreamerv3">danijar/dreamerv3</a>. Ajax reproduces
+the code that produced the paper's numbers (commit <code>2411f7d</code>), plus one
+later upstream bug fix (<code>29eb964</code>, the replay context). The
 <a href="../../world_models/">world-model design notes</a> give the full
-specification, and <a href="../../world_models/deviations/">deviations.md</a> lists every
-version choice and every departure from the reference.</p>
-<h2 id="can-i-use">Can I use?<a class="headerlink" href="#can-i-use" title="Permanent link">&para;</a></h2>
+specification, and <a href="../../world_models/deviations/">deviations.md</a> lists
+every version choice and every departure from the reference.</p>
+<h2 id="when-to-use-it">When to use it<a class="headerlink" href="#when-to-use-it" title="Permanent link">&para;</a></h2>
+<p>A world model reuses every transition many times, so DreamerV3 tends to
+need fewer environment steps than a model-free agent, at a much higher
+compute cost per step. <a href="../../guide/world-models/">World models</a> compares
+it with <a href="../tdmpc2/">TD-MPC2</a>, which plans with its model at every step.</p>
 <table>
 <thead>
 <tr>
@@ -3352,7 +3377,7 @@ version choice and every departure from the reference.</p>
 </tr>
 <tr>
 <td>Continuous actions</td>
-<td>yes</td>
+<td>yes, a Gaussian around a <code>tanh</code>-bounded mean, clipped and mapped onto the environment's bounds</td>
 </tr>
 <tr>
 <td>Memory</td>
@@ -3372,11 +3397,11 @@ version choice and every departure from the reference.</p>
 </tr>
 <tr>
 <td>Extension phases</td>
-<td><code>pretrain</code>, <code>post_update</code> (after every update), <code>eval_metrics</code>, <code>observe</code> (the features join the observation the encoder reads and the decoder reconstructs)</td>
+<td><code>pretrain</code>, <code>post_update</code>, <code>eval_metrics</code>, <code>observe</code> (the features join the observation the encoder reads and the decoder reconstructs; <a href="../../guide/compatibility/">which extensions run</a>)</td>
 </tr>
 <tr>
 <td>Resume and checkpoints</td>
-<td>yes; a resumed run continues the schedules and the replay, and equals the uninterrupted run (test)</td>
+<td>yes; a resumed run continues the schedules and the replay, and equals the run left whole</td>
 </tr>
 </tbody>
 </table>
@@ -3404,16 +3429,10 @@ train ratio of 512, action repeat 2, and 500K environment frames, which is
 <a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>                  <span class="n">action_repeat</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">episode_length</span><span class="o">=</span><span class="mi">1000</span><span class="p">)</span>
 <a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="n">state</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">seed</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">250_000</span><span class="p">)</span>  <span class="c1"># 500K env frames</span>
 </code></pre></div>
-<h2 id="presets">Presets<a class="headerlink" href="#presets" title="Permanent link">&para;</a></h2>
-<p><code>DreamerV3.preset("DMC", env_id)</code> builds that configuration, the
-reference's <code>dmc_proprio</code> (danijar/dreamerv3@<code>29eb964</code>, <code>configs.yaml:44</code>,
-<code>:84</code>, <code>:232-236</code>; <a href="../../guide/training/#presets">Presets</a>): <code>model_size="12m"</code>, <code>train_ratio=512</code>, <code>n_envs=16</code>
-and <code>action_repeat=2</code>. The reference's other domains (Atari, Crafter, DMLab,
-Procgen) observe images, which Ajax's DreamerV3 does not encode yet.</p>
 <h2 id="key-hyperparameters">Key hyperparameters<a class="headerlink" href="#key-hyperparameters" title="Permanent link">&para;</a></h2>
-<p>Every default is the paper-era value; <code>model_size</code> and <code>train_ratio</code> are
-those of the reference's <code>dmc_proprio</code> config (its own defaults block has
-the 200m widths and a ratio of 32).</p>
+<p>Every default is the paper-era value. <code>model_size</code> and <code>train_ratio</code> are
+those of the reference's <code>dmc_proprio</code> configuration, its one for vector
+observations (its defaults block has the 200m widths and a ratio of 32).</p>
 <table>
 <thead>
 <tr>
@@ -3425,7 +3444,7 @@ the 200m widths and a ratio of 32).</p>
 <tbody>
 <tr>
 <td><code>n_envs</code></td>
-<td>16</td>
+<td><code>16</code></td>
 <td>environments stepped in parallel</td>
 </tr>
 <tr>
@@ -3435,74 +3454,99 @@ the 200m widths and a ratio of 32).</p>
 </tr>
 <tr>
 <td><code>train_ratio</code></td>
-<td>512</td>
+<td><code>512</code></td>
 <td>replayed steps trained per collected row</td>
 </tr>
 <tr>
 <td><code>batch_size</code>, <code>batch_length</code></td>
-<td>16, 64</td>
+<td><code>16</code>, <code>64</code></td>
 <td>sequences per batch, and their length</td>
 </tr>
 <tr>
 <td><code>imag_horizon</code></td>
-<td>15</td>
+<td><code>15</code></td>
 <td>imagined steps per start state</td>
 </tr>
 <tr>
 <td><code>return_horizon</code></td>
-<td>333</td>
+<td><code>333</code></td>
 <td><code>1 / (1 - gamma)</code>: sets the discount</td>
 </tr>
 <tr>
 <td><code>lam</code></td>
-<td>0.95</td>
+<td><code>0.95</code></td>
 <td>lambda of the imagined returns</td>
 </tr>
 <tr>
 <td><code>learning_rate</code></td>
-<td>4e-5</td>
-<td>a float or a schedule of the update count; a 1,000-update linear warmup multiplies it</td>
+<td><code>4e-5</code></td>
+<td>a float or a schedule of the update count; a 1,000-update linear warmup (<code>warmup</code>) multiplies it</td>
 </tr>
 <tr>
 <td><code>agc</code>, <code>eps</code></td>
-<td>0.3, 1e-20</td>
-<td>adaptive gradient clipping, LaProp's epsilon</td>
+<td><code>0.3</code>, <code>1e-20</code></td>
+<td>adaptive gradient clipping, and LaProp's epsilon</td>
 </tr>
 <tr>
 <td><code>actent</code></td>
-<td>3e-4</td>
+<td><code>3e-4</code></td>
 <td>actor entropy scale</td>
 </tr>
 <tr>
 <td><code>free_nats</code></td>
-<td>1.0</td>
+<td><code>1.0</code></td>
 <td>free bits of the KL losses</td>
 </tr>
 <tr>
 <td><code>dyn_scale</code>, <code>rep_scale</code></td>
-<td>1.0, 0.1</td>
+<td><code>1.0</code>, <code>0.1</code></td>
 <td>dynamics and representation loss scales</td>
 </tr>
 <tr>
 <td><code>replay_capacity</code></td>
-<td>5,000,000</td>
+<td><code>5_000_000</code></td>
 <td>rows kept, over all environments</td>
 </tr>
 <tr>
 <td><code>replay_on_host</code></td>
-<td>False</td>
+<td><code>False</code></td>
 <td>keep the stored latents in pinned host memory instead of the accelerator's</td>
 </tr>
 <tr>
-<td><code>action_repeat</code>, <code>episode_length</code></td>
-<td>1, 1000</td>
-<td>simulator steps per agent step, and per episode (Brax, Playground)</td>
+<td><code>episode_length</code>, <code>action_repeat</code></td>
+<td><code>1000</code>, <code>1</code></td>
+<td>simulator steps per episode and per agent step, on Brax and Playground (<a href="../../guide/environments/#brax-and-playground">Environments</a>)</td>
 </tr>
 </tbody>
 </table>
-<p>The other arguments (network depths, <code>bins</code>, <code>unimix</code>, the remaining loss
-scales, the slow critic and the return normaliser) are listed in the API
+<p>The other arguments (network depths, <code>bins</code>, <code>unimix</code>, the other loss
+scales, the slow critic, the return normaliser) are in the <a href="#api">API</a>
 below.</p>
+<h2 id="presets">Presets<a class="headerlink" href="#presets" title="Permanent link">&para;</a></h2>
+<p><code>DreamerV3.preset("DMC", env_id)</code> builds the DMC-proprio configuration
+above, the reference's <code>dmc_proprio</code> (<code>configs.yaml:44</code>, <code>:84</code>,
+<code>:232-236</code> at <code>29eb964</code>; <a href="../../guide/training/#presets">Presets</a>):
+<code>model_size="12m"</code>, <code>train_ratio=512</code>, <code>n_envs=16</code> and <code>action_repeat=2</code>.
+The reference's other domains (Atari, Crafter, DMLab, Procgen) observe
+images, which Ajax's DreamerV3 does not encode yet.</p>
+<h2 id="differences-from-the-reference">Differences from the reference<a class="headerlink" href="#differences-from-the-reference" title="Permanent link">&para;</a></h2>
+<p>Each is in <a href="../../world_models/deviations/">deviations.md</a>, under its
+number.</p>
+<ul>
+<li><strong>Synchronous, in float32</strong> (D1, D3, D4). The reference acts and trains
+  asynchronously, and computes in bfloat16.</li>
+<li><strong>One decoder head</strong> for the flat observation vector (D5), where the
+  reference has one per observation key; the loss is the same.</li>
+<li><strong>Everything checkpointed and seeded</strong> (D2, D6).</li>
+<li><strong>The two-hot expectation</strong> is computed in an exact form (D22). The
+  reference's form adds noise to early predictions under JIT, which
+  measurably changes the early actor entropy.</li>
+<li><strong>The replay</strong> keeps one ring per environment, where the reference keeps
+  one first-in first-out store over all its workers (D27).</li>
+<li><strong>The DMC tasks</strong> run on MuJoCo Playground's MJX ports, whose physics
+  differ from dm_control's (E18), so comparisons with the published curves
+  are approximate.</li>
+</ul>
 <h2 id="notes">Notes<a class="headerlink" href="#notes" title="Permanent link">&para;</a></h2>
 <ul>
 <li><strong>What <code>n_timesteps</code> counts.</strong> One <em>row</em> per environment per vector step,
@@ -3510,59 +3554,42 @@ below.</p>
   action_repeat</code> is logged next to it.</li>
 <li><strong>The score.</strong> The paper reports the returns of the stochastic policy's
   training episodes, logged as <code>Train/episodic mean reward</code>. The evaluation
-  also samples its actions, since the reference has no deterministic mode,
-  and draws fresh keys at each evaluation (new initial states and action
-  noise); a rerun of the same seed draws the same ones.</li>
+  also samples its actions, since the reference has no deterministic mode.</li>
 <li><strong>Actions.</strong> Continuous actions are clipped to <code>[-1, 1]</code> and mapped onto
-  the environment's bounds, the reference's <code>ClipAction</code> and
-  <code>NormalizeAction</code>.</li>
-<li><strong>Memory use.</strong> Each replay row stores the observation, the action, the
+  the environment's bounds, as the reference's <code>ClipAction</code> and
+  <code>NormalizeAction</code> wrappers do.</li>
+<li><strong>Replay memory.</strong> Each row stores the observation, the action, the
   reward, the flags and the posterior latent: about 8.3 KB at 12M on a
-  24-dimensional observation, so the 250K rows of the DMC protocol take about
-  2.1 GB per seed, and about 3.2 GB with the training step's working set.
-  <code>agent.replay_bytes_per_seed</code> gives the figure after <code>train</code>. Running several
-  seeds multiplies it. The replay keeps <code>min(ceil(replay_capacity / n_envs),
-  rows per env of the run)</code> rows per env (a capacity in rows, deviation D27),
-  sized again by every <code>train</code> call, so that a run split into resumed calls
-  keeps the replay of the uninterrupted run.
-  The posterior latents are almost all of a row; with <code>replay_on_host=True</code>
-  they stay in pinned host memory, inside the state, and the device holds
-  little more than the working set. The results are the same, bit for bit;
-  each update is a little slower, as XLA reads and writes those rows on the
-  CPU. XLA caps pinned host memory at 64 GB by default: set
-  <code>XLA_PJRT_GPU_HOST_MEMORY_LIMIT_GB</code> higher for more.</li>
+  24-dimensional observation, so the DMC protocol's 250K rows take about
+  2.1 GB per seed (3.2 GB with the training step's working set).
+  <code>agent.replay_bytes_per_seed</code> gives the figure after <code>train</code>. Each
+  environment's ring keeps <code>min(ceil(replay_capacity / n_envs), rows per
+  env of the run)</code> rows, sized again by every <code>train</code> call, so that a run
+  split into resumed calls keeps the replay of the run left whole.</li>
+<li><strong><code>replay_on_host=True</code>.</strong> The posterior latents are almost all of a row;
+  with this option they stay in pinned host memory and the device holds
+  little more than the working set. The results are the same, bit for bit,
+  and each update is a little slower. XLA caps pinned host memory at 64 GB
+  by default: set <code>XLA_PJRT_GPU_HOST_MEMORY_LIMIT_GB</code> higher for more.</li>
 <li><strong>Recompilation.</strong> Widths, depths, counts, <code>bins</code>, <code>imag_horizon</code>,
   <code>batch_size</code>, <code>batch_length</code>, <code>train_ratio</code> and <code>replay_capacity</code> fix the
   compiled program; changing one recompiles.</li>
-<li><strong>Main deviations</strong> (all in <a href="../../world_models/deviations/">deviations.md</a>):
-  training is synchronous and in float32 (the reference is asynchronous and
-  computes in bfloat16); one decoder head for the flat observation; everything
-  is checkpointed and seeded. The two-hot expectation is computed in an exact
-  form (D22); the reference's form adds noise to early predictions under JIT,
-  which measurably changes the early actor entropy.</li>
-<li>The DMC tasks run on MuJoCo Playground's MJX ports, whose physics differ
-  from dm_control's (E18), so comparisons with the published curves are
-  approximate.</li>
 </ul>
 <h2 id="results">Results<a class="headerlink" href="#results" title="Permanent link">&para;</a></h2>
-<p>Recorded on CPU in <a href="https://github.com/YannBerthelot/Ajax/blob/main/PERFORMANCE_REPORT.md">PERFORMANCE_REPORT.md</a>,
-with the 1M preset and 20,000 rows, before evaluations drew fresh keys:
-Pendulum swings up from 12,000 rows on (final evaluation -222, against about
--1,200 at the start). On CartPole Ajax
-was compared with the reference code itself on the same protocol, over three
-pre-registered rounds; once both used the same two-hot expectation, the
-training statistics' seed ranges overlapped the reference's in at least 52 of
-58 windows, and all five Ajax seeds passed the redefined CartPole check, as did
-all five of the reference's. The GPU validation against the published DMC
-curves is specified in <a href="../../world_models/VALIDATION/">VALIDATION.md</a> and has
-not been run yet. The probes (<code>tests/probing</code>) train DreamerV3 briefly on
-tiny environments with known answers (discounting, a continuous advantage,
-and a risky-or-safe choice it can only weigh in imagination), and its own
-tests (<code>tests/agents/DreamerV3</code>) check that a run split by a checkpoint
-equals the run left whole. On the
-CPU speed benchmark (<code>benchmarks/agent_bench.py</code>: CartPole, 4 environments,
-8,000 rows, a smaller model than the paper's) DreamerV3 ran at 367 rows per
-second of execution (275 with compilation) at main <code>a8a13c2</code>.</p>
+<p>On a CPU, with the 1M preset and 20,000 rows, Pendulum swings up from
+12,000 rows on (final evaluation -222, against about -1,200 at the start).
+On CartPole, Ajax was compared with the reference code itself on the same
+protocol, over three pre-registered rounds. Once both used the same
+two-hot expectation, the training statistics' seed ranges overlapped the
+reference's in at least 52 of 58 windows, and all five Ajax seeds passed
+the CartPole check that followed, as did all five of the reference's.
+<a href="https://github.com/YannBerthelot/Ajax/blob/main/PERFORMANCE_REPORT.md">PERFORMANCE_REPORT.md</a>
+has the full account. The GPU validation against the published DMC curves
+is specified in <a href="../../world_models/VALIDATION/">VALIDATION.md</a> and has not
+been run yet.</p>
+<p>The probes (<code>tests/probing</code>) train DreamerV3 briefly on tiny environments
+with known answers: discounting, a continuous advantage, and a risky or
+safe choice it can only weigh in imagination.</p>
 <h2 id="api">API<a class="headerlink" href="#api" title="Permanent link">&para;</a></h2>
 
 

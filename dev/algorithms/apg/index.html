@@ -1628,10 +1628,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#can-i-use" class="md-nav__link">
+  <a href="#when-to-use-it" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Can I use?
+        When to use it
       
     </span>
   </a>
@@ -1654,6 +1654,28 @@
     <span class="md-ellipsis">
       
         Key hyperparameters
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#presets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Presets
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#differences-from-the-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Differences from the reference
       
     </span>
   </a>
@@ -3071,10 +3093,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#can-i-use" class="md-nav__link">
+  <a href="#when-to-use-it" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Can I use?
+        When to use it
       
     </span>
   </a>
@@ -3097,6 +3119,28 @@
     <span class="md-ellipsis">
       
         Key hyperparameters
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#presets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Presets
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#differences-from-the-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Differences from the reference
       
     </span>
   </a>
@@ -3300,20 +3344,25 @@
 
 
 <h1 id="apg">APG<a class="headerlink" href="#apg" title="Permanent link">&para;</a></h1>
-<p>Analytic Policy Gradient trains a deterministic controller by differentiating
-the closed-loop return through the simulator itself. Each update runs the
-controller for <code>horizon</code> steps on a batch of systems and follows the exact
-gradient of the summed reward with respect to the controller's parameters,
-back through every step of the physics. There is no critic, no replay buffer
-and no exploration noise, so it needs an environment whose transitions carry
-gradients.</p>
+<p>Analytic Policy Gradient trains a deterministic controller by
+differentiating the closed-loop return through the simulator itself. Each
+update runs the controller for <code>horizon</code> steps on a batch of systems and
+follows the exact gradient of the summed reward with respect to the
+controller's parameters, back through every step of the physics.</p>
 <p><strong>Papers:</strong> APG is the general method of training a policy by
 backpropagation through a differentiable simulator. <code>APG.contextual_controller</code>
 is the configuration of Busetto, Breschi, Forgione, Piga and Formentin, <em>One
 controller to rule them all</em>, 2024
 (<a href="https://arxiv.org/abs/2411.06482">arXiv:2411.06482</a>): a transformer over the
-tracking history closed by a PID layer, trained across a family of systems.</p>
-<h2 id="can-i-use">Can I use?<a class="headerlink" href="#can-i-use" title="Permanent link">&para;</a></h2>
+tracking history closed by a PID layer, trained across a family of systems.
+Its reference code is <code>buswayne/in-context-controller</code> at <code>7eb094ce17</code>.</p>
+<h2 id="when-to-use-it">When to use it<a class="headerlink" href="#when-to-use-it" title="Permanent link">&para;</a></h2>
+<p>APG needs an environment whose transitions carry gradients. On one, it
+follows the exact gradient of the return, with no critic, replay buffer or
+exploration noise. It suits control tasks, such as training one controller
+for a whole family of systems. <a href="../../guide/differentiable-simulation/">Differentiable
+simulation</a> covers system classes,
+transition gradients and the reference-tracking wrapper.</p>
 <table>
 <thead>
 <tr>
@@ -3328,11 +3377,11 @@ tracking history closed by a PID layer, trained across a family of systems.</p>
 </tr>
 <tr>
 <td>Continuous actions</td>
-<td>yes, tanh-bounded by default (<code>squash=True</code>), mapped onto the environment's bounds</td>
+<td>yes, <code>tanh</code>-bounded by default (<code>squash=True</code>), mapped onto the environment's bounds</td>
 </tr>
 <tr>
 <td>Memory (<code>memory=</code>)</td>
-<td>yes: GRU, LSTM, transformer, Mamba</td>
+<td>yes: GRU, LSTM, transformer, Mamba, with <code>expert_policy</code> and extensions (<a href="../../guide/memory/">Memory</a>)</td>
 </tr>
 <tr>
 <td>Environments</td>
@@ -3348,11 +3397,11 @@ tracking history closed by a PID layer, trained across a family of systems.</p>
 </tr>
 <tr>
 <td>Extension phases</td>
-<td><code>pretrain</code>, <code>post_update</code>, <code>eval_metrics</code>, <code>actor_loss</code> , <code>transform_action</code>, <code>actuate</code>, <code>observe</code></td>
+<td><code>pretrain</code>, <code>post_update</code>, <code>eval_metrics</code>, <code>observe</code>, <code>actor_loss</code>, <code>transform_action</code>, <code>actuate</code> (<a href="../../guide/compatibility/">which extensions run</a>)</td>
 </tr>
 <tr>
 <td>Resume and checkpoints</td>
-<td>yes; a split run equals the uninterrupted one (probe, and the resume contract with memory)</td>
+<td>yes; a run split by a checkpoint equals the run left whole</td>
 </tr>
 </tbody>
 </table>
@@ -3372,15 +3421,14 @@ expose its gradients raises instead of training on zero gradients.</p>
 <a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="nb">print</span><span class="p">(</span><span class="n">aux</span><span class="o">.</span><span class="n">matching_loss</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>     <span class="c1"># (seeds, updates): 80,000 / (16 * 50) = 100 updates</span>
 <a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="nb">print</span><span class="p">(</span><span class="n">aux</span><span class="o">.</span><span class="n">matching_loss</span><span class="p">[:,</span> <span class="p">::</span><span class="mi">20</span><span class="p">])</span>  <span class="c1"># minus the closed-loop return</span>
 </code></pre></div>
-<p><code>train</code> returns <code>(state, aux)</code> whatever the logging: <code>aux</code> holds every
+<p><code>train</code> returns <code>(state, aux)</code> whatever the logging. <code>aux</code> holds every
 update's <code>loss</code>, <code>matching_loss</code> (minus the mean closed-loop return),
 <code>m_rmse</code>, <code>grad_norm</code> (the gradient's global norm, before clipping) and
-<code>timestep</code>. With a <code>logging_config</code>, every <code>log_frequency</code> steps
-it also evaluates the controller on <code>num_episode_test</code> systems, drawn
-afresh at each evaluation, and sends <code>Eval/episodic mean reward</code> and
-<code>Eval/m_rmse</code> to the logging backend. <code>aux.evaluations</code> then holds what each
-update logged, NaN on the updates that did not evaluate, with or without a
-backend.</p>
+<code>timestep</code>. With a <code>logging_config</code>, every <code>log_frequency</code> steps it also
+evaluates the controller on <code>num_episode_test</code> systems, drawn afresh at
+each evaluation, and sends <code>Eval/episodic mean reward</code> and <code>Eval/m_rmse</code> to
+the logging backend. <code>aux.evaluations</code> then holds what each update logged,
+NaN on the updates that did not evaluate, with or without a backend.</p>
 <p>The in-context controller of Busetto et al., trained in stages on a
 reference-tracking task (<code>train_curriculum</code>, the paper's Algorithm 2):</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="c1"># doc: skip (compiles a transformer and trains 700,000 steps; tests/agents/APG/test_APG.py covers the curriculum)</span>
@@ -3419,43 +3467,43 @@ reference-tracking task (<code>train_curriculum</code>, the paper's Algorithm 2)
 <tbody>
 <tr>
 <td><code>n_envs</code></td>
-<td>8</td>
+<td><code>8</code></td>
 <td>systems drawn and simulated in parallel per update</td>
 </tr>
 <tr>
 <td><code>horizon</code></td>
-<td>100</td>
+<td><code>100</code></td>
 <td>closed-loop steps differentiated through</td>
 </tr>
 <tr>
 <td><code>learning_rate</code></td>
-<td>5e-4</td>
+<td><code>5e-4</code></td>
 <td>AdamW step size</td>
 </tr>
 <tr>
 <td><code>weight_decay</code></td>
-<td>0.0</td>
+<td><code>0.0</code></td>
 <td>AdamW weight decay (0 is plain Adam)</td>
 </tr>
 <tr>
 <td><code>beta_1</code>, <code>beta_2</code></td>
-<td>0.9, 0.999</td>
+<td><code>0.9</code>, <code>0.999</code></td>
 <td>Adam's moment rates (its epsilon is torch's 1e-8)</td>
 </tr>
 <tr>
 <td><code>lr_schedule</code></td>
-<td>None</td>
-<td><code>"warmup_cosine"</code>: linear warmup over <code>warmup_steps</code> updates, then cosine decay to the call's last update; when <code>train</code> keeps the optimiser (<code>reset_optimizer_on_resume=False</code>), to the run's, set by the call that builds it (<a href="../../guide/checkpoints/#things-to-know">Checkpoints</a>)</td>
+<td><code>None</code></td>
+<td><code>"warmup_cosine"</code>: linear warmup over <code>warmup_steps</code> updates, then cosine decay over the call's updates (see the notes)</td>
 </tr>
 <tr>
 <td><code>warmup_steps</code>, <code>lr_end_fraction</code></td>
-<td>0, 0.1</td>
+<td><code>0</code>, <code>0.1</code></td>
 <td>warmup length, and the final rate as a fraction of <code>learning_rate</code></td>
 </tr>
 <tr>
 <td><code>max_grad_norm</code></td>
-<td>1.0</td>
-<td>gradient clipping by global norm (<code>None</code> turns it off)</td>
+<td><code>1.0</code></td>
+<td>gradient clipping by global norm, on because backpropagating through 100 steps diverged without it in Ajax's runs; <code>None</code> turns it off</td>
 </tr>
 <tr>
 <td><code>actor_architecture</code></td>
@@ -3464,64 +3512,72 @@ reference-tracking task (<code>train_curriculum</code>, the paper's Algorithm 2)
 </tr>
 <tr>
 <td><code>memory</code></td>
-<td>None</td>
+<td><code>None</code></td>
 <td>memory block (<code>MemoryConfig</code> or a dict)</td>
 </tr>
 <tr>
 <td><code>pid</code></td>
-<td>None</td>
+<td><code>None</code></td>
 <td><code>PIDHeadConfig</code>: close the controller with a learnable PID layer</td>
 </tr>
 <tr>
 <td><code>squash</code></td>
-<td>True</td>
-<td>bound actions to [-1, 1] with tanh; without it they are clipped there</td>
+<td><code>True</code></td>
+<td>bound actions to [-1, 1] with <code>tanh</code>; without it they are clipped there</td>
 </tr>
 <tr>
 <td><code>system_class</code></td>
-<td>None</td>
+<td><code>None</code></td>
 <td>distribution over the environment's parameters; <code>None</code> trains on <code>env_params</code> only</td>
 </tr>
 <tr>
 <td><code>controller_factory</code></td>
-<td>None</td>
+<td><code>None</code></td>
 <td>builds a custom controller module (see <code>Controller</code> in <code>ajax.agents.APG.networks</code>)</td>
 </tr>
 <tr>
 <td><code>expert_policy</code></td>
-<td>None</td>
+<td><code>None</code></td>
 <td>an expert the rollout runs alongside: a residual policy (<code>ResidualPolicy</code>) or gain mode (<code>ExpertGains</code>) acts through it and the observation features read it, the gradient running through the expert too</td>
 </tr>
 <tr>
 <td><code>eval_expert_policy</code></td>
-<td>None</td>
+<td><code>None</code></td>
 <td>the expert whose return each evaluation logs instead of <code>expert_policy</code>'s, acting alone on the evaluation's systems</td>
 </tr>
 <tr>
 <td><code>episode_length</code>, <code>action_repeat</code></td>
-<td>None, 1</td>
+<td><code>None</code>, <code>1</code></td>
 <td>accepted as by every agent; on gymnax environments, the only ones APG takes, the episode length is the environment's and the repeat must be 1</td>
 </tr>
 </tbody>
 </table>
-<p><code>APG.contextual_controller(env, system_class, ...)</code> sets the paper's values (Table 2;
-the reference's closed-loop script defaults to a sequence of 500 and width 32,
-and its one saved run, open-loop, used 800 and 32):
-8 layers, 4 heads, width 128, context 100, one system per update
-(<code>n_envs=1</code>), horizon 100, betas (0.9, 0.95) with <code>weight_decay=0</code> (plain
-Adam), 5,000 warmup updates then cosine decay to a tenth of the rate, no
-gradient clipping (<code>max_grad_norm=None</code>), a PID output layer, and the
-reference's transformer layers: no bias outside the input embedding,
-LayerNorm epsilon 1e-5 and an MLP four times as wide (<code>bias=False</code>,
-<code>layer_norm_epsilon=1e-5</code>, <code>mlp_ratio=4</code>). A controller saved before
-2026-11-13 restores with <code>bias=True, layer_norm_epsilon=1e-6, mlp_ratio=2</code>.
-Its <code>final_norm=False</code> rebuilds a controller saved before
-the transformer ended with its final LayerNorm (see
-<a href="../../guide/memory/">Memory</a>). Such a controller's parameters also map onto
-the new network, which computes the same outputs:
-<code>controller_params_with_final_norm(params, memory)</code> moves the controller's
-LayerNorm, which played that final norm's part, into the transformer. It maps
-the parameters only, so a resumed training state must restart its optimizer.</p>
+<h2 id="presets">Presets<a class="headerlink" href="#presets" title="Permanent link">&para;</a></h2>
+<p>APG has no <code>preset</code> table. <code>APG.contextual_controller(env, system_class,
+...)</code> builds Busetto et al.'s in-context controller with the paper's values
+(Table 2): 8 layers, 4 heads, width 128, context 100, one system per update
+(<code>n_envs=1</code>), a horizon of 100, betas (0.9, 0.95) with <code>weight_decay=0</code>
+(plain Adam), 5,000 warmup updates then cosine decay to a tenth of the
+rate, no gradient clipping (<code>max_grad_norm=None</code>, as in the reference), a
+PID output layer, and the reference's transformer layers: no bias outside
+the input embedding, LayerNorm epsilon 1e-5 and an MLP four times as wide
+(<code>bias=False</code>, <code>layer_norm_epsilon=1e-5</code>, <code>mlp_ratio=4</code>). The reference
+records no closed-loop run's arguments (its script defaults to a sequence
+of 500 and width 32), so the sizes are the paper's. Controllers saved by
+earlier versions: see <code>final_norm</code> in <a href="../../guide/memory/">Memory</a>.</p>
+<h2 id="differences-from-the-reference">Differences from the reference<a class="headerlink" href="#differences-from-the-reference" title="Permanent link">&para;</a></h2>
+<p>Each of the first two is backed by runs on the pendulum tracking task (see
+the <code>APG</code> docstrings).</p>
+<ul>
+<li><strong>Actions</strong> are <code>tanh</code>-bounded; the reference leaves them unbounded.</li>
+<li><strong>The PID layer</strong> starts as the identity (<code>K_P = 1</code>, <code>K_I = K_D = 0</code>)
+  instead of the reference's all-ones gains, which trained markedly worse
+  with bounded actions.</li>
+<li><strong>Curriculum stages.</strong> The paper trains each stage to a loss tolerance;
+  Ajax gives each stage a fixed <code>n_timesteps</code>.</li>
+<li><strong>Weight decay</strong> applies to every parameter; the reference decays only
+  tensors of two or more dimensions (no difference at <code>weight_decay=0</code>).</li>
+</ul>
 <h2 id="notes">Notes<a class="headerlink" href="#notes" title="Permanent link">&para;</a></h2>
 <ul>
 <li><strong>Budget.</strong> One update uses <code>n_envs * horizon</code> steps of <code>n_timesteps</code>.</li>
@@ -3529,22 +3585,19 @@ the parameters only, so a resumed training state must restart its optimizer.</p>
   mapped onto the environment's bounds inside the differentiated rollout, so
   on gymnax Pendulum (torque in <code>[-2, 2]</code>) the controller reaches the whole
   range.</li>
-<li><strong>Deviations from Busetto et al.</strong>, each backed by runs on the pendulum
-  tracking task (see the <code>APG</code> docstrings): actions are tanh-bounded (the
-  reference leaves them unbounded); gradients are clipped, since BPTT over 100
-  steps across a family of systems diverged without it; the PID layer starts
-  as the identity (<code>K_P = 1</code>, <code>K_I = K_D = 0</code>) instead of all three gains at 1,
-  which trained markedly worse under the bounded action (fresh-system M-RMSE
-  0.33 against 0.25). These runs predate the mapping of actions onto the
-  environment's bounds: the pendulum's torque was then capped at 1 of its</li>
-<li>The paper trains each curriculum stage to a loss tolerance; Ajax gives
-  each stage a fixed <code>n_timesteps</code>.</li>
+<li><strong>Learning-rate schedule.</strong> With <code>lr_schedule="warmup_cosine"</code>, the rate
+  of the parameters of two or more dimensions decays to <code>learning_rate *
+  lr_end_fraction</code> at the call's last update; the others (biases,
+  LayerNorm scales, PID gains) keep <code>learning_rate</code>, as in the reference.
+  When <code>train</code> keeps the optimiser (<code>reset_optimizer_on_resume=False</code>), the
+  schedule spans the run's updates, set by the call that builds it
+  (<a href="../../guide/checkpoints/#things-to-know">Checkpoints</a>).</li>
 <li><strong>Initialisation.</strong> A transformer memory starts as the reference's GPT:
   kernels from N(0, 0.02²), the residual projections at 0.02/√(2 <code>n_layers</code>),
-  zero biases where it has any (<code>transformer_onestep.py:162-166</code>, <code>:189-195</code>;
-  <code>MemoryConfig(init="nanogpt")</code>). Other memory kinds keep flax's.</li>
+  zero biases where it has any (<code>MemoryConfig(init="nanogpt")</code>). Other
+  memory kinds keep flax's.</li>
 <li><strong>Curriculum.</strong> <code>train_curriculum</code> resumes each stage from the previous
-  one's parameters and, by default, restarts the optimizer and its schedule
+  one's parameters and, by default, restarts the optimiser and its schedule
   at each stage. All stages must share <code>n_envs</code>, the network and the PID
   layer.</li>
 <li><strong>Tasks.</strong> <code>ajax.environments.model_reference</code> turns a plant into a
@@ -3552,20 +3605,14 @@ the parameters only, so a resumed training state must restart its optimizer.</p>
   and a <code>LinearReferenceModel</code> whose response the plant must match. On such a
   task the loss is the paper's closed-loop matching cost and <code>m_rmse</code> its
   M-RMSE.</li>
-<li><a href="../../guide/differentiable-simulation/">Differentiable simulation</a> covers
-  system classes, transition gradients and the reference-tracking wrapper.</li>
 </ul>
 <h2 id="results">Results<a class="headerlink" href="#results" title="Permanent link">&para;</a></h2>
-<p>Unit tests (<code>tests/agents/APG</code>) check its pieces against exact contracts,
-without learning, including the curriculum. The probes (<code>tests/probing</code>)
+<p>No learning curves are published for APG yet. The probes (<code>tests/probing</code>)
 train it briefly on tiny environments with known answers: it reaches the
 exact optimum of a small problem whose best action is reachable only
 through the transition's gradient, and a run split by a checkpoint equals
-the run left whole. On the CPU speed benchmark
-(<code>benchmarks/agent_bench.py</code>: Pendulum tracking, 4 environments, 8,000
-steps) APG ran at 34,958 steps per second of execution (5,339 with
-compilation) at main <code>a8a13c2</code>
-(<a href="https://github.com/YannBerthelot/Ajax/blob/main/PERFORMANCE_REPORT.md">PERFORMANCE_REPORT.md</a>).</p>
+the run left whole. <a href="../../guide/performance/">Performance</a> compares its
+speed with the other agents'.</p>
 <h2 id="api">API<a class="headerlink" href="#api" title="Permanent link">&para;</a></h2>
 
 

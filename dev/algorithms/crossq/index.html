@@ -1292,10 +1292,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#can-i-use" class="md-nav__link">
+  <a href="#when-to-use-it" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Can I use?
+        When to use it
       
     </span>
   </a>
@@ -1329,6 +1329,17 @@
     <span class="md-ellipsis">
       
         Presets
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#differences-from-the-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Differences from the reference
       
     </span>
   </a>
@@ -3016,10 +3027,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#can-i-use" class="md-nav__link">
+  <a href="#when-to-use-it" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Can I use?
+        When to use it
       
     </span>
   </a>
@@ -3053,6 +3064,17 @@
     <span class="md-ellipsis">
       
         Presets
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#differences-from-the-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Differences from the reference
       
     </span>
   </a>
@@ -3191,46 +3213,68 @@
 
 <h1 id="crossq">CrossQ<a class="headerlink" href="#crossq" title="Permanent link">&para;</a></h1>
 <p>CrossQ is SAC without target networks. Its actor and critics are
-batch-renormalised. The critics are trained on one pass over the replayed
-rows and their next states together, so both share the batch statistics.
-The bootstrap reads the second half of that pass, held constant. The actor
-and the temperature step on every third update.</p>
-<p><strong>Paper.</strong> Bhatt et al., <em>CrossQ: Batch Normalization in Deep Reinforcement
+batch-renormalised, and the critics are trained on one pass over the
+replayed rows and their next states together, so that both share the batch
+statistics; the bootstrap reads the second half of that pass, held
+constant. The actor and the temperature step on every third update.</p>
+<p><strong>Paper:</strong> Bhatt et al., <em>CrossQ: Batch Normalization in Deep Reinforcement
 Learning for Greater Sample Efficiency and Simplicity</em>, ICLR 2024
 (<a href="https://arxiv.org/abs/1902.05605">arXiv:1902.05605</a>). Where the authors'
-code (<code>adityab/CrossQ</code> at <code>a318a26</code>) is more specific, Ajax follows the code.</p>
-<h2 id="can-i-use">Can I use?<a class="headerlink" href="#can-i-use" title="Permanent link">&para;</a></h2>
+code is more specific, Ajax follows the code: <code>adityab/CrossQ</code> at
+<code>a318a26</code>.</p>
+<h2 id="when-to-use-it">When to use it<a class="headerlink" href="#when-to-use-it" title="Permanent link">&para;</a></h2>
+<p>CrossQ suits the tasks <a href="../sac/">SAC</a> suits. It keeps SAC's one update per
+step and drops the target networks, relying on wide batch-renormalised
+critics instead. Those critics make each step costly: on a CPU, narrow
+them (<code>critic_width=256</code>), or train on a GPU
+(<a href="../../guide/performance/">Performance</a>).</p>
 <table>
 <thead>
 <tr>
-<th></th>
+<th>Feature</th>
 <th>CrossQ</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>Continuous actions (<code>Box</code>)</td>
-<td>Yes</td>
-</tr>
-<tr>
 <td>Discrete actions</td>
-<td>No</td>
+<td>no</td>
 </tr>
 <tr>
-<td>Learning</td>
-<td>Off-policy, replay buffer</td>
+<td>Continuous actions</td>
+<td>yes, a <code>tanh</code>-squashed Gaussian, mapped onto the environment's bounds</td>
 </tr>
 <tr>
-<td>Vectorised environments (<code>n_envs</code>)</td>
-<td>Yes</td>
+<td>Memory (<code>memory=</code>)</td>
+<td>no: the paper defines no recurrent batch normalisation</td>
 </tr>
 <tr>
-<td>Recurrent memory (<code>memory=</code>)</td>
-<td>No: the paper defines no recurrent batch normalisation</td>
+<td>Environments</td>
+<td>gymnax, Brax, MuJoCo Playground</td>
+</tr>
+<tr>
+<td>Image observations</td>
+<td>no</td>
+</tr>
+<tr>
+<td>PID policy</td>
+<td>no: its networks are set by <code>actor_width</code> and <code>critic_width</code></td>
+</tr>
+<tr>
+<td>Several seeds in one call</td>
+<td>yes, <code>train(seed=[...])</code></td>
+</tr>
+<tr>
+<td>Offline training</td>
+<td>yes, <code>train_offline</code> (<a href="../../guide/training/#training-offline">Training</a>)</td>
 </tr>
 <tr>
 <td>Extension phases</td>
-<td><code>pretrain</code>, <code>post_update</code>, <code>eval_metrics</code>, <code>observe</code>, <code>on_target</code>, <code>critic_loss</code>, <code>actor_loss</code>, <code>transform_action</code>, <code>actuate</code>, <code>choose_warmup_action</code>, <code>choose_replay_action</code></td>
+<td><code>pretrain</code>, <code>post_update</code>, <code>eval_metrics</code>, <code>observe</code>, <code>on_target</code>, <code>critic_loss</code>, <code>actor_loss</code>, <code>action</code>, <code>eval_action</code>, <code>transform_action</code>, <code>actuate</code>, <code>choose_warmup_action</code>, <code>choose_replay_action</code>, <code>track_memory</code> (<a href="../../guide/compatibility/">which extensions run</a>)</td>
+</tr>
+<tr>
+<td>Resume and checkpoints</td>
+<td>yes; a run split by a checkpoint equals the run left whole</td>
 </tr>
 </tbody>
 </table>
@@ -3245,7 +3289,8 @@ code (<code>adityab/CrossQ</code> at <code>a318a26</code>) is more specific, Aja
 <a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="nb">print</span><span class="p">(</span><span class="n">evaluations</span><span class="p">[</span><span class="s2">&quot;Eval/episodic mean reward&quot;</span><span class="p">])</span>  <span class="c1"># one row per seed</span>
 </code></pre></div>
 <h2 id="key-hyperparameters">Key hyperparameters<a class="headerlink" href="#key-hyperparameters" title="Permanent link">&para;</a></h2>
-<p>Defaults are read from CrossQ's fields, the authors' <code>train.py -algo crossq</code>.</p>
+<p>The defaults are those of the authors' <code>train.py -algo crossq</code>. The
+<a href="#api">API</a> section lists every argument.</p>
 <table>
 <thead>
 <tr>
@@ -3268,7 +3313,7 @@ code (<code>adityab/CrossQ</code> at <code>a318a26</code>) is more specific, Aja
 <tr>
 <td><code>alpha_learning_rate</code></td>
 <td><code>None</code></td>
-<td>the temperature's own, when given</td>
+<td>the temperature's own step size, when given</td>
 </tr>
 <tr>
 <td><code>adam_beta_1</code></td>
@@ -3279,16 +3324,6 @@ code (<code>adityab/CrossQ</code> at <code>a318a26</code>) is more specific, Aja
 <td><code>actor_width</code>, <code>critic_width</code></td>
 <td><code>256</code>, <code>2048</code></td>
 <td>units of the two hidden layers</td>
-</tr>
-<tr>
-<td><code>num_critics</code></td>
-<td><code>2</code></td>
-<td>critics; the target takes their minimum</td>
-</tr>
-<tr>
-<td><code>policy_delay</code></td>
-<td><code>3</code></td>
-<td>updates per actor and temperature step</td>
 </tr>
 <tr>
 <td><code>gamma</code></td>
@@ -3303,12 +3338,22 @@ code (<code>adityab/CrossQ</code> at <code>a318a26</code>) is more specific, Aja
 <tr>
 <td><code>batch_size</code></td>
 <td><code>256</code></td>
-<td>replay minibatch</td>
+<td>rows per update</td>
 </tr>
 <tr>
 <td><code>learning_starts</code></td>
 <td><code>5_000</code></td>
 <td>steps of uniform random actions before the first update</td>
+</tr>
+<tr>
+<td><code>num_critics</code></td>
+<td><code>2</code></td>
+<td>critics; the target takes their minimum</td>
+</tr>
+<tr>
+<td><code>policy_delay</code></td>
+<td><code>3</code></td>
+<td>updates per actor and temperature step</td>
 </tr>
 <tr>
 <td><code>alpha_init</code></td>
@@ -3318,7 +3363,7 @@ code (<code>adityab/CrossQ</code> at <code>a318a26</code>) is more specific, Aja
 <tr>
 <td><code>target_entropy_per_dim</code></td>
 <td><code>-1.0</code></td>
-<td>target entropy, times the action dimension</td>
+<td>target entropy per action dimension</td>
 </tr>
 <tr>
 <td><code>reward_scale</code></td>
@@ -3326,76 +3371,69 @@ code (<code>adityab/CrossQ</code> at <code>a318a26</code>) is more specific, Aja
 <td>multiplies the rewards in the target</td>
 </tr>
 <tr>
-<td><code>max_grad_norm</code>, <code>weight_decay</code></td>
-<td><code>None</code>, <code>0.0</code></td>
-<td>gradient clipping, decoupled weight decay</td>
+<td><code>max_grad_norm</code></td>
+<td><code>None</code></td>
+<td>gradient clipping</td>
 </tr>
 <tr>
 <td><code>normalize_observations</code>, <code>normalize_rewards</code></td>
 <td><code>False</code></td>
-<td>running normalisation</td>
-</tr>
-<tr>
-<td><code>expert_policy</code></td>
-<td><code>None</code></td>
-<td>an expert whose return the evaluation reports next to the agent's</td>
+<td>running normalisation (<a href="../../guide/environments/">Environments</a>)</td>
 </tr>
 <tr>
 <td><code>episode_length</code>, <code>action_repeat</code></td>
 <td><code>None</code>, <code>1</code></td>
-<td>simulator steps per episode and per agent step, on Brax and Playground</td>
+<td>simulator steps per episode and per agent step, on Brax and Playground; <code>None</code> is 1,000 steps, or a <code>mujoco:</code> task's own time limit (<a href="../../guide/environments/#brax-and-playground">Environments</a>)</td>
+</tr>
+<tr>
+<td><code>expert_policy</code></td>
+<td><code>None</code></td>
+<td>an expert the run tracks; each evaluation logs its return next to the agent's</td>
 </tr>
 <tr>
 <td><code>extensions</code></td>
 <td><code>()</code></td>
-<td>research features (see <a href="../../guide/extensions/">Extensions</a>)</td>
+<td>research features (<a href="../../guide/extensions/">Extensions</a>)</td>
 </tr>
 </tbody>
 </table>
 <h2 id="presets">Presets<a class="headerlink" href="#presets" title="Permanent link">&para;</a></h2>
-<p><code>CrossQ.preset("Swimmer", env_id)</code> discounts at <code>gamma=0.9999</code>, the one task
-the authors set apart (adityab/CrossQ@<code>a318a26</code>, <code>train.py:200</code>, on
-Swimmer-v4; <a href="../../guide/training/#presets">Presets</a>). Every other task takes the defaults.</p>
+<p><code>CrossQ.preset("Swimmer", env_id)</code> discounts at <code>gamma=0.9999</code>, the one
+task the authors set apart (<code>train.py:200</code>, on Swimmer-v4;
+<a href="../../guide/training/#presets">Presets</a>). Every other task takes the
+defaults.</p>
+<h2 id="differences-from-the-reference">Differences from the reference<a class="headerlink" href="#differences-from-the-reference" title="Permanent link">&para;</a></h2>
+<p>None in the update: one update of each from the same state agrees in every
+parameter, running statistic and Adam moment, to within float32 rounding
+(<a href="#results">Results</a>). Ajax follows the authors' code even where it
+departs from SAC: its temperature loss has <code>alpha</code> where SAC's has
+<code>log alpha</code> (<code>sbx/sac/sac.py:414-416</code>), and, as in their layer, Batch
+Renorm's gradient is NaN where a batch's variance is zero.</p>
 <h2 id="notes">Notes<a class="headerlink" href="#notes" title="Permanent link">&para;</a></h2>
 <ul>
-<li><strong>Batch Renorm.</strong> Each network normalises its input and the output of each
-  hidden ReLU layer with <code>BatchRenorm</code>, the <code>"batchrenorm"</code> architecture
-  token. This is the authors' layer: plain batch norm for its first 100,000
+<li><strong>Batch Renorm.</strong> Each network normalises its input and each hidden ReLU
+  layer's output with <code>BatchRenorm</code> (the <code>"batchrenorm"</code> architecture
+  token), the authors' layer: plain batch norm for its first 100,000
   training passes, then renormalised towards the running statistics (r
-  clipped to 3, d to 5), momentum 0.99. It trains when a loss runs it in
-  training (<code>apply_train</code>). Every other read uses its running statistics:
-  acting, evaluation, the next actions of the target, and the critics in the
-  actor's loss. The statistics live on the network's state (<code>batch_stats</code>),
-  apart from the trained parameters.</li>
-<li><strong>Temperature.</strong> The authors' code steps the temperature down <code>alpha (H - H_target)</code>, alpha
-  where SAC's loss has log alpha, so its gradient is alpha times SAC's (<code>sbx/sac/sac.py:414-416</code>;
-  SBX later took the log). Ajax follows the authors (<code>core.alpha_temperature_loss_fn</code>).</li>
-<li><strong>Initialisation.</strong> As the authors' code (flax's defaults): lecun-normal
-  kernels and zero biases on every layer, the mean and log-std heads
-  included.</li>
-<li><strong>No target networks.</strong> The critics' state keeps no target parameters.
+  clipped to 3, d to 5), momentum 0.99. Only the losses run it on the
+  batch's statistics; acting, evaluation, the target's next actions and
+  the critics in the actor's loss read the running ones.</li>
+<li><strong>No target networks.</strong> The critics keep no target parameters, so
   <code>IBRL</code> and <code>LCBGatedBootstrap</code>, which bootstrap on target critics, are
   refused.</li>
-<li><strong>Shared maths.</strong> The target and the actor's objective are SAC's
-  (<code>ajax.agents.SAC.SAC</code>), the critics' regression is the one every
-  Q-critic agent shares (<code>ajax.agents.critics</code>), and the extensions apply
-  through the shared critic step's two halves (<code>apply_on_target</code>,
-  <code>compute_extensions_critic_loss</code>).</li>
-<li><strong>Cost.</strong> The critics' pass doubles its batch, and the default critics are
-  2048 wide. On a CPU, narrower critics (<code>critic_width=256</code>) are much
-  cheaper.</li>
+<li><strong>Initialisation.</strong> As in the authors' code (flax's defaults):
+  lecun-normal kernels and zero biases on every layer, the mean and
+  log-std heads included.</li>
 </ul>
 <h2 id="results">Results<a class="headerlink" href="#results" title="Permanent link">&para;</a></h2>
-<p>The repository records no learning curves for CrossQ yet. Unit tests
-(<code>tests/agents/CrossQ</code> and the contracts every agent shares) check the
-authors' settings, the critics' joint pass and the policy delay. The probes
-(<code>tests/probing</code>) train it briefly on tiny environments with known answers.
-<code>BatchRenorm</code> matches the authors' layer bit for bit. A conformance check
-(<code>tests/conformance/test_crossq_original.py</code>) runs one update of Ajax's CrossQ
-and of <code>adityab/CrossQ</code> from the same state, with the same batch and draws.
-It covers a critic step, the policy delay's actor and temperature step, and
-the same step past Batch Renorm's warm-up. It compares every parameter,
-running statistic, Adam moment and count.</p>
+<p>The repository records no learning curves for CrossQ yet. A conformance
+check (<code>tests/conformance/test_crossq_original.py</code>) runs one update of
+Ajax's CrossQ and of <code>adityab/CrossQ</code> from the same state, batch and
+draws: a critic step, an actor and temperature step, and the same past
+Batch Renorm's warm-up, comparing every parameter, running statistic and
+Adam moment. The probes (<code>tests/probing</code>) train it briefly on tiny
+environments with known answers. <a href="../../guide/performance/">Performance</a>
+compares its speed with the other agents'.</p>
 <h2 id="api">API<a class="headerlink" href="#api" title="Permanent link">&para;</a></h2>
 
 

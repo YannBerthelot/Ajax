@@ -1432,10 +1432,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#can-i-use" class="md-nav__link">
+  <a href="#when-to-use-it" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Can I use?
+        When to use it
       
     </span>
   </a>
@@ -1469,6 +1469,17 @@
     <span class="md-ellipsis">
       
         Presets
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#differences-from-the-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Differences from the reference
       
     </span>
   </a>
@@ -3060,10 +3071,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#can-i-use" class="md-nav__link">
+  <a href="#when-to-use-it" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Can I use?
+        When to use it
       
     </span>
   </a>
@@ -3097,6 +3108,17 @@
     <span class="md-ellipsis">
       
         Presets
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#differences-from-the-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Differences from the reference
       
     </span>
   </a>
@@ -3279,52 +3301,65 @@
 
 <h1 id="dqn">DQN<a class="headerlink" href="#dqn" title="Permanent link">&para;</a></h1>
 <p>Deep Q-Network learns one Q-value per discrete action and acts greedily on
-them. It regresses the Q-network on temporal-difference targets computed
-with a separate target network, refreshed every few hundred environment
-steps, and samples its training data from a replay buffer. It explores with an
-epsilon-greedy rule whose epsilon decays linearly during training. Double
-DQN, the dueling network and the squared loss are options of the same agent.</p>
-<p><strong>Papers.</strong> Mnih et al., <em>Human-level control through deep reinforcement
+them. It samples its training data from a replay buffer and regresses the
+Q-network on temporal-difference targets computed with a separate target
+network, refreshed every few hundred environment steps. It explores with an
+epsilon-greedy rule whose epsilon decays linearly during training.</p>
+<p><strong>Papers:</strong> Mnih et al., <em>Human-level control through deep reinforcement
 learning</em>, Nature 2015. Options: van Hasselt et al., <em>Deep Reinforcement
 Learning with Double Q-learning</em>, 2016 (Double DQN); Wang et al., <em>Dueling
 Network Architectures for Deep Reinforcement Learning</em>, 2016 (dueling
-network).</p>
-<h2 id="can-i-use">Can I use?<a class="headerlink" href="#can-i-use" title="Permanent link">&para;</a></h2>
+network). On vector observations Ajax follows CleanRL's <code>dqn.py</code>
+(<code>vwxyzjn/cleanrl</code> at <code>fe8d8a0</code>); on images, the authors' code
+(<code>google-deepmind/dqn</code> at <code>9d9b1d1</code>), which runs Atari only.</p>
+<h2 id="when-to-use-it">When to use it<a class="headerlink" href="#when-to-use-it" title="Permanent link">&para;</a></h2>
+<p>DQN learns off-policy from a replay buffer, reusing each transition many
+times, so it suits discrete-action tasks where environment steps are
+costly. With many cheap parallel environments, <a href="../pqn/">PQN</a> learns
+without a replay buffer; for continuous actions, see <a href="../sac/">SAC</a>.</p>
 <table>
 <thead>
 <tr>
-<th></th>
+<th>Feature</th>
 <th>DQN</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>Continuous actions (<code>Box</code>)</td>
-<td>No</td>
+<td>Discrete actions</td>
+<td>yes</td>
 </tr>
 <tr>
-<td>Discrete actions (<code>Discrete</code>)</td>
-<td>Yes</td>
+<td>Continuous actions</td>
+<td>no</td>
 </tr>
 <tr>
-<td>Learning</td>
-<td>Off-policy, replay buffer</td>
+<td>Memory (<code>memory=</code>)</td>
+<td>no</td>
 </tr>
 <tr>
-<td>Vectorised environments (<code>n_envs</code>)</td>
-<td>Yes</td>
+<td>Environments</td>
+<td>gymnax (Brax and Playground tasks have continuous actions)</td>
 </tr>
 <tr>
-<td>Recurrent memory (<code>memory=</code>)</td>
-<td>No</td>
+<td>Image observations</td>
+<td>yes, a CNN encoder (<code>cnn_image_shape</code>)</td>
 </tr>
 <tr>
-<td>Image observations (CNN encoder)</td>
-<td>Yes, with <code>cnn_image_shape</code></td>
+<td>Several seeds in one call</td>
+<td>yes, <code>train(seed=[...])</code></td>
+</tr>
+<tr>
+<td>Offline training</td>
+<td>yes, <code>train_offline</code> (<a href="../../guide/training/#training-offline">Training</a>)</td>
 </tr>
 <tr>
 <td>Extension phases</td>
-<td><code>pretrain</code>, <code>post_update</code>, <code>eval_metrics</code>, <code>observe</code>, <code>on_target</code>, <code>critic_loss</code>, <code>choose_warmup_action</code></td>
+<td><code>pretrain</code>, <code>post_update</code>, <code>eval_metrics</code>, <code>observe</code>, <code>on_target</code>, <code>critic_loss</code>, <code>action</code>, <code>eval_action</code>, <code>choose_warmup_action</code>, <code>choose_replay_action</code>, <code>track_memory</code> (<a href="../../guide/compatibility/">which extensions run</a>)</td>
+</tr>
+<tr>
+<td>Resume and checkpoints</td>
+<td>yes; a run split by a checkpoint equals the run left whole</td>
 </tr>
 </tbody>
 </table>
@@ -3339,7 +3374,8 @@ network).</p>
 <a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="n">state</span><span class="p">,</span> <span class="n">evaluations</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">seed</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">],</span> <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">10_000</span><span class="p">,</span> <span class="n">logging_config</span><span class="o">=</span><span class="n">logging</span><span class="p">)</span>
 <a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="nb">print</span><span class="p">(</span><span class="n">evaluations</span><span class="p">[</span><span class="s2">&quot;Eval/episodic mean reward&quot;</span><span class="p">])</span>  <span class="c1"># one row per seed</span>
 </code></pre></div>
-<p>The variants compose through three arguments:</p>
+<p>Double DQN, the dueling network and the loss are three arguments of the
+same agent:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax</span><span class="w"> </span><span class="kn">import</span> <span class="n">DQN</span>
 <a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax.networks.q_networks</span><span class="w"> </span><span class="kn">import</span> <span class="n">DuelingQNetwork</span>
 <a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax.agents.critics</span><span class="w"> </span><span class="kn">import</span> <span class="n">compute_mse_td_loss</span>
@@ -3354,10 +3390,10 @@ network).</p>
 <a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a><span class="n">state</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">seed</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">2_000</span><span class="p">)</span>
 </code></pre></div>
 <h2 id="key-hyperparameters">Key hyperparameters<a class="headerlink" href="#key-hyperparameters" title="Permanent link">&para;</a></h2>
-<p>Defaults are read from DQN's fields: on vector observations, those of
-CleanRL's <code>dqn.py</code> (vwxyzjn/cleanrl <code>fe8d8a0</code>), its Adam and squared loss
-included; on image observations the optimiser and loss are the authors'
-(see Notes).</p>
+<p>The defaults are CleanRL's on vector observations, its Adam and squared
+loss included; on images the optimiser and the loss are the authors' (see
+the notes). On CartPole-v1 they reach a return near 500 within CleanRL's
+500,000 steps.</p>
 <table>
 <thead>
 <tr>
@@ -3375,7 +3411,7 @@ included; on image observations the optimiser and loss are the authors'
 <tr>
 <td><code>learning_rate</code></td>
 <td><code>2.5e-4</code></td>
-<td>step size of Adam (of centered RMSProp on images, see Notes)</td>
+<td>step size of Adam (of centred RMSProp on images)</td>
 </tr>
 <tr>
 <td><code>architecture</code></td>
@@ -3465,7 +3501,7 @@ included; on image observations the optimiser and loss are the authors'
 <tr>
 <td><code>td_loss_fn</code></td>
 <td><code>None</code></td>
-<td>the loss; <code>None</code> is the squared error on vector observations and the Huber loss with delta 1 on images (see Notes)</td>
+<td>the loss; <code>None</code> is the squared error on vector observations and the Huber loss with delta 1 on images</td>
 </tr>
 <tr>
 <td><code>q_network_cls</code></td>
@@ -3475,12 +3511,17 @@ included; on image observations the optimiser and loss are the authors'
 <tr>
 <td><code>cnn_image_shape</code>, <code>cnn_extra_obs_dim</code>, <code>cnn_spec</code></td>
 <td><code>None</code>, <code>0</code>, <code>None</code></td>
-<td>convolutional encoder for flat image observations; <code>None</code> builds the reference network (see Notes)</td>
+<td>convolutional encoder for flat image observations; <code>None</code> builds the reference network</td>
 </tr>
 <tr>
 <td><code>episode_length</code>, <code>action_repeat</code></td>
 <td><code>None</code>, <code>1</code></td>
-<td>simulator steps per episode (1,000 when <code>None</code>) and per agent step, on Brax and Playground</td>
+<td>simulator steps per episode and per agent step, on Brax and Playground; <code>None</code> is 1,000 steps, or a <code>mujoco:</code> task's own time limit (<a href="../../guide/environments/#brax-and-playground">Environments</a>)</td>
+</tr>
+<tr>
+<td><code>expert_policy</code></td>
+<td><code>None</code></td>
+<td>an expert, as an action index per row: collection tracks it and stores its actions, and evaluations log its return</td>
 </tr>
 <tr>
 <td><code>extensions</code></td>
@@ -3490,21 +3531,32 @@ included; on image observations the optimiser and loss are the authors'
 </tbody>
 </table>
 <h2 id="presets">Presets<a class="headerlink" href="#presets" title="Permanent link">&para;</a></h2>
-<p><code>DQN.preset("Atari", env_id)</code> takes Mnih et al.'s Atari config
-(google-deepmind/dqn@<code>9d9b1d1</code>, <code>run_gpu:12-32</code>;
-<a href="../../guide/training/#presets">Presets</a>): a 1,000,000-row replay, batches of
-32, 50,000 warm-up steps, one update every 4 steps (<code>train_frequency=4</code>), the
-target refreshed every 10,000 steps (<code>target_update_interval=2_500</code>
-updates), epsilon held at 1 for the warm-up (<code>epsilon_decay_start=50_000</code>)
-then falling to 0.1 over a million steps. That million is a fraction
-of the reference's 50M-step run (<code>epsilon_decay_frac=0.02</code>), so it is
-shorter in a shorter run. Atari's frame skip and stack, no-op starts and
-reward clipping are the environment's.</p>
+<p><code>DQN.preset("Atari", env_id)</code> takes Mnih et al.'s Atari configuration
+(<code>run_gpu:12-32</code>; <a href="../../guide/training/#presets">Presets</a>): a
+1,000,000-row replay, batches of 32, 50,000 warm-up steps, one update every
+4 steps (<code>train_frequency=4</code>), the target refreshed every 10,000 steps
+(<code>target_update_interval=2_500</code> updates), and epsilon held at 1 for the
+warm-up (<code>epsilon_decay_start=50_000</code>) then falling to 0.1 over a million
+steps. That million is a fraction of the reference's 50M-step run
+(<code>epsilon_decay_frac=0.02</code>), so a shorter run decays faster. Atari's frame
+skip and stack, no-op starts and reward clipping are the environment's.</p>
+<h2 id="differences-from-the-reference">Differences from the reference<a class="headerlink" href="#differences-from-the-reference" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>Step counting.</strong> CleanRL numbers its steps from 0, so an update or
+  refresh at Ajax's 10,500th step is CleanRL's at <code>global_step</code> 10,500.
+  Ajax also updates and refreshes at step 10,000, where CleanRL waits for
+  <code>global_step &gt; learning_starts</code>.</li>
+<li><strong>The first convolution.</strong> The authors' code gives it a padding argument
+  of 1; Ajax does not pad it, as the paper describes. On 84 x 84 images
+  both read 20 x 20.</li>
+</ul>
 <h2 id="notes">Notes<a class="headerlink" href="#notes" title="Permanent link">&para;</a></h2>
 <ul>
 <li><strong>Target.</strong> <code>r + gamma (1 - terminated) max_a' Q'(s', a')</code>; Double DQN
-  picks <code>a'</code> with the online network and values it with the target network.</li>
-<li><strong>Updates per step.</strong> Each iteration steps every env once. From
+  picks <code>a'</code> with the online network and values it with the target network.
+  A transition cut by a time limit bootstraps on its final observation;
+  only a termination stops the bootstrap.</li>
+<li><strong>Updates per step.</strong> Each iteration steps every environment once. From
   <code>learning_starts</code>, each time the steps collected reach a multiple of
   <code>train_frequency</code>, it takes <code>n_gradient_steps</code> gradient steps: one per 10
   environment steps at the defaults, whatever <code>n_envs</code> (with <code>n_envs</code> at
@@ -3514,25 +3566,13 @@ reward clipping are the environment's.</p>
 <li><strong>Target refresh.</strong> One mechanism covers both classic schemes: every
   <code>target_update_interval</code> gradient steps the target moves by <code>tau</code>. The
   hard copy is <code>tau=1.0</code>; a Polyak average is <code>tau &lt; 1</code> with interval <code>1</code>.
-  The default, 50 updates of one per 10 steps, is CleanRL's refresh every
-  500 environment steps. The interval counts updates so that it keeps its
-  meaning in <code>train_offline</code> and pretraining, where no environment step is
-  taken.</li>
-<li><strong>Defaults.</strong> CleanRL's <code>dqn.py</code>, the vector-observation reference: the
-  authors' own code (google-deepmind/dqn) runs Atari only. CleanRL numbers
-  its steps from 0: an update or refresh at Ajax's 10,500th step is
-  CleanRL's at <code>global_step</code> 10,500, its 10,501st. Ajax also updates and
-  refreshes at step 10,000, where CleanRL waits for <code>global_step &gt;
-  learning_starts</code>. On CartPole-v1 these defaults reach a return near 500
-  within CleanRL's 500,000 steps; a run of a few thousand steps is still in
-  its warm-up.</li>
+  The interval counts updates so that it keeps its meaning in
+  <code>train_offline</code> and pretraining, where no environment step is taken.</li>
 <li><strong>Exploration.</strong> Epsilon decays linearly with the training fraction (the
   timestep over the run's total), from <code>epsilon_start</code> to <code>epsilon_end</code>
   over <code>epsilon_decay_frac</code> of the run, starting at step
-  <code>epsilon_decay_start</code> (0 by default). Before <code>learning_starts</code>
-  every action is uniform. Evaluation is greedy.</li>
-<li><strong>Time limits.</strong> A transition cut by a time limit bootstraps on its final
-  observation; only a termination stops the bootstrap.</li>
+  <code>epsilon_decay_start</code>. Before <code>learning_starts</code> every action is uniform.
+  Evaluation is greedy.</li>
 <li><strong>Loss.</strong> On vector observations, the squared error, as CleanRL. On
   images (<code>cnn_image_shape</code>), the Huber loss with delta 1, whose gradient is
   the TD error clipped to [-1, 1], as the original DQN clips it on Atari's
@@ -3541,43 +3581,35 @@ reward clipping are the environment's.</p>
   <code>td_loss_fn</code> sets either: <code>compute_mse_td_loss</code>, <code>compute_huber_1_td_loss</code>
   or <code>make_huber_td_loss(delta)</code>.</li>
 <li><strong>Optimiser.</strong> On vector observations, Adam at torch's defaults (eps
-  <code>1e-8</code>), as CleanRL. On images, the authors' centered RMSProp (Graves
-  2013): each step is
-  the gradient over <code>sqrt(E[g^2] - E[g]^2 + eps)</code>, both averages decaying
-  at 0.95. Their eps is 0.01 on a gradient summed over the batch; on Ajax's
-  mean loss the same step takes <code>eps = 0.01 / batch_size**2</code>.</li>
+  <code>1e-8</code>), as CleanRL. On images, the authors' centred RMSProp (Graves
+  2013): each step is the gradient over <code>sqrt(E[g^2] - E[g]^2 + eps)</code>,
+  both averages decaying at 0.95. Their eps is 0.01 on a gradient summed
+  over the batch; on Ajax's mean loss the same step takes
+  <code>eps = 0.01 / batch_size**2</code>.</li>
 <li><strong>Network.</strong> A plain MLP without LayerNorm (Mnih et al.'s network has
-  none) and a linear head. It lives in <code>state.actor_state</code>, so the shared
-  evaluation reads it like any actor. As in the authors' Torch7 code, every
-  layer of the MLP and the head starts as <code>nn.Linear</code> does, kernel and bias
-  uniform in <code>±1/sqrt(fan_in)</code>.</li>
+  none) and a linear head. As in the authors' Torch7 code, every layer
+  starts as <code>nn.Linear</code> does, kernel and bias uniform in
+  <code>±1/sqrt(fan_in)</code>.</li>
 <li><strong>Images.</strong> With <code>cnn_image_shape</code> and no <code>cnn_spec</code>, DQN builds Mnih et
   al.'s network (<code>MNIH_CNN</code>: 32, 64 and 64 channels, kernels 8, 4 and 3,
   strides 4, 2 and 1, no padding, then 512 units) when the image is at
   least 36 pixels a side, the smallest it fits. Smaller images, such as
   MinAtar's 10 x 10, get MinAtar's network (<code>MINATAR_CNN</code>: one 3 x 3
-  convolution of 16 channels, then 128 units). Both start as the MLP does.
-  The authors' first convolution is given a padding argument of 1; Ajax
-  does not pad it, as the paper describes. On 84 x 84 images both read 20 x
-  20.</li>
+  convolution of 16 channels, then 128 units). Both start as the MLP does.</li>
 <li><strong>Extensions.</strong> <code>on_target</code> extensions reshape the target; <code>critic_loss</code>
-  extensions add a term to the TD loss, with its gradient.</li>
-<li><strong>Expert.</strong> With <code>expert_policy=</code> (an index per row), collection tracks
-  the expert and stores its actions, and evaluations log its return.
-  <code>ExpertPrefill</code>, <code>ExpertWarmup</code>, <code>JSRLCurriculum</code>, <code>ExpertValueMetrics</code>
-  (Q at the stored index) and the expert's observation features run on it.</li>
+  extensions add a term to the TD loss, with its gradient. With an
+  <code>expert_policy</code>, <code>ExpertPrefill</code>, <code>ExpertWarmup</code>, <code>JSRLCurriculum</code>,
+  <code>ExpertValueMetrics</code> (Q at the stored index) and the expert's
+  observation features run on it.</li>
 </ul>
 <h2 id="results">Results<a class="headerlink" href="#results" title="Permanent link">&para;</a></h2>
-<p>The repository records no learning curves for DQN yet. Unit tests
-(<code>tests/agents/DQN</code> and the contracts every agent shares) check its pieces
-against exact contracts, without learning. The probes (<code>tests/probing</code>)
-train it briefly on tiny environments with known answers: its max bootstrap
-and action indexing, discounting, time limits, extension phases, and a run
-split by a checkpoint matching the run left whole. On the CPU speed
-benchmark (<code>benchmarks/agent_bench.py</code>: CartPole, 4 envs, 8,000 steps,
-updates from step 1,000) DQN ran at 16,662 steps per second of execution
-(6,395 with compilation) at main <code>a8a13c2</code> (see
-<a href="https://github.com/YannBerthelot/Ajax/blob/main/PERFORMANCE_REPORT.md">PERFORMANCE_REPORT.md</a>).</p>
+<p>The <a href="../../reproduction/results/">reproduction results</a> set DQN beside
+Stable-Baselines3's on CartPole, with learning curves; the comparison is
+inconclusive so far. The probes (<code>tests/probing</code>) train it briefly on tiny
+environments with known answers: its max bootstrap and action indexing,
+discounting, time limits, extension phases, and a run split by a
+checkpoint matching the run left whole. <a href="../../guide/performance/">Performance</a>
+compares its speed with the other agents'.</p>
 <h2 id="api">API<a class="headerlink" href="#api" title="Permanent link">&para;</a></h2>
 
 

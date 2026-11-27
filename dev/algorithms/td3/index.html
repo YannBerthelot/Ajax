@@ -1320,10 +1320,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#can-i-use" class="md-nav__link">
+  <a href="#when-to-use-it" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Can I use?
+        When to use it
       
     </span>
   </a>
@@ -1357,6 +1357,17 @@
     <span class="md-ellipsis">
       
         Presets
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#differences-from-the-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Differences from the reference
       
     </span>
   </a>
@@ -3038,10 +3049,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#can-i-use" class="md-nav__link">
+  <a href="#when-to-use-it" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Can I use?
+        When to use it
       
     </span>
   </a>
@@ -3075,6 +3086,17 @@
     <span class="md-ellipsis">
       
         Presets
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#differences-from-the-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Differences from the reference
       
     </span>
   </a>
@@ -3234,53 +3256,69 @@
 
 
 <h1 id="td3">TD3<a class="headerlink" href="#td3" title="Permanent link">&para;</a></h1>
-<p>Twin Delayed DDPG learns a deterministic policy and two critics. It fixes
-DDPG's over-estimation with three changes: the target takes the smaller of
-two target critics, the target action gets clipped noise (target policy
-smoothing), and the actor and the targets update only every <code>policy_delay</code>
-critic steps. It explores by adding Gaussian noise to its actions and learns
-off-policy from a replay buffer.</p>
-<p><strong>Paper.</strong> Fujimoto et al., <em>Addressing Function Approximation Error in
-Actor-Critic Methods</em>, 2018 (<a href="https://arxiv.org/abs/1802.09477">arXiv:1802.09477</a>).
-The update follows its Algorithm 1 as the authors' code (<code>sfujim/TD3</code>)
-makes it, and the defaults are that code's as updated in 2019 (see
-<a href="#notes">Notes</a>).</p>
-<h2 id="can-i-use">Can I use?<a class="headerlink" href="#can-i-use" title="Permanent link">&para;</a></h2>
+<p>Twin Delayed DDPG learns a deterministic policy and two critics. It curbs
+DDPG's over-estimation in three ways: the target takes the smaller of the
+two target critics' values, the target action gets clipped noise (target
+policy smoothing), and the actor and the targets update only every
+<code>policy_delay</code> critic steps. It explores by adding Gaussian noise to its
+actions.</p>
+<p><strong>Paper:</strong> Fujimoto, van Hoof and Meger, <em>Addressing Function Approximation
+Error in Actor-Critic Methods</em>, ICML 2018
+(<a href="https://arxiv.org/abs/1802.09477">arXiv:1802.09477</a>). Ajax follows the
+authors' code, <code>sfujim/TD3</code> at <code>34770cc</code>.</p>
+<h2 id="when-to-use-it">When to use it<a class="headerlink" href="#when-to-use-it" title="Permanent link">&para;</a></h2>
+<p>TD3 learns off-policy from a replay buffer, as <a href="../sac/">SAC</a> does, but its
+policy is deterministic: one action per state, explored around with noise
+of a size you set. It is also the base of the offline methods TD3+BC and
+ReBRAC below. SAC learns a stochastic policy and tunes its exploration
+itself.</p>
 <table>
 <thead>
 <tr>
-<th></th>
+<th>Feature</th>
 <th>TD3</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>Continuous actions (<code>Box</code>)</td>
-<td>Yes</td>
-</tr>
-<tr>
 <td>Discrete actions</td>
-<td>No</td>
+<td>no</td>
 </tr>
 <tr>
-<td>Learning</td>
-<td>Off-policy, replay buffer</td>
+<td>Continuous actions</td>
+<td>yes, a deterministic <code>tanh</code> policy, mapped onto the environment's bounds</td>
 </tr>
 <tr>
-<td>Vectorised environments (<code>n_envs</code>)</td>
-<td>Yes</td>
+<td>Memory (<code>memory=</code>)</td>
+<td>yes, on replayed sequences, without <code>expert_policy</code> or most extensions (<a href="../../guide/memory/">Memory</a>)</td>
 </tr>
 <tr>
-<td>Recurrent memory (<code>memory=</code>)</td>
-<td>Yes, without extensions or <code>expert_policy</code></td>
+<td>Environments</td>
+<td>gymnax, Brax, MuJoCo Playground</td>
 </tr>
 <tr>
-<td>PID policy (<code>actor_architecture=PIDPolicy(...)</code>)</td>
-<td>Yes</td>
+<td>Image observations</td>
+<td>no</td>
+</tr>
+<tr>
+<td>PID policy</td>
+<td>yes, <code>actor_architecture=PIDPolicy(...)</code> (<a href="../../guide/networks/">Networks</a>)</td>
+</tr>
+<tr>
+<td>Several seeds in one call</td>
+<td>yes, <code>train(seed=[...])</code></td>
+</tr>
+<tr>
+<td>Offline training</td>
+<td>yes, <code>train_offline</code> (<a href="../../guide/training/#training-offline">Training</a>); also <a href="#td3bc-offline">TD3+BC</a> and <a href="#rebrac-offline">ReBRAC</a></td>
 </tr>
 <tr>
 <td>Extension phases</td>
-<td><code>pretrain</code>, <code>post_update</code>, <code>eval_metrics</code>, <code>observe</code>, <code>on_target</code>, <code>critic_loss</code>, <code>actor_loss</code>, <code>transform_action</code>, <code>actuate</code>, <code>choose_warmup_action</code>, <code>choose_replay_action</code></td>
+<td><code>pretrain</code>, <code>post_update</code>, <code>eval_metrics</code>, <code>observe</code>, <code>on_target</code>, <code>critic_loss</code>, <code>actor_loss</code>, <code>action</code>, <code>eval_action</code>, <code>transform_action</code>, <code>actuate</code>, <code>choose_warmup_action</code>, <code>choose_replay_action</code>, <code>track_memory</code> (<a href="../../guide/compatibility/">which extensions run</a>)</td>
+</tr>
+<tr>
+<td>Resume and checkpoints</td>
+<td>yes; a run split by a checkpoint equals the run left whole</td>
 </tr>
 </tbody>
 </table>
@@ -3295,8 +3333,10 @@ makes it, and the defaults are that code's as updated in 2019 (see
 </code></pre></div>
 <p>This budget only shows the call; Pendulum needs more steps to be solved.</p>
 <h2 id="key-hyperparameters">Key hyperparameters<a class="headerlink" href="#key-hyperparameters" title="Permanent link">&para;</a></h2>
-<p>Defaults are read from TD3's fields. They are the authors' code as
-updated in 2019, not the paper's: see <a href="#notes">Notes</a>.</p>
+<p>The defaults are the authors' code's as they updated it in 2019. The
+paper's runs used 400-300 layers, learning rates of <code>1e-3</code>, batches of 100
+and 10,000 warm-up steps; pass these to reproduce them. The <a href="#api">API</a>
+section lists every argument.</p>
 <table>
 <thead>
 <tr>
@@ -3314,17 +3354,22 @@ updated in 2019, not the paper's: see <a href="#notes">Notes</a>.</p>
 <tr>
 <td><code>actor_learning_rate</code>, <code>critic_learning_rate</code></td>
 <td><code>3e-4</code></td>
-<td>Adam step sizes (Adam's epsilon is torch's 1e-8)</td>
+<td>Adam step sizes (epsilon <code>1e-8</code>, torch's)</td>
 </tr>
 <tr>
 <td><code>actor_architecture</code>, <code>critic_architecture</code></td>
 <td><code>("256", "relu", "256", "relu")</code></td>
-<td>hidden layers (plain MLPs)</td>
+<td>hidden layers</td>
 </tr>
 <tr>
 <td><code>gamma</code></td>
 <td><code>0.99</code></td>
 <td>discount</td>
+</tr>
+<tr>
+<td><code>tau</code></td>
+<td><code>0.005</code></td>
+<td>Polyak rate of the target networks</td>
 </tr>
 <tr>
 <td><code>buffer_size</code></td>
@@ -3334,17 +3379,12 @@ updated in 2019, not the paper's: see <a href="#notes">Notes</a>.</p>
 <tr>
 <td><code>batch_size</code></td>
 <td><code>None</code></td>
-<td>replay minibatch: 256 rows, or 64 windows with <code>memory=</code></td>
+<td>rows per update: 256, or 64 sequences with <code>memory=</code></td>
 </tr>
 <tr>
 <td><code>learning_starts</code></td>
 <td><code>25_000</code></td>
 <td>steps of uniform random actions before the first update</td>
-</tr>
-<tr>
-<td><code>tau</code></td>
-<td><code>0.005</code></td>
-<td>Polyak rate of the target networks</td>
 </tr>
 <tr>
 <td><code>num_critics</code></td>
@@ -3359,7 +3399,7 @@ updated in 2019, not the paper's: see <a href="#notes">Notes</a>.</p>
 <tr>
 <td><code>exploration_noise</code></td>
 <td><code>0.1</code></td>
-<td>standard deviation of the behaviour noise; a float or a schedule of the timestep</td>
+<td>standard deviation of the behaviour noise: a number, or a schedule of the timestep</td>
 </tr>
 <tr>
 <td><code>target_policy_noise</code>, <code>target_noise_clip</code></td>
@@ -3379,97 +3419,82 @@ updated in 2019, not the paper's: see <a href="#notes">Notes</a>.</p>
 <tr>
 <td><code>normalize_observations</code>, <code>normalize_rewards</code></td>
 <td><code>False</code></td>
-<td>running normalisation</td>
-</tr>
-<tr>
-<td><code>reward_normalization_gamma</code></td>
-<td><code>None</code></td>
-<td>with <code>normalize_rewards</code>, the discount of the return whose spread divides the rewards: <code>gamma</code> if None, 0 for the single reward's</td>
+<td>running normalisation (<a href="../../guide/environments/">Environments</a>)</td>
 </tr>
 <tr>
 <td><code>memory</code>, <code>burn_in</code>, <code>sequence_length</code>, <code>stored_state</code></td>
 <td><code>None</code>, <code>0</code>, <code>64</code>, <code>False</code></td>
-<td>recurrent memory (see <a href="../../guide/memory/">Memory</a>)</td>
-</tr>
-<tr>
-<td><code>expert_policy</code></td>
-<td><code>None</code></td>
-<td>an expert whose return the evaluation reports next to the agent's (<code>Eval/expert bias</code>)</td>
-</tr>
-<tr>
-<td><code>action_pipeline</code></td>
-<td><code>None</code></td>
-<td>replaces the collection-time action choice (used by a downstream project)</td>
+<td>recurrent memory and its sequence replay (<a href="../../guide/memory/">Memory</a>)</td>
 </tr>
 <tr>
 <td><code>episode_length</code>, <code>action_repeat</code></td>
 <td><code>None</code>, <code>1</code></td>
-<td>simulator steps per episode (1,000 when <code>None</code>) and per agent step, on Brax and Playground</td>
+<td>simulator steps per episode and per agent step, on Brax and Playground; <code>None</code> is 1,000 steps, or a <code>mujoco:</code> task's own time limit (<a href="../../guide/environments/#brax-and-playground">Environments</a>)</td>
+</tr>
+<tr>
+<td><code>expert_policy</code></td>
+<td><code>None</code></td>
+<td>an expert the run tracks; each evaluation logs its return next to the agent's (<code>Eval/expert bias</code>)</td>
 </tr>
 <tr>
 <td><code>extensions</code></td>
 <td><code>()</code></td>
-<td>research features (see <a href="../../guide/extensions/">Extensions</a>)</td>
+<td>research features (<a href="../../guide/extensions/">Extensions</a>)</td>
 </tr>
 </tbody>
 </table>
 <p>Cloning an expert into the actor before training is the <code>CloningPretrain</code>
-extension; a cloning term during training, of the TD3+BC form, is <code>ImitationLoss</code>
-(<a href="../../guide/expert-guidance/">Expert guidance</a>).</p>
+extension; a cloning term during training, of the TD3+BC form, is
+<code>ImitationLoss</code> (<a href="../../guide/expert-guidance/">Expert guidance</a>).</p>
 <h2 id="presets">Presets<a class="headerlink" href="#presets" title="Permanent link">&para;</a></h2>
 <p><code>TD3.preset("D4RL", env_id)</code> is TD3+BC as its authors run it on the D4RL
-datasets (sfujim/TD3_BC@<code>8791ad7</code>, <code>main.py:56-57</code>; <a href="../../guide/training/#presets">Presets</a>): <code>ImitationLoss</code>
-cloning the dataset's actions at <code>alpha=2.5</code>, and <code>normalize_observations=True</code>.
-Train it with <code>train_offline</code> (<a href="#td3bc-offline">TD3+BC</a>).</p>
+datasets (<code>sfujim/TD3_BC</code> at <code>8791ad7</code>, <code>main.py:56-57</code>;
+<a href="../../guide/training/#presets">Presets</a>): <code>ImitationLoss</code> cloning the
+dataset's actions at <code>alpha=2.5</code>, and <code>normalize_observations=True</code>. Train
+it with <code>train_offline</code> (<a href="#td3bc-offline">TD3+BC</a>).</p>
+<h2 id="differences-from-the-reference">Differences from the reference<a class="headerlink" href="#differences-from-the-reference" title="Permanent link">&para;</a></h2>
+<p>None in the update: one update of Ajax's TD3 and of <code>sfujim/TD3</code> from the
+same state agree to within float32 rounding (<a href="#results">Results</a>). TD3+BC
+and ReBRAC list their own differences below.</p>
 <h2 id="notes">Notes<a class="headerlink" href="#notes" title="Permanent link">&para;</a></h2>
 <ul>
-<li><strong>Defaults.</strong> The authors updated their code's hyperparameters in 2019
-  "to improve performance": 256-256 layers, learning rate <code>3e-4</code>, batch
-  256 and a 25,000-step warm-up. Ajax uses these. The paper's run used
-  400-300 layers, <code>1e-3</code>, batch 100 and 10,000 steps; pass them to
-  reproduce it.</li>
-<li><strong>Actor.</strong> A deterministic MLP ending in <code>tanh</code>. As in the authors' code,
-  every layer of the actor and the critics, the actor's last included,
-  starts as torch's <code>nn.Linear</code> does: kernel and bias uniform in
-  <code>±1/sqrt(fan_in)</code> (not DDPG's <code>±3e-3</code> last layer). With <code>memory=</code>, TD3
-  is Ni et al. (2022)'s recurrent TD3: their networks and initialisation,
-  an actor maximising min(Q1, Q2) at every update (<code>policy_delay</code> 1), and
-  critics reading the <code>[-1, 1]</code> actions (see <a href="../../guide/memory/">Memory</a>).
-  Actions lie in
-  <code>[-1, 1]</code>, and Ajax maps them onto the environment's bounds, so the noise
-  levels are in those <code>[-1, 1]</code> units: on gymnax Pendulum (torque in
+<li><strong>Actor.</strong> A deterministic MLP ending in <code>tanh</code>. Its actions lie in
+  <code>[-1, 1]</code>, and so do the noise levels: on gymnax Pendulum (torque in
   <code>[-2, 2]</code>) an <code>exploration_noise</code> of 0.1 is a torque noise of standard
   deviation 0.2.</li>
+<li><strong>Initialisation.</strong> As in the authors' code, every layer of the actor
+  and the critics, the actor's last included, starts as torch's
+  <code>nn.Linear</code> does: kernel and bias uniform in <code>±1/sqrt(fan_in)</code> (not
+  DDPG's <code>±3e-3</code> last layer).</li>
 <li><strong>Critics.</strong> They read the action in the environment's units, <code>c + h a</code>
-  with the box's centre <code>c</code> and half-range <code>h</code>, as the authors' critics read
-  <code>max_action * tanh</code>; on a <code>[-1, 1]</code> box the map is the identity. Adam's
-  steps on a critic's action inputs depend on those units. Their loss sums
-  the critics' squared errors, as the authors' code does.</li>
-<li><strong>Behaviour policy.</strong> <code>clip(mu(s) + N(0, exploration_noise), -1, 1)</code> after
-  the warm-up; uniform random actions before <code>learning_starts</code>. Evaluation
-  uses <code>mu(s)</code> without noise.</li>
+  with the box's centre <code>c</code> and half-range <code>h</code>, as the authors' critics
+  read <code>max_action * tanh</code>. Their loss sums the critics' squared errors.</li>
+<li><strong>Behaviour policy.</strong> <code>clip(mu(s) + N(0, exploration_noise), -1, 1)</code>
+  after the warm-up, uniform random actions before <code>learning_starts</code>.
+  Evaluation uses <code>mu(s)</code> without noise.</li>
 <li><strong>Target.</strong> <code>r + gamma (1 - terminated) min_i Q'_i(s', a')</code>, with
   <code>a' = clip(mu'(s') + clip(N(0, target_policy_noise), -c, c), -1, 1)</code> and
   <code>c = target_noise_clip</code>.</li>
 <li><strong>Actor loss.</strong> <code>-Q_1(s, mu(s))</code>: the first critic only.</li>
-<li><strong>Updates per step.</strong> Each iteration steps every env once, then makes one
-  critic step; every <code>policy_delay</code>-th one also steps the actor and the
-  targets, the first actor step coming with the <code>policy_delay</code>-th update, as
-  in the authors' code.</li>
+<li><strong>Updates per step.</strong> Each iteration steps every environment once, then
+  makes one critic step; every <code>policy_delay</code>-th one also steps the actor
+  and the targets, the first actor step coming with the
+  <code>policy_delay</code>-th update, as in the authors' code.</li>
 <li><strong>Time limits.</strong> A transition cut by a time limit bootstraps on its final
   observation; only a termination stops the bootstrap.</li>
-<li><strong>PID policy.</strong> With <code>actor_architecture=PIDPolicy(...)</code> the actor is a
-  PID whose output goes through <code>tanh</code>; see <a href="../../guide/networks/">Networks</a>.</li>
-<li><strong>Memory.</strong> Sequence replay also burns in the target actor's memory, since
-  TD3's bootstrap action comes from it.</li>
+<li><strong>Memory.</strong> With <code>memory=</code>, TD3 is Ni et al. (2022)'s recurrent TD3:
+  their networks and initialisation, an actor maximising <code>min(Q_1, Q_2)</code> at
+  every update (<code>policy_delay</code> 1), and critics reading the <code>[-1, 1]</code>
+  actions. Sequence replay also burns in the target actor's memory, which
+  picks the bootstrap action.</li>
 </ul>
 <h2 id="td3bc-offline">TD3+BC: offline<a class="headerlink" href="#td3bc-offline" title="Permanent link">&para;</a></h2>
 <p>TD3+BC (Fujimoto and Gu, <em>A Minimalist Approach to Offline Reinforcement
 Learning</em>, NeurIPS 2021, <a href="https://arxiv.org/abs/2106.06860">arXiv:2106.06860</a>)
 is TD3 trained on a fixed dataset with a behaviour-cloning term in the
-actor's loss. Its reference code is sfujim/TD3_BC at <code>8791ad7</code>. In Ajax it
-is TD3, <code>ImitationLoss</code> with the dataset's own actions as the target, and
-the offline mode:</p>
+actor's loss. Its reference code is <code>sfujim/TD3_BC</code> at <code>8791ad7</code>. In Ajax
+it is TD3 with <code>ImitationLoss</code>, the dataset's own actions as the target,
+trained with the <a href="../../guide/training/#training-offline">offline mode</a>:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax</span><span class="w"> </span><span class="kn">import</span> <span class="n">TD3</span>
 <a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax.extensions.expert</span><span class="w"> </span><span class="kn">import</span> <span class="n">ImitationLoss</span>
 <a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>
@@ -3481,28 +3506,25 @@ the offline mode:</p>
 <a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="p">)</span>
 <a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="c1"># state, evaluations = agent.train_offline(dataset, n_updates=1_000_000)</span>
 </code></pre></div>
-<p><code>TD3.preset("D4RL", env_id)</code> builds it with the same extension and
-normalisation (<a href="#presets">Presets</a>).</p>
+<p><code>TD3.preset("D4RL", env_id)</code> builds the same agent (<a href="#presets">Presets</a>).</p>
 <p>The paper's actor loss is <code>-λ mean Q(s, π(s)) + mean((π(s) - a)²)</code>, with
 <code>λ = α / mean|Q(s, π(s))|</code> and α = 2.5 (<code>TD3_BC.py:141-143</code>), the actions
 compared in the environment's units. With <code>alpha</code>, <code>ImitationLoss</code> makes
-TD3's actor loss exactly that: it adds <code>(λ - 1)</code> times TD3's own <code>-mean Q</code>
-and the squared difference of the actions mapped onto the env's box. The
-other settings are TD3's defaults, which match the reference's. The states are standardised with the dataset's
-statistics. The reference divides by the standard deviation plus <code>1e-3</code>,
-Ajax by <code>sqrt(var + 1e-8)</code>; the two differ on a column the dataset holds
-constant. The <a href="../../guide/training/#training-offline">offline mode</a>
-evaluates every <code>log_frequency</code> updates, as the reference does every 5,000.
-A conformance check (<code>tests/conformance/test_td3bc_sfujim.py</code>) makes one
-update of each from the same state, batch and noise, on Pendulum and
-MountainCarContinuous, and compares them.</p>
+TD3's actor loss exactly that. The other settings are TD3's defaults, which
+match the reference's. The offline mode evaluates every <code>log_frequency</code>
+updates, as the reference does every 5,000. A conformance check
+(<code>tests/conformance/test_td3bc_sfujim.py</code>) makes one update of each from
+the same state, batch and noise, and compares them. One difference: both
+standardise the states with the dataset's statistics, but the reference
+divides by the standard deviation plus <code>1e-3</code> and Ajax by
+<code>sqrt(var + 1e-8)</code>, which differ on a column the dataset holds constant.</p>
 <h2 id="rebrac-offline">ReBRAC: offline<a class="headerlink" href="#rebrac-offline" title="Permanent link">&para;</a></h2>
 <p>ReBRAC (Tarasov, Kurenkov, Nikulin and Kolesnikov, <em>Revisiting the
 Minimalist Approach to Offline Reinforcement Learning</em>, NeurIPS 2023,
-<a href="https://arxiv.org/abs/2305.09836">arXiv:2305.09836</a>) is TD3+BC with design
-choices of its own. The main ones are a behaviour-cloning penalty in the
+<a href="https://arxiv.org/abs/2305.09836">arXiv:2305.09836</a>) is TD3+BC with
+design choices of its own: chiefly a behaviour-cloning penalty in the
 critic's target as well, LayerNorm in the critic, deeper networks and
-larger batches. Its reference code is tinkoff-ai/ReBRAC at <code>694385b</code>. In
+larger batches. Its reference code is <code>tinkoff-ai/ReBRAC</code> at <code>694385b</code>. In
 Ajax it is TD3 with TD3+BC's actor term and <code>TargetBC</code>, the target
 penalty, trained with the offline mode:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax</span><span class="w"> </span><span class="kn">import</span> <span class="n">TD3</span>
@@ -3526,37 +3548,35 @@ penalty, trained with the offline mode:</p>
 <a id="__codelineno-2-19" name="__codelineno-2-19" href="#__codelineno-2-19"></a><span class="c1"># state, evaluations = agent.train_offline(dataset, n_updates=1_000_000)</span>
 </code></pre></div>
 <p><code>TargetBC</code> subtracts <code>γ (1 − d) β Σ (ã′ − a′)²</code> from the target, with <code>ã′</code>
-the next actions TD3's target scored (its target policy plus clipped noise)
-and <code>a′</code> the dataset's next action (<code>rebrac.py:134-144</code>). The replay keeps
-<code>a′</code> as each row's episode's next row's action. A row ending its episode,
-or a collected one, has none, so it keeps its target. The coefficients
-<code>actor_bc_coef</code> and <code>critic_bc_coef</code> are tuned per dataset in the paper.</p>
-<p>Deviations from the reference:</p>
+the next actions TD3's target scored (its target policy plus clipped
+noise) and <code>a′</code> the dataset's next action (<code>rebrac.py:134-144</code>). The
+replay keeps <code>a′</code> as the action of the next row of the same episode; a row
+ending its episode, or a collected one, has none and keeps its target. The
+paper tunes <code>actor_bc_coef</code> and <code>critic_bc_coef</code> per dataset.</p>
+<p>Differences from the reference, where a conformance check
+(<code>tests/conformance/test_rebrac_original.py</code>) finds the critics' steps
+alike:</p>
 <ul>
 <li>TD3's actor follows its first critic, and the cloning term's scale is
   that critic's <code>mean|Q|</code>. ReBRAC uses the minimum over the critics for
   both.</li>
-<li>The cloning term averages the squared error over the action
-  dimensions. ReBRAC sums it, so pass <code>coef</code> equal to the action dimension
-  to match.</li>
+<li>ReBRAC moves the target actor towards the actor as it was before its
+  step; TD3 towards the stepped actor.</li>
+<li>The cloning term averages the squared error over the action dimensions,
+  where ReBRAC sums it: pass <code>coef</code> equal to the action dimension to match.</li>
 <li>TD3 keeps its reference's initialisation. ReBRAC's layers start their
   biases at 0.1 and its heads uniform in ±1e-3 (actor) and ±3e-3 (critic).</li>
 </ul>
 <h2 id="results">Results<a class="headerlink" href="#results" title="Permanent link">&para;</a></h2>
-<p>The repository records no learning curves for TD3 yet. A conformance
-check (<code>tests/conformance/test_td3_sfujim.py</code>) runs one update of Ajax's
-TD3 and of sfujim/TD3 from the same state, batch and noise, on
-MountainCarContinuous and Pendulum, and compares the change each makes to
-every parameter and optimiser moment. Unit tests
-(<code>tests/agents/TD3</code> and the contracts every agent shares) check its pieces
-against exact contracts, without learning, such as its smoothed target. The
-probes (<code>tests/probing</code>) train it briefly on tiny environments with known
-answers: its target smoothing, discounting, time limits, memory, extension
-phases, and a run split by a checkpoint matching the run left whole. On the
-CPU speed benchmark (<code>benchmarks/agent_bench.py</code>: Pendulum, 4 envs, 8,000
-steps, updates from step 1,000) TD3 ran at 2,659 steps per second of
-execution (1,961 with compilation) at main <code>a8a13c2</code> (see
-<a href="https://github.com/YannBerthelot/Ajax/blob/main/PERFORMANCE_REPORT.md">PERFORMANCE_REPORT.md</a>).</p>
+<p>The <a href="../../reproduction/results/">reproduction results</a> set TD3 beside
+Stable-Baselines3's on Pendulum, with learning curves. A conformance check
+(<code>tests/conformance/test_td3_sfujim.py</code>) makes one update of Ajax's TD3
+and of <code>sfujim/TD3</code> from the same state, batch and noise, on
+MountainCarContinuous and Pendulum: every parameter and optimiser moment
+changes alike, to within float32 rounding. The probes (<code>tests/probing</code>)
+train it briefly on tiny environments with known answers.
+<a href="../../guide/performance/">Performance</a> compares its speed with the other
+agents'.</p>
 <h2 id="api">API<a class="headerlink" href="#api" title="Permanent link">&para;</a></h2>
 
 

@@ -3003,8 +3003,7 @@
 
 <h1 id="train-evaluate-deploy">Train, evaluate, deploy<a class="headerlink" href="#train-evaluate-deploy" title="Permanent link">&para;</a></h1>
 <p>This page takes an agent from training to acting in a loop of your own:
-train and read the evaluations, act with the trained policy, and save it
-for later.</p>
+score the trained policy, watch it play, act with it, and save it.</p>
 <h2 id="train-and-evaluate">Train and evaluate<a class="headerlink" href="#train-and-evaluate" title="Permanent link">&para;</a></h2>
 <p><code>train</code> evaluates the policy every <code>log_frequency</code> steps on
 <code>num_episode_test</code> episodes and returns the results, one row per seed:</p>
@@ -3016,7 +3015,10 @@ for later.</p>
 <a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="n">state</span><span class="p">,</span> <span class="n">evaluations</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">seed</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">],</span> <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">3_000</span><span class="p">,</span> <span class="n">logging_config</span><span class="o">=</span><span class="n">logging</span><span class="p">)</span>
 <a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="nb">print</span><span class="p">(</span><span class="n">evaluations</span><span class="p">[</span><span class="s2">&quot;Eval/episodic mean reward&quot;</span><span class="p">])</span>  <span class="c1"># seeds x evaluations</span>
 </code></pre></div>
-<p><a href="../training/">Training an agent</a> and <a href="../logging/">Logging</a> have the details.</p>
+<p>Afterwards, <code>agent.evaluate(state, episodes=10)</code> scores the trained policy
+on fresh episodes: a row of returns per seed, so <code>.mean(axis=1)</code> is each
+seed's score. <a href="../training/">Training an agent</a> and <a href="../logging/">Logging</a>
+have the details.</p>
 <h2 id="watch-the-policy">Watch the policy<a class="headerlink" href="#watch-the-policy" title="Permanent link">&para;</a></h2>
 <p><code>agent.render(state, path)</code> runs one fresh episode of a trained policy and
 saves it as an animation:</p>
@@ -3032,8 +3034,8 @@ saves it as an animation:</p>
 </code></pre></div>
 <p>The policy acts as in <code>evaluate</code>. <code>seed_index</code> picks the seed whose policy
 plays, <code>seed</code> draws the episode's start, and <code>max_steps</code> cuts a long
-episode short. What the file is, and what drawing needs beyond Ajax,
-depends on the environment:</p>
+episode short. The file, and what drawing needs beyond Ajax, depend on the
+environment:</p>
 <table>
 <thead>
 <tr>
@@ -3045,42 +3047,39 @@ depends on the environment:</p>
 <tbody>
 <tr>
 <td>gymnax: classic control (<code>CartPole-v1</code>, <code>Pendulum-v1</code>, <code>Acrobot-v1</code>, MountainCar)</td>
-<td><code>.gif</code></td>
+<td><code>.gif</code>, gymnax's drawing</td>
 <td>the <code>render</code> extra: <code>pip install "ajax-rl[render]"</code></td>
 </tr>
 <tr>
 <td>gymnax: MinAtar, <code>Catch-bsuite</code>, <code>Pong-misc</code>, <code>PointRobot-misc</code>, the mazes</td>
-<td><code>.gif</code></td>
+<td><code>.gif</code>, gymnax's drawing</td>
 <td>nothing more</td>
 </tr>
 <tr>
 <td>Brax</td>
 <td><code>.html</code>, a page showing the episode in three dimensions</td>
-<td>nothing to install; the page loads its viewer from the internet when opened</td>
+<td>nothing; the page loads its viewer from the internet</td>
 </tr>
 <tr>
 <td>MuJoCo Playground and <code>mujoco:</code> tasks</td>
-<td><code>.gif</code></td>
-<td>the <code>render</code> extra, for the GIF writer; without a display, set <code>MUJOCO_GL=egl</code></td>
+<td><code>.gif</code>, 320 by 240 pixels from the task's default camera</td>
+<td>nothing more; without a display, set <code>MUJOCO_GL=egl</code></td>
 </tr>
 <tr>
 <td>Gymnasium (<code>gymnasium:</code> ids)</td>
-<td><code>.gif</code> of the environment's own pictures</td>
-<td>what Gymnasium needs to draw that environment (pygame for classic control, in the <code>render</code> extra)</td>
+<td><code>.gif</code> of the environment's own pictures, at the speed it names</td>
+<td>what Gymnasium needs to draw it (pygame for classic control: the <code>render</code> extra)</td>
 </tr>
 <tr>
-<td>Any other, with <code>draw=</code></td>
-<td><code>.gif</code></td>
+<td>any other, with <code>draw=</code></td>
+<td><code>.gif</code>, 30 pictures a second</td>
 <td>nothing more</td>
 </tr>
 </tbody>
 </table>
-<p>The gymnax drawings are gymnax's own, and the MuJoCo frames are 320 by 240
-pixels from the task's default camera. Drawing takes time on its own: gymnax's
-classic-control drawings take about a tenth of a second a frame on a CPU, so
-a 500-step CartPole episode takes about a minute, and <code>max_steps</code> shortens
-it. A Gymnasium environment is drawn by
-copies built with <code>render_mode="rgb_array"</code>, at the speed it names.</p>
+<p>Drawing takes time of its own: gymnax's classic-control drawings take about
+a tenth of a second a frame on a CPU, so a 500-step CartPole episode takes
+about a minute, which <code>max_steps</code> shortens.</p>
 <p>Another gymnax task, or an environment of your own, has no drawing Ajax
 knows, and <code>render</code> says so before running anything. Pass it a function
 drawing one state:</p>
@@ -3103,14 +3102,13 @@ drawing one state:</p>
 </code></pre></div>
 <p><code>draw</code> receives one environment's state, with the environment's own fields
 and no leading axis, and returns a <code>(height, width, 3)</code> picture: 8-bit
-colours, or floats between 0 and 1. The GIF plays 30 pictures a second.</p>
+colours, or floats between 0 and 1.</p>
 <h2 id="act-with-the-trained-policy">Act with the trained policy<a class="headerlink" href="#act-with-the-trained-policy" title="Permanent link">&para;</a></h2>
 <p><code>agent.policy(state, seed_index)</code> returns the policy of one seed. It acts on
 the environment's own observations and returns actions in the environment's
-units, exactly as the evaluation acts. It normalises the observation as the
+units, exactly as the evaluation acts: it normalises the observation as the
 agent does, appends the observation features, applies a residual policy or
-gain mode and maps the action onto the environment's bounds. You do not
-repeat any of that yourself.</p>
+gain mode and maps the action onto the environment's bounds.</p>
 <p>A policy keeps what it needs from one step to the next in a carry: the
 memory of a recurrent actor or a world model, a stateful expert's state,
 UDRL's command. <code>reset(n_envs)</code> starts one, and <code>act</code> returns the next:</p>
@@ -3138,19 +3136,34 @@ UDRL's command. <code>reset(n_envs)</code> starts one, and <code>act</code> retu
 <a id="__codelineno-3-22" name="__codelineno-3-22" href="#__codelineno-3-22"></a>    <span class="n">returns</span> <span class="o">=</span> <span class="n">returns</span> <span class="o">+</span> <span class="n">reward</span>
 <a id="__codelineno-3-23" name="__codelineno-3-23" href="#__codelineno-3-23"></a><span class="nb">print</span><span class="p">(</span><span class="n">returns</span><span class="p">)</span>  <span class="c1"># one return per environment</span>
 </code></pre></div>
-<p><code>act(obs, carry, done, reward, key)</code> takes:</p>
-<ul>
-<li><code>obs</code>: a batch of observations, one row per environment;</li>
-<li><code>done</code>: True where <code>obs</code> starts a new episode, the last action having
-  ended one (gymnax resets the environment itself). The memory, the
-  expert's state, the features and the command restart there. <code>None</code> means
-  no episode ended;</li>
-<li><code>reward</code>: what the last action earned. Only UDRL reads it, to count its
-  command down; it asks for it with <code>done</code>;</li>
-<li><code>key</code>: the key of the policy's own draws (a world model samples its
-  action). Without one, the policy draws its keys from its carry.</li>
-</ul>
-<p><code>act</code> compiles the first time it runs and not again.</p>
+<p><code>act(obs, carry, done, reward, key)</code> compiles the first time it runs, not
+again, and takes:</p>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th>What it is</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>obs</code></td>
+<td>a batch of observations, one row per environment</td>
+</tr>
+<tr>
+<td><code>done</code></td>
+<td>True where <code>obs</code> starts a new episode, the last action having ended one (gymnax resets the environment itself); the memory, the expert's state, the features and the command restart there. <code>None</code>: no episode ended</td>
+</tr>
+<tr>
+<td><code>reward</code></td>
+<td>what the last action earned. UDRL reads it to count its command down, and so does a policy that observes the previous reward (an off-policy agent with memory); such a policy refuses an <code>act</code> after a step without it</td>
+</tr>
+<tr>
+<td><code>key</code></td>
+<td>the key of the policy's own draws (a world model samples its action); without one, the policy draws its keys from its carry</td>
+</tr>
+</tbody>
+</table>
 <h2 id="one-action-at-a-time">One action at a time<a class="headerlink" href="#one-action-at-a-time" title="Permanent link">&para;</a></h2>
 <p>For an agent without memory, <code>predict</code> returns one action, without a carry.
 It acts as the policy acts at the start of an episode:</p>
@@ -3158,8 +3171,9 @@ It acts as the policy acts at the start of an episode:</p>
 <a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="nb">print</span><span class="p">(</span><span class="n">action</span><span class="p">)</span>
 </code></pre></div>
 <p>It acts for the first seed; <code>seed_index</code> picks another. The action is a JAX
-array: a Gymnasium environment's <code>step</code> wants <code>np.asarray(action)</code>. With it,
-an episode in one environment is a plain loop:</p>
+array: a Gymnasium environment's <code>step</code> wants <code>np.asarray(action)</code>. An
+episode in one environment is then a plain loop, each step on a fresh key
+split from the last, as JAX has no hidden random state:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="n">single_reset_key</span><span class="p">,</span> <span class="n">single_key</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="n">jax</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">PRNGKey</span><span class="p">(</span><span class="mi">1</span><span class="p">))</span>
 <a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="n">single_obs</span><span class="p">,</span> <span class="n">single_state</span> <span class="o">=</span> <span class="n">env</span><span class="o">.</span><span class="n">reset</span><span class="p">(</span><span class="n">single_reset_key</span><span class="p">,</span> <span class="n">params</span><span class="p">)</span>
 <a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="n">episode_return</span><span class="p">,</span> <span class="n">episode_over</span> <span class="o">=</span> <span class="mf">0.0</span><span class="p">,</span> <span class="kc">False</span>
@@ -3173,10 +3187,8 @@ an episode in one environment is a plain loop:</p>
 <a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a>    <span class="n">episode_over</span> <span class="o">=</span> <span class="nb">bool</span><span class="p">(</span><span class="n">terminated</span> <span class="ow">or</span> <span class="n">truncated</span><span class="p">)</span>
 <a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a><span class="nb">print</span><span class="p">(</span><span class="n">episode_return</span><span class="p">)</span>
 </code></pre></div>
-<p>Each step draws on a fresh key, split from the last: JAX has no hidden
-random state.</p>
-<p>An agent whose policy carries memory refuses <code>predict</code>, since one call cannot
-carry it between steps: a recurrent actor, a world model (DreamerV3,
+<p>An agent whose policy carries memory refuses <code>predict</code>, since one call
+cannot carry it between steps: a recurrent actor, a world model (DreamerV3,
 TD-MPC2), UDRL, an expert or a feature with a state. Use <code>policy</code> instead.
 For one environment, it is the same loop with a carry and a batch of one:
 <code>obs[None]</code> adds the batch axis and <code>actions[0]</code> removes it.</p>
@@ -3208,14 +3220,15 @@ For one environment, it is the same loop with a carry and a batch of one:
 <a id="__codelineno-6-26" name="__codelineno-6-26" href="#__codelineno-6-26"></a>    <span class="n">episode_over</span> <span class="o">=</span> <span class="nb">bool</span><span class="p">(</span><span class="n">terminated</span> <span class="ow">or</span> <span class="n">truncated</span><span class="p">)</span>
 <a id="__codelineno-6-27" name="__codelineno-6-27" href="#__codelineno-6-27"></a><span class="nb">print</span><span class="p">(</span><span class="n">episode_return</span><span class="p">)</span>
 </code></pre></div>
-<p>TDMPC2MultiTask has no policy yet: its planner acts for one task of its set.</p>
+<p>TDMPC2MultiTask has no policy yet: its planner acts for one task of its
+set, and <code>agent.evaluate</code> runs it on every task.</p>
 <h2 id="save-and-load">Save and load<a class="headerlink" href="#save-and-load" title="Permanent link">&para;</a></h2>
 <p><code>agent.save(state, path)</code> writes the state with the agent's class and
-arguments, and <code>agent, state = ajax.load(path)</code> builds both again: the
-shortest way, shown in <a href="../checkpoints/#save-and-load-an-agent">Checkpoints</a>.
-The pair below stores the state alone: <code>save_checkpoint</code> writes it, and
-<code>load_checkpoint</code> reads it back into an agent you build with the same
-arguments, in this process or another:</p>
+arguments, and <code>agent, state = ajax.load(path)</code> builds both again
+(<a href="../checkpoints/#save-and-load-an-agent">Checkpoints</a>). To store the state
+alone, <code>save_checkpoint</code> writes it, and <code>load_checkpoint</code> reads it back
+into an agent you build with the same arguments, in this process or
+another:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
 <a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="kn">import</span><span class="w"> </span><span class="nn">tempfile</span>
 <a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>
@@ -3231,9 +3244,9 @@ arguments, in this process or another:</p>
 </code></pre></div>
 <p>The loaded state also resumes training with <code>train(initial_state=state)</code>.
 A run whose <code>train</code> call took options that shape its update (APG's
-learning-rate schedule, a <code>total_timesteps</code>) resumes through <code>restore_into</code>
-instead, on a skeleton built with those options:
-<a href="../checkpoints/">Checkpoints and resuming</a> explains it.</p>
+learning-rate schedule, a <code>total_timesteps</code>) gives the same options to
+<code>load_checkpoint</code>: <a href="../checkpoints/#across-processes">Checkpoints and resuming</a>
+explains why.</p>
 
 
 

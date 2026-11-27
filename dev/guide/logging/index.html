@@ -3175,7 +3175,7 @@
 evaluations, and each run logs them to its backends: TensorBoard, Weights &amp;
 Biases, or a backend of your own. A <code>train</code> call given none evaluates about
 ten times and prints a line for each; <code>logging_config=None</code> evaluates
-nothing.</p>
+nothing (<a href="../training/#what-train-returns">What <code>train</code> returns</a>).</p>
 <h2 id="loggingconfig"><code>LoggingConfig</code><a class="headerlink" href="#loggingconfig" title="Permanent link">&para;</a></h2>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax.logging</span><span class="w"> </span><span class="kn">import</span> <span class="n">LoggingConfig</span><span class="p">,</span> <span class="n">TensorBoardBackend</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
@@ -3195,19 +3195,19 @@ nothing.</p>
 </thead>
 <tbody>
 <tr>
+<td><code>log_frequency</code></td>
+<td><code>10_000</code></td>
+<td>environment steps between evaluations</td>
+</tr>
+<tr>
 <td><code>backends</code></td>
-<td><code>TensorBoardBackend(folder)</code></td>
-<td>where each run logs (<a href="#backends">below</a>); <code>()</code> logs nowhere</td>
+<td><code>(TensorBoardBackend(folder),)</code></td>
+<td>where each run logs (<a href="#backends">below</a>); <code>()</code> logs nowhere, and <code>train</code> still returns the evaluations</td>
 </tr>
 <tr>
 <td><code>config</code></td>
 <td><code>{}</code></td>
-<td>a dictionary stored with each run, with the agent's run configuration added (below)</td>
-</tr>
-<tr>
-<td><code>log_frequency</code></td>
-<td>10,000</td>
-<td>environment steps between evaluations</td>
+<td>a dictionary stored with each run, with the agent's run configuration added (<a href="#the-run-configuration">below</a>)</td>
 </tr>
 <tr>
 <td><code>run_name</code></td>
@@ -3215,14 +3215,14 @@ nothing.</p>
 <td>each run's name prefix: a run is named <code>&lt;run_name&gt;_&lt;run id&gt;</code></td>
 </tr>
 <tr>
+<td><code>folder</code></td>
+<td><code>None</code></td>
+<td>where the default TensorBoard backend writes, <code>&lt;folder&gt;/tensorboard/&lt;run id&gt;/</code> (the working directory when <code>None</code>)</td>
+</tr>
+<tr>
 <td><code>evaluate_last_fifth_only</code></td>
 <td><code>False</code></td>
 <td>evaluate only in the last 20% of training, for hyperparameter searches that read the final scores</td>
-</tr>
-<tr>
-<td><code>sweep</code></td>
-<td><code>False</code></td>
-<td>deprecated: the earlier name of <code>evaluate_last_fifth_only</code>. Set <code>True</code>, it warns. It is not <code>train(sweep=...)</code></td>
 </tr>
 <tr>
 <td><code>evaluation_device</code></td>
@@ -3230,19 +3230,19 @@ nothing.</p>
 <td>a JAX device to evaluate on while training goes on (<a href="#evaluating-on-another-device">below</a>); <code>None</code>: training waits for each evaluation</td>
 </tr>
 <tr>
-<td><code>use_wandb</code>, <code>use_tensorboard</code></td>
-<td>not set</td>
-<td>deprecated: the earlier way to name backends. Set, they warn and name W&amp;B (on unless set <code>False</code>) and TensorBoard (off unless set <code>True</code>), as before</td>
-</tr>
-<tr>
 <td><code>on_evaluation</code></td>
 <td><code>None</code></td>
-<td>a function called in the training process with each seed's evaluation, <code>on_evaluation(metrics, index)</code>, where <code>index</code> says which seed; within one evaluation the seeds' calls come in no fixed order; a backend logs in a process of its own</td>
+<td>a function called in the training process with each seed's evaluation, <code>on_evaluation(metrics, index)</code>, where <code>index</code> says which seed; within one evaluation the seeds' calls come in no fixed order</td>
 </tr>
 <tr>
-<td><code>folder</code></td>
-<td><code>None</code></td>
-<td>where the default TensorBoard backend writes, <code>&lt;folder&gt;/tensorboard/&lt;run id&gt;/</code> (the working directory when <code>None</code>)</td>
+<td><code>sweep</code></td>
+<td><code>False</code></td>
+<td>deprecated: the earlier name of <code>evaluate_last_fifth_only</code>, which warns when set. It is not <code>train(sweep=...)</code></td>
+</tr>
+<tr>
+<td><code>use_wandb</code>, <code>use_tensorboard</code></td>
+<td>not set</td>
+<td>deprecated: the earlier way to name backends. Set, they warn and name W&amp;B (on unless set <code>False</code>) and TensorBoard (off unless set <code>True</code>), as before; setting one together with <code>backends</code> is refused</td>
 </tr>
 <tr>
 <td><code>project_name</code>, <code>group_name</code></td>
@@ -3251,24 +3251,23 @@ nothing.</p>
 </tr>
 </tbody>
 </table>
-<p>With <code>backends=()</code>, <code>train</code> still evaluates and returns the evaluations in
+<p>With <code>backends=()</code>, <code>train</code> evaluates and returns the evaluations in
 memory: the quickest way to get learning curves. A <code>LoggingConfig</code> built
-without the <code>backends</code> argument writes each run's TensorBoard event files
-under <code>./tensorboard/&lt;run id&gt;/</code>; the folder is named by the run id alone,
-without <code>run_name</code>. A <code>train</code> call given no <code>logging_config</code> writes no
-file: it prints a line per evaluation. With a <code>LoggingConfig</code> of yours, it
-prints one line when the run starts, saying how often it evaluates and where
-it logs, and nothing more until <code>train</code> returns. Setting
-a deprecated flag together with <code>backends</code> is refused.</p>
+without <code>backends</code> writes each run's TensorBoard event files under
+<code>./tensorboard/&lt;run id&gt;/</code>; the folder is named by the run id alone, without
+<code>run_name</code>. A run with a <code>LoggingConfig</code> prints one line when it starts,
+saying how often it evaluates and where it logs, and nothing more until
+<code>train</code> returns.</p>
 <h3 id="the-run-configuration">The run configuration<a class="headerlink" href="#the-run-configuration" title="Permanent link">&para;</a></h3>
 <p>Each run stores <code>config</code> merged with the agent's <code>agent.config</code>: every
 argument of the agent's constructor, by name, with the value it was given or
 its default (<code>TDMPC2MultiTask</code> leaves out its dataset and evaluation
-environments), and <code>algo_name</code>, the agent's name. <code>train</code> merges them into a
-copy, so one <code>LoggingConfig</code> can serve several agents' runs. DreamerV3 and TD-MPC2 add the values they
-resolve from those arguments (their discount, replay size and so on). W&amp;B
-stores the result as the run's configuration; TensorBoard stores it as text
-and, in each run directory, as <code>config.json</code> with the <code>seed</code> and the
+environments), and <code>algo_name</code>, the agent's name. DreamerV3 and TD-MPC2 add
+the values they resolve from those arguments (their discount, replay size
+and so on). <code>train</code> merges them into a copy, so one <code>LoggingConfig</code> can
+serve several agents' runs.</p>
+<p>W&amp;B stores the result as the run's configuration. TensorBoard stores it as
+text and, in each run directory, as <code>config.json</code> with the <code>seed</code> and the
 <code>run_id</code> added, so a run can be reproduced and paired with others by seed.
 Values that are not JSON (an environment object, a function) are written as
 their text.</p>
@@ -3320,7 +3319,7 @@ their text.</p>
 </tr>
 <tr>
 <td><code>Train/non-finite env steps</code></td>
-<td>on Brax and Playground envs: the steps the simulator diverged on so far, over all the seed's envs (<a href="../environments/#diverging-simulators">Environments</a>)</td>
+<td>on Brax and Playground environments: the steps the simulator diverged on so far, over all the seed's copies (<a href="../environments/#diverging-simulators">Environments</a>)</td>
 </tr>
 <tr>
 <td><code>&lt;group&gt;/&lt;metric&gt;</code></td>
@@ -3328,23 +3327,26 @@ their text.</p>
 </tr>
 </tbody>
 </table>
-<p>Extensions add their own, such as <code>CriticDiagnostics</code>'s
-<code>Cond/critic_srank</code>. UDRL logs <code>timestep</code>, its training metrics
-(<code>Train/episodic mean reward</code>, <code>Train/actor_loss</code>, <code>Train/mean_rtg</code>,
-<code>Train/mean_horizon</code>, <code>Train/n_completed_episodes</code>), its evaluation's return,
-entropy and length, the command the evaluation starts from (below), and its
-extensions' metrics. The world models log their
-own sets: see their pages.</p>
-<p>Each evaluation runs on episodes of its own: their initial states and noise
-are drawn afresh from the evaluation count (<a href="../training/#evaluation">Training</a>).
-Returns are in the environment's units even when the agent normalises
-rewards. A metric that is NaN (an agent that has not started updating yet,
-an expert metric without an expert) is dropped from W&amp;B and TensorBoard,
-but kept as NaN in the returned evaluations.</p>
-<p>An evaluation logs the update just before it. On an update whose actor
-step is skipped (TD3's and CrossQ's <code>policy_delay</code>, any agent's
-<code>policy_update_start</code>), the actor's metrics are those of its last step
-that ran: NaN before its first.</p>
+<p>Extensions add their own, such as <code>CriticDiagnostics</code>'s <code>Cond/critic_srank</code>.
+UDRL logs <code>timestep</code>, its training metrics (<code>Train/episodic mean reward</code>,
+<code>Train/actor_loss</code>, <code>Train/mean_rtg</code>, <code>Train/mean_horizon</code>,
+<code>Train/n_completed_episodes</code>), its evaluation's return, entropy and length,
+the command the evaluation starts from (below), and its extensions'
+metrics. The world models log their own sets: see their pages.</p>
+<ul>
+<li><strong>Fresh episodes.</strong> Each evaluation runs on episodes of its own, their
+  initial states and noise drawn afresh from the evaluation count
+  (<a href="../training/#evaluation">Training</a>).</li>
+<li><strong>The environment's units.</strong> Returns are in the environment's units, even
+  when the agent normalises rewards.</li>
+<li><strong>NaN.</strong> A metric that is NaN (an agent that has not started updating
+  yet, an expert metric without an expert) is dropped from W&amp;B and
+  TensorBoard, but kept as NaN in the returned evaluations.</li>
+<li><strong>The last update.</strong> An evaluation logs the update just before it. On an
+  update whose actor step is skipped (TD3's and CrossQ's <code>policy_delay</code>,
+  any agent's <code>policy_update_start</code>), the actor's metrics are those of its
+  last step that ran: NaN before its first.</li>
+</ul>
 <h3 id="training-diagnostics">Training diagnostics<a class="headerlink" href="#training-diagnostics" title="Permanent link">&para;</a></h3>
 <p>Beside its losses, each agent logs a few measures of how its updates go.
 Like the other training metrics, they are the last update's values; PPO,
@@ -3360,23 +3362,23 @@ APO and PQN average theirs over the update's epochs and minibatches.</p>
 <tbody>
 <tr>
 <td><code>policy/approx_kl</code></td>
-<td>PPO, APO</td>
+<td>PPO, APO, REINFORCE</td>
 <td>the mean of <code>(r - 1) - log r</code>, <code>r</code> the ratio of the new policy's probability of each action to the old one's: an estimate of how far an update moved the policy, as CleanRL and Stable-Baselines3 log it</td>
 </tr>
 <tr>
 <td><code>policy/policy_std</code></td>
-<td>PPO, APO</td>
+<td>PPO, APO, REINFORCE</td>
 <td>the mean standard deviation of the policy's Gaussian, before any squashing (SAC logs the same); NaN for a discrete policy</td>
 </tr>
 <tr>
 <td><code>value/explained_variance</code></td>
-<td>PPO, APO</td>
-<td><code>1 - Var[target - V] / Var[target]</code> over the minibatch: 1 for a critic that predicts its targets, 0 for one no better than their mean; NaN when the targets do not vary</td>
+<td>PPO, APO, REINFORCE</td>
+<td><code>1 - Var[target - V] / Var[target]</code> over the batch: 1 for a critic that predicts its targets, 0 for one no better than their mean; NaN when the targets do not vary</td>
 </tr>
 <tr>
 <td><code>policy/grad_norm</code>, <code>value/grad_norm</code></td>
-<td>PPO, APO</td>
-<td>the global norm of each network's gradient, before clipping. PPO clips the two networks' gradients together (<code>max_grad_norm</code>): the clip acts when the norm of both, <code>sqrt(policy² + value²)</code>, exceeds it</td>
+<td>PPO, APO, REINFORCE</td>
+<td>the global norm of each network's gradient, before clipping. PPO and APO clip the two networks' gradients together (<code>max_grad_norm</code>): the clip acts when the norm of both, <code>sqrt(policy² + value²)</code>, exceeds it</td>
 </tr>
 <tr>
 <td><code>value/value_bias</code>, <code>value/average_reward</code></td>
@@ -3583,10 +3585,12 @@ overestimates. It is computed in the critic's own units: rewards normalised
 as in training and multiplied by the agent's <code>reward_scale</code>. An episode cut
 by the time limit realises no return past it, so even an exact critic shows
 a positive bias over its last steps.</p>
-<p>SAC, TD3, REDQ and AVG report it with their action-value critic, DQN and
-PQN with their Q-network, PPO with its state-value critic. ASAC and APO,
-which learn average-reward values rather than discounted ones, report NaN,
-as does a critic with memory.</p>
+<p>SAC, TQC, CrossQ, TD3, REDQ, AVG and IQL report it with their action-value
+critic, DQN and PQN with their Q-network, PPO and REINFORCE with their
+state-value critic. ASAC, RVI-SAC and APO, which learn average-reward
+values rather than discounted ones, report NaN, as do APG, UDRL and DAgger,
+which have no discounted critic, and any critic with memory. The world
+models log their own sets.</p>
 <h2 id="in-memory">In memory<a class="headerlink" href="#in-memory" title="Permanent link">&para;</a></h2>
 <p><code>train</code> returns the evaluations as a dictionary of arrays, one row per seed
 and one column per evaluation:</p>
@@ -3603,16 +3607,15 @@ and one column per evaluation:</p>
 <a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="nb">print</span><span class="p">(</span><span class="n">agent</span><span class="o">.</span><span class="n">config</span><span class="p">[</span><span class="s2">&quot;algo_name&quot;</span><span class="p">],</span> <span class="n">agent</span><span class="o">.</span><span class="n">config</span><span class="p">[</span><span class="s2">&quot;n_steps&quot;</span><span class="p">])</span>  <span class="c1"># PPO 128</span>
 </code></pre></div>
 <p>A call that evaluates fewer times than its maximum pads the remaining
-columns with -1 (<code>timestep</code>) and NaN (the rest). Pass an <code>n_timesteps</code> that
-is a whole number of the agent's iterations (<code>n_envs</code> steps for the replay
-agents, <code>n_envs × n_steps</code> for PPO, APO, PQN and UDRL, <code>n_envs × horizon</code>
-for APG): the iterations stop at a multiple of one, so otherwise an
-evaluation due at the end of the run does not happen, and <code>train</code> warns.</p>
+columns with -1 (<code>timestep</code>) and NaN (the rest). Give <code>n_timesteps</code> as a
+whole number of the agent's iterations
+(<a href="../training/#the-budget">The budget</a>): otherwise an evaluation due at the
+end of the run does not happen, and <code>train</code> warns.</p>
 <h2 id="evaluating-on-another-device">Evaluating on another device<a class="headerlink" href="#evaluating-on-another-device" title="Permanent link">&para;</a></h2>
 <p>Training waits for each evaluation. With <code>evaluation_device</code> it does not
-(asynchronous evaluation, <code>ajax.async_evaluation</code>): at
-each evaluation, the training program hands the policy over and goes on, and
-a thread scores it on that device.</p>
+(asynchronous evaluation, <code>ajax.async_evaluation</code>): at each evaluation, the
+training program hands the policy over and goes on, and a thread scores it
+on that device.</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">jax</span>
 <a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>
 <a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="c1"># A second GPU when there is one, the CPU otherwise.</span>
@@ -3621,46 +3624,54 @@ a thread scores it on that device.</p>
 <a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="n">logging</span> <span class="o">=</span> <span class="n">LoggingConfig</span><span class="p">(</span><span class="n">evaluation_device</span><span class="o">=</span><span class="n">device</span><span class="p">)</span>
 </code></pre></div>
 <ul>
-<li>The scores are those of the evaluation in place: the policy at that
-  timestep, on the same keys, up to floating-point rounding. The training
-  metrics are taken at the evaluation's step, as before.</li>
-<li>Each evaluation reaches the backends once scored, under its own timestep.
-  <code>train</code> waits for the last one and returns every evaluation, as without
-  the option.</li>
-<li>Use a second GPU, not the training GPU: one process's programs run there
-  one after the other, so training would still wait. NVIDIA's MPS does not
-  change that: it lets several processes share a GPU, and the evaluator is a
-  thread of the training process.</li>
-<li>The CPU also works, but an evaluation of a GPU run is much slower there,
-  and it shares the host's cores with training. On a busy machine, a CPU
+<li><strong>The same scores.</strong> They are those of the evaluation in place: the
+  policy at that timestep, on the same keys, up to floating-point rounding.
+  The training metrics are taken at the evaluation's step.</li>
+<li><strong>When they arrive.</strong> Each evaluation reaches the backends once scored,
+  under its own timestep. <code>train</code> waits for the last one and returns every
+  evaluation, as without the option.</li>
+<li><strong>Which device.</strong> A second GPU, not the training GPU: one process's
+  programs run there one after the other, so training would still wait
+  (NVIDIA's MPS does not change that: the evaluator is a thread of the
+  training process). The CPU works too, but evaluates a GPU run much more
+  slowly, on the host's cores that training uses: on a busy machine, a CPU
   evaluator saved a MuJoCo Warp run no time.</li>
-<li>On the CPU, a MuJoCo Warp task is evaluated on MJX's pure-JAX physics,
-  as Warp runs on NVIDIA GPUs only. Both step the same model, but tasks with
-  contacts drift apart over an episode, so the scores differ a little from
-  a Warp evaluation's.</li>
-<li>The device must keep up: an evaluation that takes longer than the training
-  between two waits for the one before it, and <code>train</code> waits for all of
-  them at the end.</li>
-<li>Gymnasium environments, which step in Python, and APG, which evaluates
-  inside its iterations, refuse it.</li>
+<li><strong>Warp on the CPU.</strong> A MuJoCo Warp task is evaluated there on MJX's
+  pure-JAX physics, as Warp runs on NVIDIA GPUs only. Both step the same
+  model, but tasks with contacts drift apart over an episode, so the scores
+  differ a little from a Warp evaluation's.</li>
+<li><strong>Keeping up.</strong> An evaluation that takes longer than the training between
+  two waits for the one before it, and <code>train</code> waits for all of them at the
+  end.</li>
+<li><strong>Refused</strong> by Gymnasium environments, which step in Python, and by APG,
+  which evaluates inside its iterations.</li>
 </ul>
 <h2 id="backends">Backends<a class="headerlink" href="#backends" title="Permanent link">&para;</a></h2>
-<p>Each seed is its own run, with its own id; after <code>train</code>, <code>agent.run_ids</code>
+<p>Each seed is its own run, with its own id. After <code>train</code>, <code>agent.run_ids</code>
 lists them, and <code>train(..., on_ids_ready=callback)</code> hands them to
 <code>callback</code> before training starts.</p>
-<ul>
-<li><code>TensorBoardBackend(folder=".")</code> writes each run to
-  <code>&lt;folder&gt;/tensorboard/&lt;run id&gt;/</code>, with its <code>config.json</code>. Metrics that are
-  not one number are left out. Ajax writes the files; the viewer is
-  TensorBoard itself, installed apart: <code>pip install tensorboard</code>, then
-  <code>tensorboard --logdir &lt;folder&gt;</code>.</li>
-<li><code>WandbBackend(project=None, group=None)</code> logs to Weights &amp; Biases: install
-  the <code>wandb</code> extra and log in once with <code>wandb login</code>. Each run is created
-  in your process before training, so a missing login fails at once.
-  <code>WandbBackend(steps=False)</code> creates the runs and sends them no evaluation,
-  as the deprecated <code>use_wandb</code> with <code>evaluate_last_fifth_only=True</code> does.</li>
-<li>A backend of your own: <a href="#a-backend-of-your-own">below</a>.</li>
-</ul>
+<table>
+<thead>
+<tr>
+<th>Backend</th>
+<th>Where it logs</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>TensorBoardBackend(folder=".")</code></td>
+<td>each run in <code>&lt;folder&gt;/tensorboard/&lt;run id&gt;/</code>, with its <code>config.json</code>; metrics that are not one number are left out. Ajax writes the files; the viewer is TensorBoard itself, installed apart: <code>pip install tensorboard</code>, then <code>tensorboard --logdir &lt;folder&gt;</code></td>
+</tr>
+<tr>
+<td><code>WandbBackend(project=None, group=None)</code></td>
+<td>Weights &amp; Biases: install the <code>wandb</code> extra and log in once with <code>wandb login</code>. Each run is created in your process before training, so a missing login fails at once. <code>WandbBackend(steps=False)</code> creates the runs and sends them no evaluation, as the deprecated <code>use_wandb</code> with <code>evaluate_last_fifth_only=True</code> does</td>
+</tr>
+<tr>
+<td>your own</td>
+<td><a href="#a-backend-of-your-own">below</a></td>
+</tr>
+</tbody>
+</table>
 <div class="admonition warning">
 <p class="admonition-title">Guard your script's entry point</p>
 <p>The logging worker is a separate Python process started with <code>spawn</code>,
@@ -3701,13 +3712,39 @@ Put the training under <code>if __name__ == "__main__":</code>, as below.</p>
 <p><code>load_scalars_from_tfevents</code> reads the scalars back without TensorFlow.</p>
 <h3 id="a-backend-of-your-own">A backend of your own<a class="headerlink" href="#a-backend-of-your-own" title="Permanent link">&para;</a></h3>
 <p>Any object with <code>open(run)</code>, <code>log(run_id, step, metrics)</code> and <code>close()</code> is a
-backend (<code>ajax.logging.LoggingBackend</code>). <code>open</code> gets a <code>RunInfo</code> (the run's
-<code>run_id</code>, <code>name</code>, <code>config</code> and <code>seed</code>) before the run's first evaluation;
-<code>log</code> gets each evaluation's metrics, numpy arrays by name, at environment
-step <code>step</code>, without those that are NaN; <code>close</code> comes once, when training
-ends. One backend object serves every seed's run. An optional
-<code>start(run)</code> runs in your process for each run before training, for what
-must happen at once.</p>
+backend (<code>ajax.logging.LoggingBackend</code>). One backend object serves every
+seed's run:</p>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>When it is called</th>
+<th>What it gets</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>open(run)</code></td>
+<td>before the run's first evaluation</td>
+<td>a <code>RunInfo</code>: the run's <code>run_id</code>, <code>name</code>, <code>config</code> and <code>seed</code></td>
+</tr>
+<tr>
+<td><code>log(run_id, step, metrics)</code></td>
+<td>at each evaluation</td>
+<td>the metrics, numpy arrays by name, at environment step <code>step</code>, without those that are NaN</td>
+</tr>
+<tr>
+<td><code>close()</code></td>
+<td>once, when training ends</td>
+<td></td>
+</tr>
+<tr>
+<td><code>start(run)</code>, optional</td>
+<td>in your process, for each run, before training</td>
+<td>a <code>RunInfo</code>, for what must happen at once</td>
+</tr>
+</tbody>
+</table>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">json</span>
 <a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>
 <a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax.logging</span><span class="w"> </span><span class="kn">import</span> <span class="n">LoggingConfig</span>
@@ -3746,17 +3783,17 @@ process takes them off and writes them. The worker:</p>
 <ul>
 <li>runs on the CPU, so it never reserves GPU memory;</li>
 <li>passes each evaluation to the run's backends as it arrives: TensorBoard
-  writes it at once; W&amp;B buffers the steps and sends them ten at a time
-  (<code>WandbBackend(batch_size=10)</code>), in one W&amp;B session per batch, because
-  opening a W&amp;B run is slow and W&amp;B allows only one active run per process,
-  so W&amp;B charts update in steps of ten evaluations;</li>
+  writes it at once; W&amp;B sends the steps ten at a time
+  (<code>WandbBackend(batch_size=10)</code>), one W&amp;B session per batch, since opening
+  a W&amp;B run is slow and W&amp;B allows one active run per process, so its
+  charts update in steps of ten evaluations;</li>
 <li>is drained and stopped when <code>train</code> returns, so every metric is written
   before <code>train</code> hands back the state.</li>
 </ul>
-<p>The worker starts only when a run has a backend. The callback has one cost:
-JAX never stores a program that contains one in its persistent compile
-cache, so a run with a <code>LoggingConfig</code> compiles again in every new process.
-See <a href="../performance/">Performance</a>.</p>
+<p>The worker starts only when a run has a backend. JAX 0.10 never stores a
+program that contains a callback in its persistent compile cache, so there a
+run with a <code>LoggingConfig</code> compiles again in every new process; JAX 0.11
+caches it (<a href="../performance/">Performance</a>).</p>
 
 
 

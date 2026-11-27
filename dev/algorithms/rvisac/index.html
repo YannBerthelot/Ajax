@@ -1236,10 +1236,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#can-i-use" class="md-nav__link">
+  <a href="#when-to-use-it" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Can I use?
+        When to use it
       
     </span>
   </a>
@@ -1262,6 +1262,17 @@
     <span class="md-ellipsis">
       
         Key hyperparameters
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#differences-from-the-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Differences from the reference
       
     </span>
   </a>
@@ -2994,10 +3005,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#can-i-use" class="md-nav__link">
+  <a href="#when-to-use-it" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Can I use?
+        When to use it
       
     </span>
   </a>
@@ -3020,6 +3031,17 @@
     <span class="md-ellipsis">
       
         Key hyperparameters
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#differences-from-the-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Differences from the reference
       
     </span>
   </a>
@@ -3147,53 +3169,68 @@
 
 <h1 id="rvi-sac">RVI-SAC<a class="headerlink" href="#rvi-sac" title="Permanent link">&para;</a></h1>
 <p>RVI-SAC is SAC for the average-reward criterion, learned by relative value
-iteration (RVI) Q-learning: it maximises the long-run reward per step
-instead of a discounted sum, so it has no <code>gamma</code>. Its critics learn a
-differential soft value on <code>r - xi</code>, where the offset <code>xi</code> follows the
-batch mean of the target's next values. A termination does not end its
-target: the agent goes on from the reset state and pays a reset cost, which
-it learns to keep episodes from ending more often than a target rate. Use it
-for continuing tasks, or for episodic ones read as continuing.</p>
-<p><strong>Paper.</strong> Hisaki and Ono, <em>RVI-SAC: Average Reward Off-Policy Deep
+iteration (RVI) Q-learning: it maximises the long-run reward per step, so
+it has no <code>gamma</code>. Its critics learn a differential soft value on
+<code>r - xi</code>, where the offset <code>xi</code> follows the batch mean of the target's
+next values. A termination does not end its target: the agent goes on
+from the reset state and pays a learned reset cost.</p>
+<p><strong>Paper:</strong> Hisaki and Ono, <em>RVI-SAC: Average Reward Off-Policy Deep
 Reinforcement Learning</em>, ICML 2024
-(<a href="https://arxiv.org/abs/2408.01972">arXiv:2408.01972</a>); the authors' code is
-<a href="https://github.com/yhisaki/average-reward-drl">yhisaki/average-reward-drl</a>.</p>
-<h2 id="can-i-use">Can I use?<a class="headerlink" href="#can-i-use" title="Permanent link">&para;</a></h2>
+(<a href="https://arxiv.org/abs/2408.01972">arXiv:2408.01972</a>). Ajax follows the
+authors' code, <code>yhisaki/average-reward-drl</code> at <code>b5b0d31</code>.</p>
+<h2 id="when-to-use-it">When to use it<a class="headerlink" href="#when-to-use-it" title="Permanent link">&para;</a></h2>
+<p>RVI-SAC suits continuing tasks, or episodic ones read as continuing, where
+a discount factor only shortens the agent's view. Where <a href="../asac/">ASAC</a>
+charges a termination a penalty learned from the rewards, RVI-SAC holds
+the termination rate under a target. <a href="../apo/">APO</a> is the on-policy
+average-reward agent.</p>
 <table>
 <thead>
 <tr>
-<th></th>
+<th>Feature</th>
 <th>RVI-SAC</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>Continuous actions (<code>Box</code>)</td>
-<td>Yes</td>
-</tr>
-<tr>
 <td>Discrete actions</td>
-<td>No</td>
+<td>no</td>
 </tr>
 <tr>
-<td>Learning</td>
-<td>Off-policy, replay buffer</td>
+<td>Continuous actions</td>
+<td>yes, a <code>tanh</code>-squashed Gaussian, mapped onto the environment's bounds</td>
 </tr>
 <tr>
-<td>Vectorised environments (<code>n_envs</code>)</td>
-<td>Yes</td>
+<td>Memory (<code>memory=</code>)</td>
+<td>yes, on replayed sequences, without <code>expert_policy</code> or most extensions (<a href="../../guide/memory/">Memory</a>)</td>
 </tr>
 <tr>
-<td>Recurrent memory (<code>memory=</code>)</td>
-<td>Yes, without extensions or <code>expert_policy</code></td>
+<td>Environments</td>
+<td>gymnax, Brax, MuJoCo Playground</td>
 </tr>
 <tr>
-<td>PID policy (<code>actor_architecture=PIDPolicy(...)</code>)</td>
-<td>Yes</td>
+<td>Image observations</td>
+<td>no</td>
+</tr>
+<tr>
+<td>PID policy</td>
+<td>yes, <code>actor_architecture=PIDPolicy(...)</code> (<a href="../../guide/networks/">Networks</a>)</td>
+</tr>
+<tr>
+<td>Several seeds in one call</td>
+<td>yes, <code>train(seed=[...])</code></td>
+</tr>
+<tr>
+<td>Offline training</td>
+<td>yes, <code>train_offline</code> (<a href="../../guide/training/#training-offline">Training</a>)</td>
 </tr>
 <tr>
 <td>Extension phases</td>
-<td><code>pretrain</code>, <code>post_update</code>, <code>eval_metrics</code>, <code>observe</code>, <code>on_target</code>, <code>critic_loss</code>, <code>actor_loss</code>, <code>transform_action</code>, <code>actuate</code>, <code>choose_warmup_action</code>, <code>choose_replay_action</code></td>
+<td><code>pretrain</code>, <code>post_update</code>, <code>eval_metrics</code>, <code>observe</code>, <code>on_target</code>, <code>critic_loss</code>, <code>actor_loss</code>, <code>action</code>, <code>eval_action</code>, <code>transform_action</code>, <code>actuate</code>, <code>choose_warmup_action</code>, <code>choose_replay_action</code>, <code>track_memory</code> (<a href="../../guide/compatibility/">which extensions run</a>)</td>
+</tr>
+<tr>
+<td>Resume and checkpoints</td>
+<td>yes; a run split by a checkpoint equals the run left whole</td>
 </tr>
 </tbody>
 </table>
@@ -3210,8 +3247,8 @@ Reinforcement Learning</em>, ICML 2024
 </code></pre></div>
 <p>This budget only shows the call; Pendulum needs more steps to be solved.</p>
 <h2 id="key-hyperparameters">Key hyperparameters<a class="headerlink" href="#key-hyperparameters" title="Permanent link">&para;</a></h2>
-<p>Defaults are read from <code>RVISAC.__init__</code>. They are the authors' (their
-Table 1 and <code>rvi_sac.yaml</code>).</p>
+<p>Every default is the authors' (their Table 1 and <code>rvi_sac.yaml</code>). The
+<a href="#api">API</a> section lists every argument.</p>
 <table>
 <thead>
 <tr>
@@ -3229,27 +3266,12 @@ Table 1 and <code>rvi_sac.yaml</code>).</p>
 <tr>
 <td><code>actor_learning_rate</code>, <code>critic_learning_rate</code>, <code>alpha_learning_rate</code></td>
 <td><code>3e-4</code></td>
-<td>Adam step sizes (Adam's epsilon is torch's 1e-8)</td>
+<td>Adam step sizes (epsilon <code>1e-8</code>, torch's)</td>
 </tr>
 <tr>
 <td><code>actor_architecture</code>, <code>critic_architecture</code></td>
 <td><code>("256", "relu", "256", "relu")</code></td>
-<td>hidden layers (plain MLPs)</td>
-</tr>
-<tr>
-<td><code>buffer_size</code></td>
-<td><code>1_000_000</code></td>
-<td>replay capacity</td>
-</tr>
-<tr>
-<td><code>batch_size</code></td>
-<td><code>None</code></td>
-<td>replay minibatch: 256 rows, or 64 windows with <code>memory=</code></td>
-</tr>
-<tr>
-<td><code>learning_starts</code></td>
-<td><code>10_000</code></td>
-<td>steps of uniform random actions before the first update</td>
+<td>hidden layers</td>
 </tr>
 <tr>
 <td><code>tau</code></td>
@@ -3264,12 +3286,27 @@ Table 1 and <code>rvi_sac.yaml</code>).</p>
 <tr>
 <td><code>reset_cost</code></td>
 <td><code>ResetCostSettings()</code></td>
-<td>the reset cost: target rate <code>1e-3</code>, a <code>("64", "relu", "64", "relu")</code> reset critic, its rate followed at <code>0.005</code>, Adam at <code>3e-4</code>; <code>None</code> charges no cost</td>
+<td>the reset cost: target rate <code>1e-3</code>, a <code>("64", "relu", "64", "relu")</code> reset critic whose rate is followed at <code>0.005</code>, Adam at <code>3e-4</code>; <code>None</code> charges no cost</td>
+</tr>
+<tr>
+<td><code>buffer_size</code></td>
+<td><code>1_000_000</code></td>
+<td>replay capacity</td>
+</tr>
+<tr>
+<td><code>batch_size</code></td>
+<td><code>None</code></td>
+<td>rows per update: 256, or 64 sequences with <code>memory=</code></td>
+</tr>
+<tr>
+<td><code>learning_starts</code></td>
+<td><code>10_000</code></td>
+<td>steps of uniform random actions before the first update</td>
 </tr>
 <tr>
 <td><code>alpha_init</code></td>
 <td><code>1.0</code></td>
-<td>entropy weight at the start</td>
+<td>initial entropy weight</td>
 </tr>
 <tr>
 <td><code>fixed_alpha</code></td>
@@ -3279,7 +3316,7 @@ Table 1 and <code>rvi_sac.yaml</code>).</p>
 <tr>
 <td><code>target_entropy_per_dim</code></td>
 <td><code>-1.0</code></td>
-<td>target entropy, times the action dimension</td>
+<td>target entropy per action dimension</td>
 </tr>
 <tr>
 <td><code>reward_scale</code></td>
@@ -3294,75 +3331,84 @@ Table 1 and <code>rvi_sac.yaml</code>).</p>
 <tr>
 <td><code>normalize_observations</code>, <code>normalize_rewards</code></td>
 <td><code>False</code></td>
-<td>running normalisation</td>
-</tr>
-<tr>
-<td><code>expert_policy</code></td>
-<td><code>None</code></td>
-<td>an expert whose return the evaluation reports next to the agent's (<code>Eval/expert bias</code>)</td>
+<td>running normalisation (<a href="../../guide/environments/">Environments</a>)</td>
 </tr>
 <tr>
 <td><code>memory</code>, <code>burn_in</code>, <code>sequence_length</code>, <code>stored_state</code></td>
 <td><code>None</code>, <code>0</code>, <code>64</code>, <code>False</code></td>
-<td>recurrent memory (see <a href="../../guide/memory/">Memory</a>)</td>
+<td>recurrent memory and its sequence replay (<a href="../../guide/memory/">Memory</a>)</td>
+</tr>
+<tr>
+<td><code>episode_length</code>, <code>action_repeat</code></td>
+<td><code>None</code>, <code>1</code></td>
+<td>simulator steps per episode and per agent step, on Brax and Playground; <code>None</code> is 1,000 steps, or a <code>mujoco:</code> task's own time limit (<a href="../../guide/environments/#brax-and-playground">Environments</a>)</td>
+</tr>
+<tr>
+<td><code>expert_policy</code></td>
+<td><code>None</code></td>
+<td>an expert the run tracks; each evaluation logs its return next to the agent's (<code>Eval/expert bias</code>)</td>
 </tr>
 <tr>
 <td><code>extensions</code></td>
 <td><code>()</code></td>
-<td>research features (see <a href="../../guide/extensions/">Extensions</a>)</td>
+<td>research features (<a href="../../guide/extensions/">Extensions</a>)</td>
 </tr>
 </tbody>
 </table>
+<h2 id="differences-from-the-reference">Differences from the reference<a class="headerlink" href="#differences-from-the-reference" title="Permanent link">&para;</a></h2>
+<p>One update of each from the same state agrees to within float32 rounding
+(<a href="#results">Results</a>). Two details differ from the authors' code or paper:</p>
+<ul>
+<li>The authors' actor draws its mean and log-std from one output layer,
+  one orthogonal matrix; here each head draws its own.</li>
+<li>The paper's analysis clips <code>xi</code>; the authors' code does not, and neither
+  does Ajax.</li>
+</ul>
 <h2 id="notes">Notes<a class="headerlink" href="#notes" title="Permanent link">&para;</a></h2>
 <ul>
 <li><strong>Target.</strong> <code>r - c 1(terminated) - xi + min(Q'_1, Q'_2)(s', a') - alpha log pi(a'|s')</code>,
-  <code>a' ~ pi(.|s')</code>. There is no cut at a termination: the replay's next
-  observation after a termination is the reset one, and the target reads
-  its value, as the authors' reset scheme does. A time limit bootstraps
-  from the final observation. Each critic's squared error is summed over the
-  two critics (no factor 1/2), as in the authors' code.</li>
-<li><strong>Centering.</strong> After the critics' step, <code>xi</code> moves to <code>(1 - rate) xi +
-  rate * mean(V'(s'))</code>, the batch mean of the values the target read
-  (<code>ajax.agents.centering.RVIBatchMean</code>, the paper's Eq. 18). The paper's
-  analysis clips <code>xi</code>; the authors' code does not, and neither does Ajax.
+  with <code>a' ~ pi(.|s')</code>. Nothing cuts at a termination: the replay's next
+  observation after one is the reset observation, whose value the target
+  reads, as in the authors' reset scheme. A time limit bootstraps from the
+  final observation. The critic loss sums the two critics' squared errors.</li>
+<li><strong>Centering.</strong> After the critics' step, <code>xi</code> moves to
+  <code>(1 - rate) xi + rate * mean(V'(s'))</code>, the batch mean of the values the
+  target read (<code>RVIBatchMean</code>, the paper's Eq. 18).
   <code>centering=ReferencePoint(...)</code> reads the target critics at one
-  state-action pair instead (the authors' <code>rvi_sac_with_reference</code>).</li>
-<li><strong>Reset cost.</strong> A reset critic, a 64-64 network, learns the rate at
-  which the policy terminates by the same RVI rule on the termination
-  indicator (<code>ajax.agents.reset_cost</code>); the cost <code>c</code>, a Lagrange multiplier
-  starting at 0, takes an Adam step up while that rate exceeds the target
-  rate and down while it is below, and never goes below 0.</li>
+  state-action pair instead (the authors' <code>rvi_sac_with_reference</code>); both
+  are in <code>ajax.agents.centering</code>.</li>
+<li><strong>Reset cost.</strong> A 64-64 reset critic learns the rate at which the policy
+  terminates, by the same RVI rule on the termination indicator. The cost
+  <code>c</code>, a Lagrange multiplier starting at 0, takes an Adam step up while
+  that rate exceeds the target rate and down while it is below, and never
+  goes below 0.</li>
 <li><strong>One update.</strong> The critics' and the reset critic's steps, the offsets,
   an actor step on <code>alpha log pi - min_i Q_i</code>, a temperature step on the
   actor step's sample (<code>alpha (-log pi - H_target)</code>, its gradient through
   <code>alpha</code>), the reset cost's step, then the target updates, in the
-  authors' order. Each iteration steps every env once, then makes one
-  update.</li>
-<li><strong>Two critics.</strong> RVI-SAC always uses two critics; it has no <code>num_critics</code>.</li>
-<li><strong>Extensions.</strong> RVI-SAC tells its extensions there is no discount: they
-  receive <code>gamma=None</code>, and <code>dones</code> is all zeros (the target cuts
-  nowhere). It centres its values and prices terminations itself, so
-  <code>ValueCentering</code> and <code>ResetCost</code> refuse it.</li>
-<li><strong>Initialisation.</strong> As the authors' code: every layer, the reset
+  authors' order.</li>
+<li><strong>Two critics,</strong> always: RVI-SAC has no <code>num_critics</code>. It tells its
+  extensions there is no discount (<code>gamma=None</code>, <code>dones</code> all zeros). It
+  centres its values and prices terminations itself, so <code>ValueCentering</code>
+  and <code>ResetCost</code> refuse it.</li>
+<li><strong>Initialisation.</strong> As in the authors' code, every layer, the reset
   critic's too, starts orthogonal with gain <code>sqrt(1/3)</code> and a zero bias.
-  The authors' actor draws its mean and log-std from one output layer; here
-  each head draws its own. With <code>memory=</code>, RVI-SAC keeps Ajax's
-  initialisation, as recurrent SAC and ASAC do.</li>
-<li><strong>Actions and evaluation.</strong> A <code>tanh</code>-squashed Gaussian in <code>[-1, 1]</code>
-  (log-std clipped to <code>[-20, 2]</code>), mapped onto the environment's bounds.
-  Evaluation, as the authors', takes the mean of <code>tanh</code> at the latent mean
-  plus and minus its standard deviation, not <code>tanh</code> of the mean.</li>
+  With <code>memory=</code>, RVI-SAC builds Ni et al. (2022)'s recurrent networks and
+  their initialisation, as the other recurrent off-policy agents do.</li>
+<li><strong>Evaluation</strong>, as the authors', takes the mean of <code>tanh</code> at the latent
+  mean plus and minus its standard deviation, not <code>tanh</code> of the mean.</li>
 </ul>
 <h2 id="results">Results<a class="headerlink" href="#results" title="Permanent link">&para;</a></h2>
 <p>The repository records no learning curves for RVI-SAC yet. A conformance
 check (<code>tests/conformance/test_rvisac_original.py</code>) makes one update of
 Ajax's RVI-SAC and of the authors' code from the same state and batch, at
 four recorded updates (two from initialisation, two after 400 warm-up
-updates, a quarter of each batch terminating), and compares every
-network and target, the five optimisers, the temperature, the reset cost,
-<code>xi</code> and the reset rate, and the evaluation action. The probes
-(<code>tests/probing/test_average_reward.py</code>) train it on a reset cycle whose
-differential values, reward rate and termination rate have closed forms.</p>
+updates), and compares every network and target, the five optimisers, the
+temperature, the reset cost, <code>xi</code>, the reset rate and the evaluation
+action. A probe (<code>tests/probing/test_average_reward.py</code>) trains it on a
+reset cycle whose differential values, reward rate and termination rate
+have closed forms. <a href="../../guide/performance/">Performance</a> compares its
+speed with the other agents'.</p>
 <h2 id="api">API<a class="headerlink" href="#api" title="Permanent link">&para;</a></h2>
 
 

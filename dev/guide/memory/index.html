@@ -3182,6 +3182,11 @@ task. Without <code>memory</code>, the same agent cannot tell which way the pole
 </tr>
 </tbody>
 </table>
+<p>With memory, SAC, ASAC, RVI-SAC, REDQ, TD3, TQC and PPO take no expert
+policy yet, and of the extensions only those that act outside the update,
+such as observation features: the others raise an error when training
+starts rather than run untested combinations. APG alone takes memory with
+an expert and extensions, its rollout carrying the memory through both.</p>
 <h2 id="the-kinds">The kinds<a class="headerlink" href="#the-kinds" title="Permanent link">&para;</a></h2>
 <p><code>MemoryConfig</code> (or the same settings as a dictionary) chooses the block:</p>
 <table>
@@ -3238,7 +3243,7 @@ task. Without <code>memory</code>, the same agent cannot tell which way the pole
 </tr>
 <tr>
 <td><code>num_layers</code></td>
-<td>1</td>
+<td><code>1</code></td>
 <td>every kind</td>
 </tr>
 <tr>
@@ -3248,18 +3253,18 @@ task. Without <code>memory</code>, the same agent cannot tell which way the pole
 </tr>
 <tr>
 <td><code>window</code>, <code>num_heads</code></td>
-<td>32, 4</td>
+<td><code>32</code>, <code>4</code></td>
 <td>transformer: a step attends to itself and the <code>window - 1</code> steps before it in the same episode</td>
 </tr>
 <tr>
 <td><code>d_state</code>, <code>d_conv</code>, <code>expand</code></td>
-<td>16, 4, 2</td>
+<td><code>16</code>, <code>4</code>, <code>2</code></td>
 <td>mamba: state size, causal-convolution width, inner-width multiplier</td>
 </tr>
 <tr>
 <td><code>final_norm</code></td>
 <td><code>True</code></td>
-<td>transformer, mamba: end with a LayerNorm, as GPT-2 and Mamba do; <code>False</code> only restores a checkpoint saved before it, and goes once none remains (an APG controller's parameters also map exactly onto the new network with <code>controller_params_with_final_norm</code>, which maps the parameters only, so a resumed training state must restart its optimizer)</td>
+<td>transformer, mamba: end with a LayerNorm, as GPT-2 and Mamba do; <code>False</code> only restores a checkpoint saved before Ajax added it</td>
 </tr>
 <tr>
 <td><code>bias</code></td>
@@ -3283,31 +3288,31 @@ task. Without <code>memory</code>, the same agent cannot tell which way the pole
 </tr>
 </tbody>
 </table>
-<p>Acting and training run the same code, a sequence of one step being the
-acting case, so what the agent learns is what it executes. Each kind is
-tested for that equivalence.</p>
-<p>Memory has a price, on the CPU especially. One measurement in
-<a href="https://github.com/YannBerthelot/Ajax/blob/main/PERFORMANCE_REPORT.md">PERFORMANCE_REPORT.md</a> (recurrent SAC on
-Pendulum, 4 copies, 2,048 steps, CPU) took about 16 s with a GRU or a
-transformer and about 95 s with Mamba.</p>
+<p>Acting and training run the same code, acting being a sequence of one step,
+so what the agent learns is what it executes; each kind is tested for that.
+Memory has a price, on the CPU especially: recurrent SAC on Pendulum (4
+copies, 2,048 steps, CPU) took about 16 s with a GRU or a transformer and
+about 95 s with Mamba (<a href="https://github.com/YannBerthelot/Ajax/blob/main/PERFORMANCE_REPORT.md">PERFORMANCE_REPORT.md</a>).</p>
 <h2 id="on-policy-ppo">On-policy: PPO<a class="headerlink" href="#on-policy-ppo" title="Permanent link">&para;</a></h2>
 <p>PPO collects a rollout of <code>n_steps</code> per copy (<code>n_envs</code> copies) with the
 memory running, cuts each copy's rollout into pieces of <code>bptt_length</code> steps
-and shuffles whole pieces, never single steps, into its minibatches. A piece
-starts from the memory the policy had at its first step while collecting
-(recomputed once before the update), never from zero in the middle of an
-episode. Gradients flow through a piece but not back past its start:
-<code>bptt_length</code> is how far back backpropagation through time reaches. Where a
-time limit cut an episode, the value it bootstraps on is the critic's on the
-episode's final observation, read with the memory that episode built, as
-sb3-contrib's <code>RecurrentPPO</code> does.</p>
-<p>PPO's actor and critic keep separate memories by default, and each reads
-its memory through a 128-unit ReLU layer, as PureJaxRL's heads do.
-<code>share_encoder=True</code> gives them one memory, as ppo2's recurrent policies and
-PureJaxRL do; in Ajax that memory does not yet learn what the observation
-hides (see the networks guide).
-The off-policy agents' actor and critics keep separate memories, as Ni et
-al. (2022)'s do; their critics share one.</p>
+and shuffles whole pieces, never single steps, into its minibatches.</p>
+<ul>
+<li><strong>A piece starts from the memory the policy had</strong> at its first step while
+  collecting (recomputed once before the update), never from zero in the
+  middle of an episode.</li>
+<li><strong>Gradients flow through a piece but not back past its start</strong>:
+  <code>bptt_length</code> is how far back backpropagation through time reaches.</li>
+<li><strong>At a time limit</strong>, the value the episode bootstraps on is the critic's
+  on the episode's final observation, read with the memory that episode
+  built, as sb3-contrib's <code>RecurrentPPO</code> does.</li>
+<li><strong>Separate memories.</strong> PPO's actor and critic keep separate memories by
+  default, and each reads its memory through a 128-unit ReLU layer, as
+  PureJaxRL's heads do. <code>share_encoder=True</code> gives them one memory, as
+  ppo2's recurrent policies and PureJaxRL do; in Ajax that memory does not
+  yet learn what the observation hides
+  (<a href="../networks/#a-shared-encoder">A shared encoder</a>).</li>
+</ul>
 <h3 id="the-libraries-disagree-on-the-length">The libraries disagree on the length<a class="headerlink" href="#the-libraries-disagree-on-the-length" title="Permanent link">&para;</a></h3>
 <p>No PPO paper gives one length for every task, and the reference codes fall
 into two camps:</p>
@@ -3365,7 +3370,9 @@ ends, and a piece starts from the memory the policy had while collecting.</p>
 <h3 id="what-ajax-does-by-default">What Ajax does by default<a class="headerlink" href="#what-ajax-does-by-default" title="Permanent link">&para;</a></h3>
 <p>With <code>bptt_length=None</code> (the default) the number of minibatches chooses the
 length: the longest pieces that cut every rollout into equal parts and split
-exactly into the minibatches.</p>
+exactly into the minibatches. That number is <code>num_minibatches</code> when
+positive, otherwise <code>max(n_steps, batch_size) // min(n_steps, batch_size)</code>
+(<a href="../../algorithms/ppo/">PPO</a>).</p>
 <ul>
 <li>When <code>n_envs</code> is a multiple of the number of minibatches, a piece is a
   copy's whole rollout and a minibatch holds the rollouts of
@@ -3375,12 +3382,9 @@ exactly into the minibatches.</p>
   num_minibatches)</code> equal pieces. When that count does not divide <code>n_steps</code>
   no length splits, and PPO refuses the settings at construction.</li>
 </ul>
-<p>No published length fits every task, so Ajax keeps the reference codes'
-whole rollouts whenever the settings allow them, cuts the rollouts only as
-much as the requested minibatches need, and always trains on the number of
-minibatches it was asked for. That number is <code>num_minibatches</code> when
-positive, otherwise <code>max(n_steps, batch_size) // min(n_steps, batch_size)</code>
-(see <a href="../../algorithms/ppo/">PPO</a>).</p>
+<p>So Ajax keeps the reference codes' whole rollouts whenever the settings
+allow them, cuts the rollouts only as much as the requested minibatches
+need, and always trains on the number of minibatches it was asked for:</p>
 <table>
 <thead>
 <tr>
@@ -3392,10 +3396,10 @@ positive, otherwise <code>max(n_steps, batch_size) // min(n_steps, batch_size)</
 </thead>
 <tbody>
 <tr>
-<td>PPO's defaults: <code>n_envs=4</code>, <code>n_steps=2048</code>, <code>batch_size=64</code></td>
+<td>PPO's defaults: <code>n_envs=1</code>, <code>n_steps=2048</code>, <code>batch_size=64</code></td>
 <td>2048 // 64 = 32</td>
-<td>256: 32 // gcd(4, 32) = 8 pieces per rollout</td>
-<td>one 256-step piece</td>
+<td>64: 32 // gcd(1, 32) = 32 pieces per rollout</td>
+<td>one 64-step piece</td>
 </tr>
 <tr>
 <td>PureJaxRL's defaults: <code>n_envs=4</code>, <code>n_steps=128</code>, <code>num_minibatches=4</code></td>
@@ -3427,19 +3431,19 @@ positive, otherwise <code>max(n_steps, batch_size) // min(n_steps, batch_size)</
 <ul>
 <li><strong>To reproduce Baselines, CleanRL or PureJaxRL</strong>, leave <code>bptt_length=None</code>
   and set <code>num_minibatches</code> to a divisor of <code>n_envs</code>, as in the second and
-  third rows. PPO's defaults do not (4 copies, 32 minibatches): they learn on
-  256-step pieces, with 32 × 10 epochs = 320 gradient steps per update, as
+  third rows. PPO's defaults do not (1 copy, 32 minibatches): they learn on
+  64-step pieces, with 32 × 10 epochs = 320 gradient steps per update, as
   the feedforward PPO takes.</li>
 <li><strong>An explicit <code>bptt_length</code> can only shorten the pieces.</strong> It must divide
-  the default length (256 with PPO's defaults); PPO refuses any other value.
+  the default length (64 with PPO's defaults); PPO refuses any other value.
   For longer pieces, ask for fewer minibatches.</li>
 <li><strong>The pieces must cover the memory horizon the task needs.</strong> No gradient
   crosses the start of a piece, so the memory learns to keep a cue only from
-  pieces holding both the step that shows it and the step that needs it. For
-  a cue needed k steps later, 2k-step pieces hold both for only about half
-  the places the cue can fall: make them several times longer than k. The
-  memory still crosses pieces: this limits what the policy learns to keep,
-  not what it uses once learned.</li>
+  pieces holding both the step that shows it and the step that needs it.
+  For a cue needed k steps later, 2k-step pieces hold both for only about
+  half the places the cue can fall: make them several times longer than k.
+  The memory still crosses pieces: this limits what the policy learns to
+  keep, not what it uses once learned.</li>
 <li><strong>Shorter pieces trade that reach for cost.</strong> An update takes <code>n_epochs</code>
   × the number of minibatches gradient steps, whatever <code>bptt_length</code>.
   Shorter pieces give a GRU or an LSTM, which steps through a piece one step
@@ -3466,70 +3470,93 @@ with R2D2's burn-in and stored state as options (Kapturowski et al., 2019):</p>
 <a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="p">)</span>
 <a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a><span class="n">state</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">seed</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">400</span><span class="p">)</span>
 </code></pre></div>
-<p>Each sampled sequence has <code>burn_in + sequence_length + 1</code> steps. The memory
-starts from zero, runs through the first <code>burn_in</code> steps with the current
-networks and no gradient, and the losses then train on the next
-<code>sequence_length</code> steps. The burn-in lets the memory reach a realistic state
-before the steps that are learned from. With <code>stored_state=True</code> the buffer
-also stores the actor's memory at every step, and the actor starts the
-learned steps from the memory it had when it acted; the critics, which do
-not run while acting, are still burned in from zero. Kapturowski et al.
-found stored state better than a zero start with burn-in at keeping the
-replayed memory close to the one the policy had. The defaults are Ni et
-al.'s: <code>burn_in=0</code>, <code>sequence_length=64</code>, <code>stored_state=False</code>, and
-<code>batch_size=64</code> windows (without memory, <code>batch_size</code> counts rows: 256).
-A window then starts from a zero memory, and its first row reads no
-previous action or reward, as an episode's first does; Ni et al. sample
-each window inside one finished episode and mask the steps past its end,
-where Ajax's windows may cross an episode's end, the memory restarting
-there, and every step is trained. The agent refuses
-at construction a <code>learning_starts</code> that would not leave each copy one
-whole sequence before the first update (<code>learning_starts // n_envs</code> must
-exceed <code>burn_in + sequence_length + 1</code>), and <code>stored_state=True</code> without
-<code>memory=</code>.</p>
+<p>The defaults are Ni et al.'s:</p>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th>Default</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>burn_in</code></td>
+<td><code>0</code></td>
+<td>steps run through the current networks without gradient, from a zero memory, so it reaches a realistic state before the steps that are learned from</td>
+</tr>
+<tr>
+<td><code>sequence_length</code></td>
+<td><code>64</code></td>
+<td>the steps the losses train on after the burn-in; a sampled sequence has <code>burn_in + sequence_length + 1</code> steps</td>
+</tr>
+<tr>
+<td><code>stored_state</code></td>
+<td><code>False</code></td>
+<td><code>True</code> also stores the actor's memory at every step, and the actor starts the learned steps from the memory it had when it acted; the critics, which do not run while acting, are still burned in from zero</td>
+</tr>
+<tr>
+<td><code>batch_size</code></td>
+<td><code>None</code>: 64 sequences</td>
+<td>the sequences of a batch; without memory, <code>batch_size</code> counts rows, 256 by default</td>
+</tr>
+</tbody>
+</table>
+<p>Kapturowski et al. found stored state better than a zero start with burn-in
+at keeping the replayed memory close to the one the policy had. With the
+defaults, a window starts from a zero memory, and its first row reads no
+previous action or reward, as an episode's first does. Ni et al. sample
+each window inside one finished episode and mask the steps past its end;
+Ajax's windows may cross an episode's end, the memory restarting there,
+and every step is trained.</p>
+<p>The agent refuses at construction a <code>learning_starts</code> that would not leave
+each copy one whole sequence before the first update (<code>learning_starts //
+n_envs</code> must exceed <code>burn_in + sequence_length + 1</code>), and
+<code>stored_state=True</code> without <code>memory=</code>.</p>
 <h3 id="the-networks">The networks<a class="headerlink" href="#the-networks" title="Permanent link">&para;</a></h3>
 <p>With memory, SAC, TD3, REDQ, ASAC, TQC and RVI-SAC build Ni et al.
 (2022)'s recurrent networks (twni2016/pomdp-baselines; SAC and TD3 are
 theirs, the others take them by analogy):</p>
 <ul>
-<li>The memory reads the previous action, the previous reward and the
-  observation, each through its own linear layer and ReLU of 16, 16 and 32
-  units. A run with memory adds the <code>PreviousAction()</code> and
+<li><strong>The memory's inputs.</strong> It reads the previous action, the previous
+  reward and the observation, each through its own linear layer and ReLU
+  of 16, 16 and 32 units. A run with memory adds the <code>PreviousAction()</code> and
   <code>PreviousReward()</code> observation features for them where its extensions
   hold neither, so collection, evaluation and <code>agent.policy</code> append them,
   zero at an episode's first observation; <code>agent.policy</code>'s <code>act</code> then needs
   the reward the last action earned.</li>
-<li>The memory has 128 units unless <code>MemoryConfig.hidden_size</code> sets them. A
+<li><strong>The memory.</strong> 128 units unless <code>MemoryConfig.hidden_size</code> sets them. A
   GRU or LSTM starts as Ni et al.'s (<code>init="stacked_orthogonal"</code>), a
   transformer as GPT-2 and Mamba as Mamba, unless <code>init</code> is set.</li>
-<li>The networks' own layers (<code>actor_architecture</code>, <code>critic_architecture</code>)
-  run after the memory, on its output joined with a shortcut: a linear
+<li><strong>After the memory.</strong> The networks' own layers (<code>actor_architecture</code>,
+  <code>critic_architecture</code>) run on its output joined with a shortcut: a linear
   layer and ReLU over the current observation, of 32 units for the actor
   and 64 for a critic, whose shortcut also reads the action it is asked
   about. That action never reaches the memory, so asking about another
-  action does not change what the critic remembers.</li>
-<li>The critics read one memory, each Q-network with its own layers after it.</li>
-<li>The layers start as Ni et al.'s: torch's default for the embeddings and
-  shortcuts, rlkit's fan-in uniform with biases 0.1 for the hidden layers,
-  and output layers uniform in ±1e-3 (actor) or ±3e-3 (Q), biases too.</li>
-<li>The squashed policy's log-density subtracts log(1 − tanh² + 1e-6), as Ni
-  et al.'s does. TD3's actor maximises the critics' minimum and steps at
-  every update; SAC sums its critics' squared errors and steps its
-  temperature (alpha, not its log) on the actor loss's own log-densities.
-  The critics read the agent's [-1, 1] actions.</li>
-<li>One difference remains: torch's GRU has two biases for each of its r and
-  z gates (<code>b_ih</code> and <code>b_hh</code>), flax's one. Ajax's starts as their sum, but
-  Adam steps each of torch's pair as far as Ajax's one bias, so Ni et
-  al.'s gate biases move twice as far, and the actor, whose step reads the
-  stepped critic, follows by about 1e-3 of its step (TD3; SAC about 2e-5).
-  With one bias per gate on both sides, one update of recurrent SAC and TD3
-  matches Ni et al.'s leaf by leaf
+  action does not change what the critic remembers. The critics read one
+  memory, each Q-network with its own layers after it.</li>
+<li><strong>Initialisation.</strong> The layers start as Ni et al.'s: torch's default for
+  the embeddings and shortcuts, rlkit's fan-in uniform with biases 0.1 for
+  the hidden layers, and output layers uniform in ±1e-3 (actor) or ±3e-3
+  (Q), biases too.</li>
+<li><strong>The updates.</strong> The squashed policy's log-density subtracts
+  log(1 − tanh² + 1e-6), as Ni et al.'s does. TD3's actor maximises the
+  critics' minimum and steps at every update; SAC sums its critics' squared
+  errors and steps its temperature (alpha, not its log) on the actor loss's
+  own log-densities. The critics read the agent's [-1, 1] actions.</li>
+<li><strong>The one difference left.</strong> torch's GRU has two biases for each of its
+  r and z gates (<code>b_ih</code> and <code>b_hh</code>), flax's one. Ajax's starts as their
+  sum, but Adam steps each of torch's pair as far as Ajax's one bias, so Ni
+  et al.'s gate biases move twice as far, and the actor, whose step reads
+  the stepped critic, follows by about 1e-3 of its step (TD3; SAC about
+  2e-5). With one bias per gate on both sides, one update of recurrent SAC
+  and TD3 matches Ni et al.'s leaf by leaf
   (<code>tests/conformance/test_ni_recurrent_original.py</code>).</li>
 </ul>
 <p>These are <code>NetworkConfig</code>'s <code>input_embedding</code>, <code>shortcut_widths</code>,
 <code>embedding_kernel_init</code> and <code>critics_share_encoder</code>. <code>share_encoder=True</code>
 also gives the actor the critics' embeddings and memory
-(<a href="../networks/">Networks</a>).</p>
+(<a href="../networks/#a-shared-encoder">Networks</a>).</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax</span><span class="w"> </span><span class="kn">import</span> <span class="n">SAC</span>
 <a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax.networks.memory</span><span class="w"> </span><span class="kn">import</span> <span class="n">MemoryConfig</span>
 <a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>
@@ -3537,16 +3564,13 @@ also gives the actor the critics' embeddings and memory
 <a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="c1"># reward, which the run observes.</span>
 <a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="n">agent</span> <span class="o">=</span> <span class="n">SAC</span><span class="p">(</span><span class="s2">&quot;Pendulum-v1&quot;</span><span class="p">,</span> <span class="n">memory</span><span class="o">=</span><span class="n">MemoryConfig</span><span class="p">(</span><span class="n">kind</span><span class="o">=</span><span class="s2">&quot;gru&quot;</span><span class="p">))</span>
 </code></pre></div>
-<p>With memory, SAC, TD3 and REDQ accept no expert policy and no extensions
-(behaviour cloning included, which is the <code>CloningPretrain</code> extension), and
-ASAC, RVI-SAC and PPO no extensions, yet: they raise an error when training starts
-rather than run untested combinations. APG takes memory and extensions
-together.</p>
 <h2 id="evaluation-and-deployment">Evaluation and deployment<a class="headerlink" href="#evaluation-and-deployment" title="Permanent link">&para;</a></h2>
 <p>Evaluation runs its own copies of the environment, so each evaluation
-episode starts the memory from zero, as a deployed policy would. A PID
-policy takes no memory: its integral and difference already carry the past
-(see <a href="../networks/">Networks</a>).</p>
+episode starts the memory from zero, as a deployed policy would; acting
+yourself, <code>agent.policy</code> carries the memory (<a href="../deploy/#act-with-the-trained-policy">Train, evaluate,
+deploy</a>). A PID policy takes no
+memory: its integral and difference already carry the past
+(<a href="../networks/#the-pid-policy">Networks</a>).</p>
 
 
 

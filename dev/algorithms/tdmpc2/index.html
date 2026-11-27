@@ -1684,10 +1684,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#can-i-use" class="md-nav__link">
+  <a href="#when-to-use-it" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Can I use?
+        When to use it
       
     </span>
   </a>
@@ -1721,6 +1721,17 @@
     <span class="md-ellipsis">
       
         Presets
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#differences-from-the-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Differences from the reference
       
     </span>
   </a>
@@ -3242,10 +3253,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#can-i-use" class="md-nav__link">
+  <a href="#when-to-use-it" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Can I use?
+        When to use it
       
     </span>
   </a>
@@ -3279,6 +3290,17 @@
     <span class="md-ellipsis">
       
         Presets
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#differences-from-the-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Differences from the reference
       
     </span>
   </a>
@@ -3642,22 +3664,26 @@
 
 
 <h1 id="td-mpc2">TD-MPC2<a class="headerlink" href="#td-mpc2" title="Permanent link">&para;</a></h1>
-<p>TD-MPC2 learns a model of the environment in a latent space and plans with it
-at every step. Its world model has no decoder: an encoder, latent dynamics, a
-reward predictor and an ensemble of Q-functions, trained together on short
-sub-trajectories from replay. To act, a sampling planner (MPPI) tries
-action sequences in the latent model, guided by a learned policy prior, and
-executes the first action of the best ones. <code>TDMPC2MultiTask</code> trains one such
-model offline on the data of several tasks.</p>
+<p>TD-MPC2 learns a model of the environment in a latent space and plans with
+it at every step. Its world model has no decoder: an encoder, latent
+dynamics, a reward predictor and an ensemble of Q-functions, trained
+together on short sub-trajectories from replay. To act, a sampling planner
+(MPPI) tries action sequences in the latent model, guided by a learned
+policy prior, and executes the first action of the best ones.</p>
 <p><strong>Paper:</strong> Hansen, Su and Wang, <em>TD-MPC2: Scalable, Robust World Models for
 Continuous Control</em>, ICLR 2024
 (<a href="https://arxiv.org/abs/2310.16828">arXiv:2310.16828</a>). Official code:
-<a href="https://github.com/nicklashansen/tdmpc2">nicklashansen/tdmpc2</a>.</p>
-<p>Ajax reproduces the paper-era code (<code>b67b21c</code>, whose agent is identical to
-<code>5f6fade</code>). The <a href="../../world_models/">world-model design notes</a> give the
-full specification, and <a href="../../world_models/deviations/">deviations.md</a> lists
-every version choice and every departure from the reference.</p>
-<h2 id="can-i-use">Can I use?<a class="headerlink" href="#can-i-use" title="Permanent link">&para;</a></h2>
+<a href="https://github.com/nicklashansen/tdmpc2">nicklashansen/tdmpc2</a>. Ajax
+reproduces the paper-era code (<code>b67b21c</code>, whose agent is identical to
+<code>5f6fade</code>). The <a href="../../world_models/">world-model design notes</a> give
+the full specification, and <a href="../../world_models/deviations/">deviations.md</a>
+lists every version choice and every departure from the reference.</p>
+<h2 id="when-to-use-it">When to use it<a class="headerlink" href="#when-to-use-it" title="Permanent link">&para;</a></h2>
+<p>TD-MPC2 is for continuous control. Planning with a learned model tends to
+need fewer environment steps than a model-free agent, at a much higher
+compute cost: it updates its model and plans at every step.
+<a href="../../guide/world-models/">World models</a> compares it with
+<a href="../dreamerv3/">DreamerV3</a>.</p>
 <table>
 <thead>
 <tr>
@@ -3704,12 +3730,12 @@ every version choice and every departure from the reference.</p>
 </tr>
 <tr>
 <td>Extension phases</td>
-<td><code>pretrain</code>, <code>post_update</code>, <code>eval_metrics</code>, <code>observe</code></td>
+<td><code>pretrain</code>, <code>post_update</code>, <code>eval_metrics</code>, <code>observe</code> (<a href="../../guide/compatibility/">which extensions run</a>)</td>
 <td>the same but <code>observe</code>: its dataset holds no feature columns</td>
 </tr>
 <tr>
 <td>Resume and checkpoints</td>
-<td>yes; a checkpoint restored by a new agent equals the uninterrupted run (test)</td>
+<td>yes; a checkpoint restored by a new agent equals the run left whole</td>
 <td>yes, the same</td>
 </tr>
 </tbody>
@@ -3750,130 +3776,143 @@ environment steps" are 500,000 agent steps:</p>
 <tbody>
 <tr>
 <td><code>model_size</code></td>
-<td>5</td>
+<td><code>5</code></td>
 <td>preset of 1, 5, 19, 48 or 317 M parameters; fills <code>enc_dim</code>, <code>mlp_dim</code>, <code>latent_dim</code>, <code>num_enc_layers</code>, <code>num_q</code></td>
 </tr>
 <tr>
 <td><code>n_envs</code></td>
-<td>1</td>
+<td><code>1</code></td>
 <td>environments stepped in lockstep, one update per environment step</td>
 </tr>
 <tr>
 <td><code>horizon</code></td>
-<td>3</td>
+<td><code>3</code></td>
 <td>length of the training sub-trajectories and of the plans</td>
 </tr>
 <tr>
 <td><code>batch_size</code></td>
-<td>256</td>
+<td><code>256</code></td>
 <td>sub-trajectories per update</td>
 </tr>
 <tr>
 <td><code>buffer_size</code></td>
-<td>1,000,000</td>
+<td><code>1_000_000</code></td>
 <td>environment steps kept in replay</td>
 </tr>
 <tr>
 <td><code>seed_steps</code></td>
-<td>None</td>
-<td>random steps before training; <code>None</code> is <code>max(1000, 5 T)</code></td>
+<td><code>None</code></td>
+<td>random steps before training; <code>None</code> is <code>max(1000, 5 T)</code>, <code>T</code> the episode length</td>
 </tr>
 <tr>
 <td><code>updates_per_step</code></td>
-<td>1.0</td>
+<td><code>1.0</code></td>
 <td>updates per environment step after the seed phase</td>
 </tr>
 <tr>
 <td><code>learning_rate</code></td>
-<td>3e-4</td>
+<td><code>3e-4</code></td>
 <td>a float or a schedule; the encoder trains at <code>learning_rate * enc_lr_scale</code> (0.3)</td>
 </tr>
 <tr>
 <td><code>gamma</code></td>
-<td>None</td>
+<td><code>None</code></td>
 <td><code>None</code> derives it from the episode length <code>T</code>: <code>(T/5 - 1) / (T/5)</code>, clipped to [0.95, 0.995]</td>
 </tr>
 <tr>
 <td><code>iterations</code>, <code>num_samples</code>, <code>num_elites</code></td>
-<td>6, 512, 64</td>
+<td><code>6</code>, <code>512</code>, <code>64</code></td>
 <td>MPPI iterations, sampled plans and kept plans</td>
 </tr>
 <tr>
 <td><code>num_pi_trajs</code></td>
-<td>24</td>
+<td><code>24</code></td>
 <td>plans proposed by the policy prior</td>
 </tr>
 <tr>
 <td><code>consistency_coef</code>, <code>reward_coef</code>, <code>value_coef</code></td>
-<td>20, 0.1, 0.1</td>
+<td><code>20</code>, <code>0.1</code>, <code>0.1</code></td>
 <td>world-model loss weights</td>
 </tr>
 <tr>
 <td><code>rho</code></td>
-<td>0.5</td>
+<td><code>0.5</code></td>
 <td>per-step decay of the loss weights along the horizon</td>
 </tr>
 <tr>
 <td><code>entropy_coef</code></td>
-<td>1e-4</td>
+<td><code>1e-4</code></td>
 <td>policy prior's entropy weight</td>
 </tr>
 <tr>
 <td><code>tau</code></td>
-<td>0.01</td>
+<td><code>0.01</code></td>
 <td>target Q update rate</td>
 </tr>
 <tr>
 <td><code>episodic</code></td>
-<td>False</td>
+<td><code>False</code></td>
 <td>accept terminating tasks (the latest code's episodic mode)</td>
 </tr>
 <tr>
-<td><code>action_repeat</code>, <code>episode_length</code></td>
-<td>1, 1000</td>
-<td>simulator steps per agent step, and per episode (Brax, Playground)</td>
+<td><code>episode_length</code>, <code>action_repeat</code></td>
+<td><code>1000</code>, <code>1</code></td>
+<td>simulator steps per episode and per agent step, on Brax and Playground (<a href="../../guide/environments/#brax-and-playground">Environments</a>)</td>
 </tr>
 </tbody>
 </table>
 <h2 id="presets">Presets<a class="headerlink" href="#presets" title="Permanent link">&para;</a></h2>
 <p><code>TDMPC2.preset("MuJoCo", env_id)</code> sets <code>discount_max=0.99</code> and <code>rho=0.7</code>,
 which the latest official code sets for every task of its gym module:
-Walker2d, HalfCheetah, BipedalWalker and LunarLander
-(nicklashansen/tdmpc2@<code>eece801</code>, <code>tdmpc2/envs/mujoco.py:57-58</code>;
-<a href="../../guide/training/#presets">Presets</a>). With 1000-step episodes the
-derived <code>gamma</code> becomes 0.99 instead of 0.995, and the loss weights decay
-more slowly along the horizon, whose last step is the only one a
-termination can fall on. The preset is named after the module and applies
-to the gymnasium MuJoCo tasks in general, Hopper included, which the
-reference does not list. A task that terminates also needs <code>episodic=True</code>,
-as in <code>TDMPC2.preset("MuJoCo", "mujoco:Hopper-v5", episodic=True)</code>.</p>
+Walker2d, HalfCheetah, BipedalWalker and LunarLander (<code>eece801</code>,
+<code>tdmpc2/envs/mujoco.py:57-58</code>; <a href="../../guide/training/#presets">Presets</a>).
+With 1000-step episodes the derived <code>gamma</code> becomes 0.99 instead of 0.995,
+and the loss weights decay more slowly along the horizon, whose last step
+is the only one a termination can fall on. The preset applies to
+Gymnasium's MuJoCo tasks in general, Hopper included, which the reference
+does not list. A task that terminates also needs <code>episodic=True</code>, as in
+<code>TDMPC2.preset("MuJoCo", "mujoco:Hopper-v5", episodic=True)</code>.</p>
+<h2 id="differences-from-the-reference">Differences from the reference<a class="headerlink" href="#differences-from-the-reference" title="Permanent link">&para;</a></h2>
+<p>Each is in <a href="../../world_models/deviations/">deviations.md</a>, under its
+number.</p>
+<ul>
+<li><strong>Terminations</strong> (T10). The paper-era agent bootstraps through every
+  episode end, so a terminating task would train on wrong targets. Ajax
+  counts terminations and raises a <code>ValueError</code> after <code>train</code> if there
+  were any. <code>episodic=True</code> grafts the latest official code's episodic
+  mode (<code>eece801</code>) onto the paper-era agent instead: a termination head
+  and variable-length episodes in replay (T29).</li>
+<li><strong>Evaluation</strong> (T9) runs on a rebuilt environment, each evaluation from
+  fresh initial states (the same ones when a seed is rerun); the reference
+  reuses the training environment.</li>
+<li><strong>Replay size</strong> (T26). The replay holds <code>min(buffer_size, total)</code> steps,
+  <code>total</code> being the run's, rounded up to whole rounds of one episode per
+  environment where the reference rounds down to whole episodes. Each
+  <code>train</code> call sizes it again for the steps the run will have taken, in
+  the episodic mode as well (T29).</li>
+<li><strong>Several environments</strong> (T7). <code>n_envs &gt; 1</code> plans for each environment
+  separately and takes <code>n_envs</code> updates per step; the reference uses one.</li>
+<li><strong>The DMC tasks</strong> run on MuJoCo Playground's MJX ports, whose physics
+  differ from dm_control's (E18), so comparisons with the published curves
+  are approximate.</li>
+</ul>
 <h2 id="notes">Notes<a class="headerlink" href="#notes" title="Permanent link">&para;</a></h2>
 <ul>
 <li><strong>What <code>n_timesteps</code> counts.</strong> Agent steps (environment steps after action
   repeat); logs also carry <code>env_frames</code>. With <code>episodic=True</code> it counts rows:
   environment steps plus one per finished episode.</li>
-<li><strong>Terminations.</strong> The paper-era agent bootstraps through every episode end,
-  so a terminating task would train on wrong targets. Ajax counts terminations
-  and raises a <code>ValueError</code> after <code>train</code> if there were any (deviation T10).
-  <code>episodic=True</code> grafts the latest official code's episodic mode (commit
-  <code>eece801</code>) onto the paper-era agent instead: a termination head and
-  variable-length episodes in replay (T29).</li>
-<li><strong>Evaluation</strong> (with a <code>logging_config</code>): every <code>log_frequency</code> environment
-  steps, <code>num_episode_test</code> episodes of the planner in evaluation mode, on a
-  rebuilt environment, each evaluation from fresh initial states (the same
-  ones when a seed is rerun; T9). The paper uses
-  <code>log_frequency=50_000</code> with 10 episodes; <code>LoggingConfig</code> evaluates every
-  10,000 steps by default. Evaluating every 1,000 steps makes a
-  500-step-episode run spend about twice as long evaluating as training.</li>
-<li><strong>Replay memory</strong> is sized at each <code>train</code> call for the steps the run will
-  have taken: <code>min(buffer_size, total)</code> (T26), in the episodic mode as well
-  (T29). The ring holds <code>R = ceil(capacity / (T * n_envs)) + 1</code> rounds of one
-  episode per environment, <code>R * n_envs * (T + 1) * (obs_dim + A + 1) * 4</code>
-  bytes per seed: at full capacity, 124 MB on DMC Walker (observations 24,
-  actions 6, T = 500). <code>agent.replay_capacity</code> and
-  <code>agent.replay_bytes_per_seed</code> give the figures after <code>train</code> (also in the
-  run config). A run trained in chunks, or restored from a checkpoint by a
-  new agent, replays exactly what the uninterrupted run does.</li>
+<li><strong>Evaluation</strong> (with a <code>logging_config</code>): every <code>log_frequency</code>
+  environment steps, <code>num_episode_test</code> episodes of the planner in
+  evaluation mode. The paper uses <code>log_frequency=50_000</code> with 10 episodes;
+  <code>LoggingConfig</code> evaluates every 10,000 steps by default. Evaluating every
+  1,000 steps makes a 500-step-episode run spend about twice as long
+  evaluating as training.</li>
+<li><strong>Replay memory.</strong> The ring holds
+  <code>R = ceil(capacity / (T * n_envs)) + 1</code> rounds of one episode per
+  environment, <code>R * n_envs * (T + 1) * (obs_dim + A + 1) * 4</code> bytes per
+  seed: at full capacity, 124 MB on DMC Walker (observations 24, actions 6,
+  T = 500). <code>agent.replay_capacity</code> and <code>agent.replay_bytes_per_seed</code> give
+  the figures after <code>train</code> (also in the run config).</li>
 <li><strong>Recompilation.</strong> The architecture (<code>model_size</code> and the widths),
   <code>simnorm_dim</code>, <code>num_bins</code>, <code>vmax</code>, <code>horizon</code>, <code>batch_size</code>, <code>buffer_size</code>,
   <code>seed_steps</code> and the planner's sizes fix the compiled program; changing one
@@ -3881,11 +3920,6 @@ as in <code>TDMPC2.preset("MuJoCo", "mujoco:Hopper-v5", episodic=True)</code>.</
   <code>learning_rate</code> may be a schedule.</li>
 <li><strong>Actions.</strong> The planner's actions lie in <code>[-1, 1]</code>; Ajax maps them onto
   the environment's bounds, as the reference scales its actions.</li>
-<li><strong>Several environments.</strong> <code>n_envs &gt; 1</code> plans for each environment separately
-  and takes <code>n_envs</code> updates per step (T7); the reference uses one.</li>
-<li>The DMC tasks run on MuJoCo Playground's MJX ports, whose physics differ
-  from dm_control's (E18), so comparisons with the published curves are
-  approximate.</li>
 </ul>
 <h2 id="multi-task-tdmpc2multitask">Multi-task: <code>TDMPC2MultiTask</code><a class="headerlink" href="#multi-task-tdmpc2multitask" title="Permanent link">&para;</a></h2>
 <p>The paper's multi-task models are trained offline, on the pooled replay of
@@ -3923,27 +3957,23 @@ a task) and <code>pool_tasks</code>; <code>save_dataset</code> and <code>load_da
 (the paper's normalisation of DMC returns). <code>multi.evaluate(state,
 num_episodes=10)</code> runs the same evaluation outside training, on a state
 <code>train</code> returned, and gives the same keys, one value per seed; without
-<code>eval_envs</code> there is nothing to evaluate on, and it raises. Defaults are the single-task
-agent's, except <code>batch_size=1024</code> and <code>task_dim=96</code>, the paper's (T14). The
-evaluation follows the offline trainer's protocol (T16). Ajax's datasets are
-generated by its own single-task runs, not the paper's mt30 and mt80 data, so
-they validate the mechanisms rather than the paper's numbers (T17).</p>
+<code>eval_envs</code> it raises.</p>
+<p>The defaults are the single-task agent's, except <code>batch_size=1024</code> and
+<code>task_dim=96</code>, the paper's (T14). The evaluation follows the offline
+trainer's protocol (T16). Ajax's datasets come from its own single-task
+runs, not the paper's mt30 and mt80 data, so they validate the mechanisms
+rather than the paper's numbers (T17).</p>
 <h2 id="results">Results<a class="headerlink" href="#results" title="Permanent link">&para;</a></h2>
-<p>Recorded on CPU in <a href="https://github.com/YannBerthelot/Ajax/blob/main/PERFORMANCE_REPORT.md">PERFORMANCE_REPORT.md</a>,
-with <code>model_size=1</code> and every other setting at the paper's default, two
-seeds: Pendulum reaches -143 and -124 after 6,000 steps (a random policy
-scores about -1,200), and Playground's CartpoleBalance (action repeat 2)
-reaches 810 and 854 after 10,000 steps, still improving. The GPU validation
-against the published curves is specified in
-<a href="../../world_models/VALIDATION/">VALIDATION.md</a> and has not been run yet. The
-probes (<code>tests/probing</code>) train TD-MPC2 briefly on tiny environments whose
-answers need its model (a payoff past its planning horizon; twin tasks for
-the multi-task agent), and its own tests (<code>tests/agents/TDMPC2</code>) check that
-a run split by a checkpoint equals the run left whole, for both agents. On
-the CPU speed benchmark (<code>benchmarks/agent_bench.py</code>:
-Pendulum, 4 environments, 8,000 steps, a smaller model than the paper's)
-TD-MPC2 ran at 292 steps per second of execution (245 with compilation) at
-main <code>a8a13c2</code>.</p>
+<p>On a CPU, with <code>model_size=1</code> and every other setting at the paper's
+default, two seeds: Pendulum reaches -143 and -124 after 6,000 steps (a
+random policy scores about -1,200), and Playground's CartpoleBalance
+(action repeat 2) reaches 810 and 854 after 10,000 steps, still improving
+(<a href="https://github.com/YannBerthelot/Ajax/blob/main/PERFORMANCE_REPORT.md">PERFORMANCE_REPORT.md</a>).
+The GPU validation against the published curves is specified in
+<a href="../../world_models/VALIDATION/">VALIDATION.md</a> and has not been run yet.
+The probes (<code>tests/probing</code>) train TD-MPC2 briefly on tiny environments
+whose answers need its model: a payoff past its planning horizon, and twin
+tasks for the multi-task agent.</p>
 <h2 id="api">API<a class="headerlink" href="#api" title="Permanent link">&para;</a></h2>
 
 

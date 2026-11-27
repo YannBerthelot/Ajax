@@ -2123,6 +2123,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#what-a-test-is-for" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What a test is for
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#where-the-tests-live" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2134,13 +2145,41 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#the-generic-contract-tests" class="md-nav__link">
+  <a href="#unit-tests" class="md-nav__link">
     <span class="md-ellipsis">
       
-        The generic contract tests
+        Unit tests
       
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="Unit tests">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#generic-contracts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Generic contracts
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#each-agents-maths" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Each agent's maths
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -2163,6 +2202,23 @@
       
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="Conformance checks">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#how-the-originals-run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How the originals run
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -3049,6 +3105,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#what-a-test-is-for" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What a test is for
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#where-the-tests-live" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3060,13 +3127,41 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#the-generic-contract-tests" class="md-nav__link">
+  <a href="#unit-tests" class="md-nav__link">
     <span class="md-ellipsis">
       
-        The generic contract tests
+        Unit tests
       
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="Unit tests">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#generic-contracts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Generic contracts
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#each-agents-maths" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Each agent's maths
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -3089,6 +3184,23 @@
       
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="Conformance checks">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#how-the-originals-run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How the originals run
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -3256,41 +3368,49 @@
 
 
 <h1 id="testing">Testing<a class="headerlink" href="#testing" title="Permanent link">&para;</a></h1>
-<p>Ajax checks its code with two kinds of tests, and each answers a different
-question (the <a href="#conformance-checks">conformance checks</a>, below, are a third,
-against an agent's original implementation):</p>
+<p>Ajax checks itself in four ways:</p>
 <ul>
-<li><strong>Unit tests</strong> check one component against an exact contract, with no
-  learning. Where agents or extensions share a contract, the test is
-  generic: it runs every one of them, and a new agent or extension fails it
-  until it joins.</li>
-<li><strong>Probes</strong> are tiny generic environments with known answers. An agent
-  trains on one briefly, and the probe checks a capability of the whole
-  agent: that it learns the right value, picks the right action, counts the
-  right steps.</li>
+<li><strong>Unit tests</strong> check each update's maths, and each component, against an
+  exact contract, with no learning: a TD target on a hand-built batch, a
+  loss's sign, GAE on a known trajectory.</li>
+<li><strong>Probes</strong> train an agent briefly on tiny environments whose answers are
+  known exactly, and check that it learns: the right value, the right
+  action, the right count of steps.</li>
+<li><strong>Conformance tests</strong> run one training step of an Ajax agent and of its
+  original implementation from the same state, with the same random
+  numbers, and compare the change each makes.</li>
+<li><strong>Comparisons of learning results</strong> train Ajax and a reference
+  implementation (Stable-Baselines3, Brax or the authors' code) on the same
+  task and budget, and let <a href="../../guide/comparing-agents/">AdaStop</a> decide
+  how many seeds the answer takes. They are work in progress, run by hand
+  with <a href="https://github.com/YannBerthelot/Ajax/blob/main/benchmarks/reference/README.md"><code>benchmarks/reference</code></a> rather
+  than in CI; <a href="../../reproduction/">Reproduction</a> has the protocol and
+  the results so far.</li>
 </ul>
-<p>Every test names the realistic bug it would catch, in its name or docstring.
-If you cannot name one, do not write the test. When a concern deserves
-protection, add a <a href="#planted-faults">planted fault</a> and make sure a test
-catches it.</p>
-<p>A setting copied from a reference implementation (an ordering, a default, a
-constant) may have a test, which cites the reference. Whether a setting should
-follow the reference is a matter for code review.</p>
-<p>The two kinds do not overlap. A unit test can show that a TD target takes a
-<code>max</code> rather than a <code>mean</code>; it cannot show that the trained agent's values
-come out right, which needs the target, the buffer, the episode-end handling,
-the optimiser and the network to work together. A smoke test that trains on
-CartPole and checks the return proves little either: a broken agent often
-still solves CartPole.</p>
 <p>Beside them, <em>pins</em> record what a tiny run produces today, so that a
-restructuring can show it changed nothing.</p>
+restructuring can show it changed nothing. This page, for contributors, says
+where each kind lives, how CI runs it, and how to add a probe.</p>
+<h2 id="what-a-test-is-for">What a test is for<a class="headerlink" href="#what-a-test-is-for" title="Permanent link">&para;</a></h2>
+<p>Every test names the realistic bug it would catch, in its name or
+docstring. If you cannot name one, do not write the test. When a concern
+deserves protection, add a <a href="#planted-faults">planted fault</a> and make sure a
+test catches it.</p>
+<p>A setting copied from a reference implementation (an ordering, a default, a
+constant) may have a test, which cites the reference. Whether a setting
+should follow the reference is a matter for code review.</p>
+<p>Unit tests and probes do not overlap. A unit test can show that a TD target
+takes a <code>max</code> rather than a <code>mean</code>; it cannot show that the trained agent's
+values come out right, which needs the target, the buffer, the episode-end
+handling, the optimiser and the network to work together. A smoke test that
+trains on CartPole and checks the return proves little either: a broken
+agent often still solves CartPole.</p>
 <h2 id="where-the-tests-live">Where the tests live<a class="headerlink" href="#where-the-tests-live" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
 <tr>
 <th>Kind</th>
 <th>Where</th>
-<th>CI job</th>
+<th>Runs in</th>
 </tr>
 </thead>
 <tbody>
@@ -3301,7 +3421,7 @@ restructuring can show it changed nothing.</p>
 </tr>
 <tr>
 <td>Unit, generic contracts</td>
-<td><code>tests/agents/test_*_contract.py</code>, <code>tests/extensions/test_phase_contract.py</code>, <code>tests/extensions/test_no_silent_noop.py</code>, <code>tests/environments/test_wrapper_contract.py</code>, ... (below)</td>
+<td><code>tests/agents/test_*_contract.py</code>, <code>tests/extensions/test_phase_contract.py</code>, <code>tests/extensions/test_no_silent_noop.py</code>, <code>tests/environments/test_wrapper_contract.py</code>, ... (<a href="#generic-contracts">below</a>)</td>
 <td>Tests, Slow tier</td>
 </tr>
 <tr>
@@ -3321,20 +3441,26 @@ restructuring can show it changed nothing.</p>
 </tr>
 <tr>
 <td>Conformance</td>
-<td><code>tests/conformance/</code> (below)</td>
+<td><code>tests/conformance/</code></td>
 <td>Conformance</td>
+</tr>
+<tr>
+<td>GPU</td>
+<td>marked <code>@pytest.mark.large</code> (MuJoCo Warp)</td>
+<td>by hand, on a GPU machine: CI's runners have none</td>
 </tr>
 <tr>
 <td>Learning checks</td>
 <td><code>benchmarks/world_models/learning_checks.py</code>: a world model learns its task at a small preset; hours on a CPU, run before merging such an agent</td>
-<td>none</td>
+<td>by hand</td>
 </tr>
 </tbody>
 </table>
 <p>Every directory of <code>tests/</code> that holds Python files is a package, so tests
 import shared helpers by their full name (<code>from tests.environments.identity_env
 import IdentityEnv</code>); <code>tests/test_repo_hygiene.py</code> checks it.</p>
-<h2 id="the-generic-contract-tests">The generic contract tests<a class="headerlink" href="#the-generic-contract-tests" title="Permanent link">&para;</a></h2>
+<h2 id="unit-tests">Unit tests<a class="headerlink" href="#unit-tests" title="Permanent link">&para;</a></h2>
+<h3 id="generic-contracts">Generic contracts<a class="headerlink" href="#generic-contracts" title="Permanent link">&para;</a></h3>
 <p>These tests are written once and run over every agent, extension or wrapper
 that shares the contract. Each finds its subjects from the code (the
 exported agents, the subclasses of <code>Extension</code>, the signatures), so a new
@@ -3353,7 +3479,7 @@ an episode with <code>c &gt; 0</code> terminates at <code>t = 3</code>, the othe
 <tbody>
 <tr>
 <td><code>tests/agents/test_agent_contract.py</code></td>
-<td>every agent on the shared loop builds its configs on each action space it acts in and refuses the other; a default run keeps no extension state; a run of two seeds and two envs folds its extensions in step and adds their metrics to every evaluation; the measurement extensions find its critic by themselves; the run config drops the instance; the evaluation key is apart from the training key, and each evaluation draws fresh keys; a continuous agent acts on the env's whole box; <code>episode_length</code> and <code>action_repeat</code> reach the env</td>
+<td>every agent on the shared loop builds its configs on each action space it acts in and refuses the other; a default run keeps no extension state; a run of two seeds and two envs folds its extensions in step and adds their metrics to every evaluation; the measurement extensions find its critic by themselves; the evaluation key is apart from the training key; a continuous agent acts on the env's whole box</td>
 </tr>
 <tr>
 <td><code>tests/extensions/test_phase_contract.py</code></td>
@@ -3365,7 +3491,7 @@ an episode with <code>c &gt; 0</code> terminates at <code>t = 3</code>, the othe
 </tr>
 <tr>
 <td><code>tests/extensions/test_extension_phase_support.py</code></td>
-<td>each agent accepts exactly the phases it folds; a reader of phi* needs <code>MCPretrain</code></td>
+<td>each agent accepts exactly the phases it folds and the capabilities it declares; an extension needing anything else is refused, naming it</td>
 </tr>
 <tr>
 <td><code>tests/agents/test_compatibility.py</code></td>
@@ -3389,11 +3515,11 @@ an episode with <code>c &gt; 0</code> terminates at <code>t = 3</code>, the othe
 </tr>
 <tr>
 <td><code>tests/agents/test_reward_normalisation.py</code></td>
-<td>every agent taking <code>normalize_rewards</code> hands the normaliser the discount it documents (its own <code>gamma</code> by default, 0.99 without one, <code>reward_normalization_gamma</code> when given) and reports its Train and Eval returns in the env's units (UDRL's Train return is a strict xfail: a known bug); a constant reward is not divided by its zero spread, and rewards divided at replay or evaluation are clipped as collected</td>
+<td>every agent taking <code>normalize_rewards</code> hands the normaliser the discount it documents (its own <code>gamma</code> by default, 0.99 without one, <code>reward_normalization_gamma</code> when given) and reports its Train and Eval returns in the env's units; a constant reward is not divided by its zero spread</td>
 </tr>
 <tr>
 <td><code>tests/agents/test_carry_restart.py</code></td>
-<td>the recurrent actors of PPO, SAC, ASAC, REDQ and TD3 remember only their current episode, for every memory kind: the carry each acts with is the actor's run from a fresh carry over the episode's observations (the fast tier runs each agent once and each kind at least once, the other rows are slow; APG's controller has its own test in <code>tests/agents/APG/test_episode_ends.py</code>)</td>
+<td>the recurrent actor of every agent taking memory remembers only its current episode, for every memory kind: the carry it acts with is the actor's run from a fresh carry over the episode's observations (APG's controller has its own test, <code>tests/agents/APG/test_episode_ends.py</code>)</td>
 </tr>
 <tr>
 <td><code>tests/agents/test_option_smoke.py</code> (slow)</td>
@@ -3401,19 +3527,19 @@ an episode with <code>c &gt; 0</code> terminates at <code>t = 3</code>, the othe
 </tr>
 <tr>
 <td><code>tests/agents/test_resume_contract.py</code> (slow)</td>
-<td>a run split in two, its second half on a new agent instance, ends in the state one uninterrupted call reaches, every leaf alike (floats to a relative 1e-5): every agent of the contract table and APG, with the normalisation it takes and with memory where it takes one, every call told the run's horizon so the schedules run as in one call (the world models' own tests hold theirs); fast, a two-call DQN run's epsilon at every step is the one call's</td>
+<td>a run split in two, its second half on a new agent instance, ends in the state one uninterrupted call reaches, every leaf alike (floats to a relative 1e-5): every agent of the contract table and APG, with the normalisation it takes and with memory where it takes one (the world models' own tests hold theirs)</td>
 </tr>
 </tbody>
 </table>
 <p>The option matrix and the resume contract train, so their main tests run in
-the slow tier; their completeness checks (every switch of a signature is in
-a row, every extension has a builder, every agent has a row) are fast and run
-with the other unit tests.</p>
-<p>What each agent computes is tested in its own directory, <code>tests/agents/&lt;AGENT&gt;/</code>:
-GAE on a known trajectory, a loss's sign, a target on a hand-built batch,
-and that every configuration value reaches the code that runs. That last
-kind exists because of a real bug: PPO once treated <code>num_minibatches=32</code> as
-1, and its CartPole smoke test still passed
+the slow tier; their completeness checks (every switch of a signature, every
+extension and every agent has a row) are fast.</p>
+<h3 id="each-agents-maths">Each agent's maths<a class="headerlink" href="#each-agents-maths" title="Permanent link">&para;</a></h3>
+<p>What each agent computes is tested in its own directory,
+<code>tests/agents/&lt;AGENT&gt;/</code>: GAE on a known trajectory, a loss's sign, a target
+on a hand-built batch, and that every configuration value reaches the code
+that runs. That last kind exists because of a real bug: PPO once treated
+<code>num_minibatches=32</code> as 1, and its CartPole smoke test still passed
 (<code>tests/agents/PPO/test_PPO_code.py</code>).</p>
 <h2 id="pins">Pins<a class="headerlink" href="#pins" title="Permanent link">&para;</a></h2>
 <p>The pins are change detectors, not truth. <code>test_agent_pins.py</code> compares a
@@ -3474,6 +3600,11 @@ check.</p>
 <td><code>tests/conformance/test_asac_original.py</code></td>
 </tr>
 <tr>
+<td>RVI-SAC</td>
+<td>yhisaki/average-reward-drl (PyTorch)</td>
+<td><code>tests/conformance/test_rvisac_original.py</code></td>
+</tr>
+<tr>
 <td>APO</td>
 <td>xtma/apo on xtma/rlpyt (PyTorch)</td>
 <td><code>tests/conformance/test_apo_original.py</code></td>
@@ -3492,6 +3623,11 @@ check.</p>
 <td>ReBRAC (TD3 with TD3+BC's term and <code>TargetBC</code>)</td>
 <td>tinkoff-ai/ReBRAC (JAX, the oldest flax that runs)</td>
 <td><code>tests/conformance/test_rebrac_original.py</code></td>
+</tr>
+<tr>
+<td>IBRL's target and acting (on TD3 and REDQ)</td>
+<td>hengyuan-hu/ibrl (PyTorch)</td>
+<td><code>tests/conformance/test_ibrl_original.py</code></td>
 </tr>
 <tr>
 <td>PPO, MLP and CNN (shared encoder)</td>
@@ -3518,66 +3654,68 @@ and DreamerV3 against danijar/dreamerv3@29eb964 (the world model and three
 training steps, <code>tests/agents/DreamerV3/*_parity.py</code>). Their records are
 committed fixtures, written by the scripts in <code>docs/world_models/parity</code>, and
 their tolerances are fixed per quantity rather than taken from rounding.</p>
-<p>The originals are vendored under <code>benchmarks/reference/vendor</code>. A PyTorch
-original runs in its own environment (<code>benchmarks/reference/envs/torch</code>),
-as do ASAC's and CrossQ's, on the versions their authors pinned
-(<code>benchmarks/reference/envs/asac</code>: stable-baselines3 2.4 and gymnasium
-1.0; <code>benchmarks/reference/envs/crossq</code>: jax, flax and Stable-Baselines3;
-<code>benchmarks/reference/envs/jax_offline</code>: ReBRAC's flax).
-Each environment is built on first use under <code>~/.cache/ajax/reference-envs</code>,
-once per lock file, so all checkouts share it; set <code>AJAX_REFERENCE_ENVS</code> to
-build them elsewhere.
-Each records its states to disk; CI keeps those records between runs while
-the original, its recorder and that environment's lock stay the same
-(<code>AJAX_CONFORMANCE_RECORDS</code>). TQC's original runs as written only on torch
-before 1.5, which has no arm64 wheels: it is recorded locally in
-<code>benchmarks/reference/envs/torch14</code> (x86 Python 3.8) and its records are
-committed under <code>tests/conformance/records</code>. So are ppo2's: TensorFlow 1.15
-runs in its official container on x86-64 Linux (<code>benchmarks/reference/envs/tf115</code>),
-and each case starts from a seeded state the test recomputes
-(<code>benchmarks/reference/conformance_start.py</code>), its largest layers kept at
-sampled positions, so that its Nature CNN's records stay under a megabyte.
-<code>tests/conformance/kit.py</code> holds the seams
-that make one step comparable without changing the code under test: a tape
-of the random draws, and the capture of an agent's update. A difference
-that is the original's convention or defect is registered with its reason
-(<code>benchmarks/reference/refcmp_specs.py</code>) and asserted by a test of its own;
-PQN's also appear in the <a href="../../reproduction/specs/">reproduction specifications</a>.</p>
+<h3 id="how-the-originals-run">How the originals run<a class="headerlink" href="#how-the-originals-run" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Vendored.</strong> The originals are vendored under
+  <code>benchmarks/reference/vendor</code>, except RVI-SAC's and IBRL's, whose
+  repositories have no licence: only their records are committed.</li>
+<li><strong>In environments of their own.</strong> A PyTorch original runs in
+  <code>benchmarks/reference/envs/torch</code>; ASAC's, CrossQ's and ReBRAC's on the
+  versions their authors pinned (<code>benchmarks/reference/envs/asac</code>:
+  stable-baselines3 2.4 and gymnasium 1.0; <code>benchmarks/reference/envs/crossq</code>:
+  jax, flax and Stable-Baselines3; <code>benchmarks/reference/envs/jax_offline</code>:
+  ReBRAC's flax). Each environment is built on first use under
+  <code>~/.cache/ajax/reference-envs</code>, once per lock file, so all checkouts share
+  it; set <code>AJAX_REFERENCE_ENVS</code> to build them elsewhere.</li>
+<li><strong>Recorded.</strong> Each original records its states to disk; CI keeps those
+  records between runs while the original, its recorder and that
+  environment's lock stay the same (<code>AJAX_CONFORMANCE_RECORDS</code>). TQC's
+  original runs only on torch before 1.5, which has no arm64 wheels, and
+  ppo2 on TensorFlow 1.15 in its official x86-64 container
+  (<code>benchmarks/reference/envs/torch14</code>, <code>benchmarks/reference/envs/tf115</code>):
+  both are recorded locally and their records committed under
+  <code>tests/conformance/records</code>, ppo2's from seeded states the test recomputes
+  (<code>benchmarks/reference/conformance_start.py</code>).</li>
+</ul>
+<p><code>tests/conformance/kit.py</code> holds the seams that make one step comparable
+without changing the code under test: a tape of the random draws, and the
+capture of an agent's update. A difference that is the original's convention
+or defect is registered with its reason (<code>benchmarks/reference/refcmp_specs.py</code>)
+and asserted by a test of its own; PQN's also appear in the
+<a href="../../reproduction/specs/">reproduction specifications</a>.</p>
 <h2 id="running-tests-locally">Running tests locally<a class="headerlink" href="#running-tests-locally" title="Permanent link">&para;</a></h2>
 <p>The full suite costs about an hour of CPU, so CI runs it on the pull request.
 Before pushing, run the cheap checks
-(<a href="https://github.com/YannBerthelot/Ajax/blob/main/CLAUDE.md">CLAUDE.md</a>,
-"Commit requirement"):</p>
+(<a href="https://github.com/YannBerthelot/Ajax/blob/main/CLAUDE.md">CLAUDE.md</a>, "Commit requirement"):</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>uv<span class="w"> </span>run<span class="w"> </span>pre-commit<span class="w"> </span>run<span class="w"> </span>--all-files<span class="w">            </span><span class="c1"># ruff lint, ruff-format, mypy</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>--collect-only<span class="w"> </span>-q<span class="w">              </span><span class="c1"># everything imports and collects</span>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>tests/agents/TD3<span class="w">               </span><span class="c1"># the tests of what you changed</span>
 <a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>tests/probing/test_framework.py<span class="w">  </span><span class="c1"># any change under src/ajax</span>
 <a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>tests/probing<span class="w"> </span>-k<span class="w"> </span>TD3<span class="w">           </span><span class="c1"># a change to TD3&#39;s training: all its probe cells</span>
 </code></pre></div>
-<p>Two of these are process rules. A change under <code>src/ajax</code> runs
-<code>tests/probing/test_framework.py</code>, which trains nothing: every planted fault
-quotes a line of the source, so any source edit can break one. A change to an
-agent's training runs all of that agent's probe cells (<code>-k &lt;Agent&gt;</code> over
-<code>tests/probing</code>).</p>
+<p>The last two are rules: every planted fault quotes a line of the source, so
+any edit under <code>src/ajax</code> can break one, and <code>test_framework.py</code> checks them
+without training.</p>
 <p><code>make ci</code> runs the pull-request gate (<code>ci-precommit</code>, <code>ci-test</code>,
 <code>ci-conformance</code>, and <code>docs</code>, the strict build of this site); <code>make ci-all</code>
-adds the slow tier (<code>ci-slow</code>). The <code>make</code> targets
-hide the GPU (<code>CUDA_VISIBLE_DEVICES=""</code>, <code>JAX_PLATFORMS=cpu</code>), so tests never
-compete with an experiment running on it. Outside <code>make</code>, set
-<code>JAX_PLATFORMS=cpu</code> while a GPU is busy.</p>
-<p><code>pyproject.toml</code> registers one marker, <code>slow</code>, and runs pytest with
-<code>--strict-markers</code>, so a misspelt marker is an error rather than a test that
-silently runs in the wrong job.</p>
+adds the slow tier (<code>ci-slow</code>). The <code>make</code> targets hide the GPU
+(<code>CUDA_VISIBLE_DEVICES=""</code>, <code>JAX_PLATFORMS=cpu</code>), so tests never compete with
+an experiment running on it. Outside <code>make</code>, set <code>JAX_PLATFORMS=cpu</code> while a
+GPU is busy.</p>
+<p><code>pyproject.toml</code> registers two markers, <code>slow</code> and <code>large</code> (a test that needs
+a GPU, skipped without one), and runs pytest with <code>--strict-markers</code>, so a
+misspelt marker is an error rather than a test that silently runs in the
+wrong job.</p>
 <h2 id="how-ci-splits-the-suite">How CI splits the suite<a class="headerlink" href="#how-ci-splits-the-suite" title="Permanent link">&para;</a></h2>
 <p>The tests come in two tiers. The <em>fast tier</em> is the tests not marked slow,
 which every pull request must pass. A fast test may train, but for at most
 128 gradient steps: <code>tests/conftest.py</code> fails a fast test past them, and
-lists those past about 30 s without failing them. The <em>slow tier</em>
-is every test that trains: <code>tests/probing</code> (marked slow as it is collected,
-but for the harness's own checks) and the tests marked slow elsewhere.
+lists those past about 30 s without failing them. The <em>slow tier</em> is every
+test that trains: <code>tests/probing</code> (marked slow as it is collected, but for
+the harness's own checks) and the tests marked slow elsewhere.
 <a href="../contributing/#testing">Contributing</a> describes both.</p>
-<p><a href="https://github.com/YannBerthelot/Ajax/blob/main/.github/workflows/ci.yml"><code>.github/workflows/ci.yml</code></a>
-runs on CPU for every pull request and every push to <code>main</code>:</p>
+<p><a href="https://github.com/YannBerthelot/Ajax/blob/main/.github/workflows/ci.yml"><code>.github/workflows/ci.yml</code></a> runs on CPU for
+every pull request and every push to <code>main</code>:</p>
 <table>
 <thead>
 <tr>
@@ -3596,7 +3734,7 @@ runs on CPU for every pull request and every push to <code>main</code>:</p>
 </tr>
 <tr>
 <td>Coverage</td>
-<td>the six shards' data combined; fails below 90%</td>
+<td>the six shards' coverage data combined and checked against a floor</td>
 </tr>
 <tr>
 <td>Conformance</td>
@@ -3614,17 +3752,15 @@ runs on CPU for every pull request and every push to <code>main</code>:</p>
 </table>
 <p>The <em>Slow tier</em> workflow (<a href="https://github.com/YannBerthelot/Ajax/blob/main/.github/workflows/slow.yml"><code>slow.yml</code></a>)
 runs the slow tier in six shards of two xdist workers, a probe case's tests
-on one worker (they read one cached training): daily on <code>main</code> when it changed, by hand,
-and on a pull request each time the label <code>run-slow-tier</code> is added. A red run
-on <code>main</code> opens an issue and, when that is cheap, bisects the merges since
-the last green run. The <em>Release</em> workflow tags a version only once the slow
-tier has passed on <code>main</code>'s head.</p>
-<p>The test and conformance jobs restore Ajax's compile cache as the last push
-to <code>main</code> left it for that job, so a program a change leaves alone is loaded
-instead of compiled. A new push to a pull request cancels the run it
-supersedes. Nothing merges while any job is red; a failure that is
-pre-existing and unrelated to the change is called out explicitly instead of
-merged over.</p>
+on one worker (they read one cached training): daily on <code>main</code> when it
+changed, by hand, and on a pull request each time the label <code>run-slow-tier</code>
+is added. A red run on <code>main</code> opens an issue and, when that is cheap,
+bisects the merges since the last green run. The <em>Release</em> workflow tags a
+version only once the slow tier has passed on <code>main</code>'s head.</p>
+<p>The test and conformance jobs restore the compile cache the last push to
+<code>main</code> left, so a program a change leaves alone is loaded, not compiled. A
+new push to a pull request cancels the run it supersedes. Nothing merges
+while any job is red.</p>
 <h2 id="the-probing-framework">The probing framework<a class="headerlink" href="#the-probing-framework" title="Permanent link">&para;</a></h2>
 <p>A probe trains an agent on a tiny Markov decision process whose answer is
 known exactly (a value, a best action, a count) and compares what the agent
@@ -3691,12 +3827,32 @@ to.</p>
 <td>terminations against time limits, rollout ends, parallel environments out of step, reward scale, average reward</td>
 </tr>
 <tr>
+<td><code>test_average_reward.py</code></td>
+<td>RVI-SAC, and the <code>ValueCentering</code> and <code>ResetCost</code> it brought to every agent, on reset cycles</td>
+</tr>
+<tr>
 <td><code>test_bookkeeping.py</code></td>
 <td>what an agent counts, logs, stores, draws and executes: step counters, UDRL's commands, an expert's warm-up, a declared action box</td>
 </tr>
 <tr>
 <td><code>test_extensions.py</code></td>
 <td>every extension phase an agent claims to fold, through test-only extensions of known effect; the expert extensions' numbers</td>
+</tr>
+<tr>
+<td><code>test_action_stage.py</code></td>
+<td>JSRL and EDGE handing the expert the step on every off-policy agent, the replay learning from the action executed</td>
+</tr>
+<tr>
+<td><code>test_transforms.py</code></td>
+<td>residual RL and gain mode, on a known best action</td>
+</tr>
+<tr>
+<td><code>test_imitation.py</code></td>
+<td>DAgger, and GAIL on PPO</td>
+</tr>
+<tr>
+<td><code>test_offline.py</code></td>
+<td>offline training on logged rows, with no environment step</td>
 </tr>
 <tr>
 <td><code>test_memory.py</code></td>
@@ -3730,9 +3886,9 @@ is a two-step chain: state <code>s1</code> pays 0, 0.5 or 1 by action, and
 <a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>    <span class="s2">&quot;p0a-DQN&quot;</span><span class="p">,</span>
 <a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>    <span class="p">(</span><span class="o">*</span><span class="n">Q_S1</span><span class="p">,</span> <span class="o">*</span><span class="p">(</span><span class="n">Query</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Q(s0, a=</span><span class="si">{</span><span class="n">a</span><span class="si">}</span><span class="s2">)&quot;</span><span class="p">,</span> <span class="n">G3</span><span class="p">,</span> <span class="n">Q_S0_WRONG</span><span class="p">)</span> <span class="k">for</span> <span class="n">a</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">3</span><span class="p">)),</span> <span class="n">GREEDY</span><span class="p">),</span>
 <a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>    <span class="n">_three_run</span><span class="p">(</span><span class="s2">&quot;DQN&quot;</span><span class="p">),</span>  <span class="c1"># train, then read Q at both states and the greedy action</span>
-<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>    <span class="mi">2500</span><span class="p">,</span>  <span class="c1"># budget, in environment steps</span>
-<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a>    <span class="p">(</span><span class="mf">0.026</span><span class="p">,</span> <span class="mf">0.021</span><span class="p">,</span> <span class="mf">0.033</span><span class="p">,</span> <span class="mf">0.037</span><span class="p">,</span> <span class="mf">0.032</span><span class="p">,</span> <span class="mf">0.029</span><span class="p">,</span> <span class="mf">0.02</span><span class="p">),</span>  <span class="c1"># one tolerance per query</span>
-<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a>    <span class="n">note</span><span class="o">=</span><span class="s2">&quot;1250 qualified but 2 seeds of 3000-3031 read Q(s0) 0.047 off; cert 32/32&quot;</span><span class="p">,</span>
+<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>    <span class="mi">625</span><span class="p">,</span>  <span class="c1"># budget, in environment steps</span>
+<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a>    <span class="p">(</span><span class="mf">0.021</span><span class="p">,</span> <span class="mf">0.038</span><span class="p">,</span> <span class="mf">0.074</span><span class="p">,</span> <span class="mf">0.063</span><span class="p">,</span> <span class="mf">0.061</span><span class="p">,</span> <span class="mf">0.054</span><span class="p">,</span> <span class="mf">0.02</span><span class="p">),</span>  <span class="c1"># one tolerance per query</span>
+<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a>    <span class="n">note</span><span class="o">=</span><span class="s2">&quot;with its reference optimiser (centered RMSProp) 625 qualifies, cert 31/32&quot;</span><span class="p">,</span>
 <a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a><span class="p">)</span>
 </code></pre></div>
 <p>The tolerance can never reach a wrong answer: it is at most half the gap to
@@ -3769,8 +3925,8 @@ check uses:</p>
 <li><strong>Certify.</strong> Check the chosen budget and tolerances on a third block,
    3000-3031, and record the result in the case's <code>note</code>.</li>
 </ol>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>uv<span class="w"> </span>run<span class="w"> </span>python<span class="w"> </span>-m<span class="w"> </span>tests.probing.verdict<span class="w"> </span>ladder<span class="w"> </span>test_value_chains<span class="w"> </span>p0a-DQN<span class="w"> </span><span class="m">1000</span><span class="w"> </span><span class="m">1250</span>,2500,5000<span class="w"> </span>a.json
-<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>uv<span class="w"> </span>run<span class="w"> </span>python<span class="w"> </span>-m<span class="w"> </span>tests.probing.verdict<span class="w"> </span>ladder<span class="w"> </span>test_value_chains<span class="w"> </span>p0a-DQN<span class="w"> </span><span class="m">2000</span><span class="w"> </span><span class="m">1250</span>,2500,5000<span class="w"> </span>b.json
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>uv<span class="w"> </span>run<span class="w"> </span>python<span class="w"> </span>-m<span class="w"> </span>tests.probing.verdict<span class="w"> </span>ladder<span class="w"> </span>test_value_chains<span class="w"> </span>p0a-DQN<span class="w"> </span><span class="m">1000</span><span class="w"> </span><span class="m">312</span>,625,1250<span class="w"> </span>a.json
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>uv<span class="w"> </span>run<span class="w"> </span>python<span class="w"> </span>-m<span class="w"> </span>tests.probing.verdict<span class="w"> </span>ladder<span class="w"> </span>test_value_chains<span class="w"> </span>p0a-DQN<span class="w"> </span><span class="m">2000</span><span class="w"> </span><span class="m">312</span>,625,1250<span class="w"> </span>b.json
 <a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>uv<span class="w"> </span>run<span class="w"> </span>python<span class="w"> </span>-m<span class="w"> </span>tests.probing.verdict<span class="w"> </span>choose<span class="w"> </span>test_value_chains<span class="w"> </span>p0a-DQN<span class="w"> </span>a.json<span class="w"> </span>b.json
 <a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>uv<span class="w"> </span>run<span class="w"> </span>python<span class="w"> </span>-m<span class="w"> </span>tests.probing.verdict<span class="w"> </span>certify<span class="w"> </span>test_value_chains<span class="w"> </span>p0a-DQN<span class="w">   </span><span class="c1"># seeds 3000-3031</span>
 </code></pre></div>
@@ -3795,10 +3951,10 @@ module has a catalogue, <code>faults/&lt;module&gt;.jsonl</code>, with one line 
 (<code>faults/contracts.jsonl</code> holds the faults no scenario module is about,
 caught by a fast test alone):</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="p">{</span><span class="nt">&quot;id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;P0a-D01-DQN&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;path&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;agents/DQN/DQN.py&quot;</span><span class="p">,</span>
-<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w"> </span><span class="nt">&quot;old&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;    max_q_next = jnp.max(q_next, axis=-1, keepdims=True)\n&quot;</span><span class="p">,</span>
-<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w"> </span><span class="nt">&quot;new&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;    max_q_next = jnp.mean(q_next, axis=-1, keepdims=True)\n&quot;</span><span class="p">,</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w"> </span><span class="nt">&quot;old&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;    max_next_q_values = jnp.max(next_q_values, axis=-1, keepdims=True)\n&quot;</span><span class="p">,</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w"> </span><span class="nt">&quot;new&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;    max_next_q_values = jnp.mean(next_q_values, axis=-1, keepdims=True)\n&quot;</span><span class="p">,</span>
 <a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="w"> </span><span class="nt">&quot;catches&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;test_value_chains.py::test_learns[p0a-DQN]&quot;</span><span class="p">],</span>
-<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="w"> </span><span class="nt">&quot;fast&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;tests/agents/test_agent_pins.py::test_a_tiny_run_reproduces_its_recorded_fingerprint[DQN]&quot;</span><span class="p">]}</span>
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="w"> </span><span class="nt">&quot;fast&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;tests/agents/DQN/test_dqn_equations.py::test_the_target_bootstraps_on_the_largest_next_value_unless_terminated&quot;</span><span class="p">]}</span>
 </code></pre></div>
 <p><code>path</code> is under <code>src/ajax</code>; <code>old</code> must occur exactly once; <code>catches</code> lists
 the probe nodes that catch the fault, and is empty for a fault no probe can
@@ -3815,18 +3971,13 @@ did not (passed, not run, or the error they crashed with):</p>
 </code></pre></div>
 <p>A node catches a fault when it fails on an assertion, or on pytest's
 <code>Failed</code> (a refusal <code>pytest.raises</code> expected that did not come). Any other
-error is a crash, not a catch: a probe that crashed measured nothing, so a
-probe's check on what the library does is an assertion, and a fast test can
-crash only because the planted text meets its stand-in state, which the bug
-the fault stands for would not. An entry's <code>raises</code> names the one error its
-fast tests may fail with instead, where the bug itself cannot run in their
-setting (<code>faults.py</code> lists the cases).</p>
-<p>CI does not plant faults; <code>test_framework.py</code> runs
-<code>test_every_planted_fault_applies_once_and_names_live_nodes</code>, which checks
-that each <code>old</code> text still occurs once and that each listed node still
-exists. This is why a change under <code>src/ajax</code> runs <code>test_framework.py</code>
-before the push: when a change moves the code a fault edits, update the
-fault's line and run it again.</p>
+error is a crash, not a catch: a probe that crashed measured nothing. An
+entry's <code>raises</code> names the one error its fast tests may fail with instead,
+where the bug itself cannot run in their setting (<code>faults.py</code> lists the
+cases).</p>
+<p>CI does not plant faults. <code>test_framework.py</code> checks that each <code>old</code> text
+still occurs once and that each listed node still exists: when a change
+moves the code a fault edits, update the fault's line and run it again.</p>
 <h3 id="known-defects">Known defects<a class="headerlink" href="#known-defects" title="Permanent link">&para;</a></h3>
 <p>A probe that finds a live bug keeps failing, visibly. The case gets a
 <code>defect</code>, which turns it into a strict xfail whose reason names the defect
@@ -3834,9 +3985,9 @@ fault's line and run it again.</p>
 fails the suite, and the annotation has to be removed. A known bug is never
 hidden by loosening a tolerance.</p>
 <h3 id="size-budgets">Size budgets<a class="headerlink" href="#size-budgets" title="Permanent link">&para;</a></h3>
-<p>The framework is meant to stay readable. <code>test_framework.py</code> caps each file's
-length (<code>CAPS</code>) and the whole directory at 7,000 lines, and requires at least
-one case for every agent <code>ajax</code> exports.</p>
+<p>The framework is meant to stay readable. <code>test_framework.py</code> caps each
+file's length (<code>CAPS</code>) and the directory's, and requires at least one case
+for every agent <code>ajax</code> exports.</p>
 <h2 id="the-bugs-the-probes-target">The bugs the probes target<a class="headerlink" href="#the-bugs-the-probes-target" title="Permanent link">&para;</a></h2>
 <p>The catalogue reads as a list of the classic ways reinforcement-learning code
 goes wrong without crashing:</p>
@@ -3862,7 +4013,7 @@ goes wrong without crashing:</p>
 </tr>
 <tr>
 <td>The reward scale is applied twice</td>
-<td><code>P5-S13</code>, <code>P5-REDQ-scaled-twice</code></td>
+<td><code>P5-S13</code>, <code>P5-ASAC-S13</code></td>
 </tr>
 <tr>
 <td>GAE runs forwards in time; the value bootstraps on the wrong observation; the configured lambda is ignored</td>

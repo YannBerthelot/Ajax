@@ -1544,10 +1544,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#can-i-use" class="md-nav__link">
+  <a href="#when-to-use-it" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Can I use?
+        When to use it
       
     </span>
   </a>
@@ -1599,10 +1599,32 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#differences-from-the-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Differences from the reference
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#notes" class="md-nav__link">
     <span class="md-ellipsis">
       
         Notes
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#results" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Results
       
     </span>
   </a>
@@ -2972,10 +2994,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#can-i-use" class="md-nav__link">
+  <a href="#when-to-use-it" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Can I use?
+        When to use it
       
     </span>
   </a>
@@ -3027,10 +3049,32 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#differences-from-the-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Differences from the reference
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#notes" class="md-nav__link">
     <span class="md-ellipsis">
       
         Notes
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#results" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Results
       
     </span>
   </a>
@@ -3104,19 +3148,19 @@
 <h1 id="reinforce">REINFORCE<a class="headerlink" href="#reinforce" title="Permanent link">&para;</a></h1>
 <p>REINFORCE is the plain policy gradient. It runs the policy, then makes every
 action it took more likely in proportion to how well things went after it.
-It reuses nothing: each rollout gives one gradient step and is discarded.
-That makes it slower to learn than <a href="../ppo/">PPO</a>, which takes several steps
-on each rollout, but it is the simplest on-policy method and the one the
-others build on. By default it subtracts a learned value from the returns
-(a baseline), which lowers the variance of its gradient without biasing it.</p>
+Each rollout gives one gradient step and is discarded. By default it
+subtracts a learned value from the returns (a baseline), which lowers the
+variance of its gradient without biasing it.</p>
 <p><strong>Paper:</strong> Williams, <em>Simple statistical gradient-following algorithms for
 connectionist reinforcement learning</em>, Machine Learning 8, 1992. Ajax
 follows Spinning Up's Vanilla Policy Gradient (<code>openai/spinningup</code> at
 <code>038665d</code>, <code>spinup/algos/pytorch/vpg/vpg.py</code>), which adds GAE to Williams's
-learned baseline, and its plain reward-to-go example (<code>2_rtg_pg.py</code>) for
-the version without a baseline. The returns are the shared on-policy code
-(<code>agents/returns.py</code>); REINFORCE's own is in <code>agents/REINFORCE/REINFORCE.py</code>.</p>
-<h2 id="can-i-use">Can I use?<a class="headerlink" href="#can-i-use" title="Permanent link">&para;</a></h2>
+learned baseline, and its reward-to-go example (<code>2_rtg_pg.py</code>) for the
+version without a baseline.</p>
+<h2 id="when-to-use-it">When to use it<a class="headerlink" href="#when-to-use-it" title="Permanent link">&para;</a></h2>
+<p>REINFORCE is the simplest on-policy method, and the one the others build
+on: a baseline to compare against, or a starting point for teaching.
+<a href="../ppo/">PPO</a>, which takes several steps on each rollout, learns faster.</p>
 <table>
 <thead>
 <tr>
@@ -3151,11 +3195,11 @@ the version without a baseline. The returns are the shared on-policy code
 </tr>
 <tr>
 <td>Extension phases</td>
-<td><code>pretrain</code>, <code>post_update</code>, <code>eval_metrics</code>, <code>observe</code></td>
+<td><code>pretrain</code>, <code>post_update</code>, <code>eval_metrics</code>, <code>observe</code>, <code>action</code>, <code>eval_action</code>, <code>track_memory</code> (<a href="../../guide/compatibility/">which extensions run</a>)</td>
 </tr>
 <tr>
 <td>Resume and checkpoints</td>
-<td>yes</td>
+<td>yes; a run split by a checkpoint equals the run left whole</td>
 </tr>
 </tbody>
 </table>
@@ -3174,6 +3218,7 @@ the version without a baseline. The returns are the shared on-policy code
 </code></pre></div>
 <p>This budget shows the calls; CartPole takes longer to learn.</p>
 <h2 id="key-hyperparameters">Key hyperparameters<a class="headerlink" href="#key-hyperparameters" title="Permanent link">&para;</a></h2>
+<p>The defaults are those of Spinning Up's <code>vpg()</code>.</p>
 <table>
 <thead>
 <tr>
@@ -3185,47 +3230,47 @@ the version without a baseline. The returns are the shared on-policy code
 <tbody>
 <tr>
 <td><code>n_envs</code></td>
-<td>1</td>
+<td><code>1</code></td>
 <td>environments stepped in parallel</td>
 </tr>
 <tr>
 <td><code>n_steps</code></td>
-<td>4000</td>
-<td>steps per environment in each rollout; one policy step per rollout</td>
+<td><code>4000</code></td>
+<td>steps per environment in each rollout</td>
 </tr>
 <tr>
 <td><code>baseline</code></td>
-<td>True</td>
+<td><code>True</code></td>
 <td>subtract a learned value V(s) (GAE); False weights each step by its reward-to-go alone</td>
 </tr>
 <tr>
 <td><code>gamma</code></td>
-<td>0.99</td>
+<td><code>0.99</code></td>
 <td>discount</td>
 </tr>
 <tr>
 <td><code>gae_lambda</code></td>
-<td>0.97</td>
+<td><code>0.97</code></td>
 <td>GAE's lambda, with a baseline</td>
 </tr>
 <tr>
 <td><code>actor_learning_rate</code></td>
-<td>3e-4</td>
+<td><code>3e-4</code></td>
 <td>the policy's Adam step size</td>
 </tr>
 <tr>
 <td><code>critic_learning_rate</code></td>
-<td>1e-3</td>
+<td><code>1e-3</code></td>
 <td>the critic's Adam step size</td>
 </tr>
 <tr>
 <td><code>value_steps</code></td>
-<td>80</td>
+<td><code>80</code></td>
 <td>full-batch Adam steps of the critic per rollout</td>
 </tr>
 <tr>
 <td><code>normalize_advantage</code></td>
-<td>True</td>
+<td><code>True</code></td>
 <td>standardise the advantages over the rollout</td>
 </tr>
 <tr>
@@ -3235,13 +3280,18 @@ the version without a baseline. The returns are the shared on-policy code
 </tr>
 <tr>
 <td><code>max_grad_norm</code></td>
-<td>None</td>
+<td><code>None</code></td>
 <td>clips each network's gradient to this global norm</td>
 </tr>
 <tr>
 <td><code>normalize_observations</code>, <code>normalize_rewards</code></td>
-<td>False</td>
+<td><code>False</code></td>
 <td>running normalisation</td>
+</tr>
+<tr>
+<td><code>episode_length</code>, <code>action_repeat</code></td>
+<td><code>None</code>, <code>1</code></td>
+<td>simulator steps per episode and per agent step, on Brax and Playground; <code>None</code> is 1,000 steps, or a <code>mujoco:</code> task's own time limit (<a href="../../guide/environments/#brax-and-playground">Environments</a>)</td>
 </tr>
 <tr>
 <td><code>extensions</code></td>
@@ -3250,17 +3300,16 @@ the version without a baseline. The returns are the shared on-policy code
 </tr>
 </tbody>
 </table>
-<p><code>n_epochs</code> and <code>num_minibatches</code> are fixed at 1: a second pass over a
+<p>There is no <code>n_epochs</code> or <code>num_minibatches</code> argument: a second pass over a
 rollout would no longer follow the policy that collected it.</p>
 <h2 id="presets">Presets<a class="headerlink" href="#presets" title="Permanent link">&para;</a></h2>
-<p><code>REINFORCE.preset("rtg_pg", env_id)</code> is Spinning Up's plain reward-to-go
-policy gradient (<code>spinup/examples/pytorch/pg_math/2_rtg_pg.py:24-55</code>;
+<p><code>REINFORCE.preset("rtg_pg", env_id)</code> is Spinning Up's reward-to-go policy
+gradient (<code>spinup/examples/pytorch/pg_math/2_rtg_pg.py:24-55</code>;
 <a href="../../guide/training/#presets">Presets</a>): no baseline and no normalisation,
 undiscounted returns (<code>gamma=1</code>), rollouts of 5,000 steps, one hidden layer
-of 32 <code>tanh</code> units, and Adam at <code>1e-2</code>. The script collects whole episodes;
-Ajax skips the steps of the episode each rollout cuts (see the notes).</p>
+of 32 <code>tanh</code> units, and Adam at <code>1e-2</code>.</p>
 <h2 id="how-it-works">How it works<a class="headerlink" href="#how-it-works" title="Permanent link">&para;</a></h2>
-<p>Each update reads the rollout it was just given:</p>
+<p>Each update:</p>
 <ol>
 <li><strong>Returns.</strong> For every step, the discounted sum of the rewards from that
    step to the end of its episode (the reward-to-go). Where the episode was
@@ -3275,35 +3324,39 @@ Ajax skips the steps of the episode each rollout cuts (see the notes).</p>
    squared error between V(s_t) and the returns, all on the whole rollout.</li>
 </ol>
 <p>Both steps read the advantages and returns computed before either moves.</p>
-<h2 id="notes">Notes<a class="headerlink" href="#notes" title="Permanent link">&para;</a></h2>
+<h2 id="differences-from-the-reference">Differences from the reference<a class="headerlink" href="#differences-from-the-reference" title="Permanent link">&para;</a></h2>
 <ul>
 <li><strong>Episodes cut by the rollout, without a baseline.</strong> Spinning Up's
   reward-to-go example collects whole episodes only. Ajax's rollout has a
-  fixed length, so the last episode of each environment is usually cut.
-  Without a critic nothing can stand in for its missing rewards, so its
-  steps get no gradient. Make <code>n_steps</code> several episode lengths long, or a
-  large share of each rollout is skipped (<code>policy/weighted_fraction</code> logs
-  the share used).</li>
+  fixed length, so the last episode of each environment is usually cut,
+  and without a critic its steps get no gradient. Make <code>n_steps</code> several
+  episode lengths long, or a large share of each rollout is skipped
+  (<code>policy/weighted_fraction</code> logs the share used).</li>
+<li><strong>Advantages.</strong> They are divided by their standard deviation plus
+  <code>1e-8</code>, so a rollout of equal advantages stays finite; the reference
+  divides by the bare deviation.</li>
+<li><strong>Logs.</strong> The logged <code>policy/approx_kl</code> is the one policy step's; the
+  reference logs it before the step, where it is 0.</li>
+<li><strong>Processes.</strong> The reference's command line runs 4 processes of 1,000
+  steps; <code>n_envs=4, n_steps=1000</code> reproduces it.</li>
+</ul>
+<h2 id="notes">Notes<a class="headerlink" href="#notes" title="Permanent link">&para;</a></h2>
+<ul>
 <li><strong>Time limits.</strong> With a baseline, a time limit bootstraps from the critic
   as Spinning Up's VPG does at its <code>max_ep_len</code>. Without one, it ends the
   return, as in Spinning Up's example.</li>
 <li><strong>Initialisation.</strong> Every layer starts as torch's <code>nn.Linear</code>, kernel and
-  bias uniform in <code>±1/sqrt(fan_in)</code>, and the continuous policy's log-std,
-  one learned value per action dimension, starts at -0.5, as in the
-  reference.</li>
-<li><strong>Optimiser.</strong> Two Adams with torch's epsilon <code>1e-8</code>, no gradient clipping,
-  as in the reference.</li>
-<li><strong>Differences from the reference.</strong> The advantages are divided by their
-  standard deviation plus <code>1e-8</code>, so a rollout of equal advantages stays
-  finite; the reference divides by the bare deviation. The logged
-  <code>policy/approx_kl</code> is the one policy step's; the reference logs it before
-  the step, where it is 0. The reference runs 4 processes of 1,000 steps by
-  default from its command line; <code>n_envs=4, n_steps=1000</code> reproduces that.</li>
-<li><strong>Against the reference.</strong> On CartPole, over 200,000 steps and 96 seeds,
-  Ajax's final returns are similar to Spinning Up's VPG (within ±25). On
-  Pendulum neither learns at that budget; the comparison is inconclusive
-  (<a href="../../reproduction/results/">Results</a>).</li>
+  bias uniform in <code>±1/sqrt(fan_in)</code>, and the continuous policy's log
+  standard deviation, one learned value per action dimension, starts at
+  -0.5, as in the reference.</li>
+<li><strong>Optimiser.</strong> Two Adams with torch's epsilon <code>1e-8</code>, and no gradient
+  clipping, as in the reference.</li>
 </ul>
+<h2 id="results">Results<a class="headerlink" href="#results" title="Permanent link">&para;</a></h2>
+<p>The <a href="../../reproduction/results/">reproduction results</a> set REINFORCE beside
+Spinning Up's VPG. On CartPole, over 200,000 steps and 96 seeds, Ajax's
+final returns are similar to the reference's (within ±25). On Pendulum
+neither learns at that budget, and the comparison is inconclusive.</p>
 <h2 id="api">API<a class="headerlink" href="#api" title="Permanent link">&para;</a></h2>
 
 

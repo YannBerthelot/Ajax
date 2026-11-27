@@ -1600,10 +1600,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#can-i-use" class="md-nav__link">
+  <a href="#when-to-use-it" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Can I use?
+        When to use it
       
     </span>
   </a>
@@ -1644,10 +1644,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#dagger-and-imitationloss" class="md-nav__link">
+  <a href="#differences-from-the-reference" class="md-nav__link">
     <span class="md-ellipsis">
       
-        DAgger and ImitationLoss
+        Differences from the reference
       
     </span>
   </a>
@@ -1659,6 +1659,17 @@
     <span class="md-ellipsis">
       
         Notes
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dagger-and-imitationloss" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DAgger and ImitationLoss
       
     </span>
   </a>
@@ -3038,10 +3049,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#can-i-use" class="md-nav__link">
+  <a href="#when-to-use-it" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Can I use?
+        When to use it
       
     </span>
   </a>
@@ -3082,10 +3093,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#dagger-and-imitationloss" class="md-nav__link">
+  <a href="#differences-from-the-reference" class="md-nav__link">
     <span class="md-ellipsis">
       
-        DAgger and ImitationLoss
+        Differences from the reference
       
     </span>
   </a>
@@ -3097,6 +3108,17 @@
     <span class="md-ellipsis">
       
         Notes
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dagger-and-imitationloss" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DAgger and ImitationLoss
       
     </span>
   </a>
@@ -3234,19 +3256,22 @@
 
 
 <h1 id="dagger">DAgger<a class="headerlink" href="#dagger" title="Permanent link">&para;</a></h1>
-<p>DAgger learns to imitate an expert. It needs no reward and no critic. The
+<p>DAgger learns to imitate an expert, with no reward and no critic. The
 agent lets the expert act at first, then acts itself. Whoever acts, every
 state it reaches is labelled with the action the expert would take there,
-and the policy is fitted to all the labels gathered so far. Copying only the
-expert's own trajectories (behaviour cloning) never shows the policy the
-states its own mistakes lead to. DAgger collects exactly those.</p>
+and the policy is fitted to all the labels gathered so far.</p>
 <p><strong>Paper:</strong> Ross, Gordon and Bagnell, <em>A Reduction of Imitation Learning and
 Structured Prediction to No-Regret Online Learning</em>, AISTATS 2011
 (<a href="https://arxiv.org/abs/1011.0686">arXiv:1011.0686</a>), Algorithm 3.1. The
 authors released no code. The defaults follow the paper and
 HumanCompatibleAI/imitation at <code>e5ef188</code>
 (<code>src/imitation/algorithms/dagger.py</code> and <code>bc.py</code>).</p>
-<h2 id="can-i-use">Can I use?<a class="headerlink" href="#can-i-use" title="Permanent link">&para;</a></h2>
+<h2 id="when-to-use-it">When to use it<a class="headerlink" href="#when-to-use-it" title="Permanent link">&para;</a></h2>
+<p>Use DAgger when you can query an expert, such as a controller, and want a
+policy that acts like it. Copying only the expert's own
+trajectories (behaviour cloning) never shows the policy the states its own
+mistakes lead to; DAgger collects exactly those. To improve on the expert
+with a reward, see <a href="#dagger-and-imitationloss">below</a>.</p>
 <table>
 <thead>
 <tr>
@@ -3280,8 +3305,16 @@ HumanCompatibleAI/imitation at <code>e5ef188</code>
 <td>yes, <code>train(seed=[...])</code></td>
 </tr>
 <tr>
+<td>Offline training</td>
+<td>yes, <code>train_offline</code> (<a href="../../guide/training/#training-offline">Training</a>)</td>
+</tr>
+<tr>
 <td>Extension phases</td>
-<td><code>pretrain</code>, <code>post_update</code>, <code>eval_metrics</code>, <code>observe</code>, <code>actor_loss</code></td>
+<td><code>pretrain</code>, <code>post_update</code>, <code>eval_metrics</code>, <code>observe</code>, <code>actor_loss</code>, <code>action</code>, <code>eval_action</code>, <code>track_memory</code> (<a href="../../guide/compatibility/">which extensions run</a>)</td>
+</tr>
+<tr>
+<td>Resume and checkpoints</td>
+<td>yes; a run split by a checkpoint equals the run left whole</td>
 </tr>
 </tbody>
 </table>
@@ -3326,42 +3359,42 @@ at the last step (<code>dagger/expert_frac</code>).</p>
 </tr>
 <tr>
 <td><code>eval_expert_policy</code></td>
-<td>None</td>
+<td><code>None</code></td>
 <td>another expert whose return each evaluation logs in place of <code>expert_policy</code>'s</td>
 </tr>
 <tr>
 <td><code>beta_schedule</code></td>
 <td><code>LinearBetaSchedule(15)</code></td>
-<td>the expert's probability of acting in iteration <code>i</code>: falling linearly from 1 to 0 over 15 iterations, the reference code's; <code>ExponentialBetaSchedule(decay)</code> gives <code>beta_i = decay ** (i - 1)</code></td>
+<td>the expert's probability of acting in iteration <code>i</code>, falling linearly from 1 to 0 over 15 iterations; <code>ExponentialBetaSchedule(decay)</code> gives <code>beta_i = decay ** (i - 1)</code></td>
 </tr>
 <tr>
 <td><code>iteration_steps</code></td>
-<td>500</td>
+<td><code>500</code></td>
 <td>timesteps (over all environments) per iteration</td>
 </tr>
 <tr>
 <td><code>fit</code></td>
 <td><code>IterationFit(epochs=4, entropy_weight=1e-3)</code></td>
-<td>how the policy fits the labels: the reference code's 4 epochs of behaviour cloning over the whole replay at the end of each iteration; <code>OnlineFit()</code> makes one gradient step per environment step instead</td>
+<td>how the policy fits the labels: 4 epochs over the whole replay at each iteration's end; <code>OnlineFit()</code>, one gradient step per environment step (see below)</td>
 </tr>
 <tr>
 <td><code>n_envs</code></td>
-<td>1</td>
+<td><code>1</code></td>
 <td>environments stepped in parallel</td>
 </tr>
 <tr>
 <td><code>buffer_size</code></td>
-<td>1,000,000</td>
+<td><code>1_000_000</code></td>
 <td>labelled states kept</td>
 </tr>
 <tr>
 <td><code>batch_size</code></td>
-<td>32</td>
+<td><code>32</code></td>
 <td>labelled states per gradient step (a minibatch of an epoch, for <code>IterationFit</code>)</td>
 </tr>
 <tr>
 <td><code>actor_learning_rate</code></td>
-<td>1e-3</td>
+<td><code>1e-3</code></td>
 <td>Adam step size (eps 1e-8, torch's)</td>
 </tr>
 <tr>
@@ -3371,18 +3404,18 @@ at the last step (<code>dagger/expert_frac</code>).</p>
 </tr>
 <tr>
 <td><code>max_grad_norm</code></td>
-<td>None</td>
+<td><code>None</code></td>
 <td>gradient clipping by global norm</td>
 </tr>
 <tr>
 <td><code>normalize_observations</code></td>
-<td>False</td>
+<td><code>False</code></td>
 <td>running observation normalisation</td>
 </tr>
 <tr>
 <td><code>episode_length</code>, <code>action_repeat</code></td>
-<td>None, 1</td>
-<td>simulator steps per episode and per agent step, on Brax and Playground</td>
+<td><code>None</code>, <code>1</code></td>
+<td>simulator steps per episode and per agent step, on Brax and Playground; <code>None</code> is 1,000 steps, or a <code>mujoco:</code> task's own time limit (<a href="../../guide/environments/#brax-and-playground">Environments</a>)</td>
 </tr>
 <tr>
 <td><code>extensions</code></td>
@@ -3392,11 +3425,11 @@ at the last step (<code>dagger/expert_frac</code>).</p>
 </tbody>
 </table>
 <h2 id="how-it-works">How it works<a class="headerlink" href="#how-it-works" title="Permanent link">&para;</a></h2>
-<p>At each step, each environment executes the expert's action with probability
-<code>beta_i</code>, and the policy's action otherwise: per environment and per step,
-as the reference's collector mixes them. The replay keeps every visited
-state with the expert's action there, whoever acted. It is the paper's
-aggregated dataset D.</p>
+<p>At each step, each environment executes the expert's action with
+probability <code>beta_i</code>, and the policy's action otherwise: per environment
+and per step, as the reference's collector mixes them. The replay keeps
+every visited state with the expert's action there, whoever acted. It is
+the paper's aggregated dataset D.</p>
 <p>The policy fits D as the reference code does (<code>fit=IterationFit()</code>, the
 default). At the end of each iteration, it makes 4 passes (epochs) over
 every state the replay holds. Each pass shuffles the states and takes one
@@ -3409,7 +3442,7 @@ log-likelihood of the expert's action minus 0.001 times the policy's entropy
 or its most likely action. Adam keeps its state from one fit to the next.
 The network starts as the reference's (SB3's <code>ActorCriticPolicy</code>): hidden
 layers orthogonal with gain √2, the output layer with gain 0.01.</p>
-<p><code>fit=OnlineFit()</code> is the fit Ajax used before. Once the replay holds a
+<p><code>fit=OnlineFit()</code> is an online learner instead. Once the replay holds a
 batch, each step makes one gradient step on a replay batch. The policy is
 deterministic, tanh-bounded for continuous actions, and acts with that
 action. The loss is the squared error between the policy's action and the
@@ -3417,52 +3450,53 @@ expert's (both in <code>[-1, 1]</code>), or the cross-entropy of the expert's ac
 for discrete actions. The paper's analysis holds for any no-regret online
 learner (Sec. 4), and an online fit costs one step per environment step,
 where each <code>IterationFit</code> fit costs more as the replay grows.</p>
-<p>The default is the reference code's: <code>beta</code> falls linearly from 1 in the
-first iteration to 0 after 15 (<code>LinearBetaSchedule(15)</code>, imitation's
-<code>dagger.py</code>). The paper prefers its parameter-free <code>beta_i = I(i = 1)</code>,
-which it reports "often performs best in practice" (Sec. 3):
-<code>ExponentialBetaSchedule(0.0)</code>. Any decay in (0, 1] gives its exponential
-schedule. The guarantee needs only that the mean of the <code>beta_i</code> goes to 0.</p>
-<h2 id="dagger-and-imitationloss">DAgger and <code>ImitationLoss</code><a class="headerlink" href="#dagger-and-imitationloss" title="Permanent link">&para;</a></h2>
-<p>A replay agent (SAC, TD3, REDQ, ASAC) given an <code>expert_policy</code> and
-<code>ImitationLoss</code> with the same expert stores the expert's action at every
-state it visits and pulls its actor towards those actions on replay batches.
-That is DAgger's aggregation with <code>beta_i = I(i = 1)</code>, plus the agent's
-reinforcement-learning loss, its critic and its exploration noise. Use
-DAgger to imitate without a reward, or as the imitation baseline. Use
-<code>ImitationLoss</code> to improve on the expert. On PPO, APO and AVG the term reads
-only the latest rollout or step, so there is no aggregated dataset.</p>
-<h2 id="notes">Notes<a class="headerlink" href="#notes" title="Permanent link">&para;</a></h2>
+<p>The default <code>beta</code> schedule is the reference code's. The paper prefers its
+parameter-free <code>beta_i = I(i = 1)</code>, which it reports "often performs best
+in practice" (Sec. 3): <code>ExponentialBetaSchedule(0.0)</code>. Any decay in (0, 1]
+gives its exponential schedule. The guarantee needs only that the mean of
+the <code>beta_i</code> goes to 0.</p>
+<h2 id="differences-from-the-reference">Differences from the reference<a class="headerlink" href="#differences-from-the-reference" title="Permanent link">&para;</a></h2>
 <ul>
 <li><strong>Iterations.</strong> An iteration is <code>iteration_steps</code> steps, and every step
   joins the replay. The reference's round also lasts until 3 episodes have
   ended (<code>rollout_round_min_episodes</code>), and keeps only the episodes that
-  ended. On tasks with long episodes, its rounds are longer than 500 steps.</li>
+  ended, so on tasks with long episodes its rounds are longer than 500
+  steps.</li>
 <li><strong>Action units.</strong> The policy is fitted to the expert's actions in
   <code>[-1, 1]</code>, the units every Ajax actor acts in. The reference fits them in
   the environment's own units, so its starting standard deviation of 1 is a
   different spread where the bounds are not <code>[-1, 1]</code>.</li>
 <li><strong>The last policy.</strong> The paper returns the best policy of the iterations,
   chosen on validation. Ajax returns the last one; the evaluations show each.</li>
-<li><strong>Bounded memory.</strong> The replay drops its oldest rows past <code>buffer_size</code>.
-  D keeps them all.</li>
+<li><strong>Bounded memory.</strong> The replay drops its oldest rows past <code>buffer_size</code>;
+  the paper's D keeps them all.</li>
+</ul>
+<h2 id="notes">Notes<a class="headerlink" href="#notes" title="Permanent link">&para;</a></h2>
+<ul>
 <li><strong>Rewards are not used.</strong> They are recorded, and the evaluations measure
   them, but the policy learns from the expert's actions alone. The critic
   built beside the actor is unused.</li>
-<li><strong>The expert's next action.</strong> The replay stores the expert's action at each
-  state only. Its action at the next state (<code>next_a_expert</code>), which only
-  critic modules read, stays zero.</li>
+<li><strong>The expert's next action.</strong> The replay stores the expert's action at
+  each state only; at the next state (<code>next_a_expert</code>, which only critic
+  modules read) it stays zero.</li>
 </ul>
+<h2 id="dagger-and-imitationloss">DAgger and <code>ImitationLoss</code><a class="headerlink" href="#dagger-and-imitationloss" title="Permanent link">&para;</a></h2>
+<p>A replay agent (SAC, TD3, REDQ, CrossQ, TQC, ASAC, RVI-SAC) given an
+<code>expert_policy</code> and <code>ImitationLoss</code> with the same expert stores the
+expert's action at every state it visits and pulls its actor towards those
+actions on replay batches.
+That is DAgger's aggregation with <code>beta_i = I(i = 1)</code>, plus the agent's
+reinforcement-learning loss, its critic and its exploration noise. Use
+DAgger to imitate without a reward, or as the imitation baseline. Use
+<code>ImitationLoss</code> to improve on the expert. On PPO, APO and AVG the term reads
+only the latest rollout or step, so there is no aggregated dataset.</p>
 <h2 id="results">Results<a class="headerlink" href="#results" title="Permanent link">&para;</a></h2>
-<p>No learning curves are published for DAgger yet. Unit tests
-(<code>tests/agents/DAgger</code>) check the <code>beta</code> schedule, the mixing, the labels on
-every stored row, when each fit runs, over which rows, and its loss. The
-probes (<code>tests/probing/test_imitation.py</code>) train it on a four-state chain
-where one state is reached only by the learner's mistakes. The policy must
-take the expert's action there, which cloning the expert's own states never
-teaches. A discrete twin checks the cross-entropy fit. The probes were
-calibrated with <code>OnlineFit</code> and still run it; no probe runs <code>IterationFit</code>
-yet.</p>
+<p>No learning curves are published for DAgger yet. The probes
+(<code>tests/probing/test_imitation.py</code>) train it on a four-state chain where
+one state is reached only by the learner's mistakes. The policy must take
+the expert's action there, which cloning the expert's own states never
+teaches. One cell runs the defaults; two run the online fit, on
+continuous and discrete actions.</p>
 <h2 id="api">API<a class="headerlink" href="#api" title="Permanent link">&para;</a></h2>
 
 

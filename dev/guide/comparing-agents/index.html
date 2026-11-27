@@ -3050,7 +3050,9 @@
 so? <code>ajax.compare</code> answers with AdaStop (Mathieu et al., "AdaStop: adaptive
 statistical testing for sound comparisons of Deep RL agents", TMLR 2024,
 <a href="https://arxiv.org/abs/2306.10882">arXiv:2306.10882</a>). It trains a few seeds
-of each agent, tests, and trains more only while the answer is unclear.</p>
+of each agent, tests, and trains more only while the answer is unclear. For
+one agent, <a href="#one-agent-how-sure-is-a-number"><code>estimate</code></a> says how well a
+number is known.</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1"># doc: skip (trains 5 to 25 seeds of each agent: tens of minutes on a CPU; tests/test_compare.py covers compare)</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="kn">import</span><span class="w"> </span><span class="nn">ajax</span>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax.compare</span><span class="w"> </span><span class="kn">import</span> <span class="n">compare</span><span class="p">,</span> <span class="n">last_third</span>
@@ -3128,48 +3130,68 @@ same-numbered runs, so what they share cancels:</p>
   in every agent, whichever agents have stopped. Rows of unequal length are
   refused. <code>compare</code> trains the same seeds in every agent when you pass
   <code>paired=True</code>, instead of disjoint ones.</li>
-<li><strong>Pairing only helps if the rows share something.</strong> Runs that share nothing
-  gain nothing, and lose a little: the test then rests on <code>n * K</code> differences,
-  not <code>2 * n * K</code> scores.</li>
+<li><strong>Pairing helps only if the rows share something.</strong> Runs that share
+  nothing gain nothing, and lose a little: the test then rests on <code>n * K</code>
+  differences, not <code>2 * n * K</code> scores.</li>
 <li><strong>The test.</strong> Each permutation flips the sign of whole rows, with the same
   flips in every comparison and the observed rows first. The rest is the
   unpaired test: step-down, boundaries, ties and level carried over.</li>
-<li><strong>What holds exactly.</strong> For two equal agents the level is exact when a row's
-  two scores are exchangeable. With three or more it is exact for symmetric
-  noise, and otherwise rests on the shared flips, which came out cautious on
-  skewed noise (0.03 at <code>alpha = 0.05</code>, 12 agents).</li>
-<li><strong><code>difference</code> and <code>resolution</code> take <code>paired=True</code> too.</strong> They then resample
-  whole rows. Without it they describe an unpaired test: <code>difference</code> gives
-  an interval that still holds the rows' shared spread, and <code>resolution</code> the
-  gap an unpaired test would detect.</li>
+<li><strong>What holds exactly.</strong> For two equal agents the level is exact when a
+  row's two scores are exchangeable. With three or more it is exact for
+  symmetric noise, and otherwise rests on the shared flips, which came out
+  cautious on skewed noise (0.03 at <code>alpha = 0.05</code>, 12 agents).</li>
+<li><strong><code>difference</code> and <code>resolution</code> take <code>paired=True</code> too.</strong> They then
+  resample whole rows. Without it they describe an unpaired test:
+  <code>difference</code> gives an interval that still holds the rows' shared spread,
+  and <code>resolution</code> the gap an unpaired test would detect.</li>
 </ul>
-<p>The <code>paired</code> branch of the authors' <code>adastop</code> package tests each pair's
-differences against a dummy agent of zeros. Here the signs flip row by row,
-and <code>active</code> still says which agents can stop.</p>
 <h2 id="the-score">The score<a class="headerlink" href="#the-score" title="Permanent link">&para;</a></h2>
 <p>The test compares one number per run, and the choice of that number changes
 the question:</p>
-<ul>
-<li><code>final_return</code>: the last evaluation, or how the run ends.</li>
-<li><code>last_third</code>: the mean over the last third of the evaluations, or how
-  steadily it stays there.</li>
-<li><code>auc</code>: the mean over all evaluations, or how fast it learns.</li>
-</ul>
-<p>They can disagree on the same runs. Choose the score before seeing the
-results: picking it afterwards voids the error guarantee.</p>
+<table>
+<thead>
+<tr>
+<th>Score</th>
+<th>Each run's</th>
+<th>Asks</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>final_return</code></td>
+<td>last evaluation</td>
+<td>how the run ends</td>
+</tr>
+<tr>
+<td><code>last_third</code></td>
+<td>mean over the last third of the evaluations</td>
+<td>how steadily it stays there</td>
+</tr>
+<tr>
+<td><code>auc</code></td>
+<td>mean over all evaluations</td>
+<td>how fast it learns</td>
+</tr>
+</tbody>
+</table>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>The scores can disagree on the same runs: choose one before seeing the
+results, as picking it afterwards voids the error guarantee.</p>
+</div>
 <h2 id="cost">Cost<a class="headerlink" href="#cost" title="Permanent link">&para;</a></h2>
 <p>At most <code>n * K</code> runs per agent: 25 with the defaults <code>n = K = 5</code>. A
 comparison stops early only on a clear difference; agents that differ
 little, or not at all, use every run. The paper advises <code>n * K &gt;= 30</code> for
 the means to be well estimated. Very few runs cannot reject anything: with
 <code>n = 2</code> and <code>K = 2</code> no outcome is extreme enough at <code>alpha = 0.05</code>. The test
-itself takes milliseconds; the training is the cost.</p>
-<p>The <a href="https://github.com/YannBerthelot/Ajax/blob/main/benchmarks/reference/README.md">reference comparison</a> reports an
+itself takes milliseconds; the training is the cost. The
+<a href="https://github.com/YannBerthelot/Ajax/blob/main/benchmarks/reference/README.md">reference comparison</a> reports an
 AdaStop verdict on its recorded runs.</p>
 <p><strong>A small <code>alpha</code> needs more permutations.</strong> Only about <code>alpha * B / K</code>
 permutations sit beyond each interim's boundary: 13 at <code>alpha = 0.05 / 19</code>,
-<code>K = 2</code> and <code>B = 10,000</code>. Below <code>B = 1 / alpha</code> there are none, and nothing can
-be rejected. The error rate held at those settings: 0.0030 over 12,000
+<code>K = 2</code> and <code>B = 10,000</code>. Below <code>B = 1 / alpha</code> there are none, and nothing
+can be rejected. The error rate held at those settings: 0.0030 over 12,000
 simulated paired runs of 12 equal agents, against a level of 0.0026. But a
 boundary read off so few permutations is noisy, so raise <code>B</code> with a small
 <code>alpha</code>. It costs seconds rather than milliseconds.</p>
@@ -3189,6 +3211,9 @@ statistic. <code>ajax.compare</code> follows the paper instead, with these choic
 <li>No early acceptance (the paper's Appendix F, which gives no error bound
   for it), as in the package's default.</li>
 <li>Every agent adds the same <code>n</code> runs per interim, as in the paper.</li>
+<li>Paired runs flip signs row by row, and <code>active</code> still says which agents can
+  stop; the package's <code>paired</code> branch tests each pair's differences against
+  a dummy agent of zeros.</li>
 </ul>
 <h2 id="one-agent-how-sure-is-a-number">One agent: how sure is a number?<a class="headerlink" href="#one-agent-how-sure-is-a-number" title="Permanent link">&para;</a></h2>
 <p>With nothing to compare, the question is how well one agent does: its
@@ -3223,9 +3248,9 @@ whether the mean is above <code>t</code>; <code>half_width(w)</code> once it is 
 wide. The intervals are the hedged betting confidence sequence of
 Waudby-Smith and Ramdas ("Estimating means of bounded random variables by
 betting", JRSS-B, Section 4.4), the authors' <code>Bounded_Confseq</code> from the
-<code>adastop</code> package: install the <code>compare</code> extra (<code>uv sync --extra compare</code>,
-or depend on <code>ajax-rl[compare]</code>). It comes from adastop's main branch until a
-release includes it.</p>
+<code>adastop</code> package. It needs the <code>compare</code> extra, which
+<a href="../../getting-started/installation/#extras">Installation</a> explains, as no
+<code>adastop</code> release has it yet.</p>
 <ul>
 <li><strong>Valid at every seed count at once</strong>: with probability at least
   <code>1 - delta</code> the interval holds the true mean after every round, not only
@@ -3245,7 +3270,7 @@ comparison's recorded runs, 16 seeds left PPO on CartPole a success rate
 return of 468 within <code>[275, 500]</code>, and SAC on Pendulum a final return of
 -146 within <code>[-1359, 0]</code>. So decide against a threshold rather than aim for
 a width; prefer metrics whose bounds are close to what runs reach, such as
-success rates or KPI fractions, to returns; and train many seeds per round,
+success rates or other fractions, to returns; and train many seeds per round,
 which share one compiled program.</p>
 
 

@@ -1376,10 +1376,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#can-i-use" class="md-nav__link">
+  <a href="#when-to-use-it" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Can I use?
+        When to use it
       
     </span>
   </a>
@@ -1424,6 +1424,17 @@
     <span class="md-ellipsis">
       
         How it works
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#differences-from-the-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Differences from the reference
       
     </span>
   </a>
@@ -3038,10 +3049,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#can-i-use" class="md-nav__link">
+  <a href="#when-to-use-it" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Can I use?
+        When to use it
       
     </span>
   </a>
@@ -3086,6 +3097,17 @@
     <span class="md-ellipsis">
       
         How it works
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#differences-from-the-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Differences from the reference
       
     </span>
   </a>
@@ -3235,19 +3257,22 @@
 
 <h1 id="iql">IQL<a class="headerlink" href="#iql" title="Permanent link">&para;</a></h1>
 <p>Implicit Q-Learning learns from a fixed dataset without ever asking its
-critic about actions the data does not contain, which offline RL's critics
+critic about actions the data does not contain, which offline critics
 overrate. A state value V(s) is fitted as an upper expectile of the critic
-over the dataset's own actions, which approximates the best of them without
-a max. The critic then regresses on <code>r + γ V(s')</code>. The actor copies the
-dataset's actions, each weighted by how much better than V it was
-(advantage-weighted regression).</p>
+over the dataset's own actions, which approximates the best of them
+without a max. The critic then regresses on <code>r + γ V(s')</code>, and the actor
+copies the dataset's actions, each weighted by how much better than V it
+was (advantage-weighted regression).</p>
 <p><strong>Paper:</strong> Kostrikov, Nair and Levine, <em>Offline Reinforcement Learning with
 Implicit Q-Learning</em>, ICLR 2022
 (<a href="https://arxiv.org/abs/2110.06169">arXiv:2110.06169</a>). The defaults and
-the update order are the authors' JAX code, ikostrikov/implicit_q_learning
-at <code>09d7002</code> (<code>learner.py</code>, <code>critic.py</code>, <code>actor.py</code>, <code>policy.py</code>,
-<code>configs/</code>).</p>
-<h2 id="can-i-use">Can I use?<a class="headerlink" href="#can-i-use" title="Permanent link">&para;</a></h2>
+the update order are the authors' JAX code's,
+<code>ikostrikov/implicit_q_learning</code> at <code>09d7002</code>.</p>
+<h2 id="when-to-use-it">When to use it<a class="headerlink" href="#when-to-use-it" title="Permanent link">&para;</a></h2>
+<p>IQL suits learning from a dataset with no simulator to explore in, such as
+logged runs or a plant's history; it can then fine-tune online with the
+same update. For a minimal alternative, see <a href="../td3/#td3bc-offline">TD3+BC</a>:
+TD3 with a cloning term.</p>
 <table>
 <thead>
 <tr>
@@ -3257,20 +3282,12 @@ at <code>09d7002</code> (<code>learner.py</code>, <code>critic.py</code>, <code>
 </thead>
 <tbody>
 <tr>
-<td>Continuous actions</td>
-<td>yes; the actor's mean is tanh-bounded</td>
-</tr>
-<tr>
 <td>Discrete actions</td>
 <td>no</td>
 </tr>
 <tr>
-<td>Offline training</td>
-<td>yes, <code>train_offline(dataset, n_updates)</code></td>
-</tr>
-<tr>
-<td>Online fine-tuning</td>
-<td>yes, <code>train(initial_state=...)</code> after it, the same update</td>
+<td>Continuous actions</td>
+<td>yes, a Gaussian on a <code>tanh</code> mean, its samples clipped to <code>[-1, 1]</code> and mapped onto the environment's bounds</td>
 </tr>
 <tr>
 <td>Memory (<code>memory=</code>)</td>
@@ -3281,12 +3298,28 @@ at <code>09d7002</code> (<code>learner.py</code>, <code>critic.py</code>, <code>
 <td>gymnax, Brax, MuJoCo Playground</td>
 </tr>
 <tr>
+<td>Image observations</td>
+<td>no</td>
+</tr>
+<tr>
+<td>PID policy</td>
+<td>yes, <code>actor_architecture=PIDPolicy(...)</code> (<a href="../../guide/networks/">Networks</a>)</td>
+</tr>
+<tr>
 <td>Several seeds in one call</td>
 <td>yes, <code>train(seed=[...])</code></td>
 </tr>
 <tr>
+<td>Offline training</td>
+<td>yes, <code>train_offline</code> (<a href="../../guide/training/#training-offline">Training</a>), then online with <code>train(initial_state=...)</code></td>
+</tr>
+<tr>
 <td>Extension phases</td>
-<td><code>pretrain</code>, <code>post_update</code>, <code>eval_metrics</code>, <code>observe</code>, <code>on_target</code>, <code>critic_loss</code>, <code>actor_loss</code>, <code>transform_action</code>, <code>actuate</code>, <code>choose_warmup_action</code>, <code>choose_replay_action</code></td>
+<td><code>pretrain</code>, <code>post_update</code>, <code>eval_metrics</code>, <code>observe</code>, <code>on_target</code>, <code>critic_loss</code>, <code>actor_loss</code>, <code>action</code>, <code>eval_action</code>, <code>transform_action</code>, <code>actuate</code>, <code>choose_warmup_action</code>, <code>choose_replay_action</code>, <code>track_memory</code> (<a href="../../guide/compatibility/">which extensions run</a>)</td>
+</tr>
+<tr>
+<td>Resume and checkpoints</td>
+<td>yes; a run split by a checkpoint equals the run left whole</td>
 </tr>
 </tbody>
 </table>
@@ -3311,11 +3344,12 @@ at <code>09d7002</code> (<code>learner.py</code>, <code>critic.py</code>, <code>
 <a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a><span class="nb">print</span><span class="p">(</span><span class="n">offline</span><span class="p">[</span><span class="s2">&quot;Eval/episodic mean reward&quot;</span><span class="p">])</span>
 <a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a><span class="n">state</span><span class="p">,</span> <span class="n">online</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">seed</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">1_000</span><span class="p">,</span> <span class="n">initial_state</span><span class="o">=</span><span class="n">state</span><span class="p">)</span>
 </code></pre></div>
-<p>Evaluations log, next to the return, the losses of the value, the actor
-and the critics (<code>value/value_loss</code>, <code>value/actor_loss</code>,
-<code>value/critic_loss</code>), the mean advantage <code>q - V(s)</code> on the batch
-(<code>value/advantage</code>) and the mean advantage weight (<code>value/weight</code>).</p>
+<p>Evaluations also log the value's, the actor's and the critics' losses
+(<code>value/value_loss</code>, <code>value/actor_loss</code>, <code>value/critic_loss</code>), the mean
+advantage <code>q - V(s)</code> (<code>value/advantage</code>) and weight (<code>value/weight</code>).</p>
 <h2 id="key-hyperparameters">Key hyperparameters<a class="headerlink" href="#key-hyperparameters" title="Permanent link">&para;</a></h2>
+<p>The defaults are the authors' locomotion configuration. The <a href="#api">API</a>
+section lists every argument.</p>
 <table>
 <thead>
 <tr>
@@ -3326,24 +3360,29 @@ and the critics (<code>value/value_loss</code>, <code>value/actor_loss</code>,
 </thead>
 <tbody>
 <tr>
+<td><code>n_envs</code></td>
+<td><code>1</code></td>
+<td>parallel environments, online</td>
+</tr>
+<tr>
 <td><code>expectile</code></td>
-<td>0.7</td>
-<td>the expectile V fits (0.5: the mean; towards 1: the best action in the data). The reference uses 0.7 on locomotion, 0.9 on antmaze</td>
+<td><code>0.7</code></td>
+<td>the expectile V fits (0.5: the mean; towards 1: the best action in the data); 0.9 on AntMaze</td>
 </tr>
 <tr>
 <td><code>temperature</code></td>
-<td>3.0</td>
-<td>the advantage weights' inverse temperature, <code>min(exp(temperature (q - V)), 100)</code>; 10 on antmaze</td>
-</tr>
-<tr>
-<td><code>gamma</code>, <code>tau</code></td>
-<td>0.99, 0.005</td>
-<td>discount; Polyak rate of the target critics</td>
+<td><code>3.0</code></td>
+<td>the advantage weights' inverse temperature, <code>min(exp(temperature (q - V)), 100)</code>; 10 on AntMaze</td>
 </tr>
 <tr>
 <td><code>actor_learning_rate</code>, <code>critic_learning_rate</code>, <code>value_learning_rate</code></td>
-<td>3e-4</td>
-<td>Adam step sizes (eps 1e-8, optax's)</td>
+<td><code>3e-4</code></td>
+<td>Adam step sizes (epsilon <code>1e-8</code>, optax's)</td>
+</tr>
+<tr>
+<td><code>actor_learning_rate_decay</code></td>
+<td><code>"cosine"</code></td>
+<td>the actor's rate decays to 0 by a cosine over the run's updates; <code>None</code> keeps it constant (<a href="#notes">Notes</a>)</td>
 </tr>
 <tr>
 <td><code>actor_architecture</code>, <code>critic_architecture</code></td>
@@ -3351,48 +3390,74 @@ and the critics (<code>value/value_loss</code>, <code>value/actor_loss</code>,
 <td>hidden layers, also the value's</td>
 </tr>
 <tr>
-<td><code>batch_size</code>, <code>buffer_size</code></td>
-<td>256, 1,000,000</td>
-<td>replay batch; capacity, which must hold the dataset</td>
+<td><code>gamma</code></td>
+<td><code>0.99</code></td>
+<td>discount</td>
 </tr>
 <tr>
-<td><code>reward_scale</code></td>
-<td>1.0</td>
-<td>multiplies the rewards in the critic's target</td>
+<td><code>tau</code></td>
+<td><code>0.005</code></td>
+<td>Polyak rate of the target critics</td>
+</tr>
+<tr>
+<td><code>buffer_size</code></td>
+<td><code>1_000_000</code></td>
+<td>replay capacity, which must hold the dataset</td>
+</tr>
+<tr>
+<td><code>batch_size</code></td>
+<td><code>256</code></td>
+<td>rows per update</td>
 </tr>
 <tr>
 <td><code>learning_starts</code></td>
-<td>0</td>
+<td><code>0</code></td>
 <td>online: steps before the first update (the replay holds the dataset already)</td>
 </tr>
 <tr>
-<td><code>normalize_observations</code></td>
-<td>False</td>
-<td>running observation normalisation of the actor and the critics</td>
+<td><code>reward_scale</code></td>
+<td><code>1.0</code></td>
+<td>multiplies the rewards in the critics' target</td>
+</tr>
+<tr>
+<td><code>max_grad_norm</code></td>
+<td><code>None</code></td>
+<td>gradient clipping</td>
+</tr>
+<tr>
+<td><code>normalize_observations</code>, <code>normalize_rewards</code></td>
+<td><code>False</code></td>
+<td>running normalisation (<a href="../../guide/environments/">Environments</a>)</td>
+</tr>
+<tr>
+<td><code>episode_length</code>, <code>action_repeat</code></td>
+<td><code>None</code>, <code>1</code></td>
+<td>simulator steps per episode and per agent step, on Brax and Playground; <code>None</code> is 1,000 steps, or a <code>mujoco:</code> task's own time limit (<a href="../../guide/environments/#brax-and-playground">Environments</a>)</td>
 </tr>
 <tr>
 <td><code>expert_policy</code></td>
 <td><code>None</code></td>
-<td>an expert the collector tracks (online): its actions feed the observation features and a residual policy (<code>ResidualPolicy</code>), and the evaluation reports its return next to the agent's</td>
+<td>an expert the run tracks online, for the observation features and <code>ResidualPolicy</code>; each evaluation logs its return next to the agent's</td>
 </tr>
 <tr>
 <td><code>extensions</code></td>
 <td><code>()</code></td>
-<td>research features (see <a href="../../guide/extensions/">Extensions</a>)</td>
+<td>research features (<a href="../../guide/extensions/">Extensions</a>)</td>
 </tr>
 </tbody>
 </table>
 <h2 id="presets">Presets<a class="headerlink" href="#presets" title="Permanent link">&para;</a></h2>
-<p><code>IQL.preset("AntMaze", env_id)</code> takes the reference's AntMaze config,
-<code>expectile=0.9</code> and <code>temperature=10</code> (ikostrikov/implicit_q_learning@<code>09d7002</code>,
-<code>configs/antmaze_config.py:15-16</code>; <a href="../../guide/training/#presets">Presets</a>). The reference also preprocesses each
-dataset's rewards, which a preset cannot do:</p>
+<p><code>IQL.preset("AntMaze", env_id)</code> takes the authors' AntMaze configuration,
+<code>expectile=0.9</code> and <code>temperature=10</code> (<code>configs/antmaze_config.py:15-16</code>;
+<a href="../../guide/training/#presets">Presets</a>). The reference also preprocesses
+each dataset's rewards, which a preset cannot do:</p>
 <ul>
-<li>on AntMaze it subtracts 1 from them (<code>train_offline.py:68-69</code>): shift your
-  dataset's rewards before training;</li>
+<li>on AntMaze it subtracts 1 from them (<code>train_offline.py:68-69</code>): shift
+  your dataset's rewards before training;</li>
 <li>on the locomotion tasks it scales them by 1000 over the range of the
   dataset's episode returns (<code>:35-52</code>): pass
-  <code>reward_scale=1000 / (max_return - min_return)</code>, computed from your dataset.</li>
+  <code>reward_scale=1000 / (max_return - min_return)</code>, computed from your
+  dataset.</li>
 </ul>
 <h2 id="how-it-works">How it works<a class="headerlink" href="#how-it-works" title="Permanent link">&para;</a></h2>
 <p>Each update samples one replay batch and runs, in the reference's order:</p>
@@ -3402,36 +3467,39 @@ dataset's rewards, which a preset cannot do:</p>
    V)²</code>.</li>
 <li><strong>Actor.</strong> It maximises <code>E[w log π(a|s)]</code> with <code>w = min(exp(temperature
    (q − V(s))), 100)</code>, with V the value just updated. The policy is a
-   Gaussian on a tanh mean, with one learned log-std per action dimension,
-   clipped to [−5, 2]. Online, its samples act clipped to [−1, 1] and the
-   replay keeps them clipped, as the reference does. The evaluations act with
-   its mean.</li>
+   Gaussian on a <code>tanh</code> mean, with one learned log-std per action
+   dimension, clipped to <code>[−5, 2]</code>. Online, its samples act clipped to
+   <code>[−1, 1]</code> and the replay keeps them clipped, as the reference does. The
+   evaluations act with its mean.</li>
 <li><strong>Critics.</strong> Two Q critics regress on <code>reward_scale · r + γ (1 −
    terminated) V(s')</code>, their squared errors summed.</li>
 <li><strong>Targets.</strong> The target critics move by Polyak averaging at rate <code>tau</code>.</li>
 </ol>
+<h2 id="differences-from-the-reference">Differences from the reference<a class="headerlink" href="#differences-from-the-reference" title="Permanent link">&para;</a></h2>
+<p>The update follows the reference's equations and order
+(<a href="#how-it-works">How it works</a>); no conformance check runs it against the
+reference's code. <code>normalize_rewards</code>, off by default, is Ajax's: it
+divides the rewards by a running standard deviation that counts the
+dataset's rows and each step collected, as on the other agents.</p>
 <h2 id="notes">Notes<a class="headerlink" href="#notes" title="Permanent link">&para;</a></h2>
 <ul>
-<li><strong>Learning-rate schedule.</strong> The actor's learning rate decays to 0 by a
-  cosine over the run's updates, as in the reference's offline training
-  (<code>actor_learning_rate_decay="cosine"</code>). <code>actor_learning_rate_decay=None</code>
-  keeps it constant, as the reference's fine-tuning config does. A decayed
-  rate carries into a <code>train(initial_state=...)</code> that fine-tunes the state:
-  pass <code>None</code> to both calls to fine-tune at a constant rate.</li>
-<li><strong>Rewards.</strong> The reference scales a locomotion dataset's rewards by 1000
-  over its range of episode returns, and subtracts 1 from antmaze's. Compute
-  the factor from your dataset and pass it as <code>reward_scale</code> (or shift the
-  dataset's rewards).</li>
-<li><strong>The value's input.</strong> V reads the observation as the actor and the
-  critics do: normalised with <code>normalize_observations=True</code> (until 0.6.0, V
-  read it raw).</li>
+<li><strong>Learning-rate schedule.</strong> The actor's cosine decay is the reference's
+  offline training's. A decayed rate carries into a
+  <code>train(initial_state=...)</code> that fine-tunes the state: to fine-tune at a
+  constant rate, as the reference's fine-tuning configuration does, build
+  the agent with <code>actor_learning_rate_decay=None</code>.</li>
+<li><strong>The value's input.</strong> With <code>normalize_observations=True</code>, V reads the
+  normalised observations, as the actor and the critics do.</li>
+<li><strong>Initialisation.</strong> As in the authors' code: orthogonal kernels with gain
+  <code>sqrt(2)</code>.</li>
 </ul>
 <h2 id="results">Results<a class="headerlink" href="#results" title="Permanent link">&para;</a></h2>
-<p>No learning curves are published for IQL yet. Unit tests
-(<code>tests/agents/IQL</code>) check the expectile loss and the reference's defaults.
-The probe (<code>tests/probing/test_offline.py</code>) trains IQL offline on logged
-one-step rows: V must reach the expectile of their returns, and the actor
-the advantage-weighted mean of their actions, with the weights clipped.</p>
+<p>The repository records no learning curves for IQL yet. A probe
+(<code>tests/probing/test_offline.py</code>) trains it offline on logged one-step
+rows: V must reach the expectile of their returns, and the actor the
+advantage-weighted mean of their actions, with the weights clipped.
+<a href="../../guide/performance/">Performance</a> compares its speed with the other
+agents'.</p>
 <h2 id="api">API<a class="headerlink" href="#api" title="Permanent link">&para;</a></h2>
 
 

@@ -3180,56 +3180,104 @@
 
 
 <h1 id="contributing-to-ajax">Contributing to Ajax<a class="headerlink" href="#contributing-to-ajax" title="Permanent link">&para;</a></h1>
-<p>This guide is for changing Ajax: where the code lives, how an agent trains,
-how to add an agent or an extension, and how the tests check them. To use
-Ajax, read the <a href="https://github.com/YannBerthelot/Ajax/blob/main/README.md">README</a>. <a href="https://github.com/YannBerthelot/Ajax/blob/main/CLAUDE.md">CLAUDE.md</a> holds the checks a
-change must pass and the refactoring rules; this guide does not repeat them.</p>
+<p>This guide is for changing Ajax: setting up a checkout, where the code
+lives, how an agent trains, adding an agent or an extension, and the tests
+and checks a change goes through. To use Ajax, start with the
+<a href="https://github.com/YannBerthelot/Ajax/blob/main/README.md">README</a>. <a href="https://github.com/YannBerthelot/Ajax/blob/main/CLAUDE.md">CLAUDE.md</a> holds the checks a change must
+pass and the refactoring rules; this guide does not repeat them. Bug reports
+and requests for an agent or a feature have a form each in the
+<a href="https://github.com/YannBerthelot/Ajax/issues/new/choose">issues</a>.</p>
 <h2 id="development-setup">Development setup<a class="headerlink" href="#development-setup" title="Permanent link">&para;</a></h2>
-<p>Install as the <a href="https://github.com/YannBerthelot/Ajax/blob/main/README.md#install">README</a> says, then run
-<code>uv run pre-commit install</code> once, so ruff and mypy check every commit. Prefix
-commands with <code>uv run</code>, or activate <code>.venv</code>.</p>
+<p><a href="https://docs.astral.sh/uv/">uv</a> installs a checkout with the versions in
+<code>uv.lock</code>, which CI tests, and pre-commit then runs ruff and mypy on every
+commit:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>git<span class="w"> </span>clone<span class="w"> </span>https://github.com/YannBerthelot/Ajax.git
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="nb">cd</span><span class="w"> </span>Ajax
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>uv<span class="w"> </span>sync
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>uv<span class="w"> </span>run<span class="w"> </span>pre-commit<span class="w"> </span>install
+</code></pre></div>
+<p>Prefix commands with <code>uv run</code>, or activate <code>.venv</code>. <code>uv sync</code> installs the
+runtime and the <code>dev</code> group; the other groups are opt-in
+(<code>uv sync --group plane</code>), and <code>uv sync --no-default-groups</code> installs the
+runtime alone:</p>
+<table>
+<thead>
+<tr>
+<th>Group</th>
+<th>Default</th>
+<th>What it adds</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>dev</code></td>
+<td>yes</td>
+<td>pytest, coverage, pre-commit, ruff, mypy, adastop, the probing environments the tests train on, and the <code>playground</code>, <code>gymnasium</code>, <code>gymnasium-mjx</code>, <code>render</code> and <code>manifolds</code> extras</td>
+</tr>
+<tr>
+<td><code>wandb</code></td>
+<td>no</td>
+<td>the <code>wandb</code> extra</td>
+</tr>
+<tr>
+<td><code>plane</code></td>
+<td>no</td>
+<td><a href="https://github.com/YannBerthelot/TargetGym">TargetGym</a>, for the Plane3DCircle scenario of the speed benchmark (<code>benchmarks/perf_bench.py</code>)</td>
+</tr>
+<tr>
+<td><code>docs</code></td>
+<td>no</td>
+<td>MkDocs and its plugins, to build the documentation site</td>
+</tr>
+</tbody>
+</table>
+<p><code>make docs</code> builds the site as CI does (<code>uv run --group docs mkdocs build
+--strict</code>: a broken link, or a docstring naming a parameter the code does
+not have, fails it), and <code>make docs-serve</code> serves it at
+<code>http://127.0.0.1:8000</code>, rebuilt on save. The site needs only the <code>docs</code>
+group (<code>uv sync --only-group docs</code>): the API pages are read from the source,
+not imported.</p>
 <h2 id="where-things-live">Where things live<a class="headerlink" href="#where-things-live" title="Permanent link">&para;</a></h2>
 <p><a href="../architecture/#the-package">Architecture</a> gives the overview.
 These are the pieces every agent shares:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>src/ajax/
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>├── agents/base.py       ActorCritic: environment and network setup, extensions=, train()
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>├── agents/families.py   declared agents: fields as hyperparameters, the replay, incremental, on-policy, own-iteration and own-replay families
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>├── agents/loop.py       TrainLoop, the shared loop (brax&#39;s forced resets included)
-<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>├── agents/update_steps.py  critic_step, actor_step, compute_gradients, gradient_step, apply_gradients_clipped_together, run_if, the target update
-<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>├── agents/minibatch.py  the on-policy rollout split, minibatches and epochs
-<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>├── agents/critics.py    the Q-critics&#39; regression (continuous and discrete actions)
-<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>├── agents/diagnostics.py  KL, explained variance, policy std
-<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>├── agents/recurrent.py  replay buffers and R2D2-style sequence replay for memory=, and PPO&#39;s networks with or without memory
-<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>├── agents/cloning.py    the behaviour-cloning loss and fit (CloningPretrain&#39;s)
-<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>├── extensions/base.py   Extension, ExtensionStack, ExtensionContext, the phases
-<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>├── environments/interaction.py  collect_experience: act, step and store
-<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>├── perf_utils.py        build_resumable_train: initialise or resume, then one jitted scan;
-<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>│                        build_chunked_train: the same in chunks, evaluating between them
-<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>├── log.py, evaluate.py  when to evaluate and log; the evaluation episodes
-<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>├── state.py             BaseAgentState, BaseAgentConfig, the configuration dataclasses
-<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>└── checkpoint.py        save_checkpoint, restore_into
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>src/ajax/
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>├── agents/base.py       ActorCritic: environment and network setup, extensions=, train()
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>├── agents/families.py   declared agents: fields as hyperparameters, the replay, incremental, on-policy, own-iteration and own-replay families
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>├── agents/loop.py       TrainLoop, the shared loop (brax&#39;s forced resets included)
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>├── agents/update_steps.py  critic_step, actor_step, compute_gradients, gradient_step, apply_gradients_clipped_together, run_if, the target update
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>├── agents/minibatch.py  the on-policy rollout split, minibatches and epochs
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>├── agents/critics.py    the Q-critics&#39; regression (continuous and discrete actions)
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>├── agents/diagnostics.py  KL, explained variance, policy std
+<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>├── agents/recurrent.py  replay buffers and R2D2-style sequence replay for memory=, and PPO&#39;s networks with or without memory
+<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a>├── agents/cloning.py    the behaviour-cloning loss and fit (CloningPretrain&#39;s)
+<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a>├── extensions/base.py   Extension, ExtensionStack, ExtensionContext, the phases
+<a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a>├── environments/interaction.py  collect_experience: act, step and store
+<a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a>├── perf_utils.py        build_resumable_train: initialise or resume, then one jitted scan;
+<a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a>│                        build_chunked_train: the same in chunks, evaluating between them
+<a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a>├── log.py, evaluate.py  when to evaluate and log; the evaluation episodes
+<a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a>├── state.py             BaseAgentState, Transition, the configuration dataclasses
+<a id="__codelineno-1-17" name="__codelineno-1-17" href="#__codelineno-1-17"></a>└── checkpoint.py        save_checkpoint, restore_into
 </code></pre></div>
-<p><strong>Agent anatomy.</strong> A declared agent (SAC, TQC, REDQ, ASAC, CrossQ, TD3, IQL,
-AVG, PPO, APO, PQN, DreamerV3, TDMPC2) is one file,
-<code>src/ajax/agents/&lt;AGENT&gt;/&lt;AGENT&gt;.py</code>: its hyperparameters as dataclass
-fields, its <code>init</code> and <code>update</code>, its equations, its state and metrics, on
-a family of <code>agents/families.py</code> that builds the rest (the constructor, the
-run config, the replay or the rollouts, the train function). The world
-models' folders also hold their maths by role. DreamerV3's: the networks,
-the world model, the actor-critic, the learner, the optimiser, the replay
-and the configuration. TD-MPC2's: the networks, one update (<code>core.py</code>), the
-optimisers, the planner, the replay and the configuration, which
-<code>TDMPC2MultiTask</code> imports instead of copying, under the lineage rule below;
-the multi-task agent, offline and off the families, keeps its own host loop
+<p><strong>Agent anatomy.</strong> Every agent but <code>TDMPC2MultiTask</code> is a <em>declared agent</em>:
+one file, <code>src/ajax/agents/&lt;AGENT&gt;/&lt;AGENT&gt;.py</code>, with its hyperparameters as
+dataclass fields, its <code>init</code> and <code>update</code>, its equations, and its state and
+metrics. A family of <code>agents/families.py</code> builds the rest: the constructor,
+the run config, the replay or the rollouts, the train function. The world
+models' folders also hold their maths by role: DreamerV3's networks, world
+model, actor-critic, learner, optimiser, replay and configuration;
+TD-MPC2's networks, one update (<code>core.py</code>), optimisers, planner, replay and
+configuration. <code>TDMPC2MultiTask</code> imports TD-MPC2's instead of copying them
+and, offline and off the families, keeps its own host loop
 (<code>TDMPC2MultiTask.py</code>) and train function (<code>train_TDMPC2MultiTask.py</code>). A
-declared parent's equations are in its one file: APO imports PPO's from
-<code>PPO/PPO.py</code>; TQC, REDQ, ASAC, CrossQ and AVG import SAC's from
-<code>SAC/SAC.py</code>.</p>
+variant imports its parent's equations from the parent's file (the lineage
+rule, below): APO PPO's, and TQC, REDQ, ASAC, RVI-SAC, CrossQ and AVG
+SAC's.</p>
 <h2 id="the-shared-training-loop">The shared training loop<a class="headerlink" href="#the-shared-training-loop" title="Permanent link">&para;</a></h2>
 <p>The agents share one loop, <code>TrainLoop</code>, so collecting experience, waiting for
 <code>learning_starts</code>, applying the extensions, evaluating, logging and resuming
-work the same way everywhere and are fixed in one place. An agent supplies
-only its algorithm:</p>
+work the same way everywhere and are fixed in one place
+(<a href="../architecture/#the-shared-training-loop">Architecture</a>
+walks through it). An agent supplies only its algorithm:</p>
 <ul>
 <li><code>init(key) -&gt; agent_state</code>: a fresh state. One-shot pretraining (behaviour
   cloning) is an extension's, on a key the loop splits off.</li>
@@ -3240,39 +3288,39 @@ only its algorithm:</p>
 </ul>
 <p>and picks one of two iterations:</p>
 <ul>
-<li><strong><code>loop.off_policy(init, update, learning_starts, ...)</code></strong> (SAC,
-  TD3, REDQ, ASAC, AVG, DQN): each iteration collects one step per
-  environment, then, from <code>learning_starts</code>, runs <code>update(agent_state,
-  transition)</code> and folds the extensions' <code>post_update</code>. Before
-  <code>learning_starts</code> the actions are uniform and the metrics have the
-  update's structure, filled with NaN, which the logger drops.</li>
-<li><strong><code>loop.on_policy(init, update, n_steps, ...)</code></strong> (PPO, APO, REINFORCE, PQN): each
-  iteration collects an <code>n_steps</code> rollout per environment from the agent
-  state <code>agent_state_at_rollout_start</code>, then runs <code>update(agent_state,
-  rollout, agent_state_at_rollout_start)</code> and folds <code>post_update</code>. A
-  recurrent agent replays the rollout from that state's memory.</li>
+<li><strong><code>loop.off_policy(init, update, learning_starts, ...)</code></strong> (the replay
+  agents and AVG): each iteration collects one step per environment, then,
+  from <code>learning_starts</code>, runs <code>update(agent_state, transition)</code> and folds
+  the extensions' <code>post_update</code>. Before <code>learning_starts</code> the actions are
+  uniform and the metrics have the update's structure, filled with NaN,
+  which the logger drops.</li>
+<li><strong><code>loop.on_policy(init, update, n_steps, ...)</code></strong> (PPO, APO, REINFORCE,
+  PQN): each iteration collects an <code>n_steps</code> rollout per environment from
+  the agent state <code>agent_state_at_rollout_start</code>, then runs
+  <code>update(agent_state, rollout, agent_state_at_rollout_start)</code> and folds
+  <code>post_update</code>. A recurrent agent replays the rollout from that state's
+  memory.</li>
 </ul>
 <p>The loop does the rest: <code>init</code> and the extensions' initial state and
 pre-training (<code>ExtensionStack.apply_init</code>) on a fresh run, the given state on a
 resumed one, then the iterations in <code>build_resumable_train</code>'s jitted scan.
 With logging, <code>build_chunked_train</code> runs them in chunks and evaluates and
-logs between chunks, every <code>log_frequency</code> steps (with <code>eval_metrics</code>).</p>
+logs between chunks, every <code>log_frequency</code> steps (with <code>eval_metrics</code>). The
+world models (DreamerV3 and TDMPC2) give <code>off_policy</code> their own <code>collect</code>,
+<code>n_updates</code> (a train ratio, a burst) and <code>Evaluation</code>; UDRL runs its own
+iteration on <code>TrainLoop.train</code>, and APG and the offline <code>TDMPC2MultiTask</code>
+call <code>build_resumable_train</code> themselves, with <code>fresh_state</code> and the
+<code>post_update</code> fold.</p>
+<p><code>ActorCritic.train</code> runs the seeds at once (<code>jax.vmap</code>) and returns
+<code>(state, evaluations)</code>: each logged key's values per seed and evaluation,
+kept whether or not a backend records them (only a backend starts the
+logging worker). With <code>logging_config=None</code> it does not evaluate and
+returns <code>(state, None)</code>; APG returns every update's metrics instead.
+<code>initial_state=state</code> continues a run.</p>
 <p>Continuous agents act in <code>[-1, 1]</code>; never scale to the env's bounds yourself.
 Every Ajax env step maps the action onto them (<code>agent_action_to_env</code>), and
 <code>ActorCritic</code> reads an expert, written in env units, in the same <code>[-1, 1]</code>
 (<code>ExpertInAgentUnits</code>): replay, losses and extensions see one unit.</p>
-<p>The world models (DreamerV3 and TDMPC2, on the own-replay family) also give
-<code>off_policy</code> their own <code>collect(agent_state, tick)</code>, <code>n_updates(tick,
-agent_state)</code> (a train ratio, a burst) and <code>Evaluation</code>. UDRL runs its own
-iteration on <code>TrainLoop.train</code>; APG
-and the offline <code>TDMPC2MultiTask</code> call <code>build_resumable_train</code> themselves,
-with <code>fresh_state</code> and the <code>post_update</code> fold.</p>
-<p><code>ActorCritic.train</code> runs the seeds at once (<code>jax.vmap</code>). With a
-<code>LoggingConfig</code> it returns <code>(state, evaluations)</code>, each logged key's values
-per seed and evaluation, kept whether or not a backend (<code>use_wandb</code>,
-<code>use_tensorboard</code>, the only case that starts the logging worker) records them.
-Without one it does not evaluate and returns <code>(state, None)</code>; APG returns
-every update's metrics instead. <code>initial_state=state</code> continues a run.</p>
 <h3 id="random-keys">Random keys<a class="headerlink" href="#random-keys" title="Permanent link">&para;</a></h3>
 <p>A key comes from a name, not from its turn in line, so a run that differs by
 one flag, option or extension draws every other number as before
@@ -3294,98 +3342,39 @@ rule, an extra loss term, a measurement) that plugs into any agent without
 changing it, so an agent's surface stays its algorithm's hyperparameters plus
 <code>extensions=()</code> (see CLAUDE.md, "Extensions are self-contained"). The
 <a href="../../guide/extensions/#catalogue">extensions guide</a> lists the ones Ajax
-ships.</p>
+ships, and <a href="../writing-an-extension/">Writing an extension</a>
+shows how to write one.</p>
 <p>An extension is a frozen dataclass subclassing <code>Extension</code>. It holds its own
-settings and overrides only the <em>phases</em> it touches; the other phases keep
-their defaults, which change nothing. An agent applies a phase of its
-<code>ExtensionStack</code> in list order with one helper per phase (<code>apply_reward</code>,
-<code>apply_on_target</code>, <code>compute_extensions_critic_loss</code>,
-<code>compute_extensions_actor_loss</code>, <code>apply_post_update</code>; the loop calls
-<code>apply_init</code> and <code>apply_eval_metrics</code>)
-that builds the <code>ExtensionContext</code> (<code>step</code>, <code>rng</code>, <code>total_steps</code>) and
+settings and overrides only the <em>phases</em> it touches
+(<a href="../extension-phases/">Extension phases</a> lists them, with
+what each receives); the other phases keep their defaults, which change
+nothing. An agent applies a phase of its <code>ExtensionStack</code> in list order with
+one helper per phase (<code>apply_reward</code>, <code>apply_on_target</code>,
+<code>compute_extensions_critic_loss</code>, <code>compute_extensions_actor_loss</code>,
+<code>apply_post_update</code>; the loop calls <code>apply_init</code> and <code>apply_eval_metrics</code>),
+which builds the <code>ExtensionContext</code> (<code>step</code>, <code>rng</code>, <code>total_steps</code>) and
 threads the extensions' state. On an empty stack a helper changes nothing
 (a loss term is <code>0.0</code>), so an agent without extensions traces nothing extra
 and never guards a call.</p>
-<table>
-<thead>
-<tr>
-<th>Phase</th>
-<th>What it does</th>
-<th>Folded today by</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>init_state(agent_state, rng)</code></td>
-<td>returns the extension's state (<code>()</code>: none)</td>
-<td>every agent, fresh runs only</td>
-</tr>
-<tr>
-<td><code>pretrain(agent_state, ext_state, context)</code></td>
-<td>one-shot step before training</td>
-<td>every agent, fresh runs only</td>
-</tr>
-<tr>
-<td><code>on_target(agent_state, ext_state, batch, target, context)</code></td>
-<td>transforms the TD or value target</td>
-<td>SAC, TQC, REDQ, ASAC, CrossQ, IQL, AVG, TD3, DQN, PQN, PPO, APO</td>
-</tr>
-<tr>
-<td><code>critic_loss(agent_state, ext_state, batch, context)</code></td>
-<td>adds a term to the critic loss</td>
-<td>SAC, TQC, REDQ, ASAC, CrossQ, IQL, AVG, TD3, DQN, PQN, PPO, APO</td>
-</tr>
-<tr>
-<td><code>actor_loss(agent_state, ext_state, batch, context)</code></td>
-<td>adds a term to the actor loss</td>
-<td>SAC, TQC, REDQ, ASAC, CrossQ, IQL, AVG, TD3, PPO, APO, APG, UDRL</td>
-</tr>
-<tr>
-<td><code>action(agent_state, ext_state, obs, rng, context)</code></td>
-<td>overrides the collection action (<code>None</code> defers)</td>
-<td>every agent but APG and the world models, in the action stage (<code>action_slot</code>)</td>
-</tr>
-<tr>
-<td><code>eval_action(agent_state, ext_state, obs, rng, context)</code></td>
-<td>overrides the evaluation action</td>
-<td>every agent but APG, UDRL and the world models</td>
-</tr>
-<tr>
-<td><code>post_update(agent_state, ext_state, context)</code></td>
-<td>runs after each update</td>
-<td>every agent</td>
-</tr>
-<tr>
-<td><code>eval_metrics(agent_state, ext_state, rng, context)</code></td>
-<td>adds metrics to each evaluation</td>
-<td>every agent</td>
-</tr>
-</tbody>
-</table>
-<p><code>tests/probing/test_extensions.py</code> checks the phases on the agents with
-test-only extensions of known effect, and that an extension implementing a
-phase the agent does not fold is rejected.</p>
 <p>Every agent lists the phases it folds in <code>supported_extension_phases</code>: the
-shared loop's <code>LOOP_PHASES</code> (<code>pretrain</code>, <code>post_update</code>, <code>eval_metrics</code>,
-<code>observe</code>, <code>action</code>, in <code>ajax.agents.loop</code>) plus those its update folds; the base class's default is
-empty. An extension implementing any other phase is rejected when the agent
-is built instead of being silently ignored. It declares in
+shared loop's <code>LOOP_PHASES</code> (in <code>ajax.agents.loop</code>) plus those its update
+folds. An extension implementing any other phase is rejected when the agent
+is built instead of being silently ignored;
+<code>tests/probing/test_extensions.py</code> checks the phases on the agents with
+test-only extensions of known effect. An agent also declares in
 <code>phase_batch_keys</code> the keys its folds put in the extensions' batches beyond
-the common ones (<code>COMMON_BATCH_KEYS</code>): an agent on <code>critic_step</code> and
-<code>actor_step</code> declares their sets (<code>REPLAY_BATCH_KEYS</code>, or <code>TARGET_KEYS</code>,
-<code>CRITIC_LOSS_KEYS</code> and <code>ACTOR_STEP_KEYS</code> with its own rows'), plus any it
-adds. An extension reading an undeclared key is refused when the agent is
-built.</p>
+the common ones (<code>COMMON_BATCH_KEYS</code>, in <code>ajax/extensions/base.py</code>): an
+agent on <code>critic_step</code> and <code>actor_step</code> declares their sets
+(<code>REPLAY_BATCH_KEYS</code>, or <code>TARGET_KEYS</code>, <code>CRITIC_LOSS_KEYS</code> and
+<code>ACTOR_STEP_KEYS</code> with its own rows'), plus any it adds. An extension
+reading an undeclared key is refused when the agent is built.</p>
 <p>What changes during training lives in <code>agent_state.ext_state</code> (one entry per
 extension), never on <code>self</code>: extensions are static arguments of the compiled
 program, so they stay hashable and unchanged. An extension that needs what
 the agent builds (environment, network config, buffer, discount) overrides
 <code>bind_to_agent(**agent_context)</code> to return a new instance holding it, as
 <code>MCPretrain</code> does; a declared agent's family binds the stack to the keys of
-the agent's <code>extension_context</code> (<code>DeclaredAgent.make_context</code>). The batch a
-phase receives is a dictionary: the keys every agent puts in it are listed in
-<code>ajax/extensions/base.py</code>; read the agent's fold call before relying on any
-other.</p>
+the agent's <code>extension_context</code> (<code>DeclaredAgent.make_context</code>).</p>
 <h2 id="adding-an-agent">Adding an agent<a class="headerlink" href="#adding-an-agent" title="Permanent link">&para;</a></h2>
 <p><strong>Boilerplate goes in the shared code; the algorithm goes in one file</strong>, so a
 reader can follow the agent's file (<code>&lt;AGENT&gt;/&lt;AGENT&gt;.py</code> for a declared
@@ -3402,16 +3391,49 @@ replay critic step), <code>actor_step</code> (an actor step), <code>gradient_ste
 optimiser step), <code>compute_gradients</code> (a loss's gradients) and
 <code>apply_gradients_clipped_together</code> (two networks stepped on one clip) from
 <code>agents/update_steps.py</code> rather than writing your own.</p>
-<p>A new agent <code>FOO</code> declares itself on a family of <code>agents/families.py</code>: a
-replay agent on <code>ReplayAgent</code>, as SAC, TQC, REDQ, ASAC, CrossQ, TD3, IQL,
-DQN and DAgger do (read <code>agents/IQL/IQL.py</code> first); an agent updating on
-each step as it comes, without a replay, on <code>IncrementalAgent</code>, as AVG
-does; an on-policy agent on <code>OnPolicyAgent</code>, as PPO, APO, REINFORCE and PQN do (read
-<code>agents/PPO/PPO.py</code> first, and the on-policy family below); an agent whose
-iteration is its own on <code>OwnIterationAgent</code>, as UDRL and APG do (the
-own-iteration family below); an agent storing rows in a replay of its own,
-sized for each call, on <code>OwnReplayAgent</code>, as DreamerV3 and TD-MPC2 do (the
-own-replay family below).</p>
+<p>A new agent <code>FOO</code> declares itself on a family of <code>agents/families.py</code>:</p>
+<table>
+<thead>
+<tr>
+<th>Family</th>
+<th>For an agent that</th>
+<th>As</th>
+<th>Read first</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ReplayAgent</code></td>
+<td>learns from a replay</td>
+<td>SAC, TD3, REDQ, ASAC, RVI-SAC, CrossQ, TQC, IQL, DQN, DAgger</td>
+<td><code>agents/IQL/IQL.py</code></td>
+</tr>
+<tr>
+<td><code>IncrementalAgent</code></td>
+<td>updates on each step as it comes, without a replay</td>
+<td>AVG</td>
+<td><code>agents/AVG/AVG.py</code></td>
+</tr>
+<tr>
+<td><code>OnPolicyAgent</code></td>
+<td>learns from rollouts</td>
+<td>PPO, APO, REINFORCE, PQN</td>
+<td><code>agents/PPO/PPO.py</code>, and the on-policy family below</td>
+</tr>
+<tr>
+<td><code>OwnIterationAgent</code></td>
+<td>runs an iteration of its own</td>
+<td>UDRL, APG</td>
+<td>the own-iteration family below</td>
+</tr>
+<tr>
+<td><code>OwnReplayAgent</code></td>
+<td>stores rows in a replay of its own, sized for each call</td>
+<td>DreamerV3, TD-MPC2</td>
+<td>the own-replay family below</td>
+</tr>
+</tbody>
+</table>
 <p><strong>Start with a tracer bullet.</strong> Get the thinnest path working end to end first:
 rollout, update, logging, checkpoint and one passing probe, on the simplest
 config, in the real loop and in CI. Then add paper fidelity one piece at a
@@ -3425,72 +3447,72 @@ optimisers, the replay and the train function (<code>ReplayAgent.make_train</cod
 <code>loop.on_policy</code>). The file reads top-down: the class, its equations in the
 order <code>update</code> calls them, then its state and metrics. The template below
 is a replay agent's; an on-policy agent's file has the same parts.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nd">@dataclass</span><span class="p">(</span><span class="n">kw_only</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">eq</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="nb">repr</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>  <span class="c1"># literal: the API docs read it</span>
-<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="k">class</span><span class="w"> </span><span class="nc">FOO</span><span class="p">(</span><span class="n">GradientClipping</span><span class="p">,</span> <span class="n">ExpertGuided</span><span class="p">,</span> <span class="n">ReplayAgent</span><span class="p">):</span>
-<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;FOO (Author et al., year): the paper&#39;s algorithm box, each line one</span>
-<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="sd">    function below.&quot;&quot;&quot;</span>
-<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>
-<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>    <span class="n">gamma</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.99</span>
-<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>    <span class="n">tau</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.005</span>
-<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>    <span class="n">reward_scale</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1.0</span>
-<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>    <span class="n">buffer_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="mf">1e6</span><span class="p">)</span>
-<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a>    <span class="n">batch_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">256</span>
-<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a>    <span class="n">learning_starts</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="mf">1e4</span><span class="p">)</span>
-<a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a>
-<a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">init</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">context</span><span class="p">):</span>
-<a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a>        <span class="n">training_key</span><span class="p">,</span> <span class="n">init_key</span><span class="p">,</span> <span class="n">collector_key</span><span class="p">,</span> <span class="n">evaluation_key</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="mi">4</span><span class="p">)</span>
-<a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a>        <span class="n">actor_state</span><span class="p">,</span> <span class="n">critic_state</span> <span class="o">=</span> <span class="n">context</span><span class="o">.</span><span class="n">make_actor_critic</span><span class="p">(</span>
-<a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a>            <span class="n">init_key</span><span class="p">,</span> <span class="n">continuous</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">action_value</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">num_critics</span><span class="o">=</span><span class="mi">2</span>
-<a id="__codelineno-1-17" name="__codelineno-1-17" href="#__codelineno-1-17"></a>        <span class="p">)</span>
-<a id="__codelineno-1-18" name="__codelineno-1-18" href="#__codelineno-1-18"></a>        <span class="k">return</span> <span class="n">FOOState</span><span class="p">(</span>
-<a id="__codelineno-1-19" name="__codelineno-1-19" href="#__codelineno-1-19"></a>            <span class="n">rng</span><span class="o">=</span><span class="n">training_key</span><span class="p">,</span> <span class="n">eval_rng</span><span class="o">=</span><span class="n">evaluation_key</span><span class="p">,</span> <span class="n">actor_state</span><span class="o">=</span><span class="n">actor_state</span><span class="p">,</span>
-<a id="__codelineno-1-20" name="__codelineno-1-20" href="#__codelineno-1-20"></a>            <span class="n">critic_state</span><span class="o">=</span><span class="n">critic_state</span><span class="p">,</span>
-<a id="__codelineno-1-21" name="__codelineno-1-21" href="#__codelineno-1-21"></a>            <span class="n">collector_state</span><span class="o">=</span><span class="n">context</span><span class="o">.</span><span class="n">make_collector</span><span class="p">(</span><span class="n">collector_key</span><span class="p">),</span>
-<a id="__codelineno-1-22" name="__codelineno-1-22" href="#__codelineno-1-22"></a>        <span class="p">)</span>
-<a id="__codelineno-1-23" name="__codelineno-1-23" href="#__codelineno-1-23"></a>
-<a id="__codelineno-1-24" name="__codelineno-1-24" href="#__codelineno-1-24"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">update</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">agent_state</span><span class="p">,</span> <span class="n">context</span><span class="p">):</span>
-<a id="__codelineno-1-25" name="__codelineno-1-25" href="#__codelineno-1-25"></a>        <span class="n">sample_key</span><span class="p">,</span> <span class="n">critic_key</span><span class="p">,</span> <span class="n">actor_key</span><span class="p">,</span> <span class="n">agent_state</span> <span class="o">=</span> <span class="p">(</span>
-<a id="__codelineno-1-26" name="__codelineno-1-26" href="#__codelineno-1-26"></a>            <span class="n">agent_state</span><span class="o">.</span><span class="n">get_keys_and_new_state</span><span class="p">(</span><span class="mi">3</span><span class="p">)</span>
-<a id="__codelineno-1-27" name="__codelineno-1-27" href="#__codelineno-1-27"></a>        <span class="p">)</span>
-<a id="__codelineno-1-28" name="__codelineno-1-28" href="#__codelineno-1-28"></a>        <span class="n">batch</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">sample_replay</span><span class="p">(</span><span class="n">agent_state</span><span class="p">,</span> <span class="n">context</span><span class="o">.</span><span class="n">buffer</span><span class="p">,</span> <span class="n">sample_key</span><span class="p">)</span>
-<a id="__codelineno-1-29" name="__codelineno-1-29" href="#__codelineno-1-29"></a>        <span class="n">target</span> <span class="o">=</span> <span class="n">compute_foo_target</span><span class="p">(</span><span class="n">agent_state</span><span class="p">,</span> <span class="n">batch</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">gamma</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">reward_scale</span><span class="p">)</span>
-<a id="__codelineno-1-30" name="__codelineno-1-30" href="#__codelineno-1-30"></a>        <span class="n">critic_state</span><span class="p">,</span> <span class="n">critic_aux</span><span class="p">,</span> <span class="n">_</span><span class="p">,</span> <span class="n">critic_metrics</span> <span class="o">=</span> <span class="n">update_steps</span><span class="o">.</span><span class="n">critic_step</span><span class="p">(</span>
-<a id="__codelineno-1-31" name="__codelineno-1-31" href="#__codelineno-1-31"></a>            <span class="n">agent_state</span><span class="p">,</span> <span class="n">batch</span><span class="p">,</span> <span class="n">target</span><span class="p">,</span>
-<a id="__codelineno-1-32" name="__codelineno-1-32" href="#__codelineno-1-32"></a>            <span class="n">partial</span><span class="p">(</span><span class="n">compute_foo_value_loss</span><span class="p">,</span> <span class="n">agent_state</span><span class="o">.</span><span class="n">critic_state</span><span class="p">,</span> <span class="n">batch</span><span class="p">),</span>
-<a id="__codelineno-1-33" name="__codelineno-1-33" href="#__codelineno-1-33"></a>            <span class="n">context</span><span class="o">.</span><span class="n">extensions</span><span class="p">,</span> <span class="n">critic_key</span><span class="p">,</span> <span class="n">context</span><span class="o">.</span><span class="n">total_timesteps</span><span class="p">,</span>
-<a id="__codelineno-1-34" name="__codelineno-1-34" href="#__codelineno-1-34"></a>            <span class="n">rewards</span><span class="o">=</span><span class="n">batch</span><span class="o">.</span><span class="n">reward</span><span class="p">,</span> <span class="n">dones</span><span class="o">=</span><span class="n">batch</span><span class="o">.</span><span class="n">terminated</span><span class="p">,</span>
-<a id="__codelineno-1-35" name="__codelineno-1-35" href="#__codelineno-1-35"></a>            <span class="n">gamma</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">gamma</span><span class="p">,</span> <span class="n">reward_scale</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">reward_scale</span><span class="p">,</span>
-<a id="__codelineno-1-36" name="__codelineno-1-36" href="#__codelineno-1-36"></a>        <span class="p">)</span>
-<a id="__codelineno-1-37" name="__codelineno-1-37" href="#__codelineno-1-37"></a>        <span class="n">actor_state</span><span class="p">,</span> <span class="n">actor_aux</span><span class="p">,</span> <span class="n">_</span><span class="p">,</span> <span class="n">actor_metrics</span> <span class="o">=</span> <span class="n">update_steps</span><span class="o">.</span><span class="n">actor_step</span><span class="p">(</span>
-<a id="__codelineno-1-38" name="__codelineno-1-38" href="#__codelineno-1-38"></a>            <span class="n">agent_state</span><span class="p">,</span> <span class="n">partial</span><span class="p">(</span><span class="n">compute_foo_policy_loss</span><span class="p">,</span> <span class="n">agent_state</span><span class="p">),</span>
-<a id="__codelineno-1-39" name="__codelineno-1-39" href="#__codelineno-1-39"></a>            <span class="n">context</span><span class="o">.</span><span class="n">extensions</span><span class="p">,</span> <span class="n">actor_key</span><span class="p">,</span> <span class="n">context</span><span class="o">.</span><span class="n">total_timesteps</span><span class="p">,</span>
-<a id="__codelineno-1-40" name="__codelineno-1-40" href="#__codelineno-1-40"></a>            <span class="n">batch</span><span class="p">,</span> <span class="n">agent_state</span><span class="o">.</span><span class="n">critic_state</span><span class="p">,</span>
-<a id="__codelineno-1-41" name="__codelineno-1-41" href="#__codelineno-1-41"></a>        <span class="p">)</span>
-<a id="__codelineno-1-42" name="__codelineno-1-42" href="#__codelineno-1-42"></a>        <span class="n">agent_state</span> <span class="o">=</span> <span class="n">agent_state</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span>
-<a id="__codelineno-1-43" name="__codelineno-1-43" href="#__codelineno-1-43"></a>            <span class="n">actor_state</span><span class="o">=</span><span class="n">actor_state</span><span class="p">,</span>
-<a id="__codelineno-1-44" name="__codelineno-1-44" href="#__codelineno-1-44"></a>            <span class="n">critic_state</span><span class="o">=</span><span class="n">critic_state</span><span class="o">.</span><span class="n">soft_update</span><span class="p">(</span><span class="n">tau</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">tau</span><span class="p">),</span>
-<a id="__codelineno-1-45" name="__codelineno-1-45" href="#__codelineno-1-45"></a>            <span class="n">n_updates</span><span class="o">=</span><span class="n">agent_state</span><span class="o">.</span><span class="n">n_updates</span> <span class="o">+</span> <span class="mi">1</span><span class="p">,</span>
-<a id="__codelineno-1-46" name="__codelineno-1-46" href="#__codelineno-1-46"></a>        <span class="p">)</span>
-<a id="__codelineno-1-47" name="__codelineno-1-47" href="#__codelineno-1-47"></a>        <span class="n">metrics</span> <span class="o">=</span> <span class="n">merge_metrics</span><span class="p">(</span><span class="n">critic_metrics</span><span class="p">,</span> <span class="n">actor_metrics</span><span class="p">)</span>
-<a id="__codelineno-1-48" name="__codelineno-1-48" href="#__codelineno-1-48"></a>        <span class="k">return</span> <span class="n">agent_state</span><span class="p">,</span> <span class="n">AuxiliaryLogs</span><span class="p">(</span>
-<a id="__codelineno-1-49" name="__codelineno-1-49" href="#__codelineno-1-49"></a>            <span class="n">value</span><span class="o">=</span><span class="n">critic_aux</span><span class="p">,</span> <span class="n">policy</span><span class="o">=</span><span class="n">actor_aux</span><span class="p">,</span> <span class="n">extensions</span><span class="o">=</span><span class="n">metrics</span>
-<a id="__codelineno-1-50" name="__codelineno-1-50" href="#__codelineno-1-50"></a>        <span class="p">)</span>
-<a id="__codelineno-1-51" name="__codelineno-1-51" href="#__codelineno-1-51"></a>
-<a id="__codelineno-1-52" name="__codelineno-1-52" href="#__codelineno-1-52"></a>    <span class="c1"># The contract, unannotated (an annotation would make it a field).</span>
-<a id="__codelineno-1-53" name="__codelineno-1-53" href="#__codelineno-1-53"></a>    <span class="n">name</span> <span class="o">=</span> <span class="s2">&quot;FOO&quot;</span>
-<a id="__codelineno-1-54" name="__codelineno-1-54" href="#__codelineno-1-54"></a>    <span class="n">capabilities</span> <span class="o">=</span> <span class="nb">frozenset</span><span class="p">({</span><span class="s2">&quot;actor&quot;</span><span class="p">,</span> <span class="s2">&quot;discounted&quot;</span><span class="p">,</span> <span class="s2">&quot;off_policy&quot;</span><span class="p">,</span> <span class="s2">&quot;q_critic&quot;</span><span class="p">,</span> <span class="s2">&quot;replay&quot;</span><span class="p">})</span>
-<a id="__codelineno-1-55" name="__codelineno-1-55" href="#__codelineno-1-55"></a>
-<a id="__codelineno-1-56" name="__codelineno-1-56" href="#__codelineno-1-56"></a>
-<a id="__codelineno-1-57" name="__codelineno-1-57" href="#__codelineno-1-57"></a><span class="c1"># FOO&#39;s equations, in the order update calls them; a function returning a</span>
-<a id="__codelineno-1-58" name="__codelineno-1-58" href="#__codelineno-1-58"></a><span class="c1"># loss or a target value starts with compute_.</span>
-<a id="__codelineno-1-59" name="__codelineno-1-59" href="#__codelineno-1-59"></a><span class="k">def</span><span class="w"> </span><span class="nf">compute_foo_target</span><span class="p">(</span><span class="n">agent_state</span><span class="p">,</span> <span class="n">batch</span><span class="p">,</span> <span class="n">gamma</span><span class="p">,</span> <span class="n">reward_scale</span><span class="p">):</span> <span class="o">...</span>  <span class="c1"># -&gt; target</span>
-<a id="__codelineno-1-60" name="__codelineno-1-60" href="#__codelineno-1-60"></a><span class="k">def</span><span class="w"> </span><span class="nf">compute_foo_value_loss</span><span class="p">(</span><span class="n">critic</span><span class="p">,</span> <span class="n">batch</span><span class="p">,</span> <span class="n">params</span><span class="p">,</span> <span class="n">target</span><span class="p">):</span> <span class="o">...</span>  <span class="c1"># -&gt; (loss, aux)</span>
-<a id="__codelineno-1-61" name="__codelineno-1-61" href="#__codelineno-1-61"></a><span class="k">def</span><span class="w"> </span><span class="nf">compute_foo_policy_loss</span><span class="p">(</span><span class="n">agent_state</span><span class="p">,</span> <span class="n">params</span><span class="p">):</span> <span class="o">...</span>  <span class="c1"># -&gt; (loss, aux, pi_mean)</span>
-<a id="__codelineno-1-62" name="__codelineno-1-62" href="#__codelineno-1-62"></a>
-<a id="__codelineno-1-63" name="__codelineno-1-63" href="#__codelineno-1-63"></a>
-<a id="__codelineno-1-64" name="__codelineno-1-64" href="#__codelineno-1-64"></a><span class="nd">@struct</span><span class="o">.</span><span class="n">dataclass</span><span class="p">(</span><span class="n">kw_only</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-<a id="__codelineno-1-65" name="__codelineno-1-65" href="#__codelineno-1-65"></a><span class="k">class</span><span class="w"> </span><span class="nc">FOOState</span><span class="p">(</span><span class="n">BaseAgentState</span><span class="p">):</span>
-<a id="__codelineno-1-66" name="__codelineno-1-66" href="#__codelineno-1-66"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;FOO carries only actor + critic + collector.&quot;&quot;&quot;</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="nd">@dataclass</span><span class="p">(</span><span class="n">kw_only</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">eq</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="nb">repr</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>  <span class="c1"># literal: the API docs read it</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="k">class</span><span class="w"> </span><span class="nc">FOO</span><span class="p">(</span><span class="n">GradientClipping</span><span class="p">,</span> <span class="n">ExpertGuided</span><span class="p">,</span> <span class="n">ReplayAgent</span><span class="p">):</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;FOO (Author et al., year): the paper&#39;s algorithm box, each line one</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="sd">    function below.&quot;&quot;&quot;</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>    <span class="n">gamma</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.99</span>
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>    <span class="n">tau</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.005</span>
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>    <span class="n">reward_scale</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1.0</span>
+<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a>    <span class="n">buffer_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="mf">1e6</span><span class="p">)</span>
+<a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a>    <span class="n">batch_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">256</span>
+<a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a>    <span class="n">learning_starts</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="mf">1e4</span><span class="p">)</span>
+<a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a>
+<a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">init</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">context</span><span class="p">):</span>
+<a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a>        <span class="n">training_key</span><span class="p">,</span> <span class="n">init_key</span><span class="p">,</span> <span class="n">collector_key</span><span class="p">,</span> <span class="n">evaluation_key</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="mi">4</span><span class="p">)</span>
+<a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a>        <span class="n">actor_state</span><span class="p">,</span> <span class="n">critic_state</span> <span class="o">=</span> <span class="n">context</span><span class="o">.</span><span class="n">make_actor_critic</span><span class="p">(</span>
+<a id="__codelineno-2-16" name="__codelineno-2-16" href="#__codelineno-2-16"></a>            <span class="n">init_key</span><span class="p">,</span> <span class="n">continuous</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">action_value</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">num_critics</span><span class="o">=</span><span class="mi">2</span>
+<a id="__codelineno-2-17" name="__codelineno-2-17" href="#__codelineno-2-17"></a>        <span class="p">)</span>
+<a id="__codelineno-2-18" name="__codelineno-2-18" href="#__codelineno-2-18"></a>        <span class="k">return</span> <span class="n">FOOState</span><span class="p">(</span>
+<a id="__codelineno-2-19" name="__codelineno-2-19" href="#__codelineno-2-19"></a>            <span class="n">rng</span><span class="o">=</span><span class="n">training_key</span><span class="p">,</span> <span class="n">eval_rng</span><span class="o">=</span><span class="n">evaluation_key</span><span class="p">,</span> <span class="n">actor_state</span><span class="o">=</span><span class="n">actor_state</span><span class="p">,</span>
+<a id="__codelineno-2-20" name="__codelineno-2-20" href="#__codelineno-2-20"></a>            <span class="n">critic_state</span><span class="o">=</span><span class="n">critic_state</span><span class="p">,</span>
+<a id="__codelineno-2-21" name="__codelineno-2-21" href="#__codelineno-2-21"></a>            <span class="n">collector_state</span><span class="o">=</span><span class="n">context</span><span class="o">.</span><span class="n">make_collector</span><span class="p">(</span><span class="n">collector_key</span><span class="p">),</span>
+<a id="__codelineno-2-22" name="__codelineno-2-22" href="#__codelineno-2-22"></a>        <span class="p">)</span>
+<a id="__codelineno-2-23" name="__codelineno-2-23" href="#__codelineno-2-23"></a>
+<a id="__codelineno-2-24" name="__codelineno-2-24" href="#__codelineno-2-24"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">update</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">agent_state</span><span class="p">,</span> <span class="n">context</span><span class="p">):</span>
+<a id="__codelineno-2-25" name="__codelineno-2-25" href="#__codelineno-2-25"></a>        <span class="n">sample_key</span><span class="p">,</span> <span class="n">critic_key</span><span class="p">,</span> <span class="n">actor_key</span><span class="p">,</span> <span class="n">agent_state</span> <span class="o">=</span> <span class="p">(</span>
+<a id="__codelineno-2-26" name="__codelineno-2-26" href="#__codelineno-2-26"></a>            <span class="n">agent_state</span><span class="o">.</span><span class="n">get_keys_and_new_state</span><span class="p">(</span><span class="mi">3</span><span class="p">)</span>
+<a id="__codelineno-2-27" name="__codelineno-2-27" href="#__codelineno-2-27"></a>        <span class="p">)</span>
+<a id="__codelineno-2-28" name="__codelineno-2-28" href="#__codelineno-2-28"></a>        <span class="n">batch</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">sample_replay</span><span class="p">(</span><span class="n">agent_state</span><span class="p">,</span> <span class="n">context</span><span class="o">.</span><span class="n">buffer</span><span class="p">,</span> <span class="n">sample_key</span><span class="p">)</span>
+<a id="__codelineno-2-29" name="__codelineno-2-29" href="#__codelineno-2-29"></a>        <span class="n">target</span> <span class="o">=</span> <span class="n">compute_foo_target</span><span class="p">(</span><span class="n">agent_state</span><span class="p">,</span> <span class="n">batch</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">gamma</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">reward_scale</span><span class="p">)</span>
+<a id="__codelineno-2-30" name="__codelineno-2-30" href="#__codelineno-2-30"></a>        <span class="n">critic_state</span><span class="p">,</span> <span class="n">critic_aux</span><span class="p">,</span> <span class="n">_</span><span class="p">,</span> <span class="n">critic_metrics</span> <span class="o">=</span> <span class="n">update_steps</span><span class="o">.</span><span class="n">critic_step</span><span class="p">(</span>
+<a id="__codelineno-2-31" name="__codelineno-2-31" href="#__codelineno-2-31"></a>            <span class="n">agent_state</span><span class="p">,</span> <span class="n">batch</span><span class="p">,</span> <span class="n">target</span><span class="p">,</span>
+<a id="__codelineno-2-32" name="__codelineno-2-32" href="#__codelineno-2-32"></a>            <span class="n">partial</span><span class="p">(</span><span class="n">compute_foo_value_loss</span><span class="p">,</span> <span class="n">agent_state</span><span class="o">.</span><span class="n">critic_state</span><span class="p">,</span> <span class="n">batch</span><span class="p">),</span>
+<a id="__codelineno-2-33" name="__codelineno-2-33" href="#__codelineno-2-33"></a>            <span class="n">context</span><span class="o">.</span><span class="n">extensions</span><span class="p">,</span> <span class="n">critic_key</span><span class="p">,</span> <span class="n">context</span><span class="o">.</span><span class="n">total_timesteps</span><span class="p">,</span>
+<a id="__codelineno-2-34" name="__codelineno-2-34" href="#__codelineno-2-34"></a>            <span class="n">rewards</span><span class="o">=</span><span class="n">batch</span><span class="o">.</span><span class="n">reward</span><span class="p">,</span> <span class="n">dones</span><span class="o">=</span><span class="n">batch</span><span class="o">.</span><span class="n">terminated</span><span class="p">,</span>
+<a id="__codelineno-2-35" name="__codelineno-2-35" href="#__codelineno-2-35"></a>            <span class="n">gamma</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">gamma</span><span class="p">,</span> <span class="n">reward_scale</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">reward_scale</span><span class="p">,</span>
+<a id="__codelineno-2-36" name="__codelineno-2-36" href="#__codelineno-2-36"></a>        <span class="p">)</span>
+<a id="__codelineno-2-37" name="__codelineno-2-37" href="#__codelineno-2-37"></a>        <span class="n">actor_state</span><span class="p">,</span> <span class="n">actor_aux</span><span class="p">,</span> <span class="n">_</span><span class="p">,</span> <span class="n">actor_metrics</span> <span class="o">=</span> <span class="n">update_steps</span><span class="o">.</span><span class="n">actor_step</span><span class="p">(</span>
+<a id="__codelineno-2-38" name="__codelineno-2-38" href="#__codelineno-2-38"></a>            <span class="n">agent_state</span><span class="p">,</span> <span class="n">partial</span><span class="p">(</span><span class="n">compute_foo_policy_loss</span><span class="p">,</span> <span class="n">agent_state</span><span class="p">),</span>
+<a id="__codelineno-2-39" name="__codelineno-2-39" href="#__codelineno-2-39"></a>            <span class="n">context</span><span class="o">.</span><span class="n">extensions</span><span class="p">,</span> <span class="n">actor_key</span><span class="p">,</span> <span class="n">context</span><span class="o">.</span><span class="n">total_timesteps</span><span class="p">,</span>
+<a id="__codelineno-2-40" name="__codelineno-2-40" href="#__codelineno-2-40"></a>            <span class="n">batch</span><span class="p">,</span> <span class="n">agent_state</span><span class="o">.</span><span class="n">critic_state</span><span class="p">,</span>
+<a id="__codelineno-2-41" name="__codelineno-2-41" href="#__codelineno-2-41"></a>        <span class="p">)</span>
+<a id="__codelineno-2-42" name="__codelineno-2-42" href="#__codelineno-2-42"></a>        <span class="n">agent_state</span> <span class="o">=</span> <span class="n">agent_state</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span>
+<a id="__codelineno-2-43" name="__codelineno-2-43" href="#__codelineno-2-43"></a>            <span class="n">actor_state</span><span class="o">=</span><span class="n">actor_state</span><span class="p">,</span>
+<a id="__codelineno-2-44" name="__codelineno-2-44" href="#__codelineno-2-44"></a>            <span class="n">critic_state</span><span class="o">=</span><span class="n">critic_state</span><span class="o">.</span><span class="n">soft_update</span><span class="p">(</span><span class="n">tau</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">tau</span><span class="p">),</span>
+<a id="__codelineno-2-45" name="__codelineno-2-45" href="#__codelineno-2-45"></a>            <span class="n">n_updates</span><span class="o">=</span><span class="n">agent_state</span><span class="o">.</span><span class="n">n_updates</span> <span class="o">+</span> <span class="mi">1</span><span class="p">,</span>
+<a id="__codelineno-2-46" name="__codelineno-2-46" href="#__codelineno-2-46"></a>        <span class="p">)</span>
+<a id="__codelineno-2-47" name="__codelineno-2-47" href="#__codelineno-2-47"></a>        <span class="n">metrics</span> <span class="o">=</span> <span class="n">merge_metrics</span><span class="p">(</span><span class="n">critic_metrics</span><span class="p">,</span> <span class="n">actor_metrics</span><span class="p">)</span>
+<a id="__codelineno-2-48" name="__codelineno-2-48" href="#__codelineno-2-48"></a>        <span class="k">return</span> <span class="n">agent_state</span><span class="p">,</span> <span class="n">AuxiliaryLogs</span><span class="p">(</span>
+<a id="__codelineno-2-49" name="__codelineno-2-49" href="#__codelineno-2-49"></a>            <span class="n">value</span><span class="o">=</span><span class="n">critic_aux</span><span class="p">,</span> <span class="n">policy</span><span class="o">=</span><span class="n">actor_aux</span><span class="p">,</span> <span class="n">extensions</span><span class="o">=</span><span class="n">metrics</span>
+<a id="__codelineno-2-50" name="__codelineno-2-50" href="#__codelineno-2-50"></a>        <span class="p">)</span>
+<a id="__codelineno-2-51" name="__codelineno-2-51" href="#__codelineno-2-51"></a>
+<a id="__codelineno-2-52" name="__codelineno-2-52" href="#__codelineno-2-52"></a>    <span class="c1"># The contract, unannotated (an annotation would make it a field).</span>
+<a id="__codelineno-2-53" name="__codelineno-2-53" href="#__codelineno-2-53"></a>    <span class="n">name</span> <span class="o">=</span> <span class="s2">&quot;FOO&quot;</span>
+<a id="__codelineno-2-54" name="__codelineno-2-54" href="#__codelineno-2-54"></a>    <span class="n">capabilities</span> <span class="o">=</span> <span class="nb">frozenset</span><span class="p">({</span><span class="s2">&quot;actor&quot;</span><span class="p">,</span> <span class="s2">&quot;discounted&quot;</span><span class="p">,</span> <span class="s2">&quot;off_policy&quot;</span><span class="p">,</span> <span class="s2">&quot;q_critic&quot;</span><span class="p">,</span> <span class="s2">&quot;replay&quot;</span><span class="p">})</span>
+<a id="__codelineno-2-55" name="__codelineno-2-55" href="#__codelineno-2-55"></a>
+<a id="__codelineno-2-56" name="__codelineno-2-56" href="#__codelineno-2-56"></a>
+<a id="__codelineno-2-57" name="__codelineno-2-57" href="#__codelineno-2-57"></a><span class="c1"># FOO&#39;s equations, in the order update calls them; a function returning a</span>
+<a id="__codelineno-2-58" name="__codelineno-2-58" href="#__codelineno-2-58"></a><span class="c1"># loss or a target value starts with compute_.</span>
+<a id="__codelineno-2-59" name="__codelineno-2-59" href="#__codelineno-2-59"></a><span class="k">def</span><span class="w"> </span><span class="nf">compute_foo_target</span><span class="p">(</span><span class="n">agent_state</span><span class="p">,</span> <span class="n">batch</span><span class="p">,</span> <span class="n">gamma</span><span class="p">,</span> <span class="n">reward_scale</span><span class="p">):</span> <span class="o">...</span>  <span class="c1"># -&gt; target</span>
+<a id="__codelineno-2-60" name="__codelineno-2-60" href="#__codelineno-2-60"></a><span class="k">def</span><span class="w"> </span><span class="nf">compute_foo_value_loss</span><span class="p">(</span><span class="n">critic</span><span class="p">,</span> <span class="n">batch</span><span class="p">,</span> <span class="n">params</span><span class="p">,</span> <span class="n">target</span><span class="p">):</span> <span class="o">...</span>  <span class="c1"># -&gt; (loss, aux)</span>
+<a id="__codelineno-2-61" name="__codelineno-2-61" href="#__codelineno-2-61"></a><span class="k">def</span><span class="w"> </span><span class="nf">compute_foo_policy_loss</span><span class="p">(</span><span class="n">agent_state</span><span class="p">,</span> <span class="n">params</span><span class="p">):</span> <span class="o">...</span>  <span class="c1"># -&gt; (loss, aux, pi_mean)</span>
+<a id="__codelineno-2-62" name="__codelineno-2-62" href="#__codelineno-2-62"></a>
+<a id="__codelineno-2-63" name="__codelineno-2-63" href="#__codelineno-2-63"></a>
+<a id="__codelineno-2-64" name="__codelineno-2-64" href="#__codelineno-2-64"></a><span class="nd">@struct</span><span class="o">.</span><span class="n">dataclass</span><span class="p">(</span><span class="n">kw_only</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<a id="__codelineno-2-65" name="__codelineno-2-65" href="#__codelineno-2-65"></a><span class="k">class</span><span class="w"> </span><span class="nc">FOOState</span><span class="p">(</span><span class="n">BaseAgentState</span><span class="p">):</span>
+<a id="__codelineno-2-66" name="__codelineno-2-66" href="#__codelineno-2-66"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;FOO carries only actor + critic + collector.&quot;&quot;&quot;</span>
 </code></pre></div>
 <p>A declared agent has no <code>&lt;AGENT&gt;Config</code>: its fields are its configuration.</p>
 <p><code>init</code> splits the run's key on the agent's own layout, which its pins hold.
@@ -3590,8 +3612,12 @@ terminations). It assumes the row collector: a resumed run starts at the
 tick of the rows it counted. <code>train_offline</code> refuses it.</p>
 <p>Do <strong>not</strong> add a field for a feature (<code>use_critic_blend=True</code>, ...): it
 belongs on an extension.</p>
-<p><strong>2. Export and document.</strong> Import it in <code>src/ajax/__init__.py</code>, add it to
-<code>__all__</code>, and add a row to the README's agent table.</p>
+<p><strong>2. Export and document.</strong> Import it in <code>src/ajax/__init__.py</code> and add it
+to <code>__all__</code>. Give it a page under <code>docs/algorithms/</code> (and in <code>mkdocs.yml</code>'s
+nav), and name it where the documentation lists the agents: the README's
+Agents section, the algorithms index, the docs home and the memory table,
+which <code>tests/test_readme.py</code> holds to <code>__all__</code>, and the marked lists that
+<code>tests/test_docs_agent_sets.py</code> holds to the code.</p>
 <p><strong>3. Tests and benchmark.</strong> <code>tests/agents/FOO/</code>: the maths on hand-computed
 values. <code>tests/agents/test_agent_contract.py</code>: a row, so FOO builds, refuses
 what it cannot act in and folds extensions on tiny runs. <code>tests/probing/</code>:
@@ -3605,43 +3631,45 @@ entry in <code>AGENTS</code> and a baseline (see <a href="#performance">Performa
 bullet: the smallest phase that does something visible, on one agent, with one
 probe cell. Then build out the rest one piece at a time.</p>
 <ol>
-<li><strong>Pick the phases</strong> from the <a href="#extensions">table</a> and check that the agents
-   you target fold them. If one does not, adding the fold to that agent is a
-   change of its own, and the agent still must not know about your extension.</li>
+<li><strong>Pick the phases</strong> from <a href="../extension-phases/">Extension phases</a>
+   and check that the agents you target fold them (their
+   <code>supported_extension_phases</code>). If one does not, adding the fold to that
+   agent is a change of its own, and the agent still must not know about
+   your extension.</li>
 <li><strong>Write the dataclass</strong> in <code>src/ajax/extensions/&lt;topic&gt;.py</code>, its settings
    as fields. This one counts updates and logs the count; it runs as is:</li>
 </ol>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span>
-<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>
-<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="kn">import</span><span class="w"> </span><span class="nn">jax.numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">jnp</span>
-<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>
-<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax</span><span class="w"> </span><span class="kn">import</span> <span class="n">PPO</span>
-<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax.extensions.base</span><span class="w"> </span><span class="kn">import</span> <span class="n">Extension</span>
-<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax.logging.wandb_logging</span><span class="w"> </span><span class="kn">import</span> <span class="n">LoggingConfig</span>
-<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>
-<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a>
-<a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a><span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-<a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="k">class</span><span class="w"> </span><span class="nc">UpdateCounter</span><span class="p">(</span><span class="n">Extension</span><span class="p">):</span>
-<a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Counts the updates and logs the count at each evaluation.&quot;&quot;&quot;</span>
-<a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a>
-<a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a>    <span class="n">name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;update-counter&quot;</span>
-<a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a>
-<a id="__codelineno-2-16" name="__codelineno-2-16" href="#__codelineno-2-16"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">init_state</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">agent_state</span><span class="p">,</span> <span class="n">rng</span><span class="p">):</span>
-<a id="__codelineno-2-17" name="__codelineno-2-17" href="#__codelineno-2-17"></a>        <span class="k">return</span> <span class="n">jnp</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
-<a id="__codelineno-2-18" name="__codelineno-2-18" href="#__codelineno-2-18"></a>
-<a id="__codelineno-2-19" name="__codelineno-2-19" href="#__codelineno-2-19"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">post_update</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">agent_state</span><span class="p">,</span> <span class="n">ext_state</span><span class="p">,</span> <span class="n">context</span><span class="p">):</span>
-<a id="__codelineno-2-20" name="__codelineno-2-20" href="#__codelineno-2-20"></a>        <span class="k">return</span> <span class="n">agent_state</span><span class="p">,</span> <span class="n">ext_state</span> <span class="o">+</span> <span class="mi">1</span>
-<a id="__codelineno-2-21" name="__codelineno-2-21" href="#__codelineno-2-21"></a>
-<a id="__codelineno-2-22" name="__codelineno-2-22" href="#__codelineno-2-22"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">eval_metrics</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">agent_state</span><span class="p">,</span> <span class="n">ext_state</span><span class="p">,</span> <span class="n">rng</span><span class="p">,</span> <span class="n">context</span><span class="p">):</span>
-<a id="__codelineno-2-23" name="__codelineno-2-23" href="#__codelineno-2-23"></a>        <span class="c1"># A float: the steps that do not evaluate log NaN in its place.</span>
-<a id="__codelineno-2-24" name="__codelineno-2-24" href="#__codelineno-2-24"></a>        <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;Counter/updates&quot;</span><span class="p">:</span> <span class="n">ext_state</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">jnp</span><span class="o">.</span><span class="n">float32</span><span class="p">)}</span>
-<a id="__codelineno-2-25" name="__codelineno-2-25" href="#__codelineno-2-25"></a>
-<a id="__codelineno-2-26" name="__codelineno-2-26" href="#__codelineno-2-26"></a>
-<a id="__codelineno-2-27" name="__codelineno-2-27" href="#__codelineno-2-27"></a><span class="n">agent</span> <span class="o">=</span> <span class="n">PPO</span><span class="p">(</span><span class="s2">&quot;CartPole-v1&quot;</span><span class="p">,</span> <span class="n">n_steps</span><span class="o">=</span><span class="mi">128</span><span class="p">,</span> <span class="n">extensions</span><span class="o">=</span><span class="p">(</span><span class="n">UpdateCounter</span><span class="p">(),))</span>
-<a id="__codelineno-2-28" name="__codelineno-2-28" href="#__codelineno-2-28"></a><span class="n">logging</span> <span class="o">=</span> <span class="n">LoggingConfig</span><span class="p">(</span><span class="n">config</span><span class="o">=</span><span class="p">{},</span> <span class="n">log_frequency</span><span class="o">=</span><span class="mi">1024</span><span class="p">,</span> <span class="n">use_wandb</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
-<a id="__codelineno-2-29" name="__codelineno-2-29" href="#__codelineno-2-29"></a><span class="n">state</span><span class="p">,</span> <span class="n">evaluations</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">seed</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">],</span> <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">4096</span><span class="p">,</span> <span class="n">logging_config</span><span class="o">=</span><span class="n">logging</span><span class="p">)</span>
-<a id="__codelineno-2-30" name="__codelineno-2-30" href="#__codelineno-2-30"></a><span class="nb">print</span><span class="p">(</span><span class="n">state</span><span class="o">.</span><span class="n">ext_state</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>  <span class="c1"># the updates each seed made: [9 9]</span>
-<a id="__codelineno-2-31" name="__codelineno-2-31" href="#__codelineno-2-31"></a><span class="nb">print</span><span class="p">(</span><span class="n">evaluations</span><span class="p">[</span><span class="s2">&quot;Counter/updates&quot;</span><span class="p">])</span>  <span class="c1"># per seed, at each evaluation: [2. 4. 6. 8.]</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="kn">import</span><span class="w"> </span><span class="nn">jax.numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">jnp</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax</span><span class="w"> </span><span class="kn">import</span> <span class="n">PPO</span>
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax.extensions.base</span><span class="w"> </span><span class="kn">import</span> <span class="n">Extension</span>
+<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax.logging</span><span class="w"> </span><span class="kn">import</span> <span class="n">LoggingConfig</span>
+<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>
+<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a>
+<a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a><span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a><span class="k">class</span><span class="w"> </span><span class="nc">UpdateCounter</span><span class="p">(</span><span class="n">Extension</span><span class="p">):</span>
+<a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Counts the updates and logs the count at each evaluation.&quot;&quot;&quot;</span>
+<a id="__codelineno-3-13" name="__codelineno-3-13" href="#__codelineno-3-13"></a>
+<a id="__codelineno-3-14" name="__codelineno-3-14" href="#__codelineno-3-14"></a>    <span class="n">name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;update-counter&quot;</span>
+<a id="__codelineno-3-15" name="__codelineno-3-15" href="#__codelineno-3-15"></a>
+<a id="__codelineno-3-16" name="__codelineno-3-16" href="#__codelineno-3-16"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">init_state</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">agent_state</span><span class="p">,</span> <span class="n">rng</span><span class="p">):</span>
+<a id="__codelineno-3-17" name="__codelineno-3-17" href="#__codelineno-3-17"></a>        <span class="k">return</span> <span class="n">jnp</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+<a id="__codelineno-3-18" name="__codelineno-3-18" href="#__codelineno-3-18"></a>
+<a id="__codelineno-3-19" name="__codelineno-3-19" href="#__codelineno-3-19"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">post_update</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">agent_state</span><span class="p">,</span> <span class="n">ext_state</span><span class="p">,</span> <span class="n">context</span><span class="p">):</span>
+<a id="__codelineno-3-20" name="__codelineno-3-20" href="#__codelineno-3-20"></a>        <span class="k">return</span> <span class="n">agent_state</span><span class="p">,</span> <span class="n">ext_state</span> <span class="o">+</span> <span class="mi">1</span>
+<a id="__codelineno-3-21" name="__codelineno-3-21" href="#__codelineno-3-21"></a>
+<a id="__codelineno-3-22" name="__codelineno-3-22" href="#__codelineno-3-22"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">eval_metrics</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">agent_state</span><span class="p">,</span> <span class="n">ext_state</span><span class="p">,</span> <span class="n">rng</span><span class="p">,</span> <span class="n">context</span><span class="p">):</span>
+<a id="__codelineno-3-23" name="__codelineno-3-23" href="#__codelineno-3-23"></a>        <span class="c1"># A float: the steps that do not evaluate log NaN in its place.</span>
+<a id="__codelineno-3-24" name="__codelineno-3-24" href="#__codelineno-3-24"></a>        <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;Counter/updates&quot;</span><span class="p">:</span> <span class="n">ext_state</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">jnp</span><span class="o">.</span><span class="n">float32</span><span class="p">)}</span>
+<a id="__codelineno-3-25" name="__codelineno-3-25" href="#__codelineno-3-25"></a>
+<a id="__codelineno-3-26" name="__codelineno-3-26" href="#__codelineno-3-26"></a>
+<a id="__codelineno-3-27" name="__codelineno-3-27" href="#__codelineno-3-27"></a><span class="n">agent</span> <span class="o">=</span> <span class="n">PPO</span><span class="p">(</span><span class="s2">&quot;CartPole-v1&quot;</span><span class="p">,</span> <span class="n">n_envs</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span> <span class="n">n_steps</span><span class="o">=</span><span class="mi">128</span><span class="p">,</span> <span class="n">extensions</span><span class="o">=</span><span class="p">(</span><span class="n">UpdateCounter</span><span class="p">(),))</span>
+<a id="__codelineno-3-28" name="__codelineno-3-28" href="#__codelineno-3-28"></a><span class="n">logging</span> <span class="o">=</span> <span class="n">LoggingConfig</span><span class="p">(</span><span class="n">log_frequency</span><span class="o">=</span><span class="mi">1_024</span><span class="p">,</span> <span class="n">backends</span><span class="o">=</span><span class="p">())</span>
+<a id="__codelineno-3-29" name="__codelineno-3-29" href="#__codelineno-3-29"></a><span class="n">state</span><span class="p">,</span> <span class="n">evaluations</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">seed</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">],</span> <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">4_096</span><span class="p">,</span> <span class="n">logging_config</span><span class="o">=</span><span class="n">logging</span><span class="p">)</span>
+<a id="__codelineno-3-30" name="__codelineno-3-30" href="#__codelineno-3-30"></a><span class="nb">print</span><span class="p">(</span><span class="n">state</span><span class="o">.</span><span class="n">ext_state</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>  <span class="c1"># the updates each seed made, one per rollout of 512 steps: [8 8]</span>
+<a id="__codelineno-3-31" name="__codelineno-3-31" href="#__codelineno-3-31"></a><span class="nb">print</span><span class="p">(</span><span class="n">evaluations</span><span class="p">[</span><span class="s2">&quot;Counter/updates&quot;</span><span class="p">])</span>  <span class="c1"># a row per seed: [[2. 4. 6. 8.] [2. 4. 6. 8.]]</span>
 </code></pre></div>
 <ol>
 <li><strong>Test it</strong> in <code>tests/extensions/</code>: the feature fires and does what its
@@ -3700,80 +3728,54 @@ own runs it (below).</p>
 helpers by their full name: <code>from tests.agents.extension_stubs import
 CounterExt</code>. The benchmark scripts the tests import are on the path through
 <code>pythonpath</code> in <code>pyproject.toml</code>.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>--collect-only<span class="w"> </span>-q<span class="w">   </span><span class="c1"># everything imports and collects</span>
-<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>tests/agents/TD3<span class="w">    </span><span class="c1"># the tests of what you changed</span>
-<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;not slow&quot;</span><span class="w"> </span>-n<span class="w"> </span>auto<span class="w">   </span><span class="c1"># the fast tier, a worker per core</span>
-<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>make<span class="w"> </span>ci<span class="w">       </span><span class="c1"># the pull-request gate: ci-precommit, ci-test, ci-conformance, docs</span>
-<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>make<span class="w"> </span>ci-all<span class="w">   </span><span class="c1"># the gate and the slow tier (ci-slow)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>--collect-only<span class="w"> </span>-q<span class="w">   </span><span class="c1"># everything imports and collects</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>tests/agents/TD3<span class="w">    </span><span class="c1"># the tests of what you changed</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;not slow&quot;</span><span class="w"> </span>-n<span class="w"> </span>auto<span class="w">   </span><span class="c1"># the fast tier, a worker per core</span>
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>make<span class="w"> </span>ci<span class="w">       </span><span class="c1"># the pull-request gate: ci-precommit, ci-test, ci-conformance, docs</span>
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>make<span class="w"> </span>ci-all<span class="w">   </span><span class="c1"># the gate and the slow tier (ci-slow)</span>
 </code></pre></div>
 <p>The <code>make</code> targets hide the GPU (<code>CPU_ENV</code>) so tests never compete with a
 running experiment; elsewhere set <code>JAX_PLATFORMS=cpu</code> while a GPU is busy.</p>
-<p><strong>CI</strong> (<a href="https://github.com/YannBerthelot/Ajax/blob/main/.github/workflows/ci.yml">.github/workflows/ci.yml</a>) runs the fast
-tier on CPU for every pull request and push to <code>main</code>: <em>Pre-commit</em>; <em>Tests</em>
-(six shards: the tests not marked slow, the probing harness's checks among
-them, under coverage on Python 3.14, which measures branches through
-<code>sys.monitoring</code> at almost no cost, a pytest-xdist worker per vCPU, at XLA's optimisation
-level 0 since these programs are tiny; the shards split the test files by
-recorded time, <code>--shard I/6 --shard-by file</code>, <code>tests/.file_durations</code>,
-<code>make file-durations</code>, and a file without a time still lands in one);
-<em>Coverage</em> (the shards
-combined, at least 90%); <em>Conformance</em> (each agent's training step against
-its original implementation); <em>Docs</em> (the documentation site, <code>mkdocs build
---strict</code>). <em>Lint and Test</em>, the one check branch protection requires, passes
-only when all of them passed. They run on GitHub's arm64 runners, which all
-come on one CPU model, so a job finds main's compile cache (JAX keys it by
-the CPU).</p>
-<p>The <em>Slow tier</em> workflow (<a href="https://github.com/YannBerthelot/Ajax/blob/main/.github/workflows/slow.yml">slow.yml</a>) runs
-everything that trains (<code>pytest -m slow</code>) on x86, the platform most users
-train on, in six shards by recorded duration (<code>--shard I/N --shard-by group</code>,
-<code>tests/.durations</code>, <code>make durations</code>), with a probe case's tests on one shard
-and one of its two xdist workers, since they read one cached training: daily on main when main changed, by
+<p><strong>CI</strong> (<a href="https://github.com/YannBerthelot/Ajax/blob/main/.github/workflows/ci.yml">ci.yml</a>) runs on CPU for every pull
+request and push to <code>main</code>: pre-commit, the fast tier in six shards under
+coverage (at least 90%, combined), the conformance checks and the strict
+docs build. <em>Lint and Test</em>, the one check branch protection requires,
+passes only when all of them passed. The <em>Slow tier</em> workflow
+(<a href="https://github.com/YannBerthelot/Ajax/blob/main/.github/workflows/slow.yml">slow.yml</a>) runs everything that trains, on
+x86, the platform most users train on: daily on main when main changed, by
 hand, and on a pull request each time the label <code>run-slow-tier</code> is added. A
 pull request that changes how an agent trains gets the label before it
-merges. A red run on main opens an issue, and bisects the merges since the
-last green run when that is cheap.</p>
-<p>As the gate runs no probe, every planted fault
-(<code>tests/probing/faults/&lt;family&gt;.jsonl</code>) names in its <code>fast</code> field the fast
-tests that catch it, measured by planting the fault in a scratch copy and
-running the fast tests that execute its lines (<code>uv run python -m
-tests.fault_catches SCRATCH [FAMILY ...]</code>); <code>tests/probing/test_framework.py</code>
-checks that each names live tests outside <code>tests/probing</code>. A new fault comes
-with its fast catch, and <code>JAX_PLATFORMS=cpu uv run python -m
-tests.probing.faults SCRATCH ID</code> shows each node it lists failing on an
-assertion, not crashing (<a href="../testing/#planted-faults">Testing</a>).</p>
+merges. <a href="../testing/#how-ci-splits-the-suite">How CI splits the suite</a>
+gives the jobs and their shards; <code>make file-durations</code> and <code>make durations</code>
+refresh the recorded times the shards are split by.</p>
 <h3 id="the-probing-tests">The probing tests<a class="headerlink" href="#the-probing-tests" title="Permanent link">&para;</a></h3>
 <p>A unit test checks a contract; it cannot show that an agent learns what it
 should. A probe trains an agent on a tiny problem whose answer is known
 exactly (a value, a best action, a count) and compares what it learned with
 the right answer and named wrong ones (a discount applied twice), so a failure
-names the mistake.</p>
-<p><code>envs.py</code> builds the tiny problems, <code>agents.py</code> holds each agent's presets
-(pinned by <code>DIGEST</code>), <code>runs.py</code> trains every seed in one compiled program,
-<code>readouts.py</code> reads values and actions off a trained agent and <code>oracles.py</code>
-computes the right and wrong answers. In <code>verdict.py</code>, a <code>Query</code> is a
-reading's right and named wrong answers and a <code>Case</code> adds the budget and
-tolerances; a check trains seeds 0-7: 7 or more within tolerance pass, 4 or
-fewer fail, otherwise seeds 8-15 run and 13 of 16 must pass. <code>faults.py</code> and
-<code>faults/&lt;module&gt;.jsonl</code> plant known bugs in a scratch copy of the source, each
-naming the tests that must catch it. The <code>test_*.py</code> modules group the cases
-by subject (value chains, episode ends, bookkeeping, extensions, memory, world
-models, resuming a split run); <code>test_framework.py</code> tests the harness.
-A planted fault quotes the source it edits, so any change under <code>src/ajax</code>
-can break one: such a change runs <code>tests/probing/test_framework.py</code> locally
-before the push (text and collection only, no training).</p>
-<p>A new case's budget and tolerances come from calibration on seeds no check
-uses (<code>uv run python -m tests.probing.verdict ladder|choose|certify ...</code>;
-<code>verdict.py</code> describes the procedure); then its module's <code>ANSWER_DIGEST</code> is
-re-pinned. A known bug stays visible as a strict xfail naming the defect,
-never as a looser tolerance. The directory is capped at 7,000 lines.</p>
+names the mistake. <a href="../testing/#the-probing-framework">The probing framework</a>
+describes the harness, its verdict over seeds, calibration and digests. A
+known bug stays visible as a strict xfail naming the defect, never as a
+looser tolerance.</p>
+<p>A planted fault (<code>tests/probing/faults/&lt;family&gt;.jsonl</code>) quotes the source it
+edits, so any change under <code>src/ajax</code> can break one: such a change runs
+<code>tests/probing/test_framework.py</code> locally before the push (text and
+collection only, no training). As the gate runs no probe, every fault names
+in its <code>fast</code> field the fast tests that catch it, measured by planting it in
+a scratch copy and running the fast tests that execute its lines
+(<code>uv run python -m tests.fault_catches SCRATCH [FAMILY ...]</code>). A new fault
+comes with its fast catch, and <code>JAX_PLATFORMS=cpu uv run python -m
+tests.probing.faults SCRATCH ID</code> shows each node it lists failing on an
+assertion, not crashing
+(<a href="../testing/#planted-faults">Planted faults</a>).</p>
 <h2 id="performance">Performance<a class="headerlink" href="#performance" title="Permanent link">&para;</a></h2>
 <p>CLAUDE.md ("Performance no-regression guardrail") sets the rule; here is the
 check. <code>benchmarks/agent_bench.py</code> times a fixed run per agent; <code>--compare</code>
 fails when one is slower than <code>--tol</code> (10% by default) against a baseline.
 Capturing requires <code>--out</code>, so a quick check never overwrites the baseline.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">JAX_PLATFORMS</span><span class="o">=</span>cpu
-<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>uv<span class="w"> </span>run<span class="w"> </span>python<span class="w"> </span>benchmarks/agent_bench.py<span class="w"> </span>--only<span class="w"> </span>TD3<span class="w"> </span>--out<span class="w"> </span>benchmarks/my_change.jsonl
-<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>uv<span class="w"> </span>run<span class="w"> </span>python<span class="w"> </span>benchmarks/agent_bench.py<span class="w"> </span>--compare<span class="w"> </span>benchmarks/agent_baseline.jsonl<span class="w"> </span>benchmarks/my_change.jsonl
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">JAX_PLATFORMS</span><span class="o">=</span>cpu
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>uv<span class="w"> </span>run<span class="w"> </span>python<span class="w"> </span>benchmarks/agent_bench.py<span class="w"> </span>--only<span class="w"> </span>TD3<span class="w"> </span>--out<span class="w"> </span>benchmarks/my_change.jsonl
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>uv<span class="w"> </span>run<span class="w"> </span>python<span class="w"> </span>benchmarks/agent_bench.py<span class="w"> </span>--compare<span class="w"> </span>benchmarks/agent_baseline.jsonl<span class="w"> </span>benchmarks/my_change.jsonl
 </code></pre></div>
 <h2 id="dependencies-and-releases">Dependencies and releases<a class="headerlink" href="#dependencies-and-releases" title="Permanent link">&para;</a></h2>
 <p>Ajax is a library: <code>pyproject.toml</code> says which versions work, and <code>uv.lock</code>
@@ -3790,7 +3792,9 @@ lock.</p>
   twice without the lock: at the newest versions allowed, on the newest
   Python, and with every direct dependency at its floor
   (<code>uv sync --resolution lowest-direct</code>), on the oldest. Each runs split
-  across six runners by file, from the recorded times CI's test shards use.</li>
+  across six runners by file, from the recorded times CI's test shards use.
+  A third job installs Ajax without extras or groups and trains a gymnax
+  agent (<code>tests/test_core_install.py</code>).</li>
 <li><strong>The lock is refreshed monthly</strong> by Dependabot
   (<a href="https://github.com/YannBerthelot/Ajax/blob/main/.github/dependabot.yml">dependabot.yml</a>), the JAX stack in one pull
   request.</li>

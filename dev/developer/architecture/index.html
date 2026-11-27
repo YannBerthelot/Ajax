@@ -2019,23 +2019,6 @@
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="The package">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#names-that-moved-keywords-that-went" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Names that moved, keywords that went
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
 </li>
       
         <li class="md-nav__item">
@@ -2100,6 +2083,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#the-update-helpers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The update helpers
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -2150,10 +2144,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#keywords-on-their-way-out" class="md-nav__link">
+  <a href="#removing-a-public-name" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Keywords on their way out
+        Removing a public name
       
     </span>
   </a>
@@ -3036,23 +3030,6 @@
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="The package">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#names-that-moved-keywords-that-went" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Names that moved, keywords that went
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
 </li>
       
         <li class="md-nav__item">
@@ -3117,6 +3094,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#the-update-helpers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The update helpers
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -3167,10 +3155,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#keywords-on-their-way-out" class="md-nav__link">
+  <a href="#removing-a-public-name" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Keywords on their way out
+        Removing a public name
       
     </span>
   </a>
@@ -3232,182 +3220,133 @@ follow <a href="../contributing/">Contributing</a> and
 <li><strong>Research features are extensions.</strong> An agent accepts its own
   hyperparameters plus <code>extensions=()</code>. A feature such as behaviour cloning
   before training or an extra loss term is an <code>Extension</code> folded into the
-  loop, not a keyword on the agent. The exceptions left are
-  <code>expert_policy</code> (SAC, TD3, REDQ, AVG, APO), SAC's options that reach its
-  network's input or collection, which extensions do not reach yet, and
-  TD3's <code>action_pipeline</code> for a downstream project.</li>
+  loop, not a keyword on the agent. The exceptions are <code>expert_policy</code> and
+  <code>eval_expert_policy</code>, which every agent but REINFORCE and the world models
+  takes, and TD3's <code>action_pipeline</code>, for a downstream project.</li>
 </ul>
 <h2 id="the-package">The package<a class="headerlink" href="#the-package" title="Permanent link">&para;</a></h2>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>src/ajax/
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>├── __init__.py          the exported agents (__all__); configures the compile cache on import
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>├── agents/
 <a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>│   ├── base.py          ActorCritic: environment and network setup, extensions=, train(); run_config
-<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>│   ├── families.py      declared agents (fields as hyperparameters); the replay, incremental, on-policy, own-iteration and own-replay families&#39; train functions
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>│   ├── families.py      declared agents (fields as hyperparameters) and their families&#39; train functions
 <a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>│   ├── loop.py          TrainLoop, the shared loop (brax&#39;s forced resets included)
 <a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>│   ├── update_steps.py  critic_step, actor_step, compute_gradients, gradient_step, apply_gradients_clipped_together, run_if, run_actor_if, the target update
 <a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>│   ├── temperature.py   the entropy temperature every soft actor-critic shares (SoftActorCriticState, update_temperature)
 <a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>│   ├── minibatch.py     the on-policy rollout split (RolloutSplit), minibatches and epochs
-<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>│   ├── critics.py       the Q-critics&#39; regression (continuous and discrete actions)
-<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>│   ├── diagnostics.py   KL, explained variance, policy std
-<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>│   ├── recurrent.py     replay buffers and R2D2-style sequence replay for memory=, and PPO&#39;s networks with or without memory
-<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>│   ├── cloning.py       the behaviour-cloning loss and fit that CloningPretrain runs
-<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>│   └── &lt;AGENT&gt;/         one package per agent (below)
-<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>├── extensions/          Extension, ExtensionStack and the shipped extensions
-<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>├── environments/
-<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>│   ├── create.py        build an env from an id (gymnax, Brax, MuJoCo Playground), add Ajax&#39;s layers
-<a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a>│   ├── interaction.py   collect_experience: act, step, store, count
-<a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a>│   ├── action_stage.py  the action extensions&#39; slots around any agent&#39;s pipeline (EDGE, JSRL, ValueBox)
-<a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a>│   ├── utils.py         env helpers; the [-1, 1] action map; ExpertInAgentUnits
-<a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a>│   ├── obs_norm.py      agent-side running observation normalisation
-<a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a>│   ├── row_collector.py the world models&#39; collector: one row per env per tick
-<a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a>│   ├── differentiable.py  closed-loop rollouts you can backpropagate through (APG)
-<a id="__codelineno-0-24" name="__codelineno-0-24" href="#__codelineno-0-24"></a>│   └── model_reference.py, system_class.py, pid_terms.py   tracking tasks, parameter distributions, PID error terms
-<a id="__codelineno-0-25" name="__codelineno-0-25" href="#__codelineno-0-25"></a>├── networks/            actor and critic networks (deterministic actors, Q-networks), memory blocks, Squash, the world models&#39; layers
-<a id="__codelineno-0-26" name="__codelineno-0-26" href="#__codelineno-0-26"></a>├── modules/             the PID actor and PID output head
-<a id="__codelineno-0-27" name="__codelineno-0-27" href="#__codelineno-0-27"></a>├── buffers/             replay buffers (flashbax)
-<a id="__codelineno-0-28" name="__codelineno-0-28" href="#__codelineno-0-28"></a>├── logging/             LoggingConfig; the W&amp;B and TensorBoard worker
-<a id="__codelineno-0-29" name="__codelineno-0-29" href="#__codelineno-0-29"></a>├── log.py, evaluate.py  when to evaluate and log; the evaluation episodes
-<a id="__codelineno-0-30" name="__codelineno-0-30" href="#__codelineno-0-30"></a>├── controller.py      what a step acts on (ActingState) and how the agent acts beyond its actor (Controller)
-<a id="__codelineno-0-31" name="__codelineno-0-31" href="#__codelineno-0-31"></a>├── perf_utils.py        build_resumable_train: init or resume, then one jitted scan;
-<a id="__codelineno-0-32" name="__codelineno-0-32" href="#__codelineno-0-32"></a>│                        build_chunked_train: the same in chunks, evaluating between them
-<a id="__codelineno-0-33" name="__codelineno-0-33" href="#__codelineno-0-33"></a>├── state.py             BaseAgentState, CollectorState and the configuration dataclasses
-<a id="__codelineno-0-34" name="__codelineno-0-34" href="#__codelineno-0-34"></a>├── checkpoint.py        save_checkpoint, restore_into
-<a id="__codelineno-0-35" name="__codelineno-0-35" href="#__codelineno-0-35"></a>├── wrappers.py          env wrappers: normalisation, action clip, auto-reset, observation noise
-<a id="__codelineno-0-36" name="__codelineno-0-36" href="#__codelineno-0-36"></a>├── schedule.py          a warm-up and cosine learning-rate schedule
-<a id="__codelineno-0-37" name="__codelineno-0-37" href="#__codelineno-0-37"></a>├── distributional.py, normalizers.py   symlog, two-hot and return scales (DreamerV3, TD-MPC2)
-<a id="__codelineno-0-38" name="__codelineno-0-38" href="#__codelineno-0-38"></a>└── _compile_cache.py    the persistent JAX compile cache
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>│   ├── returns.py       discounted returns and advantages over an on-policy rollout
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>│   ├── critics.py       the Q-critics&#39; regression (continuous and discrete actions)
+<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>│   ├── centering.py, reset_cost.py   reward centering and the reset cost, for continuing tasks
+<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>│   ├── diagnostics.py   KL, explained variance, policy std
+<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>│   ├── recurrent.py     replay buffers and R2D2-style sequence replay for memory=, and PPO&#39;s networks with or without memory
+<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>│   ├── cloning.py       the behaviour-cloning loss and fit that CloningPretrain runs
+<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>│   ├── presets.py, sweep.py, devices.py   per-task presets; train(sweep=); train(devices=)
+<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>│   └── &lt;AGENT&gt;/         one package per agent (below)
+<a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a>├── extensions/          Extension, ExtensionStack, the capabilities and the shipped extensions
+<a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a>├── environments/
+<a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a>│   ├── create.py        build an env from an id (gymnax, Brax, MuJoCo Playground), add Ajax&#39;s layers
+<a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a>│   ├── interaction.py   collect_experience: act, step, store, count
+<a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a>│   ├── action_stage.py  the action extensions&#39; slots around any agent&#39;s pipeline (EDGE, JSRL, ValueBox)
+<a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a>│   ├── utils.py         env helpers; the [-1, 1] action map; ExpertInAgentUnits
+<a id="__codelineno-0-24" name="__codelineno-0-24" href="#__codelineno-0-24"></a>│   ├── obs_norm.py      agent-side running observation normalisation
+<a id="__codelineno-0-25" name="__codelineno-0-25" href="#__codelineno-0-25"></a>│   ├── row_collector.py the world models&#39; collector: one row per env per tick
+<a id="__codelineno-0-26" name="__codelineno-0-26" href="#__codelineno-0-26"></a>│   ├── expert_collection.py   rows an expert collects alone (cloning, prefill)
+<a id="__codelineno-0-27" name="__codelineno-0-27" href="#__codelineno-0-27"></a>│   ├── gymnasium.py     Gymnasium environments, stepped in Python
+<a id="__codelineno-0-28" name="__codelineno-0-28" href="#__codelineno-0-28"></a>│   ├── differentiable.py  closed-loop rollouts you can backpropagate through (APG)
+<a id="__codelineno-0-29" name="__codelineno-0-29" href="#__codelineno-0-29"></a>│   └── model_reference.py, system_class.py, pid_terms.py   tracking tasks, parameter distributions, PID error terms
+<a id="__codelineno-0-30" name="__codelineno-0-30" href="#__codelineno-0-30"></a>├── networks/            actor and critic networks (deterministic actors, Q-networks), memory blocks, Squash, the world models&#39; layers
+<a id="__codelineno-0-31" name="__codelineno-0-31" href="#__codelineno-0-31"></a>├── modules/             the PID actor and PID output head
+<a id="__codelineno-0-32" name="__codelineno-0-32" href="#__codelineno-0-32"></a>├── buffers/             replay buffers (flashbax), rings sized to the run, transition datasets
+<a id="__codelineno-0-33" name="__codelineno-0-33" href="#__codelineno-0-33"></a>├── logging/             LoggingConfig; the W&amp;B and TensorBoard worker; the printed progress and Evaluations
+<a id="__codelineno-0-34" name="__codelineno-0-34" href="#__codelineno-0-34"></a>├── log.py, evaluate.py  when to evaluate and log; the evaluation episodes
+<a id="__codelineno-0-35" name="__codelineno-0-35" href="#__codelineno-0-35"></a>├── async_evaluation.py  evaluation in a thread of its own, on a device of its own
+<a id="__codelineno-0-36" name="__codelineno-0-36" href="#__codelineno-0-36"></a>├── controller.py        what a step acts on (ActingState) and how the agent acts beyond its actor (Controller)
+<a id="__codelineno-0-37" name="__codelineno-0-37" href="#__codelineno-0-37"></a>├── policy.py            how a trained agent acts: agent.policy and the evaluation&#39;s action
+<a id="__codelineno-0-38" name="__codelineno-0-38" href="#__codelineno-0-38"></a>├── perf_utils.py        build_resumable_train: init or resume, then one jitted scan;
+<a id="__codelineno-0-39" name="__codelineno-0-39" href="#__codelineno-0-39"></a>│                        build_chunked_train: the same in chunks, evaluating between them
+<a id="__codelineno-0-40" name="__codelineno-0-40" href="#__codelineno-0-40"></a>├── state.py             BaseAgentState, CollectorState and the configuration dataclasses
+<a id="__codelineno-0-41" name="__codelineno-0-41" href="#__codelineno-0-41"></a>├── checkpoint.py        save_checkpoint, restore_into
+<a id="__codelineno-0-42" name="__codelineno-0-42" href="#__codelineno-0-42"></a>├── random_keys.py       random keys by name
+<a id="__codelineno-0-43" name="__codelineno-0-43" href="#__codelineno-0-43"></a>├── precision.py         float32 or bfloat16 compute (train(precision=))
+<a id="__codelineno-0-44" name="__codelineno-0-44" href="#__codelineno-0-44"></a>├── wrappers.py          env wrappers: normalisation, action clip, auto-reset, observation noise
+<a id="__codelineno-0-45" name="__codelineno-0-45" href="#__codelineno-0-45"></a>├── schedule.py          schedules: a constant or a function of the timestep; warm-up and cosine
+<a id="__codelineno-0-46" name="__codelineno-0-46" href="#__codelineno-0-46"></a>├── distributional.py, normalizers.py   symlog, two-hot and return scales (DreamerV3, TD-MPC2)
+<a id="__codelineno-0-47" name="__codelineno-0-47" href="#__codelineno-0-47"></a>├── compare.py, ledger.py, reproduction.py   AdaStop comparisons; one step budget per run; the reference comparisons&#39; data
+<a id="__codelineno-0-48" name="__codelineno-0-48" href="#__codelineno-0-48"></a>├── render.py            saving an episode as an animation (agent.render)
+<a id="__codelineno-0-49" name="__codelineno-0-49" href="#__codelineno-0-49"></a>├── representation/      what RepresentationProbe&#39;s recordings need
+<a id="__codelineno-0-50" name="__codelineno-0-50" href="#__codelineno-0-50"></a>└── _compile_cache.py    the persistent JAX compile cache
 </code></pre></div>
 <p>A declared agent (every agent but the offline <code>TDMPC2MultiTask</code>) is one file,
 <code>&lt;AGENT&gt;/&lt;AGENT&gt;.py</code>: its hyperparameters as dataclass fields, its <code>init</code>,
-<code>update</code> and equations, its state and metrics, on a family of
-<code>agents/families.py</code> that builds its constructor, run config, collection
-and train function (<a href="../contributing/#adding-an-agent">Contributing</a>): a
-replay (<code>ReplayAgent</code>: SAC, TQC, REDQ, ASAC, CrossQ, TD3, IQL, DQN,
-DAgger), one update on each step as it comes (<code>IncrementalAgent</code>: AVG),
-rollouts (<code>OnPolicyAgent</code>: PPO, APO, REINFORCE, PQN) or an iteration of its own
-(<code>OwnIterationAgent</code>: UDRL's segment and replay of segments, APG's
-gradient step through a differentiable rollout; the agent writes
-<code>iterate</code>, <code>report</code> and <code>evaluation_metrics</code>, the loop resumes and logs) or rows in
-a replay of its own, sized for each call (<code>OwnReplayAgent</code>: DreamerV3,
-TD-MPC2; the agent writes <code>prepare_replay</code>, <code>collect</code>, <code>count_updates</code>,
-<code>update</code>, <code>report</code> and <code>evaluation_metrics</code> on <code>loop.off_policy</code>'s hooks). Knobs
-several agents share are mixins of fields (<code>EntropyTemperature</code>,
+<code>update</code> and equations, its state and metrics. It is built on a family of
+<code>agents/families.py</code>, which builds its constructor, run config, collection
+and train function (<a href="../contributing/#adding-an-agent">Contributing</a>;
+<a href="../../algorithms/#agent-families">Agent families</a> lists the agents of
+each):</p>
+<table>
+<thead>
+<tr>
+<th>Family</th>
+<th>What the agent writes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ReplayAgent</code></td>
+<td>its <code>init</code> and its <code>update</code> on a replayed batch</td>
+</tr>
+<tr>
+<td><code>IncrementalAgent</code> (AVG)</td>
+<td>its <code>init</code> and its <code>update</code> on each step as it comes</td>
+</tr>
+<tr>
+<td><code>OnPolicyAgent</code></td>
+<td>its <code>init</code> and its <code>update</code> on a rollout</td>
+</tr>
+<tr>
+<td><code>OwnIterationAgent</code> (UDRL, APG)</td>
+<td><code>init</code>, <code>iterate</code>, <code>report</code> and <code>evaluation_metrics</code>; the loop resumes and logs</td>
+</tr>
+<tr>
+<td><code>OwnReplayAgent</code> (DreamerV3, TD-MPC2)</td>
+<td><code>prepare_replay</code>, <code>collect</code>, <code>count_updates</code>, <code>update</code>, <code>report</code> and <code>evaluation_metrics</code>, on <code>loop.off_policy</code>'s hooks</td>
+</tr>
+</tbody>
+</table>
+<p>Knobs several agents share are mixins of fields (<code>EntropyTemperature</code>,
 <code>PolicyUpdateStart</code>, <code>ExpertGuided</code>, ...), and an agent changes what its
 family does by overriding a few hooks (<code>network_settings</code>,
 <code>evaluation_kwargs</code>, <code>uniform_steps</code>, <code>keeps_actor_metrics</code>,
-<code>check_recurrent_options</code>, ...). The world models' packages also hold
-their maths by role: TD-MPC2's networks, one update (<code>core.py</code>), its
-optimisers, planner, replay and configuration (<code>state.py</code>), which the
-multi-task <code>TDMPC2MultiTask</code> imports instead of copying. That agent trains
-offline on a dataset, off the families: its own host loop
-(<code>TDMPC2MultiTask.py</code>) and train function (<code>train_TDMPC2MultiTask.py</code>).</p>
-<p>The lineage is explicit: TQC, REDQ, ASAC, CrossQ and AVG import SAC's
+<code>check_recurrent_options</code>, ...). The world models' packages also hold their
+maths by role: TD-MPC2's networks, one update (<code>core.py</code>), its optimisers,
+planner, replay and configuration (<code>state.py</code>), which the multi-task
+<code>TDMPC2MultiTask</code> imports instead of copying. That agent trains offline on a
+dataset, off the families: its own host loop (<code>TDMPC2MultiTask.py</code>) and
+train function (<code>train_TDMPC2MultiTask.py</code>).</p>
+<p>The lineage is explicit: TQC, REDQ, ASAC, RVISAC, CrossQ and AVG import SAC's
 equations from <code>SAC/SAC.py</code>; APO imports PPO's from <code>PPO/PPO.py</code>; the
 multi-task TD-MPC2 imports TD-MPC2's. A fix to the parent's maths reaches
 every descendant. Some agents keep further modules of their own (TD-MPC2's
-<code>planner.py</code>).</p>
-<h3 id="names-that-moved-keywords-that-went">Names that moved, keywords that went<a class="headerlink" href="#names-that-moved-keywords-that-went" title="Permanent link">&para;</a></h3>
-<p>A few names now live where their layer is. The old paths are gone, removed
-once no downstream project used them rather than kept as aliases.</p>
-<table>
-<thead>
-<tr>
-<th>Was</th>
-<th>Is</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>ajax.agents.obs_norm</code></td>
-<td><code>ajax.environments.obs_norm</code></td>
-</tr>
-<tr>
-<td><code>ajax.agents.SAC.utils.SquashedNormal</code>, then <code>ajax.networks.distributions.SquashedNormal(loc, scale)</code></td>
-<td><code>ajax.networks.distributions.Squash(distrax.Normal(loc, scale))</code></td>
-</tr>
-<tr>
-<td><code>NormalizationInfo</code> in <code>ajax.agents.AVG.utils</code> and <code>.state</code></td>
-<td><code>RunningMoments</code> in <code>ajax.agents.AVG.AVG</code></td>
-</tr>
-<tr>
-<td><code>ajax.plane.get_mode</code></td>
-<td><code>jax.default_backend()</code></td>
-</tr>
-<tr>
-<td>the <code>_obs_noise_sigma</code> hook on an env</td>
-<td><code>ObservationNoiseWrapper</code> in <code>ajax.wrappers</code></td>
-</tr>
-</tbody>
-</table>
-<p>The keywords below went in October 2026; passing one now raises
-<code>TypeError</code>.</p>
-<table>
-<thead>
-<tr>
-<th>Keyword</th>
-<th>Agents</th>
-<th>Instead</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>pre_train_n_steps</code>, <code>actor_cloning_epochs</code>, <code>actor_cloning_batch_size</code>, <code>actor_cloning_lr</code>, <code>skip_actor_pretrain</code>, <code>reset_log_std_after_bc</code>, <code>reset_actor_head_after_bc</code></td>
-<td>SAC, TD3, REDQ, APO</td>
-<td><code>extensions=(CloningPretrain(expert, n_steps=..., epochs=..., batch_size=..., skip_actor=..., reset_log_std=..., reset_actor_head=...),)</code>, at the actor's learning rate</td>
-</tr>
-<tr>
-<td><code>pid_actor_config</code></td>
-<td>SAC, TD3, REDQ, ASAC, AVG, PPO, APO</td>
-<td><code>actor_architecture=PIDPolicy(...)</code></td>
-</tr>
-<tr>
-<td><code>action_scale</code></td>
-<td>SAC</td>
-<td>nothing: SAC never read it, and every continuous action is mapped onto the env's bounds</td>
-</tr>
-<tr>
-<td><code>use_expert_guidance</code></td>
-<td>SAC</td>
-<td>nothing: it only switched on diagnostics; <code>ExpertValueMetrics</code> logs the critic's view of the expert</td>
-</tr>
-<tr>
-<td><code>reward_shaping_fn</code>, <code>use_vtrace_gae</code></td>
-<td>PPO</td>
-<td>nothing: neither ever ran</td>
-</tr>
-<tr>
-<td><code>actor_kernel_init</code>, <code>critic_kernel_init</code>, <code>encoder_bias_init</code></td>
-<td>PPO, APO</td>
-<td>nothing: no run set them; <code>encoder_kernel_init</code>, <code>actor_bias_init</code>, <code>critic_bias_init</code> and PPO's <code>mean_kernel_init</code> stay</td>
-</tr>
-<tr>
-<td><code>n_epochs</code>, <code>bc_loss_type</code></td>
-<td>UDRL</td>
-<td><code>n_updates_per_iter</code>; the loss is the log-likelihood</td>
-</tr>
-</tbody>
-</table>
-<p>Every agent is importable from the top level, TD3 and UDRL included:
+<code>planner.py</code>). Every agent is importable from the top level:
 <code>from ajax import TD3</code>.</p>
 <h2 id="from-agenttrain-to-a-compiled-program">From <code>agent.train()</code> to a compiled program<a class="headerlink" href="#from-agenttrain-to-a-compiled-program" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>agent = SAC(&quot;Pendulum-v1&quot;, extensions=(...))     ActorCritic.__init__
-<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>  ├─ self.config = run_config(locals(), name)     what the loggers will record
-<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>  │                                               (a declared agent, IQL: its fields, in DeclaredAgent.__post_init__)
-<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>  ├─ prepare_env                                  the env (episode_length, action_repeat), its params, Ajax&#39;s layers
-<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>  ├─ EnvironmentConfig, NetworkConfig, OptimizerConfig
-<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>  ├─ ExtensionStack(extensions) + checks          phases, buffer fields, experts, phi*: raise here
-<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>  └─ experts read in agent units                  ExpertInAgentUnits, the agent&#39;s and the extensions&#39;
-<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>
-<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>agent.train(seed=[0, 1], n_timesteps=..., logging_config=..., initial_state=...)
-<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a>  ├─ get_make_train()(env_args, ..., total_timesteps, logging_config)
-<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a>  │    └─ make_train                              its family&#39;s, over the agent&#39;s init and update, with the extensions
-<a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a>  │         ├─ TrainLoop.create(...)              budget, extensions, logging
-<a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a>  │         └─ loop.off_policy(init, update, ...) or loop.on_policy(...)
-<a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a>  │              └─ build_resumable_train(...)    jitted train(key, index, initial_state, ...)
-<a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a>  │                 or build_chunked_train(...)   with logging: chunks of ticks, evaluations between
-<a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a>  ├─ jax.vmap over seeds                          one program, every seed
-<a id="__codelineno-1-17" name="__codelineno-1-17" href="#__codelineno-1-17"></a>  └─ block_until_ready, stop the logging worker
-<a id="__codelineno-1-18" name="__codelineno-1-18" href="#__codelineno-1-18"></a>returns (state, evaluations)                      every leaf has a leading seed axis
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>agent = SAC(&quot;Pendulum-v1&quot;, extensions=(...))     DeclaredAgent.__post_init__, ActorCritic&#39;s setup
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>  ├─ self.config = run_config(...)                what the loggers will record: the fields as passed
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>  ├─ prepare_env                                  the env (episode_length, action_repeat), its params, Ajax&#39;s layers
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>  ├─ EnvironmentConfig, NetworkConfig, OptimizerConfig
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>  ├─ ExtensionStack(extensions) + checks          capabilities, phases, buffer fields, experts: raise here
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>  └─ experts read in agent units                  ExpertInAgentUnits, the agent&#39;s and the extensions&#39;
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>agent.train(seed=[0, 1], n_timesteps=..., logging_config=..., initial_state=...)
+<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>  ├─ get_make_train()(env_args, ..., total_timesteps, logging_config)
+<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a>  │    └─ make_train                              its family&#39;s, over the agent&#39;s init and update, with the extensions
+<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a>  │         ├─ TrainLoop.create(...)              budget, extensions, logging
+<a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a>  │         └─ loop.off_policy(init, update, ...), loop.on_policy(...) or loop.train(...)
+<a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a>  │              └─ build_resumable_train(...)    jitted train(key, index, initial_state, ...)
+<a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a>  │                 or build_chunked_train(...)   with logging: chunks of ticks, evaluations between
+<a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a>  ├─ jax.vmap over seeds                          one program, every seed
+<a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a>  └─ block_until_ready, stop the logging worker
+<a id="__codelineno-1-17" name="__codelineno-1-17" href="#__codelineno-1-17"></a>returns (state, evaluations)                      every leaf has a leading seed axis
 </code></pre></div>
 <p><code>ActorCritic</code> in <a href="https://github.com/YannBerthelot/Ajax/blob/main/src/ajax/agents/base.py"><code>agents/base.py</code></a> does the
 work every agent needs at construction. It builds the environment
@@ -3415,10 +3354,9 @@ work every agent needs at construction. It builds the environment
 groups the static settings into frozen configuration dataclasses, and wraps
 the extensions in an <code>ExtensionStack</code>. It rejects silent misconfigurations
 early: <code>memory=</code> on an agent whose <code>supports_memory</code> is false, an extension
-implementing a phase the agent never folds, an extension reading a replay
-field the agent does not store, a stateful expert called without its state,
-and an extension reading the frozen expert critic phi* in a stack that never
-fits it.</p>
+needing a capability the run lacks or a phase the agent never folds, an
+extension reading a replay field the agent does not store, and a stateful
+expert called without its state.</p>
 <p><code>train</code> then calls the agent's <code>make_train</code> (its family's, bound by
 <code>get_make_train()</code> to the agent's extensions) with the run's settings.
 The result is a jitted function of one seed's key. <code>train</code> maps it over the
@@ -3429,16 +3367,14 @@ seeds with <code>jax.vmap</code> and waits for the result.</p>
 <a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax</span><span class="w"> </span><span class="kn">import</span> <span class="n">PPO</span>
 <a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>
 <a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="n">agent</span> <span class="o">=</span> <span class="n">PPO</span><span class="p">(</span><span class="s2">&quot;CartPole-v1&quot;</span><span class="p">,</span> <span class="n">n_envs</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">n_steps</span><span class="o">=</span><span class="mi">64</span><span class="p">)</span>
-<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="n">state</span><span class="p">,</span> <span class="n">out</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">seed</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">],</span> <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">512</span><span class="p">)</span>
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="n">state</span><span class="p">,</span> <span class="n">out</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">seed</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">],</span> <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">512</span><span class="p">,</span> <span class="n">logging_config</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
 <a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>
-<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="nb">print</span><span class="p">(</span><span class="n">out</span><span class="p">)</span>                                <span class="c1"># None: no logging config, no evaluation</span>
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="nb">print</span><span class="p">(</span><span class="n">out</span><span class="p">)</span>                                <span class="c1"># None: no evaluation</span>
 <a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="nb">print</span><span class="p">(</span><span class="nb">type</span><span class="p">(</span><span class="n">state</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="p">)</span>               <span class="c1"># PPOState: the whole run, one pytree</span>
-<a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a><span class="nb">print</span><span class="p">(</span><span class="n">state</span><span class="o">.</span><span class="n">collector_state</span><span class="o">.</span><span class="n">timestep</span><span class="p">)</span>     <span class="c1"># [640 640]: env steps, every env counted</span>
+<a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a><span class="nb">print</span><span class="p">(</span><span class="n">state</span><span class="o">.</span><span class="n">collector_state</span><span class="o">.</span><span class="n">timestep</span><span class="p">)</span>     <span class="c1"># [512 512]: env steps, every env counted</span>
 <a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="nb">print</span><span class="p">(</span><span class="n">jax</span><span class="o">.</span><span class="n">tree</span><span class="o">.</span><span class="n">leaves</span><span class="p">(</span><span class="n">state</span><span class="o">.</span><span class="n">actor_state</span><span class="o">.</span><span class="n">params</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>  <span class="c1"># 2: the seed axis</span>
 <a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a><span class="nb">print</span><span class="p">(</span><span class="n">agent</span><span class="o">.</span><span class="n">config</span><span class="p">[</span><span class="s2">&quot;algo_name&quot;</span><span class="p">],</span> <span class="n">agent</span><span class="o">.</span><span class="n">config</span><span class="p">[</span><span class="s2">&quot;n_steps&quot;</span><span class="p">])</span>     <span class="c1"># PPO 64: the run config</span>
 </code></pre></div>
-<p>The timestep reads 640, not 512, because an on-policy run always makes one
-rollout more than the budget holds (see <a href="#three-iteration-shapes">the loop shapes</a>).</p>
 <h3 id="the-run-config">The run config<a class="headerlink" href="#the-run-config" title="Permanent link">&para;</a></h3>
 <p>A declared agent builds its run config from its fields, first thing in
 <code>DeclaredAgent.__post_init__</code>: each field as passed, and <code>algo_name</code>.
@@ -3450,7 +3386,7 @@ self.name, ("dataset", "eval_envs"))</code>.
 arguments, drops <code>self</code>, <code>__class__</code> and the names passed in <code>exclude</code> (its
 dataset and evaluation envs), and adds <code>algo_name</code>. With a
 <code>LoggingConfig</code>, <code>train</code> merges <code>agent.config</code> into <code>logging_config.config</code>,
-which is what W&amp;B and TensorBoard record for the run.</p>
+which W&amp;B and TensorBoard record.</p>
 <h3 id="agent-units-and-env-units">Agent units and env units<a class="headerlink" href="#agent-units-and-env-units" title="Permanent link">&para;</a></h3>
 <p>Every continuous agent acts in <code>[-1, 1]</code>, whatever the env's action box.
 Every env step maps the action onto the box
@@ -3503,15 +3439,15 @@ agent at once. The probes check it end to end: a planted fault that runs
 <tbody>
 <tr>
 <td><code>loop.off_policy(init, update, learning_starts, ...)</code></td>
-<td>SAC, TD3, TQC, REDQ, ASAC, CrossQ, IQL, AVG, DQN</td>
+<td>the replay agents (<!-- agents: replay -->SAC, TD3, REDQ, CrossQ, TQC, ASAC, RVI-SAC, IQL, DQN, DAgger<!-- /agents -->) and AVG</td>
 <td>one step per env (a <em>tick</em>); from <code>learning_starts</code> on, one <code>update(state, transition)</code></td>
 <td><code>budget // n_envs</code> ticks</td>
 </tr>
 <tr>
 <td><code>loop.on_policy(init, update, n_steps, ...)</code></td>
-<td>PPO, APO, REINFORCE, PQN</td>
+<td>the on-policy agents (PPO, APO, REINFORCE, PQN)</td>
 <td>an <code>n_steps</code> rollout per env from the agent state <code>agent_state_at_rollout_start</code>, then <code>update(agent_state, rollout, agent_state_at_rollout_start)</code></td>
-<td><code>budget // (n_envs * n_steps) + 1</code> rollouts</td>
+<td>the whole rollouts the budget holds, at least one</td>
 </tr>
 <tr>
 <td><code>loop.off_policy(..., collect=, n_updates=, evaluation=)</code></td>
@@ -3524,32 +3460,33 @@ agent at once. The probes check it end to end: a planted fault that runs
 <p>Before <code>learning_starts</code>, the off-policy shape acts uniformly at random
 (until <code>uniform_steps</code> instead, when an agent's reference acts with its policy
 from the start, as TQC's does) and logs the update's metrics as NaN, which the
-logger drops. The on-policy shape
-passes <code>start</code> to the update so that a recurrent agent can replay its rollout
-from the memory carries it began with. PPO's update cuts its rollout by a
-<code>RolloutSplit</code> (<code>agents/minibatch.py</code>), which also says where the
-advantages are computed.</p>
-<p>Three agents use the loop's parts without one of these shapes. UDRL runs its
-own iteration (a segment, its replay, its command statistics, the updates)
-on <code>TrainLoop.train</code>, and evaluates its command-conditioned policy every
-<code>log_frequency</code> steps through an <code>Evaluation</code>. APG and the offline
-<code>TDMPC2MultiTask</code> call <code>build_resumable_train</code> themselves, with the loop's
+logger drops. The on-policy shape passes <code>start</code> to the update so that a
+recurrent agent can replay its rollout from the memory carries it began
+with. PPO's update cuts its rollout by a <code>RolloutSplit</code>
+(<code>agents/minibatch.py</code>), which also says where the advantages are computed.</p>
+<p>Three agents use the loop's parts without one of these shapes. UDRL and APG
+run their own iteration on <code>TrainLoop.train</code>, which evaluates, logs and
+resumes for them: UDRL a segment, its replay, its command statistics and the
+updates, evaluating its command-conditioned policy through an <code>Evaluation</code>;
+APG a gradient step through a differentiable rollout. The offline
+<code>TDMPC2MultiTask</code> calls <code>build_resumable_train</code> itself, with the loop's
 <code>fresh_state</code> and its <code>post_update</code> fold.</p>
-<p>Under them all, <code>compute_gradients(loss, params)</code> returns a loss's gradients
-and its aux: the agent first writes the loss as a small local function of the
-parameters alone, its other inputs fixed. PPO and APO step their two networks
-on it with <code>apply_gradients_clipped_together</code>, which clips both gradients to
-one global norm and returns each network's norm before the clip.</p>
+<h3 id="the-update-helpers">The update helpers<a class="headerlink" href="#the-update-helpers" title="Permanent link">&para;</a></h3>
+<p><code>compute_gradients(loss, params)</code> returns a loss's gradients and its aux: the
+agent first writes the loss as a small local function of the parameters
+alone, its other inputs fixed. PPO and APO step their two networks on it with
+<code>apply_gradients_clipped_together</code>, which clips both gradients to one global
+norm and returns each network's norm before the clip.</p>
 <p>Three helpers serve the replay agents: <code>gradient_step(train_state, loss_fn)</code>,
 one optimiser step; <code>actor_step(...)</code>, an actor step that folds the
-extensions' <code>actor_loss</code> phase; and <code>critic_step(...)</code>, a replay critic step that folds
-the extensions' <code>on_target</code> and <code>critic_loss</code> phases. All three return the
-gradients' global norm, before the optimiser clips them. SAC, TD3, TQC, REDQ,
-ASAC, AVG and IQL use <code>critic_step</code>. Its two halves are public too:
-<code>apply_on_target</code> and <code>compute_extensions_critic_loss</code>. An agent whose target
-comes out of its own critic pass calls them inside its loss.
-SAC, TQC, REDQ, ASAC, CrossQ, TD3, AVG, DAgger and IQL use <code>actor_step</code>,
-SAC's descendants on SAC's soft policy objective.</p>
+extensions' <code>actor_loss</code> phase; and <code>critic_step(...)</code>, a replay critic step
+that folds the extensions' <code>on_target</code> and <code>critic_loss</code> phases. All three
+return the gradients' global norm, before the optimiser clips it. SAC, TD3,
+TQC, REDQ, ASAC, RVISAC, AVG and IQL use <code>critic_step</code>. Its two halves are
+public too: <code>apply_on_target</code> and <code>compute_extensions_critic_loss</code>. An agent
+whose target comes out of its own critic pass calls them inside its loss.
+SAC, TQC, REDQ, ASAC, RVISAC, CrossQ, TD3, AVG, DAgger and IQL use
+<code>actor_step</code>, SAC's descendants on SAC's soft policy objective.</p>
 <p>Two more keep control flow out of the updates. <code>run_if(condition, update,
 state)</code> runs <code>update</code> where <code>condition</code> holds and leaves the state as it is
 elsewhere, its metrics then NaN: DQN's target refresh, SAC's warm-ups and the
@@ -3609,17 +3546,21 @@ gains a leading axis), and makes a checkpoint a matter of saving that pytree.</p
 </tr>
 <tr>
 <td><code>last_rollout</code></td>
-<td>the latest rollout, kept only when the agent is asked to expose it</td>
+<td>the latest rollout, kept only when an extension reads it or the agent is asked to expose it</td>
 </tr>
 <tr>
 <td><code>last_actor_metrics</code></td>
 <td>the metrics of the actor's last step, kept only by an agent whose actor skips updates (<code>run_actor_if</code>), for the skipped updates to log</td>
 </tr>
+<tr>
+<td><code>last_update_metrics</code></td>
+<td>the metrics of the last update, kept only by a run that updates every few steps, for the evaluations between two updates to log</td>
+</tr>
 </tbody>
 </table>
 <p>Agents subclass it: <code>SoftActorCriticState</code> (<code>agents/temperature.py</code>) adds
-the entropy temperature and is shared by SAC, TQC, REDQ, ASAC, CrossQ and
-AVG; the world models carry their model and replay.
+the entropy temperature and is shared by SAC, TQC, REDQ, ASAC, RVISAC,
+CrossQ and AVG; the world models carry their model and replay.
 <code>collector_state.timestep</code> counts environment steps over all parallel
 environments (one collection step on four environments adds four). The
 <code>learning_starts</code> gate, the logging cadence and the training fraction all
@@ -3630,14 +3571,16 @@ static arguments, so they fix shapes and Python-level decisions at trace
 time. Extensions are static for the same reason: they must be hashable and
 must never change after construction.</p>
 <h2 id="extensions-in-the-loop">Extensions in the loop<a class="headerlink" href="#extensions-in-the-loop" title="Permanent link">&para;</a></h2>
-<p>Each phase the stack folds is one method of <code>ExtensionStack</code>,
-<code>fold_&lt;phase&gt;</code>, and an agent makes one call to it where the phase applies
-(SAC's action pipeline dispatches <code>action</code> itself). The call builds the
-<code>ExtensionContext</code> (<code>step</code>, <code>rng</code>, <code>total_steps</code>), runs the extensions in
-the order given, reads (and, for <code>pretrain</code> and <code>post_update</code>, writes)
+<p>Each phase the stack folds is one method of <code>ExtensionStack</code> (<code>apply_&lt;phase&gt;</code>,
+or <code>compute_extensions_&lt;network&gt;_loss</code> for a loss term), and an agent makes
+one call to it where the phase applies. The call builds the
+<code>ExtensionContext</code> (<code>step</code>, <code>rng</code>, <code>total_steps</code>), runs the extensions in the
+order given, reads (and, for <code>pretrain</code> and <code>post_update</code>, writes)
 <code>agent_state.ext_state</code>, and returns the result. On an empty stack it returns
 its input unchanged (a loss term is <code>0.0</code>) without building anything, so an
-agent without extensions traces nothing extra and never guards a fold.</p>
+agent without extensions traces nothing extra and never guards a fold. The
+phases acting on collection and evaluation are called by the controller
+instead.</p>
 <table>
 <thead>
 <tr>
@@ -3659,20 +3602,32 @@ agent without extensions traces nothing extra and never guards a fold.</p>
 <td>at every evaluation, merged into the logged metrics (<code>compose_eval_metrics</code> in <code>log.py</code>)</td>
 </tr>
 <tr>
+<td><code>apply_reward</code></td>
+<td>PPO's update, after each rollout and before its targets</td>
+</tr>
+<tr>
 <td><code>apply_on_target</code>, <code>compute_extensions_critic_loss</code></td>
-<td>in the agent's critic step; <code>critic_step</code> for SAC, TD3, REDQ, ASAC, AVG and IQL</td>
+<td>in the agent's critic step; <code>critic_step</code> for SAC, TD3, TQC, REDQ, ASAC, RVISAC, AVG and IQL</td>
 </tr>
 <tr>
 <td><code>compute_extensions_actor_loss</code></td>
-<td>in the agent's actor step; <code>actor_step</code> for SAC, TD3, AVG, DAgger and IQL</td>
+<td>in the agent's actor step; <code>actor_step</code> for the agents listed above</td>
 </tr>
 <tr>
 <td>the <code>action</code> phase</td>
-<td>the shared collector's action stage (<code>ajax.environments.action_stage</code>), around the agent's pipeline, with an expert policy</td>
+<td>the shared collector's action stage (<code>ajax.environments.action_stage</code>), around the agent's pipeline, in the slot each extension names</td>
 </tr>
 <tr>
 <td><code>transform_action</code>, <code>actuate</code></td>
 <td>the controller (<code>env_args.transforms</code>): the default pipeline before the choice, the shared collector after it (<code>expert_collect_kwargs</code>), evaluation, and <code>executed_actions</code> where the critics score executed actions</td>
+</tr>
+<tr>
+<td><code>choose_warmup_action</code>, <code>choose_replay_action</code></td>
+<td>the controller in collection: the warm-up's choice (<code>env_args.warmups</code>), the action a replay row stores (<code>env_args.replay_action_choosers</code>)</td>
+</tr>
+<tr>
+<td><code>track_memory</code></td>
+<td>the shared collector, after the environment steps</td>
 </tr>
 <tr>
 <td>the <code>observe</code> phase</td>
@@ -3684,14 +3639,15 @@ agent without extensions traces nothing extra and never guards a fold.</p>
 <code>compute_extensions_actor_loss</code> return their value and the metrics the phases
 returned beside theirs; the agent carries them out of its loss as an aux and
 logs them, in its <code>AuxiliaryLogs</code>' <code>extensions</code> field, under their own names.</p>
-<p>The loop's own phases are <code>LOOP_PHASES</code>: <code>pretrain</code>, <code>post_update</code>,
-<code>eval_metrics</code> and <code>observe</code>, which an agent collecting on its own (APG,
-UDRL, the world models) removes; an agent lists those plus the phases its
-update folds in <code>supported_extension_phases</code>, and construction rejects any
-other. Each fold gets a key of its own, split from one the agent draws
-nothing else on, so an extension never shares randomness with the agent's
-own draws.</p>
-<p><a href="../writing-an-extension/">Writing an extension</a> covers the phases in detail.</p>
+<p>The loop's own phases are <code>LOOP_PHASES</code>: <code>pretrain</code>, <code>post_update</code> and
+<code>eval_metrics</code>, and <code>observe</code>, <code>action</code>, <code>eval_action</code> and <code>track_memory</code>,
+which only the shared collector and evaluation meet, so an agent collecting
+on its own (APG, UDRL, the world models) removes those it does not run. An
+agent lists those plus the phases its update folds in
+<code>supported_extension_phases</code>, and construction rejects any other. Each fold
+gets a key of its own, split from one the agent draws nothing else on, so an
+extension never shares randomness with the agent's own draws.</p>
+<p><a href="../extension-phases/">Extension phases</a> covers the phases in detail.</p>
 <h2 id="evaluation-and-logging">Evaluation and logging<a class="headerlink" href="#evaluation-and-logging" title="Permanent link">&para;</a></h2>
 <p>Three modules share the work:</p>
 <ul>
@@ -3708,13 +3664,12 @@ own draws.</p>
   a tick logged.</li>
 <li><a href="https://github.com/YannBerthelot/Ajax/blob/main/src/ajax/evaluate.py"><code>evaluate.py</code></a> runs <strong>the episodes</strong>:
   <code>num_episode_test</code> episodes with the deterministic action, acting as the
-  agent's <code>Controller</code> says (SAC's expert in the actor's input, residual RL,
-  gain mode), reporting the
-  mean return, the episode length, the policy's entropy and, for the
-  discounted agents with a critic (SAC, TD3, REDQ, AVG, DQN, PQN, PPO), the
-  value bias (<code>Eval/mean bias</code>: the critic's estimate minus the discounted
-  return realised from each evaluated step, in the critic's units). With an expert it also rolls the expert out on the same episodes
-  at each evaluation and reports its return.</li>
+  agent's <code>Controller</code> says (the observation features, residual RL, gain
+  mode). It reports the mean return, the episode length, the policy's
+  entropy and, for an agent with a discounted critic, the value bias
+  (<code>Eval/mean bias</code>: the critic's estimate minus the discounted return
+  realised from each evaluated step, in the critic's units). With an expert
+  it also rolls the expert out on the same episodes and reports its return.</li>
 <li><a href="https://github.com/YannBerthelot/Ajax/blob/main/src/ajax/logging/wandb_logging.py"><code>logging/wandb_logging.py</code></a>
   <strong>records</strong>. <code>LoggingConfig</code> names the backends and the cadence. The
   compiled program hands each evaluation's metrics to a host callback, which
@@ -3727,10 +3682,10 @@ own draws.</p>
 <ul>
 <li><strong><code>logging_config=None</code>:</strong> no evaluation is traced at all (tracing alone would
   rebuild the evaluation environment), and <code>train</code> returns <code>(state, None)</code>.
-  Not given, <code>train</code> makes a <code>LoggingConfig</code> of its own: about ten
-  evaluations, no backend, and a <code>ProgressPrinter</code> as <code>on_evaluation</code>
-  (<a href="https://github.com/YannBerthelot/Ajax/blob/main/src/ajax/logging/progress.py"><code>logging/progress.py</code></a>).
   APG returns its per-update metrics in place of <code>None</code>.</li>
+<li><strong>Not given:</strong> <code>train</code> makes a <code>LoggingConfig</code> of its own: about ten
+  evaluations, no backend, and a <code>ProgressPrinter</code> as <code>on_evaluation</code>
+  (<a href="https://github.com/YannBerthelot/Ajax/blob/main/src/ajax/logging/progress.py"><code>logging/progress.py</code></a>).</li>
 <li><strong>A <code>LoggingConfig</code>:</strong> the run evaluates whether or not a backend records
   it, and returns <code>(state, evaluations)</code>: every logged key's values per seed
   and evaluation. The values are written into rows the loop carries, not
@@ -3772,27 +3727,27 @@ in, whose buffers XLA reuses (the argument is donated).</p>
 <p><code>ActorCritic.train(initial_state=state)</code> continues a run. It checks that
 every seed stands at the same timestep, evaluation count and update count
 (<code>shared_counters</code>; only an agent declaring <code>per_seed_update_counts</code>,
-TD-MPC2 in its episodic mode, may differ in updates, and keeps them batched), keeps those
-counters unbatched, and trains from that timestep to <code>timestep +
-n_timesteps</code> (the loop's <code>end_timestep</code>). Every schedule (the training
-fraction, the extensions' <code>total_steps</code>, the exploration, the logging's end)
-runs to the run's horizon, <code>train</code>'s <code>total_timesteps</code> (by default the
-call's end; the loop's <code>total_timesteps</code>), so a resumed run continues where
-it stopped instead of restarting its schedules, and a run whose calls are
-all told its horizon follows the schedules of one call. Agents whose
-schedules depend on the absolute tick (the world models: the own-replay
-family reads it off the row collector, <code>OwnReplayAgent.resume_iteration_offset</code>)
-also pass an iteration offset. A run split in two, on a new agent instance, ends in the
-state one uninterrupted call reaches (<code>tests/agents/test_resume_contract.py</code>).
-<a href="https://github.com/YannBerthelot/Ajax/blob/main/src/ajax/checkpoint.py"><code>checkpoint.py</code></a> saves a state's arrays to disk
-and grafts them back onto a fresh skeleton; see
+TD-MPC2 in its episodic mode, may differ in updates, and keeps them
+batched), keeps those counters unbatched, and trains from that timestep to
+<code>timestep + n_timesteps</code> (the loop's <code>end_timestep</code>). Every schedule (the
+training fraction, the extensions' <code>total_steps</code>, the exploration, the
+logging's end) runs to the run's horizon, <code>train</code>'s <code>total_timesteps</code> (by
+default the call's end), so a resumed run continues where it stopped instead
+of restarting its schedules, and a run whose calls are all told its horizon
+follows the schedules of one call. Agents whose schedules depend on the
+absolute tick (the world models, <code>OwnReplayAgent.resume_iteration_offset</code>)
+also pass an iteration offset. A run split in two, on a new agent instance,
+ends in the state one uninterrupted call reaches
+(<code>tests/agents/test_resume_contract.py</code>).</p>
+<p><a href="https://github.com/YannBerthelot/Ajax/blob/main/src/ajax/checkpoint.py"><code>checkpoint.py</code></a> saves a state's arrays to
+disk and grafts them back onto a fresh skeleton; see
 <a href="../../guide/checkpoints/">Checkpoints and resuming</a>. A state class that
 deletes a data field lists it in its <code>removed_fields</code>, a
 <code>ClassVar[frozenset[str]]</code>: checkpoints saved with the field then restore
 without it. A saved field that its class neither has nor lists still fails
 to restore. A class that gains a float field lists it in its
 <code>added_fields</code>: checkpoints saved before it restore it as NaN.</p>
-<h2 id="keywords-on-their-way-out">Keywords on their way out<a class="headerlink" href="#keywords-on-their-way-out" title="Permanent link">&para;</a></h2>
+<h2 id="removing-a-public-name">Removing a public name<a class="headerlink" href="#removing-a-public-name" title="Permanent link">&para;</a></h2>
 <p>A public name or keyword is removed in two steps (CLAUDE.md, rule 10,
 "expand, then contract"): first the new form is added and downstream
 projects move to it, then the old one goes. A project pinned to a release
@@ -3805,8 +3760,9 @@ subdirectory per CPU, Python, JAX and jaxlib version; <code>AJAX_NO_COMPILE_CACH
 turns it off). A second process with the same shapes and code loads the
 compiled program instead of compiling it. JAX 0.10 never caches a program
 that contains a host callback, so on 0.10 a run with a <code>LoggingConfig</code>
-recompiles in each new process; JAX 0.11 caches it. CI restores the cache each job left on the last push to <code>main</code>.
-<a href="../performance/">Performance</a> has the numbers.</p>
+recompiles in each new process; JAX 0.11 caches it. CI restores the cache
+each job left on the last push to <code>main</code>. <a href="../performance/">Performance</a> has
+the numbers.</p>
 
 
 

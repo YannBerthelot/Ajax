@@ -3204,9 +3204,9 @@
 <h1 id="training-an-agent">Training an agent<a class="headerlink" href="#training-an-agent" title="Permanent link">&para;</a></h1>
 <p>Every agent trains the same way: build it with an environment and its
 hyperparameters, then call <code>train</code>. This page covers the arguments every
-agent shares, what <code>train</code> does with them and what it gives back.</p>
+agent shares, what <code>train</code> does with them and what it returns.</p>
 <h2 id="building-an-agent">Building an agent<a class="headerlink" href="#building-an-agent" title="Permanent link">&para;</a></h2>
-<p>An agent's constructor takes the environment first, then its paper's
+<p>The constructor takes the environment first, then the algorithm's
 hyperparameters, then <code>extensions=()</code>:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax</span><span class="w"> </span><span class="kn">import</span> <span class="n">SAC</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
@@ -3219,57 +3219,59 @@ hyperparameters, then <code>extensions=()</code>:</p>
 <a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>    <span class="n">learning_starts</span><span class="o">=</span><span class="mi">1_000</span><span class="p">,</span>
 <a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="p">)</span>
 </code></pre></div>
-<p>The defaults follow each paper or its reference implementation; the
+<p>The defaults are each paper's or its reference implementation's; the
 <a href="../../algorithms/">algorithm pages</a> list them and every deviation.
-Most agents accept the arguments below; DQN and PQN take one <code>learning_rate</code>
-and one <code>architecture</code> for their Q-network instead of an actor and a critic.</p>
+Most agents take the arguments below. Some take one <code>learning_rate</code> instead
+of two (CrossQ, APG, DQN, PQN and the world models); DQN and PQN take one
+<code>architecture</code> for their Q-network, and CrossQ an <code>actor_width</code> and a
+<code>critic_width</code>.</p>
 <table>
 <thead>
 <tr>
 <th>Argument</th>
 <th>What it sets</th>
-<th>Page</th>
+<th>See</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>n_envs</code></td>
-<td>parallel environment copies per seed</td>
-<td>below</td>
+<td>parallel copies of the environment, per seed</td>
+<td><a href="#parallel-environments">below</a></td>
 </tr>
 <tr>
 <td><code>actor_learning_rate</code>, <code>critic_learning_rate</code></td>
 <td>a number, or a schedule of the optimiser step</td>
-<td>below</td>
+<td><a href="#learning-rate-schedules">below</a></td>
 </tr>
 <tr>
 <td><code>actor_architecture</code>, <code>critic_architecture</code></td>
-<td>hidden layers, or a PID policy for the actor</td>
+<td>the hidden layers, or a PID policy for the actor</td>
 <td><a href="../networks/">Networks</a></td>
 </tr>
 <tr>
 <td><code>env_params</code></td>
 <td>gymnax environment parameters</td>
-<td><a href="../environments/">Environments</a></td>
+<td><a href="../environments/#your-own-environment">Environments</a></td>
 </tr>
 <tr>
 <td><code>episode_length</code>, <code>action_repeat</code></td>
-<td>episode length and repeat of a Brax or Playground id</td>
-<td><a href="../environments/">Environments</a></td>
+<td>the episode length and action repeat of a Brax or Playground id</td>
+<td><a href="../environments/#brax-and-playground">Environments</a></td>
 </tr>
 <tr>
 <td><code>normalize_observations</code>, <code>normalize_rewards</code></td>
 <td>running normalisation</td>
-<td><a href="../environments/">Environments</a></td>
+<td><a href="../environments/#normalisation">Environments</a></td>
 </tr>
 <tr>
 <td><code>max_grad_norm</code></td>
-<td>global-norm gradient clipping (<code>None</code>: off); twin and ensemble critics are each clipped on their own</td>
+<td>global-norm gradient clipping, <code>None</code> for none: each network on its own, and each critic of a pair or an ensemble too; PPO and APO clip their two networks together, as their reference codes do</td>
 <td></td>
 </tr>
 <tr>
 <td><code>weight_decay</code></td>
-<td>decoupled (AdamW) weight decay of the network optimisers, multiplied by the learning rate: each step multiplies the parameters by <code>1 - lr * weight_decay</code> (<code>0</code>: plain Adam)</td>
+<td>decoupled (AdamW) weight decay: each step multiplies the parameters by <code>1 - learning_rate * weight_decay</code>; <code>0</code> is plain Adam</td>
 <td></td>
 </tr>
 <tr>
@@ -3286,18 +3288,18 @@ and one <code>architecture</code> for their Q-network instead of an actor and a 
 </table>
 <p>An agent refuses what it cannot do when you build it, not halfway through a
 run: <code>memory</code> on an agent without memory support, SAC on a discrete action
-space, <code>action_repeat</code> on a gymnax environment, an extension that needs a
-step the agent's loop never runs or data its replay does not keep (the
-<a href="../extensions/#what-is-checked-and-when">extension checks</a> list them all).</p>
-<p>Each agent also records its run configuration in <code>agent.config</code>: every
-constructor argument by name (<code>TDMPC2MultiTask</code> leaves out its dataset and
-evaluation environments), plus <code>algo_name</code>. The loggers store it with each
-run (<a href="../logging/">Logging</a>).</p>
+space, <code>action_repeat</code> on a gymnax environment, an extension it cannot run
+(the <a href="../extensions/#what-is-checked-and-when">extension checks</a> list them
+all).</p>
+<p><code>print(agent)</code> shows the call that builds the agent, with every argument
+that differs from its default. <code>agent.config</code> holds every constructor
+argument by name, plus <code>algo_name</code>; each logged run stores it
+(<a href="../logging/#the-run-configuration">Logging</a>).</p>
 <h3 id="presets">Presets<a class="headerlink" href="#presets" title="Permanent link">&para;</a></h3>
 <p>An agent's defaults are its reference code's general configuration. Where
 the reference tunes some values for one task (a temperature for Humanoid, a
 discount for Swimmer, a whole configuration for Atari), the agent keeps them
-in a preset, named after the task:</p>
+in a preset named after the task:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax</span><span class="w"> </span><span class="kn">import</span> <span class="n">TQC</span>
 <a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>
 <a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="n">agent</span> <span class="o">=</span> <span class="n">TQC</span><span class="o">.</span><span class="n">preset</span><span class="p">(</span><span class="s2">&quot;Hopper&quot;</span><span class="p">,</span> <span class="s2">&quot;hopper&quot;</span><span class="p">)</span>  <span class="c1"># brax&#39;s Hopper</span>
@@ -3307,22 +3309,24 @@ in a preset, named after the task:</p>
 <a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="c1"># The arguments you give win over the preset&#39;s.</span>
 <a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="n">agent</span> <span class="o">=</span> <span class="n">TQC</span><span class="o">.</span><span class="n">preset</span><span class="p">(</span><span class="s2">&quot;Hopper&quot;</span><span class="p">,</span> <span class="s2">&quot;hopper&quot;</span><span class="p">,</span> <span class="n">top_quantiles_to_drop_per_net</span><span class="o">=</span><span class="mi">3</span><span class="p">)</span>
 </code></pre></div>
-<p>A preset is named after its task, not an environment id, so it applies to
-the gymnasium, Brax and Playground versions of the task alike. PPO also has
-one named after a library: <code>PPO.preset("SB3", env_id)</code> is Stable-Baselines3's
-PPO defaults in Ajax's names, for settings brought from SB3 or SBX
-(<a href="../../algorithms/ppo/#presets">PPO, "Presets"</a>). An unknown
-name raises and lists the agent's presets. Each agent module keeps its
-presets in a <code>PRESETS</code> table, each entry the values and where they come
-from:</p>
+<ul>
+<li>A preset is named after its task, not an environment id, so it applies to
+  the Gymnasium, Brax and Playground versions of the task alike. An unknown
+  name raises and lists the agent's presets.</li>
+<li>PPO also has one named after a library: <code>PPO.preset("SB3", env_id)</code> is
+  Stable-Baselines3's PPO defaults in Ajax's names
+  (<a href="../../algorithms/ppo/#presets">PPO, "Presets"</a>).</li>
+<li>A preset sets every value its reference varies across tasks, even one
+  that equals the default today, and the agent's fields only: the
+  environment's own settings (Atari's frame skip or reward clipping) and a
+  dataset's preprocessing stay yours.</li>
+</ul>
+<p>Each agent module keeps its presets in a <code>PRESETS</code> table, each entry with
+the values and where they come from:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax.agents.TQC.TQC</span><span class="w"> </span><span class="kn">import</span> <span class="n">PRESETS</span>
 <a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>
 <a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="nb">print</span><span class="p">(</span><span class="n">PRESETS</span><span class="p">[</span><span class="s2">&quot;Hopper&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">citation</span><span class="p">)</span>  <span class="c1"># bayesgroup/tqc_pytorch@65114eb README.md:42-48</span>
 </code></pre></div>
-<p>A preset sets every value its reference varies across tasks, even one that
-equals the default today. It sets the agent's fields only: the environment's
-own settings (Atari's frame skip or reward clipping) and a dataset's
-preprocessing stay yours.</p>
 <table>
 <thead>
 <tr>
@@ -3407,59 +3411,160 @@ preprocessing stay yours.</p>
 </tr>
 </tbody>
 </table>
-<p>Each agent's page gives the values. A test compares this table with the
-<code>PRESETS</code> tables (<code>tests/test_docs_agent_sets.py</code>).</p>
+<p>Each agent's page gives the values.</p>
 <h2 id="train"><code>train</code><a class="headerlink" href="#train" title="Permanent link">&para;</a></h2>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax</span><span class="w"> </span><span class="kn">import</span> <span class="n">SAC</span>
 <a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>
 <a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="n">agent</span> <span class="o">=</span> <span class="n">SAC</span><span class="p">(</span><span class="s2">&quot;Pendulum-v1&quot;</span><span class="p">,</span> <span class="n">learning_starts</span><span class="o">=</span><span class="mi">1_000</span><span class="p">)</span>
-<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="n">state</span><span class="p">,</span> <span class="n">out</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span>
-<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>    <span class="n">seed</span><span class="o">=</span><span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">],</span>  <span class="c1"># one run per seed, all in one program</span>
-<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>    <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">2_000</span><span class="p">,</span>  <span class="c1"># environment steps this call trains for</span>
-<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>    <span class="n">num_episode_test</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span>  <span class="c1"># test episodes per evaluation</span>
-<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>    <span class="n">logging_config</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>  <span class="c1"># None: no evaluation; not given: about ten, printed</span>
-<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a>    <span class="n">initial_state</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>  <span class="c1"># or a state to continue from</span>
-<a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a>    <span class="n">total_timesteps</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>  <span class="c1"># the run&#39;s horizon; None: this call&#39;s end</span>
-<a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a><span class="p">)</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="n">state</span><span class="p">,</span> <span class="n">out</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">seed</span><span class="o">=</span><span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">],</span> <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">2_000</span><span class="p">,</span> <span class="n">logging_config</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
 </code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th>Default</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>seed</code></td>
+<td><code>42</code></td>
+<td>one seed or a list of them: a run per seed, all in one program (<a href="#seeds">Seeds</a>)</td>
+</tr>
+<tr>
+<td><code>n_timesteps</code></td>
+<td><code>1_000_000</code></td>
+<td>the environment steps this call trains for (<a href="#the-budget">The budget</a>)</td>
+</tr>
+<tr>
+<td><code>num_episode_test</code></td>
+<td><code>10</code></td>
+<td>the episodes of each evaluation (<a href="#evaluation">Evaluation</a>)</td>
+</tr>
+<tr>
+<td><code>logging_config</code></td>
+<td>not given</td>
+<td>when to evaluate and where to log (<a href="#what-train-returns">What <code>train</code> returns</a>)</td>
+</tr>
+<tr>
+<td><code>initial_state</code></td>
+<td><code>None</code></td>
+<td>a state to continue from (<a href="#continuing-a-run">Continuing a run</a>)</td>
+</tr>
+<tr>
+<td><code>total_timesteps</code></td>
+<td><code>None</code></td>
+<td>the whole run's horizon, which every schedule runs to; <code>None</code> is this call's end</td>
+</tr>
+<tr>
+<td><code>sweep</code></td>
+<td><code>None</code></td>
+<td>configurations to train in the same program (<a href="#hyperparameter-sweeps">Hyperparameter sweeps</a>)</td>
+</tr>
+<tr>
+<td><code>devices</code></td>
+<td><code>None</code></td>
+<td>devices to split the runs over (<a href="../performance/#seeds-over-several-devices">Performance</a>)</td>
+</tr>
+<tr>
+<td><code>precision</code></td>
+<td><code>None</code></td>
+<td>what the networks compute in: <code>"float32"</code>, <code>"bfloat16"</code> or <code>"auto"</code> (<a href="../performance/#bfloat16">Performance</a>)</td>
+</tr>
+<tr>
+<td><code>on_ids_ready</code></td>
+<td><code>None</code></td>
+<td>a function given the runs' ids before training starts (<a href="../logging/#backends">Logging</a>)</td>
+</tr>
+</tbody>
+</table>
 <h3 id="the-budget">The budget<a class="headerlink" href="#the-budget" title="Permanent link">&para;</a></h3>
-<p><code>n_timesteps</code> counts environment steps summed over the <code>n_envs</code> copies. An
-off-policy agent collects one step in each copy per iteration, so 100,000
-steps with <code>n_envs=4</code> are 25,000 iterations. An on-policy agent (PPO, APO,
-REINFORCE, PQN) collects a rollout of <code>n_steps</code> per copy per iteration and trains in
-whole rollouts: it runs <code>n_timesteps // (n_envs * n_steps)</code> of them, and at
-least one. A budget that is not whole rollouts stops at the last whole one,
-with a warning; a budget below one rollout runs that one rollout and
-records no evaluation.</p>
-<p>The off-policy agents act uniformly at random and do not update until
-<code>learning_starts</code> steps are collected: 10,000 by default for SAC, ASAC,
-RVI-SAC and DQN, 25,000 for TD3, 5,000 for REDQ and CrossQ, 257 for TQC
-(whose policy acts from the first step), 0 for AVG. A short test run must
-lower it, or the agent never trains; a call that ends before it warns.</p>
+<p><code>n_timesteps</code> counts environment steps, summed over the <code>n_envs</code> copies. An
+agent trains in whole iterations:</p>
+<table>
+<thead>
+<tr>
+<th>Agents</th>
+<th>One iteration collects</th>
+<th>Iterations in <code>n_timesteps</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>the on-policy agents (PPO, APO, REINFORCE, PQN) and UDRL</td>
+<td><code>n_steps</code> in each copy</td>
+<td><code>n_timesteps // (n_envs * n_steps)</code>, at least one</td>
+</tr>
+<tr>
+<td>APG</td>
+<td><code>horizon</code> steps in each copy</td>
+<td><code>n_timesteps // (n_envs * horizon)</code>, at least one</td>
+</tr>
+<tr>
+<td>the others (SAC, TD3, DQN, ...)</td>
+<td>one step in each copy</td>
+<td><code>n_timesteps // n_envs</code></td>
+</tr>
+</tbody>
+</table>
+<p>So 100,000 steps of SAC with <code>n_envs=4</code> are 25,000 iterations. A budget
+that is not whole iterations stops at the last whole one, with a warning; a
+budget below one iteration trains that one iteration and records no
+evaluation.</p>
+<p>An off-policy agent acts uniformly at random, without updating, until it
+has collected <code>learning_starts</code> steps. A short test run must lower it, or
+the agent never trains; a call that ends before it warns.</p>
+<table>
+<thead>
+<tr>
+<th><code>learning_starts</code> default</th>
+<th>Agents</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>25,000</td>
+<td>TD3</td>
+</tr>
+<tr>
+<td>10,000</td>
+<td>SAC, ASAC, RVI-SAC, DQN</td>
+</tr>
+<tr>
+<td>5,000</td>
+<td>REDQ, CrossQ</td>
+</tr>
+<tr>
+<td>257</td>
+<td>TQC, whose policy acts from the first step</td>
+</tr>
+<tr>
+<td>0</td>
+<td>AVG, IQL</td>
+</tr>
+</tbody>
+</table>
 <h3 id="seeds">Seeds<a class="headerlink" href="#seeds" title="Permanent link">&para;</a></h3>
-<p><code>seed</code> is one integer or a list. Each seed starts from <code>jax.random.PRNGKey(seed)</code>,
-and <code>train</code> runs all of them at once with <code>jax.vmap</code>: one compilation, one
-program, every seed in step. More seeds cost little extra time until the
-device is full (<a href="../performance/">Performance</a> has the measurements), so run
-the seeds you need in one call rather than one call per seed.</p>
+<p><code>seed</code> is one integer or a list. Each seed starts from
+<code>jax.random.PRNGKey(seed)</code>, and <code>train</code> runs all of them at once with
+<code>jax.vmap</code>: one compilation, one program, every seed in step. More seeds
+cost little extra time until the device is full
+(<a href="../performance/">Performance</a>), so run the seeds you need in one call.</p>
 <p>Everything <code>train</code> returns has the seed axis first, whatever the number of
-seeds: with <code>seed=0</code>, <code>evaluations.returns</code> has shape <code>(1, evaluations)</code>, and
-that run's curve is <code>evaluations.returns[0]</code>. The shape does not depend on
-how the seed is written, so a script keeps working when one seed becomes
-several. The last line <code>train</code> prints gives the shape, and so does
-<code>print(evaluations)</code>. Seed <code>i</code>'s part of the state is
-<code>jax.tree.map(lambda x: x[i], state)</code>.</p>
-<p>To summarise several seeds, the scores of
-<a href="../comparing-agents/"><code>ajax.compare</code></a> take that array as it is
-(<code>final_return</code>, <code>last_third</code>, <code>auc</code>), and so do libraries that expect one
-row per run, such as <a href="https://github.com/google-research/rliable">rliable</a>
-for interquartile means and their intervals.</p>
-<p>The same seed on the same machine and library versions gives the same run.
-Two programs compiled apart, or on different hardware, may round
-differently, so do not expect identical numbers across machines.</p>
+seeds: with <code>seed=0</code>, <code>evaluations.returns</code> has shape <code>(1, evaluations)</code>,
+and that run's curve is <code>evaluations.returns[0]</code>. A script then keeps
+working when one seed becomes several. The last line <code>train</code> prints gives
+the shape, and so does <code>print(evaluations)</code>. Seed <code>i</code>'s part of the state
+is <code>jax.tree.map(lambda x: x[i], state)</code>.</p>
+<p>The scores of <a href="../comparing-agents/"><code>ajax.compare</code></a> take that array as it
+is, and so do libraries that expect a row per run, such as
+<a href="https://github.com/google-research/rliable">rliable</a>.</p>
+<p>A seed gives the same run on the same machine and library versions. Two
+programs compiled apart, or on other hardware, may round differently.</p>
 <h3 id="hyperparameter-sweeps">Hyperparameter sweeps<a class="headerlink" href="#hyperparameter-sweeps" title="Permanent link">&para;</a></h3>
-<p><code>sweep</code> trains several configurations of the agent in the same program, each
-with every seed:</p>
+<p><code>sweep</code> trains several configurations of the agent in the same program,
+each with every seed:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="n">state</span><span class="p">,</span> <span class="n">evaluations</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span>
 <a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>    <span class="n">seed</span><span class="o">=</span><span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">],</span>
 <a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>    <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">2_000</span><span class="p">,</span>
@@ -3471,41 +3576,40 @@ with every seed:</p>
 <a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a><span class="k">for</span> <span class="n">configuration</span><span class="p">,</span> <span class="n">returns</span> <span class="ow">in</span> <span class="n">agent</span><span class="o">.</span><span class="n">by_configuration</span><span class="p">(</span><span class="n">evaluations</span><span class="o">.</span><span class="n">returns</span><span class="p">):</span>
 <a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a>    <span class="nb">print</span><span class="p">(</span><span class="n">configuration</span><span class="p">,</span> <span class="s2">&quot;final return&quot;</span><span class="p">,</span> <span class="n">returns</span><span class="p">[:,</span> <span class="o">-</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">mean</span><span class="p">())</span>
 </code></pre></div>
-<p>To decide whether one configuration is better than another, give each one's
-per-seed scores to the tests of <a href="../comparing-agents/">Comparing agents</a>:
-<code>returns[:, -1]</code> above is one score per seed.</p>
-<p>A dict of value lists trains its grid, here 4 configurations, so 8 members;
-a list of dicts trains those configurations. The returned arrays have one
-leading row per member, configuration by configuration, each over the
-seeds, as <code>agent.members</code> lists them. Each member trains as a separate run
-of its configuration with its seed would, up to floating-point rounding, and
-the sweep compiles once. Rounding grows over a run as it does between two
-machines: on CrossQ, which has no target network to damp it, a member and
-its separate run can part visibly within a hundred updates, while the
-member stays equal to a sweep of the agent built with its values.</p>
-<p>Only the agent's sweepable fields can vary (<code>agent.sweepable_fields()</code>):
-numbers its training reads as numbers, such as SAC's learning rates, <code>gamma</code>
-and <code>tau</code>, or PPO's <code>ent_coef</code> and <code>clip_range</code>. Every agent on the shared
-training loop declares some; <code>print(agent.sweepable_fields())</code>
-lists them, and a refused field's message gives the agent's reason where it
-has one. A setting that changes array shapes or the program, such as the
-network sizes, <code>n_envs</code>, <code>batch_size</code> or <code>buffer_size</code>, takes one <code>train</code>
-call per value. Each member keeps its own replay buffer, so memory grows with
-the members.</p>
-<p>Without a <code>logging_config</code>, each evaluation prints a line for all the runs
-and one per configuration under it. With one, each member is a logged run
-of its own, with its values in its run config. A sweep continues from its state with the same
-<code>seed</code> and <code>sweep</code>.</p>
-<p>An agent of your own declares the fields it adds in a <code>sweepable</code> class
-attribute, and takes those of its base classes with them (the temperature's
-come with <code>EntropyTemperature</code>); <code>unsweepable</code> refuses an inherited one, with
-the reason its message gives. A field belongs there once a member changing it
-trains as a separate run built with the value does, which
-<code>tests/agents/test_sweep_every_agent.py</code> checks for every declared field.</p>
+<ul>
+<li><strong>What trains.</strong> A dict of value lists trains its grid, here 4
+  configurations, so 8 members; a list of dicts trains those
+  configurations. The returned arrays have a row per member, configuration
+  by configuration, each over the seeds, as <code>agent.members</code> lists them.</li>
+<li><strong>What can vary.</strong> The numbers the agent's training reads as numbers,
+  such as SAC's learning rates, <code>gamma</code> and <code>tau</code>, or PPO's <code>ent_coef</code> and
+  <code>clip_range</code>: <code>print(agent.sweepable_fields())</code> lists them, and a refused
+  field's message gives the reason. A setting that changes array shapes or
+  the program (the network sizes, <code>n_envs</code>, <code>batch_size</code>, <code>buffer_size</code>)
+  takes one <code>train</code> call per value.</li>
+<li><strong>Memory.</strong> Each member keeps its own replay buffer, so memory grows with
+  the members.</li>
+<li><strong>Logs.</strong> Without a <code>logging_config</code>, each evaluation prints a line for
+  all the runs and one per configuration under it. With one, each member is
+  a logged run of its own, with its values in its run config.</li>
+<li><strong>Resuming.</strong> A sweep continues from its state with the same <code>seed</code> and
+  <code>sweep</code>.</li>
+</ul>
+<p>The sweep compiles once. Each member trains as its separate run would, up
+to floating-point rounding, which grows over a run as it does between two
+machines: on CrossQ, which has no target network to damp it, the two can
+part visibly within a hundred updates. To tell whether one configuration
+beats another, give each one's per-seed scores (<code>returns[:, -1]</code> above) to
+the tests of <a href="../comparing-agents/">Comparing agents</a>.</p>
+<p>An agent of your own lists the fields a sweep may vary in a <code>sweepable</code>
+class attribute, inheriting its base classes', and refuses an inherited one
+in <code>unsweepable</code>, with its reason. A field qualifies when a member changing
+it trains as a separate run built with the value does
+(<code>tests/agents/test_sweep_every_agent.py</code>).</p>
 <h3 id="parallel-environments">Parallel environments<a class="headerlink" href="#parallel-environments" title="Permanent link">&para;</a></h3>
 <p><code>n_envs</code> copies of the environment step together inside each seed. They
-collect more data per iteration, and each copy starts its own episodes. For
-an off-policy agent each iteration still makes one update (or the number its
+collect more data per iteration, and each copy runs its own episodes. An
+off-policy agent still makes one update per iteration (or the number its
 own settings ask for), so at a fixed budget more copies mean fewer updates.
 The defaults differ by agent:</p>
 <table>
@@ -3539,47 +3643,91 @@ The defaults differ by agent:</p>
 </tbody>
 </table>
 <h3 id="evaluation">Evaluation<a class="headerlink" href="#evaluation" title="Permanent link">&para;</a></h3>
-<p>With a <code>logging_config</code>, the agent is evaluated every <code>log_frequency</code>
-steps on <code>num_episode_test</code> episodes, run in parallel in a separate copy of
-the environment. The policy acts deterministically: the mean action of a
-continuous policy, the most likely one of a discrete policy.</p>
-<p>Each evaluation draws fresh initial states and noise. Its key is folded
-from the number of evaluations made so far, out of an evaluation key split
-apart from the training key when the run starts. So two evaluations of a
-seed see different episodes, the same seed always sees the same ones, and
-evaluating repeats none of the random draws the training makes. Every agent
-follows this, the world models included.</p>
-<p>UDRL evaluates through the same code, with the command (desired return and
-horizon) it would collect with; DreamerV3 and TD-MPC2 act through their own
-latent policy or planner. Their pages say what they log.</p>
+<p>With a <code>logging_config</code>, the agent is evaluated every <code>log_frequency</code> steps
+on <code>num_episode_test</code> episodes, run in parallel in a separate copy of the
+environment. The policy acts deterministically: the mean action of a
+continuous policy, the most likely one of a discrete policy. UDRL acts with
+the command (desired return and horizon) it would collect with; DreamerV3
+and TD-MPC2 act through their own latent policy or planner, and their pages
+say what they log.</p>
+<p>Each evaluation draws fresh initial states and noise, from a key of its own
+derived from the number of evaluations so far. Two evaluations of a seed
+see different episodes, the same seed always sees the same ones, and the
+evaluations repeat none of the training's random draws.</p>
 <h3 id="what-train-returns">What <code>train</code> returns<a class="headerlink" href="#what-train-returns" title="Permanent link">&para;</a></h3>
-<p><code>train</code> returns <code>(state, out)</code>.</p>
-<ul>
-<li><strong>With no <code>logging_config</code> given</strong>, the run evaluates about ten times
-  (every tenth of <code>n_timesteps</code>, rounded up to a whole number of the agent's
-  iterations, such as PPO's rollouts), prints a line for each (the mean return over the seeds, with the lowest
-  and highest; from the second, the time left) and <code>out</code> holds the evaluations.</li>
-<li><strong>With <code>logging_config=None</code></strong>, <code>out</code> is <code>None</code> and nothing is printed.
-  The evaluation is not even compiled into the program: the fastest run.</li>
-<li><strong>With a <code>LoggingConfig</code></strong>, the run evaluates every <code>log_frequency</code> steps,
-  logs to its backends, prints one line when it starts (how often it
-  evaluates and where it logs), and <code>out</code> holds the evaluations.</li>
-</ul>
-<p>The evaluations are a dictionary from each logged name to an array of shape
-<code>(seeds, evaluations)</code>, with two entries by name: <code>out.returns</code> (the mean
-evaluation return) and <code>out.timesteps</code> (when each evaluation ran, also
-<code>out["timestep"]</code> per seed). A call that evaluates fewer times than its
-  maximum pads the rest with -1 (the timestep) and NaN (everything else).
-- <strong>APG</strong> returns its per-update metrics instead. See <a href="../../algorithms/apg/">APG</a>.</p>
-<p>The logged names are listed in <a href="../logging/">Logging</a>.</p>
-<p><code>state</code> is the agent's whole state: <code>actor_state</code> and <code>critic_state</code> (the
-networks, their optimisers and parameters), <code>collector_state</code> (the
-environments, the replay buffer, the step counter <code>timestep</code>), the random
-keys (<code>rng</code> for training, <code>eval_rng</code> for evaluation), the evaluation count
-<code>n_logs</code>, and each extension's state. An agent with one network keeps it
-in <code>actor_state</code>: DQN's and PQN's Q-network is there, and their
-<code>critic_state</code> holds no parameters. To see the networks an agent built,
-print the shapes of their parameters (the first axis is the seeds'):</p>
+<p><code>train</code> returns <code>(state, out)</code>. What <code>out</code> holds depends on
+<code>logging_config</code>:</p>
+<table>
+<thead>
+<tr>
+<th><code>logging_config</code></th>
+<th>Evaluations</th>
+<th>Printed</th>
+<th><code>out</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>not given</td>
+<td>about ten: every tenth of <code>n_timesteps</code>, rounded up to whole iterations</td>
+<td>a line per evaluation: the mean return over the seeds, the lowest and highest, and from the second line the time left</td>
+<td>the evaluations</td>
+</tr>
+<tr>
+<td><code>None</code></td>
+<td>none, not even compiled into the program: the fastest run</td>
+<td>nothing</td>
+<td><code>None</code></td>
+</tr>
+<tr>
+<td>a <code>LoggingConfig</code></td>
+<td>every <code>log_frequency</code> steps, logged to its backends</td>
+<td>one line at the start: how often it evaluates and where it logs</td>
+<td>the evaluations</td>
+</tr>
+</tbody>
+</table>
+<p>The evaluations are a dictionary from each logged name
+(<a href="../logging/#what-is-logged">Logging</a>) to an array with a row per seed and
+a column per evaluation. Two are also attributes: <code>out.returns</code>, the mean
+evaluation return, and <code>out.timesteps</code>, the step of each evaluation (one
+row; <code>out["timestep"]</code> has one per seed). A call that evaluates fewer times
+than its maximum pads the rest with -1 (the timestep) and NaN (everything
+else). APG returns its per-update metrics instead
+(<a href="../../algorithms/apg/">APG</a>).</p>
+<p><code>state</code> is the agent's whole state, each leaf with the seed axis first:</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>What it holds</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>actor_state</code>, <code>critic_state</code></td>
+<td>the networks: their parameters and optimiser states. DQN's and PQN's Q-network is in <code>actor_state</code>, and their <code>critic_state</code> holds no parameters</td>
+</tr>
+<tr>
+<td><code>collector_state</code></td>
+<td>the environments, the replay buffer, the observation statistics and the step counter <code>timestep</code></td>
+</tr>
+<tr>
+<td><code>rng</code>, <code>eval_rng</code></td>
+<td>the training and evaluation keys</td>
+</tr>
+<tr>
+<td><code>n_logs</code></td>
+<td>the number of evaluations so far</td>
+</tr>
+<tr>
+<td><code>ext_state</code></td>
+<td>each extension's state</td>
+</tr>
+</tbody>
+</table>
+<p>To see the networks an agent built, print the shapes of their parameters
+(the first axis is the seeds'):</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">jax</span>
 <a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>
 <a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax</span><span class="w"> </span><span class="kn">import</span> <span class="n">PPO</span>
@@ -3589,7 +3737,8 @@ print the shapes of their parameters (the first axis is the seeds'):</p>
 <a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="nb">print</span><span class="p">(</span><span class="n">jax</span><span class="o">.</span><span class="n">tree</span><span class="o">.</span><span class="n">map</span><span class="p">(</span><span class="k">lambda</span> <span class="n">array</span><span class="p">:</span> <span class="n">array</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span> <span class="n">state</span><span class="o">.</span><span class="n">actor_state</span><span class="o">.</span><span class="n">params</span><span class="p">))</span>
 </code></pre></div>
 <h2 id="continuing-a-run">Continuing a run<a class="headerlink" href="#continuing-a-run" title="Permanent link">&para;</a></h2>
-<p>Pass a returned state back as <code>initial_state</code> to train further:</p>
+<p>Pass a returned state back as <code>initial_state</code> to train further, with the
+same seeds:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax</span><span class="w"> </span><span class="kn">import</span> <span class="n">PPO</span>
 <a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>
 <a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="n">agent</span> <span class="o">=</span> <span class="n">PPO</span><span class="p">(</span><span class="s2">&quot;CartPole-v1&quot;</span><span class="p">,</span> <span class="n">n_envs</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">n_steps</span><span class="o">=</span><span class="mi">128</span><span class="p">)</span>
@@ -3598,19 +3747,12 @@ print the shapes of their parameters (the first axis is the seeds'):</p>
 <a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="nb">print</span><span class="p">(</span><span class="n">state</span><span class="o">.</span><span class="n">collector_state</span><span class="o">.</span><span class="n">timestep</span><span class="p">)</span>  <span class="c1"># [16384 16384]</span>
 </code></pre></div>
 <p>The second call continues from the first call's timestep. Its schedules
-(the extensions', the training fraction, the exploration, the logging's
-end) continue where they stopped instead of restarting, and run to the
-horizon <code>total_timesteps</code>. By default that is the call's own end, the
-timestep reached plus <code>n_timesteps</code>, so a schedule set as a fraction of
-training, such as DQN's epsilon decay, has already finished at the end of a
-first call. To split a run and keep the schedules of one call, pass the
-whole run's horizon to every call. A call whose <code>n_timesteps</code> would take it
-past the horizon is refused, so the last call trains the rest. An on-policy
-agent (PPO, APO, REINFORCE, PQN) trains in whole rollouts of <code>n_envs x n_steps</code> steps,
-as its original code does: give each call a whole number of them (8,192 is
-8 rollouts of 1,024 here) and the calls end where one call does. A budget
-that is not whole rollouts stops at the last whole one, with a warning; a
-budget under one rollout trains one.</p>
+(the training fraction, the exploration, the extensions', the logging's
+end) continue too, and run to the horizon <code>total_timesteps</code>. By default
+that is the call's own end, so a schedule set as a fraction of training,
+such as DQN's epsilon decay, has finished by the end of the first call. To
+split a run and keep the schedules of one call, pass the whole run's
+horizon to every call; a call that would train past it is refused.</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="n">total</span> <span class="o">=</span> <span class="mi">16_384</span>
 <a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="n">state</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">seed</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">],</span> <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">8_192</span><span class="p">,</span> <span class="n">total_timesteps</span><span class="o">=</span><span class="n">total</span><span class="p">)</span>
 <a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="n">state</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span>
@@ -3618,10 +3760,17 @@ budget under one rollout trains one.</p>
 <a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="p">)</span>
 <a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="nb">print</span><span class="p">(</span><span class="n">state</span><span class="o">.</span><span class="n">collector_state</span><span class="o">.</span><span class="n">timestep</span><span class="p">)</span>  <span class="c1"># [16384 16384], as one call of 16_384</span>
 </code></pre></div>
-<p>To resume in another process, save the state first:
-<a href="../checkpoints/">Checkpoints and resuming</a>.</p>
+<p>An on-policy agent trains whole rollouts, as its original code does
+(<a href="#the-budget">The budget</a>): give each call a whole number of them (8,192
+steps are 8 rollouts of 8 × 128 here), and the split run ends where one
+call does.</p>
+<div class="admonition warning">
+<p class="admonition-title">Read the state before passing it back</p>
 <p>The call may reuse the memory of the state you pass in. Read or save
 anything you need from it before the call.</p>
+</div>
+<p>To resume in another process, save the state first:
+<a href="../checkpoints/">Checkpoints and resuming</a>.</p>
 <h2 id="training-offline">Training offline<a class="headerlink" href="#training-offline" title="Permanent link">&para;</a></h2>
 <p>A <a href="../../algorithms/#agent-families">replay agent</a>
 (<!-- agents: offline -->SAC, TD3, REDQ, TQC, CrossQ, ASAC, RVI-SAC, DQN, IQL,
@@ -3653,16 +3802,19 @@ its replay keeping the dataset's rows:</p>
 <a id="__codelineno-8-18" name="__codelineno-8-18" href="#__codelineno-8-18"></a><span class="nb">print</span><span class="p">(</span><span class="n">offline</span><span class="p">[</span><span class="s2">&quot;timestep&quot;</span><span class="p">])</span>  <span class="c1"># [[ 500 1000]]: updates done</span>
 <a id="__codelineno-8-19" name="__codelineno-8-19" href="#__codelineno-8-19"></a><span class="n">state</span><span class="p">,</span> <span class="n">online</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">seed</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">1_000</span><span class="p">,</span> <span class="n">initial_state</span><span class="o">=</span><span class="n">state</span><span class="p">)</span>
 </code></pre></div>
-<p><code>record</code> takes any function from observations to actions in the
-environment's units. A trained agent's <code>predict</code> is one, so
-<code>record(lambda obs: agent.predict(state, obs), agent.env_args, key, n_steps)</code>
-records its policy. <code>export(state, seed_index=0)</code>, from the same module,
-gives the whole episodes a replay agent's own replay holds.</p>
-<p><code>train_offline</code> runs the agent's own update, with its extensions' terms:
-<a href="../../algorithms/td3/#td3bc-offline">TD3+BC</a> is TD3 with a cloning term, and
-<a href="../../algorithms/iql/">IQL</a> an agent of its own.
-<code>PriorData(dataset, offline_updates=N)</code> runs the same updates inside the
-pre-training of an ordinary <code>train</code> call, without evaluations.</p>
+<ul>
+<li><strong>Recording a dataset.</strong> <code>record</code> takes any function from observations to
+  actions in the environment's units. A trained agent's <code>predict</code> is one,
+  so <code>record(lambda obs: agent.predict(state, obs), agent.env_args, key,
+  n_steps)</code> records its policy. <code>export(state, seed_index=0)</code>, from the
+  same module, gives the whole episodes a replay agent's own replay holds.</li>
+<li><strong>The update.</strong> <code>train_offline</code> runs the agent's own update, with its
+  extensions' terms: <a href="../../algorithms/td3/#td3bc-offline">TD3+BC</a> is TD3
+  with a cloning term, and <a href="../../algorithms/iql/">IQL</a> an agent of its own.</li>
+<li><strong>Offline updates before online training.</strong> <code>PriorData(dataset,
+  offline_updates=N)</code> runs the same updates inside the pre-training of an
+  ordinary <code>train</code> call, without evaluations.</li>
+</ul>
 <h2 id="learning-rate-schedules">Learning-rate schedules<a class="headerlink" href="#learning-rate-schedules" title="Permanent link">&para;</a></h2>
 <p>A learning rate can be a function of the optimiser step, such as an optax
 schedule:</p>
@@ -3681,15 +3833,15 @@ schedule:</p>
 <a id="__codelineno-9-13" name="__codelineno-9-13" href="#__codelineno-9-13"></a><span class="p">)</span>
 <a id="__codelineno-9-14" name="__codelineno-9-14" href="#__codelineno-9-14"></a><span class="n">state</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">seed</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">8_192</span><span class="p">)</span>
 </code></pre></div>
-<p>The step counts gradient updates, not environment steps: here 9 rollouts of
-10 epochs of 2 minibatches, 180 steps. <code>ajax.schedule.warmup_cosine_schedule</code>
-builds the linear warm-up then cosine decay used by APG's in-context
-controller.</p>
+<p>The step counts gradient updates, not environment steps: here 8 rollouts
+of 10 epochs of 2 minibatches, 160 steps.
+<code>ajax.schedule.warmup_cosine_schedule</code> builds the linear warm-up then
+cosine decay of APG's in-context controller.</p>
 <h2 id="the-shared-training-loop">The shared training loop<a class="headerlink" href="#the-shared-training-loop" title="Permanent link">&para;</a></h2>
 <p>Most agents run on one loop, <code>TrainLoop</code> in
 <a href="https://github.com/YannBerthelot/Ajax/blob/main/src/ajax/agents/loop.py"><code>agents/loop.py</code></a>. An agent brings only its
-algorithm: how to build a fresh state and how to make one update. The loop
-does everything else, the same way for every agent:</p>
+algorithm, how to build a fresh state and how to make one update, and the
+loop does the rest the same way for every agent:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>fresh run:  build the agent&#39;s state, then each extension&#39;s state
 <a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>            and its one-shot pre-training (if any)
 <a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a>resumed:    take the state passed as initial_state
@@ -3699,22 +3851,16 @@ does everything else, the same way for every agent:</p>
 <a id="__codelineno-10-7" name="__codelineno-10-7" href="#__codelineno-10-7"></a>              update, then let the extensions act after the update
 <a id="__codelineno-10-8" name="__codelineno-10-8" href="#__codelineno-10-8"></a>            every log_frequency steps: evaluate and log
 </code></pre></div>
-<p>The world models (DreamerV3, TD-MPC2) act through their own planner or
-latent policy and decide how many updates to make per step, but they plug
-those pieces into the same loop, in the same order. UDRL runs its own
-iteration (a segment, its replay of segments, its command statistics, its
-updates) inside the loop's train function. APG and the offline
-TDMPC2MultiTask, whose iterations differ more, reuse the loop's pieces
-(the fresh state, the extensions' folds, the evaluation) rather than the
-loop itself.</p>
-<p>Why one loop: collection, the <code>learning_starts</code> gate, the extensions,
-evaluation, logging and resuming then behave identically across agents and
-are fixed in one place. A bug fixed there is fixed for every agent, and an
-extension written for one agent works on the others.</p>
+<p>Collection, the <code>learning_starts</code> gate, the extensions, evaluation, logging
+and resuming then behave the same for every agent, and an extension written
+for one works on the others. The world models plug their planner or latent
+policy into the same loop, and UDRL its own iteration; APG and the offline
+TDMPC2MultiTask reuse the loop's pieces (the fresh state, the extensions,
+the evaluation) rather than the loop itself.</p>
 <p>The whole loop is one <code>jax.lax.scan</code> inside one <code>jax.jit</code>, vmapped over the
-seeds. Python runs once, to build the program; after that the CPU or GPU runs
-the entire training without returning to Python, except to hand the logs
-to the <a href="../logging/">logging worker</a>.
+seeds. Python runs once, to build the program; the CPU or GPU then runs the
+entire training, handing only the logs back to the
+<a href="../logging/#the-logging-worker">logging worker</a>.
 <a href="../../developer/architecture/">Architecture</a> describes the loop for
 contributors.</p>
 

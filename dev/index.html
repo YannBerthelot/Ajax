@@ -354,6 +354,28 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#why-ajax" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why Ajax
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#getting-started" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Getting started
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#the-agents" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2900,6 +2922,28 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#why-ajax" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why Ajax
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#getting-started" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Getting started
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#the-agents" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2960,55 +3004,12 @@
 
 
 <h1 id="ajax">Ajax<a class="headerlink" href="#ajax" title="Permanent link">&para;</a></h1>
-<p align="center">
-  <b>Reinforcement-learning agents in JAX, compiled end to end with the environment,<br/>
-  including average-reward, expert-guided and world-model agents.</b><br/>
-  A whole training run, environment and every seed included, one compiled program.
-</p>
-
-<p>Compared with <a href="https://github.com/DLR-RM/stable-baselines3">Stable-Baselines3</a>
-and its JAX version <a href="https://github.com/araffin/sbx">SBX</a>, Ajax differs in
-four ways:</p>
-<ul>
-<li><strong><a href="guide/performance/">End to end on the accelerator</a></strong>: the environment
-  and the training loop compile into one JAX program, as in
-  <a href="https://github.com/luchris429/purejaxrl">PureJaxRL</a>,
-  <a href="https://github.com/keraJLi/rejax">Rejax</a>,
-  <a href="https://github.com/EdanToledo/Stoix">Stoix</a> and
-  <a href="https://github.com/google/brax">Brax</a>'s training agents, with no Python
-  step between them, on a CPU or a GPU.</li>
-<li><strong>Average-reward agents</strong>: <a href="algorithms/asac/">ASAC</a>,
-  <a href="algorithms/rvisac/">RVI-SAC</a> and <a href="algorithms/apo/">APO</a> maximise the
-  reward per step, with no discount, for tasks that never end.</li>
-<li><strong><a href="guide/expert-guidance/">Expert-guided agents</a></strong>: learn from a
-  controller you already have, or from recorded transitions, by cloning,
-  imitation, residual policies, hand-over, prior data in the replay or
-  offline training.
-  <a href="guide/expert-guidance/#choosing-the-pieces">Choosing the pieces</a> names
-  each method and its paper: TD3+BC, Q-filtered cloning, kickstarting,
-  residual RL, JSRL, IBRL, RLPD's prior data, IQL, CQL, Cal-QL, ReBRAC,
-  GAIL, DAgger.</li>
-<li><strong><a href="guide/world-models/">World models</a></strong>: DreamerV3 and TD-MPC2, following
-  the code behind their papers' results.</li>
-</ul>
-<p><a href="getting-started/why-ajax/">Why Ajax</a> shows each with an example and
-compares Ajax with SB3, SBX, PureJaxRL, Brax, Stoix, Rejax, TorchRL and
-Tianshou, including
-when to use them instead.</p>
-<p>Ajax has twenty agents, from SAC and PPO to DreamerV3 and TD-MPC2. Each
-implements a published paper, and its page lists where it departs from it.
-Several seeds train side by side in one program, on a CPU or a GPU. Research
-features (learning from an expert, exploration rules, diagnostics) are
-<a href="guide/extensions/">extensions</a>, passed as <code>extensions=(...)</code> rather than
-added as new arguments to the agents. An agent refuses, when built, an
-extension it cannot run; <a href="guide/compatibility/">Compatibility</a> shows which
-agent runs which.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>pip<span class="w"> </span>install<span class="w"> </span>ajax-rl<span class="w">                 </span><span class="c1"># imports as ajax; Python 3.12 or newer</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>pip<span class="w"> </span>install<span class="w"> </span><span class="s2">&quot;ajax-rl[playground]&quot;</span><span class="w">   </span><span class="c1"># adds Brax and MuJoCo Playground environments</span>
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>pip<span class="w"> </span>install<span class="w"> </span><span class="s2">&quot;ajax-rl[cuda]&quot;</span><span class="w">         </span><span class="c1"># adds CUDA, on Linux with an NVIDIA GPU</span>
+<p>Ajax is a library of reinforcement-learning agents written in JAX. A
+training run, with its environment and all its seeds, compiles into one
+program that runs on a CPU or a GPU. These pages show how to install it,
+train and use its agents, and extend them.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>pip<span class="w"> </span>install<span class="w"> </span>ajax-rl<span class="w">  </span><span class="c1"># imports as ajax; Python 3.12 or newer</span>
 </code></pre></div>
-<p><a href="getting-started/installation/">Installation</a> covers the other extras and
-installing from a clone.</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax</span><span class="w"> </span><span class="kn">import</span> <span class="n">PPO</span>
 <a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>
 <a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="n">agent</span> <span class="o">=</span> <span class="n">PPO</span><span class="p">(</span><span class="s2">&quot;CartPole-v1&quot;</span><span class="p">,</span> <span class="n">n_envs</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">n_steps</span><span class="o">=</span><span class="mi">128</span><span class="p">)</span>
@@ -3016,9 +3017,47 @@ installing from a clone.</p>
 <a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>
 <a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="nb">print</span><span class="p">(</span><span class="n">evaluations</span><span class="o">.</span><span class="n">returns</span><span class="p">)</span>  <span class="c1"># one row per seed, one column per evaluation</span>
 </code></pre></div>
-<p><a class="md-button md-button--primary" href="getting-started/quickstart/">Quickstart →</a>
-<a class="md-button" href="getting-started/why-ajax/">Why Ajax →</a>
+<p><a class="md-button md-button--primary" href="getting-started/installation/">Get started →</a>
+<a class="md-button" href="getting-started/coming-from-sb3/">Coming from SB3 →</a>
 <a class="md-button" href="algorithms/">Choose an algorithm →</a></p>
+<h2 id="why-ajax">Why Ajax<a class="headerlink" href="#why-ajax" title="Permanent link">&para;</a></h2>
+<p>Ajax has twenty agents, each following the code behind its paper's results.
+Next to <a href="https://github.com/DLR-RM/stable-baselines3">Stable-Baselines3</a> and
+its JAX version <a href="https://github.com/araffin/sbx">SBX</a>, it offers:</p>
+<ul>
+<li><strong><a href="getting-started/why-ajax/#one-program-for-the-whole-run">Speed</a></strong>: the
+  environment steps inside the compiled program, beside the agent, with no
+  Python between two steps.</li>
+<li><strong><a href="getting-started/why-ajax/#one-program-for-the-whole-run">Many runs in one call</a></strong>:
+  every seed, and every value of a hyperparameter sweep, trains in the same
+  program.</li>
+<li><strong><a href="getting-started/why-ajax/#variations-that-combine">Variations that combine</a></strong>:
+  a memory, an image encoder, a PID policy or an
+  <a href="guide/extensions/">extension</a> is an argument of the same agent, and an
+  agent refuses, when built, one it cannot run.</li>
+<li><strong><a href="getting-started/why-ajax/#checked-against-the-original-code">Checked against the original code</a></strong>:
+  unit tests of each update's maths, probes with known answers, and
+  conformance tests against the original implementations.</li>
+<li><strong><a href="getting-started/why-ajax/#average-reward-agents">Average reward</a></strong>,
+  <strong><a href="getting-started/why-ajax/#world-models">world models</a></strong> and
+  <strong><a href="guide/training/#training-offline">offline training</a></strong> beside the
+  usual discounted, model-free agents.</li>
+<li><strong><a href="getting-started/why-ajax/#learning-from-an-expert-or-from-data">Learning from an expert</a></strong>:
+  start from a controller you already have, or from recorded transitions.</li>
+</ul>
+<p><a href="getting-started/why-ajax/">Why Ajax</a> explains each, with examples,
+compares Ajax with SB3, SBX, PureJaxRL, Brax, Stoix, Rejax, TorchRL and
+Tianshou, and says when one of them fits better.</p>
+<h2 id="getting-started">Getting started<a class="headerlink" href="#getting-started" title="Permanent link">&para;</a></h2>
+<ol>
+<li><a href="getting-started/installation/">Installation</a>: pip, the extras, a GPU.</li>
+<li><a href="getting-started/quickstart/">Quickstart</a>: train an agent, read its
+   results, act with it and save it.</li>
+<li><a href="getting-started/why-ajax/">Why Ajax</a>: what Ajax offers, and when
+   another library fits better.</li>
+<li><a href="getting-started/coming-from-sb3/">Coming from SB3</a>: Stable-Baselines3's
+   calls and defaults beside Ajax's.</li>
+</ol>
 <h2 id="the-agents">The agents<a class="headerlink" href="#the-agents" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
@@ -3066,66 +3105,88 @@ installing from a clone.</p>
 </tr>
 </tbody>
 </table>
+<p>Each agent's page gives its paper, its defaults and where it departs from
+the original.</p>
 <h2 id="what-else-is-in-the-box">What else is in the box<a class="headerlink" href="#what-else-is-in-the-box" title="Permanent link">&para;</a></h2>
-<ul>
-<li><a href="guide/extensions/">Extensions</a>: expert guidance, exploration, critic-target
-  changes, actor and critic pre-training, offline RL, adversarial imitation
-  and diagnostics, each usable with the agents that run the training phases
-  it touches.</li>
-<li><a href="guide/training/#presets">Presets</a>: the settings an agent's reference
-  code tunes for one task, as <code>Agent.preset(task, env_id)</code>.</li>
-<li><a href="guide/training/#hyperparameter-sweeps">Hyperparameter sweeps</a>:
-  <code>train(sweep=...)</code> trains several configurations, each with every seed, in
-  one compiled program.</li>
-<li><a href="guide/training/#training-offline">Training offline</a>: a replay agent
-  trains on a transition dataset before it acts, then fine-tunes online.</li>
-<li><a href="guide/expert-guidance/">Expert guidance</a>: learn from an existing
-  controller, which reads the environment's raw observations and answers in
-  its action units.</li>
-<li><a href="guide/memory/">Memory</a>: GRU, LSTM, transformer or Mamba blocks, with
-  R2D2-style sequence replay.</li>
-<li><a href="guide/networks/">Networks</a>: hidden layers, initialisers, a shared
-  encoder, and hidden layers per output head
-  (<a href="guide/networks/#layers-per-head"><code>head_architecture</code></a>).</li>
-<li><a href="guide/networks/#the-pid-policy">PID policy</a>: a PID controller as the actor, whose learned
-  gains deploy as a plain PID.</li>
-<li><a href="guide/differentiable-simulation/">Differentiable simulation</a>: APG through
-  gymnax dynamics, across distributions of physical parameters.</li>
-<li><a href="guide/world-models/">World models</a>: DreamerV3 and TD-MPC2, following the
-  paper-era official code.</li>
-<li><a href="guide/environments/">Environments</a>: gymnax, Brax and MuJoCo Playground by
-  id, with wrappers for normalisation, observation noise, reference tracking
-  and more; every continuous agent's <code>[-1, 1]</code> actions are mapped onto the
-  environment's bounds.</li>
-<li><a href="guide/environments/#gymnasiums-mujoco-tasks-in-jax">Gymnasium's MuJoCo tasks in JAX</a>
-  (<code>"mujoco:&lt;id&gt;"</code>) and <a href="guide/environments/#mujoco-warp-on-a-gpu">MuJoCo Warp physics</a>
-  on an NVIDIA GPU (<code>physics="warp"</code>).</li>
-<li><a href="guide/environments/#normalisation">Normalisation</a>: running observation
-  statistics, and rewards divided by the spread of the discounted return
-  (<code>normalize_rewards</code>).</li>
-<li><a href="guide/logging/">Logging</a> and <a href="guide/checkpoints/">checkpoints</a>:
-  evaluations as arrays, W&amp;B or TensorBoard, resuming in another process.</li>
-<li><a href="guide/logging/#evaluating-on-another-device">Evaluating on another device</a>:
-  with <code>LoggingConfig(evaluation_device=...)</code>, training goes on while a
-  thread scores the policy.</li>
-<li><a href="guide/performance/">Performance</a>: every seed in one program, a persistent
-  compile cache, one per machine and JAX version.</li>
-<li><a href="guide/comparing-agents/">Comparing agents</a>: AdaStop, which trains more
-  seeds only while the answer is unclear, and confidence intervals for one
-  agent's metrics.</li>
-<li><a href="reproduction/">Reproduction</a>: Ajax agents trained beside reference
-  implementations on the same JAX environment, under a written protocol.</li>
-</ul>
+<table>
+<thead>
+<tr>
+<th>Feature</th>
+<th>What it gives</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="guide/training/#presets">Presets</a></td>
+<td>the settings an agent's reference code tunes for a task: <code>Agent.preset(task, env_id)</code></td>
+</tr>
+<tr>
+<td><a href="guide/training/#hyperparameter-sweeps">Hyperparameter sweeps</a></td>
+<td><code>train(sweep=...)</code>: several configurations, each with every seed, in one program</td>
+</tr>
+<tr>
+<td><a href="guide/expert-guidance/">Expert guidance</a></td>
+<td>cloning, imitation, prior data and hand-over, from a controller in the environment's own units</td>
+</tr>
+<tr>
+<td><a href="guide/memory/">Memory</a></td>
+<td>GRU, LSTM, transformer or Mamba blocks, with R2D2-style sequence replay</td>
+</tr>
+<tr>
+<td><a href="guide/networks/">Networks</a></td>
+<td>hidden layers, initialisers, CNN encoders, a shared encoder, <a href="guide/networks/#layers-per-head">layers per head</a></td>
+</tr>
+<tr>
+<td><a href="guide/networks/#the-pid-policy">The PID policy</a></td>
+<td>a PID controller as the actor, whose learned gains deploy as a plain PID</td>
+</tr>
+<tr>
+<td><a href="guide/environments/">Environments</a></td>
+<td>gymnax, Brax and MuJoCo Playground by id, wrappers, and any Gymnasium environment (<code>"gymnasium:&lt;id&gt;"</code>)</td>
+</tr>
+<tr>
+<td><a href="guide/environments/#gymnasiums-mujoco-tasks-in-jax">Gymnasium's MuJoCo tasks in JAX</a></td>
+<td><code>"mujoco:&lt;id&gt;"</code>, and <a href="guide/environments/#mujoco-warp-on-a-gpu">MuJoCo Warp</a> physics on an NVIDIA GPU</td>
+</tr>
+<tr>
+<td><a href="guide/environments/#normalisation">Normalisation</a></td>
+<td>running observation statistics, and rewards divided by the spread of the discounted return</td>
+</tr>
+<tr>
+<td><a href="guide/differentiable-simulation/">Differentiable simulation</a></td>
+<td>APG through gymnax dynamics, across distributions of physical parameters</td>
+</tr>
+<tr>
+<td><a href="guide/logging/">Logging</a></td>
+<td>evaluations as arrays, Weights &amp; Biases or TensorBoard, <a href="guide/logging/#evaluating-on-another-device">evaluation on another device</a></td>
+</tr>
+<tr>
+<td><a href="guide/checkpoints/">Checkpoints</a></td>
+<td>save a run and resume it in another process</td>
+</tr>
+<tr>
+<td><a href="guide/performance/">Performance</a></td>
+<td>seeds, CPU or GPU, and the persistent compile cache</td>
+</tr>
+<tr>
+<td><a href="guide/comparing-agents/">Comparing agents</a></td>
+<td>AdaStop, which trains more seeds only while the answer is unclear, and confidence intervals</td>
+</tr>
+<tr>
+<td><a href="reproduction/">Reproduction</a></td>
+<td>Ajax agents trained beside reference implementations, under a written protocol</td>
+</tr>
+</tbody>
+</table>
 <h2 id="documentation">Documentation<a class="headerlink" href="#documentation" title="Permanent link">&para;</a></h2>
 <div class="grid cards">
 <ul>
 <li>
 <p><strong>Use it</strong></p>
-<p><a href="getting-started/installation/">Installation</a> ·
-<a href="getting-started/quickstart/">Quickstart</a> ·
-<a href="getting-started/why-ajax/">Why Ajax</a> ·
-<a href="getting-started/coming-from-sb3/">Coming from SB3</a> ·
-<a href="guide/training/">Training an agent</a> ·
+<p><a href="guide/training/">Training an agent</a> ·
+<a href="guide/deploy/">Train, evaluate, deploy</a> ·
+<a href="guide/environments/">Environments</a> ·
+<a href="guide/extensions/">Extensions</a> ·
 <a href="algorithms/">Algorithms</a></p>
 </li>
 <li>
@@ -3151,8 +3212,9 @@ installing from a clone.</p>
 </li>
 </ul>
 </div>
-<p>Ajax is MIT-licensed. <a href="https://github.com/YannBerthelot/TargetGym">TargetGym</a>,
-its sibling project, provides JAX environments for holding a setpoint.</p>
+<p>Ajax is MIT-licensed. Its sibling project
+<a href="https://github.com/YannBerthelot/TargetGym">TargetGym</a> provides JAX
+environments for holding a setpoint.</p>
 
 
 

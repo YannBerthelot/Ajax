@@ -3048,6 +3048,12 @@ where it may act. Every other phase keeps a default that changes nothing.</p>
 <td>one per agent; the <a href="../../algorithms/#agent-families">replay agents</a> but DAgger, and UDRL (<!-- agents: replay-action -->SAC, ASAC, RVI-SAC, REDQ, CrossQ, TQC, TD3, IQL, DQN, UDRL<!-- /agents -->)</td>
 </tr>
 <tr>
+<td><code>track_memory</code></td>
+<td>at each collection step, after the environment steps, on the agents on the shared collector</td>
+<td>set the expert's memory after the step from the action applied (<code>BumplessTracking</code>); by default it is the expert's own step</td>
+<td>the first one's</td>
+</tr>
+<tr>
 <td><code>post_update</code></td>
 <td>after each update</td>
 <td>change the agent's state (schedules, refreshes)</td>
@@ -3076,7 +3082,7 @@ Each call gets a random key of its own, on which the agent draws nothing else
 empty stack a fold returns its input untouched and draws nothing. The <code>action</code>,
 <code>transform_action</code> and <code>actuate</code> phases are the exceptions: the agent's
 controller (its action pipeline, the shared collector and evaluation) calls
-them directly (see <a href="../../guide/extensions/#which-agent-runs-which-phase">below</a>).</p>
+them directly (<a href="../../guide/extensions/#which-agent-runs-which-phase">which agent runs which phase</a>).</p>
 <h2 id="what-a-phase-hands-an-extension">What a phase hands an extension<a class="headerlink" href="#what-a-phase-hands-an-extension" title="Permanent link">&para;</a></h2>
 <p><code>on_target</code>, <code>critic_loss</code> and <code>actor_loss</code> hand the extension a <code>batch</code>
 dictionary of the quantities at that point of the update. Every agent folding
@@ -3144,7 +3150,7 @@ which the agent reads when it is built:</p>
 <tbody>
 <tr>
 <td><code>buffer_fields</code></td>
-<td>replay fields beyond the agent's own that the extension reads. Today only <code>raw_next_obs</code>, the environment's own next observation; SAC, TD3, REDQ, ASAC and AVG store it when an extension declares it, and the other agents refuse such an extension.</td>
+<td>replay fields beyond the agent's own that the extension reads: <code>raw_next_obs</code> (the environment's own next observation), <code>next_action</code> or <code>return_to_go</code>. An agent stores one only when an extension declares it, and refuses an extension needing one it cannot store; SAC, TD3, REDQ, CrossQ, TQC, ASAC, RVISAC, AVG and IQL store <code>raw_next_obs</code>.</td>
 </tr>
 <tr>
 <td><code>expert_fields</code></td>
@@ -3156,7 +3162,7 @@ which the agent reads when it is built:</p>
 </tr>
 <tr>
 <td><code>reads_agent_expert_actions</code></td>
-<td>the extension reads the expert's actions the agent stored at collection when its expert is the agent's own <code>expert_policy</code> (SAC, TD3, REDQ, ASAC, AVG and APO store them).</td>
+<td>the extension reads the expert's actions the agent stored at collection when its expert is the agent's own <code>expert_policy</code> (SAC, TD3, REDQ, CrossQ, TQC, ASAC, RVISAC, AVG, DQN, APO and DAgger store them).</td>
 </tr>
 <tr>
 <td><code>uses_expert_actions_as_policy_actions()</code></td>
@@ -3192,7 +3198,7 @@ which the agent reads when it is built:</p>
 </tr>
 <tr>
 <td><code>action_slot</code></td>
-<td>where in SAC's action pipeline its <code>action</code> runs.</td>
+<td>where in the shared collector's action stage its <code>action</code> runs, before or after the warm-up's choice.</td>
 </tr>
 </tbody>
 </table>

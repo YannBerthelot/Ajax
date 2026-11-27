@@ -484,10 +484,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#jax-environments-first-gymnasium-supported" class="md-nav__link">
+  <a href="#read-the-results" class="md-nav__link">
     <span class="md-ellipsis">
       
-        JAX environments first, Gymnasium supported
+        Read the results
       
     </span>
   </a>
@@ -528,10 +528,21 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#where-next" class="md-nav__link">
+  <a href="#gymnasium-environments" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Where next
+        Gymnasium environments
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#next" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Next
       
     </span>
   </a>
@@ -2944,10 +2955,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#jax-environments-first-gymnasium-supported" class="md-nav__link">
+  <a href="#read-the-results" class="md-nav__link">
     <span class="md-ellipsis">
       
-        JAX environments first, Gymnasium supported
+        Read the results
       
     </span>
   </a>
@@ -2988,10 +2999,21 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#where-next" class="md-nav__link">
+  <a href="#gymnasium-environments" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Where next
+        Gymnasium environments
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#next" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Next
       
     </span>
   </a>
@@ -3024,17 +3046,18 @@
 
 
 <h1 id="quickstart">Quickstart<a class="headerlink" href="#quickstart" title="Permanent link">&para;</a></h1>
-<p>This page trains an agent, reads its results, runs the trained policy and
-saves it. Each example runs on a laptop CPU in under a minute, compilation
-included.</p>
+<p>This page trains a first agent, reads its results, acts with the trained
+policy and saves it. It assumes Ajax is <a href="../installation/">installed</a>. Each
+example runs on a laptop CPU in under a minute, compilation included, and
+each builds on the ones before it.</p>
 <p>The same steps are a notebook,
 <a href="https://github.com/YannBerthelot/Ajax/blob/main/notebooks/quickstart.ipynb"><code>notebooks/quickstart.ipynb</code></a>
 (<a href="https://colab.research.google.com/github/YannBerthelot/Ajax/blob/main/notebooks/quickstart.ipynb">open in Colab</a>),
 and complete scripts are in
 <a href="https://github.com/YannBerthelot/Ajax/tree/main/examples"><code>examples/</code></a>.</p>
 <h2 id="train-an-agent">Train an agent<a class="headerlink" href="#train-an-agent" title="Permanent link">&para;</a></h2>
-<p>An agent takes an environment id and its hyperparameters; <code>train</code> runs it.
-Here PPO learns CartPole with three seeds at once:</p>
+<p>An agent takes an environment id and its hyperparameters, and <code>train</code> runs
+it. Here PPO learns CartPole with three seeds at once:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax</span><span class="w"> </span><span class="kn">import</span> <span class="n">PPO</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="n">agent</span> <span class="o">=</span> <span class="n">PPO</span><span class="p">(</span><span class="s2">&quot;CartPole-v1&quot;</span><span class="p">,</span> <span class="n">n_envs</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">n_steps</span><span class="o">=</span><span class="mi">128</span><span class="p">)</span>
@@ -3051,149 +3074,113 @@ Here PPO learns CartPole with three seeds at once:</p>
 </code></pre></div>
 <p>What happened:</p>
 <ul>
-<li><code>PPO("CartPole-v1", ...)</code> looked the id up in gymnax and built 8 copies of
-  the environment, which step in parallel inside each seed.</li>
+<li><code>PPO("CartPole-v1", ...)</code> found the id in
+  <a href="https://github.com/RobertTLange/gymnax">gymnax</a>, a library of
+  environments written in JAX, and built 8 copies of the environment, which
+  step in parallel within each seed.</li>
 <li><code>train</code> compiled the training, environment included, and ran the three
   seeds side by side. The first line's time includes the compilation.</li>
-<li>Ten times over the run it evaluated each seed's policy on 10 test
+<li>Ten times over the run, it evaluated each seed's policy on 10 test
   episodes (<code>num_episode_test</code>) and printed their mean return, with the
-  lowest and highest seed. From the second evaluation, a line ends with the
-  time left, at the pace of the last interval between two evaluations.</li>
+  lowest and highest seed. From the second evaluation on, a line ends with
+  the time left.</li>
 </ul>
-<p><code>evaluations</code> holds what was printed, and every other logged value:</p>
+<h2 id="read-the-results">Read the results<a class="headerlink" href="#read-the-results" title="Permanent link">&para;</a></h2>
+<p><code>evaluations</code> holds what was printed and every other logged value: a dict
+of each logged name to an array with a row per seed and a column per
+evaluation. <code>returns</code> and <code>timesteps</code> are the two most read:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">matplotlib.pyplot</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">plt</span>
 <a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>
-<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax</span><span class="w"> </span><span class="kn">import</span> <span class="n">PPO</span>
-<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>
-<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="n">agent</span> <span class="o">=</span> <span class="n">PPO</span><span class="p">(</span><span class="s2">&quot;CartPole-v1&quot;</span><span class="p">,</span> <span class="n">n_envs</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">n_steps</span><span class="o">=</span><span class="mi">128</span><span class="p">)</span>
-<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="n">state</span><span class="p">,</span> <span class="n">evaluations</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">seed</span><span class="o">=</span><span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">],</span> <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">40_960</span><span class="p">)</span>
-<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>
-<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="n">steps</span> <span class="o">=</span> <span class="n">evaluations</span><span class="o">.</span><span class="n">timesteps</span>  <span class="c1"># [ 4096  8192 ... 40960]</span>
-<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="n">returns</span> <span class="o">=</span> <span class="n">evaluations</span><span class="o">.</span><span class="n">returns</span>  <span class="c1"># shape (3, 10): seeds x evaluations</span>
-<a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a>
-<a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="n">plt</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">steps</span><span class="p">,</span> <span class="n">returns</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">))</span>
-<a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a><span class="n">plt</span><span class="o">.</span><span class="n">fill_between</span><span class="p">(</span><span class="n">steps</span><span class="p">,</span> <span class="n">returns</span><span class="o">.</span><span class="n">min</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">),</span> <span class="n">returns</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">),</span> <span class="n">alpha</span><span class="o">=</span><span class="mf">0.3</span><span class="p">)</span>
-<a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a><span class="n">plt</span><span class="o">.</span><span class="n">xlabel</span><span class="p">(</span><span class="s2">&quot;environment steps&quot;</span><span class="p">)</span>
-<a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a><span class="n">plt</span><span class="o">.</span><span class="n">ylabel</span><span class="p">(</span><span class="s2">&quot;evaluation return&quot;</span><span class="p">)</span>
-<a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a><span class="n">plt</span><span class="o">.</span><span class="n">savefig</span><span class="p">(</span><span class="s2">&quot;cartpole.png&quot;</span><span class="p">)</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="n">steps</span> <span class="o">=</span> <span class="n">evaluations</span><span class="o">.</span><span class="n">timesteps</span>  <span class="c1"># [ 4096  8192 ... 40960]</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="n">returns</span> <span class="o">=</span> <span class="n">evaluations</span><span class="o">.</span><span class="n">returns</span>  <span class="c1"># shape (3, 10): seeds x evaluations</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="n">plt</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">steps</span><span class="p">,</span> <span class="n">returns</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">))</span>
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="n">plt</span><span class="o">.</span><span class="n">fill_between</span><span class="p">(</span><span class="n">steps</span><span class="p">,</span> <span class="n">returns</span><span class="o">.</span><span class="n">min</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">),</span> <span class="n">returns</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">),</span> <span class="n">alpha</span><span class="o">=</span><span class="mf">0.3</span><span class="p">)</span>
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="n">plt</span><span class="o">.</span><span class="n">xlabel</span><span class="p">(</span><span class="s2">&quot;environment steps&quot;</span><span class="p">)</span>
+<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="n">plt</span><span class="o">.</span><span class="n">ylabel</span><span class="p">(</span><span class="s2">&quot;evaluation return&quot;</span><span class="p">)</span>
+<a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a><span class="n">plt</span><span class="o">.</span><span class="n">savefig</span><span class="p">(</span><span class="s2">&quot;cartpole.png&quot;</span><span class="p">)</span>
 </code></pre></div>
-<p>It is a dict of every logged name to an array with one row per seed and one
-column per evaluation; <code>returns</code> and <code>timesteps</code> are its two most read
-entries. One seed has its row too: after <code>train(seed=0)</code>, the run's curve is
-<code>evaluations.returns[0]</code>. To choose when the evaluations come, or to log to TensorBoard or
-Weights &amp; Biases, pass a <code>LoggingConfig</code> (<a href="../../guide/logging/">Logging</a>);
-<code>logging_config=None</code> trains with no evaluation and prints nothing, which is
-the fastest. <a href="../../guide/training/">Training an agent</a> has the details.</p>
-<h2 id="jax-environments-first-gymnasium-supported">JAX environments first, Gymnasium supported<a class="headerlink" href="#jax-environments-first-gymnasium-supported" title="Permanent link">&para;</a></h2>
-<p><code>"CartPole-v1"</code> above is <a href="https://github.com/RobertTLange/gymnax">gymnax</a>'s
-CartPole, written in JAX, not Gymnasium's. <strong>Ajax is meant to be used with
-JAX environments</strong>: gymnax, Brax, MuJoCo Playground, Gymnasium's MuJoCo
-tasks in JAX (<code>"mujoco:&lt;id&gt;"</code>), or your own with gymnax's interface. The
-environment then compiles into the same program as the agent, and the whole
-run, every environment copy and every seed, stays on one device from start
-to end, a CPU or a GPU. That is where the speed comes from, and what the
-rest of this documentation assumes.</p>
-<p><strong>Gymnasium environments are supported too.</strong> Ask for one with the
-<code>gymnasium:</code> prefix:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax</span><span class="w"> </span><span class="kn">import</span> <span class="n">PPO</span>
-<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>
-<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="n">agent</span> <span class="o">=</span> <span class="n">PPO</span><span class="p">(</span><span class="s2">&quot;gymnasium:CartPole-v1&quot;</span><span class="p">,</span> <span class="n">n_envs</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">n_steps</span><span class="o">=</span><span class="mi">128</span><span class="p">)</span>
-<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="n">state</span><span class="p">,</span> <span class="n">evaluations</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">seed</span><span class="o">=</span><span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">],</span> <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">2_048</span><span class="p">)</span>
-<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="nb">print</span><span class="p">(</span><span class="n">agent</span><span class="o">.</span><span class="n">evaluate</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="n">episodes</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">))</span>
-</code></pre></div>
-<p>The calls are the same, but the environment steps in Python:</p>
-<ul>
-<li>every step leaves the compiled program and comes back, so training is
-  slower and a GPU does not help;</li>
-<li>the seeds train one after another, not side by side;</li>
-<li>some features refuse it (resuming from a saved state, action repeat,
-  gradients through the environment).</li>
-</ul>
-<p>Use it when your task has no JAX version, and a JAX environment whenever one
-exists. An id without the prefix never reaches Gymnasium, and building one
-warns that it steps in Python, naming the closest JAX tasks. Gymnasium's
-MuJoCo tasks need the <code>gymnasium</code> extra
-(<a href="../installation/#extras">Installation</a>).
-<a href="../../guide/environments/">Environments</a> says where each source lists its
-ids, and
-<a href="../../guide/environments/#gymnasium-environments">Gymnasium environments</a>
-the closest JAX task of each Gymnasium one.</p>
+<p>A single seed has its row too: after <code>train(seed=0)</code>, the run's curve is
+<code>evaluations.returns[0]</code>. To choose when the evaluations come, or to log to
+TensorBoard or Weights &amp; Biases, pass a <code>LoggingConfig</code>
+(<a href="../../guide/logging/">Logging</a>). <code>logging_config=None</code> trains with no
+evaluation and prints nothing, which is the fastest.
+<a href="../../guide/training/">Training an agent</a> has the details.</p>
 <h2 id="continuous-actions">Continuous actions<a class="headerlink" href="#continuous-actions" title="Permanent link">&para;</a></h2>
-<p>The same pattern works for every agent. SAC on Pendulum:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax</span><span class="w"> </span><span class="kn">import</span> <span class="n">SAC</span>
-<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>
-<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="c1"># SAC waits learning_starts steps (10,000 by default) before its first update;</span>
-<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="c1"># this short demonstration starts after 1,000.</span>
-<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="n">agent</span> <span class="o">=</span> <span class="n">SAC</span><span class="p">(</span><span class="s2">&quot;Pendulum-v1&quot;</span><span class="p">,</span> <span class="n">learning_starts</span><span class="o">=</span><span class="mi">1_000</span><span class="p">)</span>
-<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="n">state</span><span class="p">,</span> <span class="n">evaluations</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">seed</span><span class="o">=</span><span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">],</span> <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">3_000</span><span class="p">)</span>
+<p>The same calls work for every agent. SAC on Pendulum:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax</span><span class="w"> </span><span class="kn">import</span> <span class="n">SAC</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="c1"># SAC waits learning_starts steps (10,000 by default) before its first update;</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="c1"># this short demonstration starts after 1,000.</span>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="n">sac</span> <span class="o">=</span> <span class="n">SAC</span><span class="p">(</span><span class="s2">&quot;Pendulum-v1&quot;</span><span class="p">,</span> <span class="n">learning_starts</span><span class="o">=</span><span class="mi">1_000</span><span class="p">)</span>
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="n">sac_state</span><span class="p">,</span> <span class="n">sac_evaluations</span> <span class="o">=</span> <span class="n">sac</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">seed</span><span class="o">=</span><span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">],</span> <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">3_000</span><span class="p">)</span>
 </code></pre></div>
 <p>Three thousand steps show the mechanics, not a trained pendulum: give SAC
 tens of thousands of steps for that. The <a href="../../algorithms/">algorithm pages</a>
-help pick an agent and list each one's defaults.</p>
+help choose an agent and list each one's defaults.</p>
 <h2 id="use-the-trained-policy">Use the trained policy<a class="headerlink" href="#use-the-trained-policy" title="Permanent link">&para;</a></h2>
-<p><code>evaluate</code> runs fresh episodes of each seed's trained policy and
-returns their returns, one row per seed:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax</span><span class="w"> </span><span class="kn">import</span> <span class="n">PPO</span>
-<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>
-<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="n">agent</span> <span class="o">=</span> <span class="n">PPO</span><span class="p">(</span><span class="s2">&quot;CartPole-v1&quot;</span><span class="p">,</span> <span class="n">n_envs</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">n_steps</span><span class="o">=</span><span class="mi">128</span><span class="p">)</span>
-<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="n">state</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">seed</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">],</span> <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">16_384</span><span class="p">,</span> <span class="n">logging_config</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
-<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>
-<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="n">returns</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">evaluate</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="n">episodes</span><span class="o">=</span><span class="mi">20</span><span class="p">)</span>  <span class="c1"># shape (2, 20)</span>
-<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="nb">print</span><span class="p">(</span><span class="n">returns</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">))</span>  <span class="c1"># each seed&#39;s score</span>
+<p><code>evaluate</code> plays fresh episodes with each seed's trained policy and returns
+their returns, a row per seed:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="n">returns</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">evaluate</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="n">episodes</span><span class="o">=</span><span class="mi">20</span><span class="p">)</span>  <span class="c1"># shape (3, 20)</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="nb">print</span><span class="p">(</span><span class="n">returns</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">))</span>  <span class="c1"># each seed&#39;s score</span>
 </code></pre></div>
-<p>To watch it, <code>render</code> saves one episode of a seed's policy as an animation.
-It needs the <code>render</code> extra (<code>pip install "ajax-rl[render]"</code>):</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax</span><span class="w"> </span><span class="kn">import</span> <span class="n">PPO</span>
-<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>
-<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="n">agent</span> <span class="o">=</span> <span class="n">PPO</span><span class="p">(</span><span class="s2">&quot;CartPole-v1&quot;</span><span class="p">,</span> <span class="n">n_envs</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">n_steps</span><span class="o">=</span><span class="mi">128</span><span class="p">)</span>
-<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="n">state</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">seed</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">],</span> <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">16_384</span><span class="p">,</span> <span class="n">logging_config</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
-<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="nb">print</span><span class="p">(</span><span class="n">agent</span><span class="o">.</span><span class="n">render</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="s2">&quot;cartpole.gif&quot;</span><span class="p">,</span> <span class="n">max_steps</span><span class="o">=</span><span class="mi">100</span><span class="p">))</span>  <span class="c1"># where the GIF went</span>
+<p><code>render</code> saves one episode of a seed's policy as an animation, and returns
+its path. It needs the <code>render</code> extra (<code>pip install "ajax-rl[render]"</code>):</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="nb">print</span><span class="p">(</span><span class="n">agent</span><span class="o">.</span><span class="n">render</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="s2">&quot;cartpole.gif&quot;</span><span class="p">,</span> <span class="n">max_steps</span><span class="o">=</span><span class="mi">100</span><span class="p">))</span>
 </code></pre></div>
 <p>Drawing takes about a tenth of a second a frame, so <code>max_steps=100</code> keeps
-this to about ten seconds; without it the episode plays to its end, 500
-steps for a policy that balances the pole.</p>
-<p><a href="../../guide/deploy/#watch-the-policy">Watch the policy</a> covers Brax and
-MuJoCo tasks.</p>
+this to about ten seconds; without it, the episode plays to its end, 500
+steps for a policy that balances the pole.
+<a href="../../guide/deploy/#watch-the-policy">Watch the policy</a> covers the other
+environments.</p>
 <p>To act in a loop of your own, <code>agent.predict(state, observation)</code> returns
 the first seed's action for an observation (<code>seed_index</code> picks another), in
-the environment's units, and
-<code>agent.policy(state)</code> carries a memory from step to step.
-<a href="../../guide/deploy/">Train, evaluate, deploy</a> shows both.</p>
+the environment's units. <code>agent.policy(state)</code> gives a policy that also
+carries a memory from step to step. <a href="../../guide/deploy/">Train, evaluate, deploy</a>
+shows both.</p>
 <h2 id="save-and-load">Save and load<a class="headerlink" href="#save-and-load" title="Permanent link">&para;</a></h2>
-<p><code>agent.save</code> writes the state with the agent's class and arguments;
+<p><code>agent.save</code> writes the state with the agent's class and arguments, and
 <code>ajax.load</code> builds both again:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
-<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="kn">import</span><span class="w"> </span><span class="nn">tempfile</span>
-<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>
-<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="kn">import</span><span class="w"> </span><span class="nn">ajax</span>
-<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax</span><span class="w"> </span><span class="kn">import</span> <span class="n">PPO</span>
-<a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a>
-<a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a><span class="n">agent</span> <span class="o">=</span> <span class="n">PPO</span><span class="p">(</span><span class="s2">&quot;CartPole-v1&quot;</span><span class="p">,</span> <span class="n">n_envs</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">n_steps</span><span class="o">=</span><span class="mi">128</span><span class="p">)</span>
-<a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a><span class="n">state</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">seed</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">],</span> <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">8_192</span><span class="p">,</span> <span class="n">logging_config</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
-<a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a><span class="n">path</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">tempfile</span><span class="o">.</span><span class="n">mkdtemp</span><span class="p">(),</span> <span class="s2">&quot;ppo_cartpole.pkl&quot;</span><span class="p">)</span>
-<a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a><span class="n">agent</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="n">path</span><span class="p">)</span>
-<a id="__codelineno-7-11" name="__codelineno-7-11" href="#__codelineno-7-11"></a>
-<a id="__codelineno-7-12" name="__codelineno-7-12" href="#__codelineno-7-12"></a><span class="c1"># Later, in another process.</span>
-<a id="__codelineno-7-13" name="__codelineno-7-13" href="#__codelineno-7-13"></a><span class="n">agent</span><span class="p">,</span> <span class="n">state</span> <span class="o">=</span> <span class="n">ajax</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">path</span><span class="p">)</span>
-<a id="__codelineno-7-14" name="__codelineno-7-14" href="#__codelineno-7-14"></a><span class="nb">print</span><span class="p">(</span><span class="n">agent</span><span class="o">.</span><span class="n">evaluate</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="n">episodes</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">))</span>
-<a id="__codelineno-7-15" name="__codelineno-7-15" href="#__codelineno-7-15"></a><span class="n">state</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">seed</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">],</span> <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">8_192</span><span class="p">,</span> <span class="n">initial_state</span><span class="o">=</span><span class="n">state</span><span class="p">)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="kn">import</span><span class="w"> </span><span class="nn">tempfile</span>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="kn">import</span><span class="w"> </span><span class="nn">ajax</span>
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>
+<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="n">path</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">tempfile</span><span class="o">.</span><span class="n">mkdtemp</span><span class="p">(),</span> <span class="s2">&quot;ppo_cartpole.pkl&quot;</span><span class="p">)</span>
+<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="n">agent</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="n">path</span><span class="p">)</span>
+<a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a>
+<a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a><span class="c1"># Later, in another process.</span>
+<a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a><span class="n">agent</span><span class="p">,</span> <span class="n">state</span> <span class="o">=</span> <span class="n">ajax</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">path</span><span class="p">)</span>
+<a id="__codelineno-6-11" name="__codelineno-6-11" href="#__codelineno-6-11"></a><span class="nb">print</span><span class="p">(</span><span class="n">agent</span><span class="o">.</span><span class="n">evaluate</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="n">episodes</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">))</span>
+<a id="__codelineno-6-12" name="__codelineno-6-12" href="#__codelineno-6-12"></a><span class="n">state</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">seed</span><span class="o">=</span><span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">],</span> <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">8_192</span><span class="p">,</span> <span class="n">initial_state</span><span class="o">=</span><span class="n">state</span><span class="p">)</span>
 </code></pre></div>
-<p><a href="../../guide/checkpoints/">Checkpoints and resuming</a> explains what a resume
+<p>The last line trains the loaded run further.
+<a href="../../guide/checkpoints/">Checkpoints and resuming</a> explains what a resume
 keeps, and which arguments must be passed again.</p>
-<h2 id="where-next">Where next<a class="headerlink" href="#where-next" title="Permanent link">&para;</a></h2>
-<ul>
-<li><a href="../../guide/deploy/">Train, evaluate, deploy</a>: act with a trained policy in
-  a loop of your own, save it and load it elsewhere.</li>
-<li><a href="../../guide/environments/">Environments</a>: gymnax, Brax and MuJoCo
-  Playground ids, your own environments, normalisation and time limits.</li>
-<li><a href="../../guide/networks/">Networks and the PID policy</a>: layer sizes,
-  activations, encoders, and a policy that is a PID controller.</li>
-<li><a href="../../guide/memory/">Memory</a>: GRU, LSTM, transformer and Mamba blocks for
-  partially observed tasks.</li>
-<li><a href="../../guide/extensions/">Extensions</a>: learn from an expert, change the
-  critic's target, measure the critic.</li>
-<li><a href="../../guide/logging/">Logging</a>: Weights &amp; Biases and TensorBoard.</li>
-</ul>
+<h2 id="gymnasium-environments">Gymnasium environments<a class="headerlink" href="#gymnasium-environments" title="Permanent link">&para;</a></h2>
+<p><code>"CartPole-v1"</code> above is gymnax's CartPole, not Gymnasium's. Ajax is meant
+for environments written in JAX: gymnax, Brax, MuJoCo Playground,
+Gymnasium's MuJoCo tasks in JAX (<code>"mujoco:&lt;id&gt;"</code>), or your own with gymnax's
+interface. The environment then compiles into the same program as the
+agent, and the whole run stays on one device, a CPU or a GPU: that is where
+the speed comes from.</p>
+<p>A <a href="https://gymnasium.farama.org">Gymnasium</a> environment works with the same
+calls, asked for with the <code>gymnasium:</code> prefix:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="n">gymnasium_agent</span> <span class="o">=</span> <span class="n">PPO</span><span class="p">(</span><span class="s2">&quot;gymnasium:CartPole-v1&quot;</span><span class="p">,</span> <span class="n">n_envs</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">n_steps</span><span class="o">=</span><span class="mi">128</span><span class="p">)</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="n">gymnasium_state</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">gymnasium_agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">seed</span><span class="o">=</span><span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">],</span> <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">2_048</span><span class="p">)</span>
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="nb">print</span><span class="p">(</span><span class="n">gymnasium_agent</span><span class="o">.</span><span class="n">evaluate</span><span class="p">(</span><span class="n">gymnasium_state</span><span class="p">,</span> <span class="n">episodes</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">))</span>
+</code></pre></div>
+<p>It steps in Python, so training is slower, a GPU does not help, the seeds
+train one after another, and some features refuse it. Use it when your task
+has no JAX version: building one warns that it steps in Python and names the
+closest JAX tasks. <a href="../../guide/environments/#gymnasium-environments">Gymnasium environments</a>
+says what changes, and Gymnasium's MuJoCo tasks need the <code>gymnasium</code> extra
+(<a href="../installation/#extras">Installation</a>).</p>
+<h2 id="next">Next<a class="headerlink" href="#next" title="Permanent link">&para;</a></h2>
+<p><a href="../why-ajax/">Why Ajax</a> shows what else Ajax offers, and when another
+library fits better. If you know Stable-Baselines3,
+<a href="../coming-from-sb3/">Coming from SB3</a> puts its calls beside Ajax's. The user
+guide starts with <a href="../../guide/training/">Training an agent</a>.</p>
 
 
 

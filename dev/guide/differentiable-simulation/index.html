@@ -3080,18 +3080,18 @@ smooth and the horizon is short to moderate: there is no critic to learn and
 no noise to average out, so each update is precise. It works poorly through
 contacts and other discontinuities, and over long horizons, where gradients
 can explode or vanish.</p>
-<p>Ajax supports it at three levels: environments whose transitions keep their
-gradients, families of systems and tracking tasks to train on, and the
-<a href="../../algorithms/apg/">APG</a> agent, which includes the in-context controller
-of Busetto et al., 2024.</p>
+<p>This page is for training a controller that way. Ajax supports it at three
+levels: environments whose transitions keep their gradients, families of
+systems and tracking tasks to train on, and the <a href="../../algorithms/apg/">APG</a>
+agent, which includes the in-context controller of Busetto et al., 2024.</p>
 <h2 id="differentiable-environments">Differentiable environments<a class="headerlink" href="#differentiable-environments" title="Permanent link">&para;</a></h2>
 <p>Ajax's collectors cut gradients at every environment step, as reinforcement
 learning expects. gymnax (from version 1.0) also detaches its transitions by
-default; a few environments let you switch that back on.
+default; a few environments let you switch that back on:
+Pendulum, MountainCarContinuous, PointRobot, Reacher and Swimmer.
 <code>with_transition_gradients(env)</code> does so, through any Ajax wrappers around
 the environment, and raises for an environment that cannot, instead of
-silently returning zero gradients. Today these are Pendulum,
-MountainCarContinuous, PointRobot, Reacher and Swimmer.</p>
+silently returning zero gradients.</p>
 <p><code>closed_loop_rollout</code> runs a policy against such an environment for a fixed
 number of steps with no gradient cut anywhere. The policy is any function
 <code>(carry, obs, resets) -&gt; (action, carry)</code>, where <code>carry</code> is its memory
@@ -3134,7 +3134,8 @@ maps its controller's <code>[-1, 1]</code> actions onto the bounds itself (below
 <p>This path is gymnax only: Brax and MuJoCo Playground environments take no
 per-step parameters and have their own gradient machinery. For those,
 <code>differentiable_reset=True</code> in <code>build_env_from_id</code> lets gradients flow
-through the automatic reset as well (see <a href="../environments/">Environments</a>).</p>
+through the automatic reset as well
+(<a href="../environments/#episode-keys">Environments</a>).</p>
 <h2 id="families-of-systems">Families of systems<a class="headerlink" href="#families-of-systems" title="Permanent link">&para;</a></h2>
 <p>A controller tuned for one plant may fail on its neighbours. A <em>system class</em>
 is a distribution over an environment's physical parameters, so training can
@@ -3173,14 +3174,14 @@ gymnax environment into such a task:</p>
   previous action, <code>[e, u_prev]</code> (optionally followed by the plant's own
   observation), and the reward is <code>−‖y_d − y‖²</code>. The undiscounted return is
   minus the matching cost, and <code>sqrt(−return / horizon)</code> is the paper's
-  M-RMSE. The error is computed from the observation the plant returns, so
-  sensor noise on the plant (an
-  <a href="../environments/#sensor-noise"><code>ObservationNoiseWrapper</code></a> under the task)
-  reaches the controller and the reward alike. On the step a plant episode
-  ends, the reward scores the plant's last output before its reset, and the
-  final observation a time limit bootstraps on is in the controller's view
-  too, so any agent can train on the task.</li>
+  M-RMSE (the root mean square of the matching error).</li>
 </ul>
+<p>The error is computed from the observation the plant returns, so sensor
+noise on the plant (an <a href="../environments/#sensor-noise"><code>ObservationNoiseWrapper</code></a>
+under the task) reaches the controller and the reward alike. On the step a
+plant episode ends, the reward scores the plant's last output before its
+reset, and the final observation a time limit bootstraps on is in the
+controller's view too, so any agent can train on the task.</p>
 <p>All three are plain <code>jnp</code>, so the task stays differentiable when the plant
 is. <code>ajax.wrappers.InitialStateWrapper(env, fn)</code> sets each episode's initial
 state, for tasks that fix it, as the paper does.</p>
@@ -3232,16 +3233,16 @@ track step references across pendulums whose mass and length vary by 30 %:</p>
 <a id="__codelineno-1-35" name="__codelineno-1-35" href="#__codelineno-1-35"></a>    <span class="n">pid</span><span class="o">=</span><span class="n">PIDHeadConfig</span><span class="p">(),</span>  <span class="c1"># close the controller with a learnable PID layer</span>
 <a id="__codelineno-1-36" name="__codelineno-1-36" href="#__codelineno-1-36"></a><span class="p">)</span>
 <a id="__codelineno-1-37" name="__codelineno-1-37" href="#__codelineno-1-37"></a><span class="n">state</span><span class="p">,</span> <span class="n">aux</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">seed</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">8</span> <span class="o">*</span> <span class="mi">100</span> <span class="o">*</span> <span class="mi">200</span><span class="p">)</span>  <span class="c1"># 200 updates</span>
-<a id="__codelineno-1-38" name="__codelineno-1-38" href="#__codelineno-1-38"></a><span class="nb">print</span><span class="p">(</span><span class="n">aux</span><span class="o">.</span><span class="n">m_rmse</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">],</span> <span class="n">aux</span><span class="o">.</span><span class="n">m_rmse</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">])</span>  <span class="c1"># (seeds, updates): falls from about 1.7 to 0.45</span>
+<a id="__codelineno-1-38" name="__codelineno-1-38" href="#__codelineno-1-38"></a><span class="nb">print</span><span class="p">(</span><span class="n">aux</span><span class="o">.</span><span class="n">m_rmse</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">],</span> <span class="n">aux</span><span class="o">.</span><span class="n">m_rmse</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">])</span>  <span class="c1"># (seeds, updates): falls from about 1.7 to 0.3</span>
 </code></pre></div>
 <p><code>train</code> always returns every update's <code>loss</code>, <code>matching_loss</code>, <code>m_rmse</code>,
 <code>grad_norm</code> and <code>timestep</code>, with a seed axis first. With a <code>logging_config</code>, it also
 evaluates on freshly drawn systems every <code>log_frequency</code> steps. The
 <a href="../../algorithms/apg/">APG page</a> lists every hyperparameter.</p>
-<p>Two defaults depart from a plain implementation, both for stability on this
-test bed: gradients are clipped to a global norm of 1 (<code>max_grad_norm</code>;
-without it, training across a system class diverged), and actions are
-<code>tanh</code>-bounded.</p>
+<p>Two of <code>APG</code>'s defaults depart from a plain implementation, both for
+stability on this test bed: gradients are clipped to a global norm of 1
+(<code>max_grad_norm</code>; without it, training across a system class diverged), and
+actions are <code>tanh</code>-bounded.</p>
 <p>The observation features (<code>ExpertActionInput</code>, <code>ExpertStateInput</code>,
 <code>TrainingProgressInput</code>, <code>PIDTermsInput</code>) join each observation the
 controller reads, as they do in the other agents' collection, their memory
@@ -3264,17 +3265,15 @@ configuration:</p>
 <li>one system per update (<code>n_envs=1</code>) and a horizon of 100;</li>
 <li>Adam with betas (0.9, 0.95) (AdamW once <code>weight_decay</code> is above its
   default of 0), a 5,000-update linear warm-up, then cosine decay to a
-  tenth of the learning rate.</li>
+  tenth of the learning rate;</li>
+<li>no gradient clipping (<code>max_grad_norm=None</code>, where <code>APG</code> clips by default).</li>
 </ul>
-<p>Ajax departs from the reference code in three places, each backed by runs on
-the pendulum tracking test bed: actions are <code>tanh</code>-bounded, gradients are
-clipped, and the PID layer starts as the identity (gains 1, 0, 0) rather than
-all ones. Those runs predate the map of actions onto the environment's
-bounds, when the pendulum's torque was capped at 1 of its 2. A fourth
-difference is not backed by runs: the transformer's LayerNorms keep a bias
-and an epsilon of 1e-6, where the reference's have no bias and 1e-5
-(buswayne/in-context-controller at 7eb094ce17: <code>transformer_onestep.py:33</code>
-and <code>:156</code>, <code>train_onestep_lin_CL.py:103</code>).</p>
+<p>The transformer's layers (no biases, LayerNorm epsilon 1e-5), the optimiser
+and the unclipped gradients are the reference code's
+(buswayne/in-context-controller at 7eb094ce17). Ajax departs from it in two
+places, each backed by runs on the pendulum tracking test bed: actions are
+<code>tanh</code>-bounded, and the PID layer starts as the identity (gains 1, 0, 0)
+rather than all ones.</p>
 <p>The paper trains in stages of growing diversity (its Algorithm 2): one system
 first, then the class. <code>train_curriculum</code> chains <code>CurriculumStage(agent,
 n_timesteps)</code> objects through Ajax's resume path, carrying the parameters
@@ -3333,7 +3332,7 @@ growing while the output is beyond that magnitude in the same direction
 <tr>
 <td>Agents</td>
 <td>APG</td>
-<td>SAC, TD3, REDQ, ASAC, AVG, PPO, APO</td>
+<td>SAC, TD3, REDQ, TQC, ASAC, RVI-SAC, AVG, IQL, PPO, APO</td>
 </tr>
 <tr>
 <td>Deploys as</td>
@@ -3351,10 +3350,11 @@ static <code>stateful</code> attribute, <code>initialize_carry(rng, batch_size)<
 stateful, and a call that returns a deterministic <code>distrax</code> distribution
 (plus the new carry when stateful). This lets downstream projects train
 their own architectures with the same trainer.</p>
-<p>APG also takes extensions in the <code>actor_loss</code> phase, whose dictionary holds
-the <code>rollout</code>, the controller's <code>actor_params</code> and the per-system
-<code>returns</code>, plus the phases every agent runs (<code>pretrain</code>, <code>post_update</code>,
-<code>eval_metrics</code>). See <a href="../extensions/">Extensions</a>.</p>
+<p>APG takes extensions in the <code>actor_loss</code> phase, whose dictionary holds the
+<code>rollout</code>, the controller's <code>actor_params</code> and the per-system <code>returns</code>; in
+<code>observe</code>, <code>transform_action</code> and <code>actuate</code> (the observation features, a
+residual policy, gain mode); and in the phases every agent runs
+(<code>pretrain</code>, <code>post_update</code>, <code>eval_metrics</code>). See <a href="../extensions/">Extensions</a>.</p>
 <h2 id="see-also">See also<a class="headerlink" href="#see-also" title="Permanent link">&para;</a></h2>
 <ul>
 <li><a href="../../algorithms/apg/">APG</a>: hyperparameters, notes and results.</li>

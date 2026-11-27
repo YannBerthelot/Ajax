@@ -501,10 +501,32 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#end-to-end-on-the-accelerator" class="md-nav__link">
+  <a href="#one-program-for-the-whole-run" class="md-nav__link">
     <span class="md-ellipsis">
       
-        End to end on the accelerator
+        One program for the whole run
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#variations-that-combine" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Variations that combine
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#checked-against-the-original-code" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Checked against the original code
       
     </span>
   </a>
@@ -523,10 +545,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#expert-guided-agents" class="md-nav__link">
+  <a href="#learning-from-an-expert-or-from-data" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Expert-guided agents
+        Learning from an expert or from data
       
     </span>
   </a>
@@ -557,21 +579,10 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#other-end-to-end-jax-libraries" class="md-nav__link">
+  <a href="#other-libraries" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Other end-to-end JAX libraries
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#torchrl-and-tianshou" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        TorchRL and Tianshou
+        Other libraries
       
     </span>
   </a>
@@ -2961,10 +2972,32 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#end-to-end-on-the-accelerator" class="md-nav__link">
+  <a href="#one-program-for-the-whole-run" class="md-nav__link">
     <span class="md-ellipsis">
       
-        End to end on the accelerator
+        One program for the whole run
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#variations-that-combine" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Variations that combine
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#checked-against-the-original-code" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Checked against the original code
       
     </span>
   </a>
@@ -2983,10 +3016,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#expert-guided-agents" class="md-nav__link">
+  <a href="#learning-from-an-expert-or-from-data" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Expert-guided agents
+        Learning from an expert or from data
       
     </span>
   </a>
@@ -3017,21 +3050,10 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#other-end-to-end-jax-libraries" class="md-nav__link">
+  <a href="#other-libraries" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Other end-to-end JAX libraries
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#torchrl-and-tianshou" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        TorchRL and Tianshou
+        Other libraries
       
     </span>
   </a>
@@ -3080,67 +3102,77 @@
 
 
 <h1 id="why-ajax">Why Ajax<a class="headerlink" href="#why-ajax" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/DLR-RM/stable-baselines3">Stable-Baselines3</a> (SB3) is a
-PyTorch library of reinforcement-learning agents, with more agents in
-<a href="https://github.com/Stable-Baselines-Team/stable-baselines3-contrib">sb3-contrib</a>.
-<a href="https://github.com/araffin/sbx">SBX</a> is its JAX version.
-<a href="https://github.com/luchris429/purejaxrl">PureJaxRL</a> is a set of single-file
-JAX implementations. Ajax is built around four things:</p>
-<ol>
-<li><a href="#end-to-end-on-the-accelerator">End to end on the accelerator</a>: the
-   environment and the training loop compile into one JAX program, as in
-   PureJaxRL and the
-   <a href="#other-end-to-end-jax-libraries">other end-to-end JAX libraries</a>.</li>
-<li><a href="#average-reward-agents">Average-reward agents</a>: ASAC and APO, for tasks
-   that never end.</li>
-<li><a href="#expert-guided-agents">Expert-guided agents</a>: agents that learn from a
-   controller you already have.</li>
-<li><a href="#world-models">World models</a>: DreamerV3 and TD-MPC2, in the same
-   compiled program as the environment.</li>
-</ol>
-<p>This page shows each one, <a href="#comparison">compares the libraries</a> and
-says <a href="#when-to-use-something-else">when another library fits better</a>. The
-examples run on a laptop CPU in under a minute each, except the world-model
-one.</p>
-<h2 id="end-to-end-on-the-accelerator">End to end on the accelerator<a class="headerlink" href="#end-to-end-on-the-accelerator" title="Permanent link">&para;</a></h2>
+<p>This page is for deciding whether Ajax suits your work. It explains what
+Ajax offers, with examples, compares it with other libraries, and says
+<a href="#when-to-use-something-else">when one of them fits better</a>. The examples
+run on a laptop CPU in under a minute each, except the world-model one.</p>
+<h2 id="one-program-for-the-whole-run">One program for the whole run<a class="headerlink" href="#one-program-for-the-whole-run" title="Permanent link">&para;</a></h2>
 <p><code>train</code> compiles the whole run into one JAX program: the environment's
-steps, the replay buffer or rollout, the updates and the evaluations. The
-seeds run side by side in that same program, through <code>jax.vmap</code>. The loop
-does not come back to Python between two steps, so the program can run on a
-GPU the way it runs on a CPU, without a round trip to the host at each
-step. This is PureJaxRL's approach, and every Ajax agent trains this way
-except <code>TDMPC2MultiTask</code>, which learns offline from a dataset and evaluates
-its tasks from Python between compiled chunks of updates. It needs an
-environment written in JAX: <a href="../../guide/environments/">gymnax, Brax, MuJoCo Playground or
-TargetGym</a>. Logging and the critic pre-training
-extensions do call back to the host, to hand over their records or print
-progress.</p>
+steps, the replay buffer or the rollout, the updates and the evaluations.
+The seeds run side by side in that program, through <code>jax.vmap</code>, and so do
+the configurations of a hyperparameter sweep. No step goes back to Python,
+so the program runs on a CPU or a GPU alike:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">jax</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax</span><span class="w"> </span><span class="kn">import</span> <span class="n">PPO</span>
 <a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>
 <a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="nb">print</span><span class="p">(</span><span class="n">jax</span><span class="o">.</span><span class="n">default_backend</span><span class="p">())</span>  <span class="c1"># &quot;cpu&quot; here; &quot;gpu&quot; when JAX finds one</span>
-<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="c1"># 8 seeds, each with 8 copies of CartPole, compiled and run as one program.</span>
-<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="n">agent</span> <span class="o">=</span> <span class="n">PPO</span><span class="p">(</span><span class="s2">&quot;CartPole-v1&quot;</span><span class="p">,</span> <span class="n">n_envs</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">n_steps</span><span class="o">=</span><span class="mi">128</span><span class="p">)</span>
-<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="n">state</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">seed</span><span class="o">=</span><span class="nb">list</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="mi">8</span><span class="p">)),</span> <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">16_384</span><span class="p">)</span>
-<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="nb">print</span><span class="p">(</span><span class="n">state</span><span class="o">.</span><span class="n">collector_state</span><span class="o">.</span><span class="n">timestep</span><span class="p">)</span>  <span class="c1"># one count per seed</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="n">agent</span> <span class="o">=</span> <span class="n">PPO</span><span class="p">(</span><span class="s2">&quot;CartPole-v1&quot;</span><span class="p">,</span> <span class="n">n_envs</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">n_steps</span><span class="o">=</span><span class="mi">128</span><span class="p">)</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="c1"># 4 seeds of 2 clip ranges: 8 runs, each with 8 copies of CartPole, in one program.</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="n">state</span><span class="p">,</span> <span class="n">evaluations</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span>
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>    <span class="n">seed</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">],</span> <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">16_384</span><span class="p">,</span> <span class="n">sweep</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;clip_range&quot;</span><span class="p">:</span> <span class="p">[</span><span class="mf">0.1</span><span class="p">,</span> <span class="mf">0.2</span><span class="p">]}</span>
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="p">)</span>
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="nb">print</span><span class="p">(</span><span class="n">evaluations</span><span class="o">.</span><span class="n">returns</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>  <span class="c1"># a row per run, a column per evaluation</span>
 </code></pre></div>
-<p>The same script runs on a GPU when JAX is installed with CUDA support and
-finds one (<a href="../installation/">Installation</a>). This section describes how the
-program is built, not a measured gain: Ajax's tests and per-agent benchmark
-run on the CPU, and no measurement compares a run on a GPU with the same run
-on a CPU. <a href="../../guide/performance/">Performance</a> has the costs that were
-measured: compilation, seeds, each agent's speed on a CPU.</p>
+<p>A GPU gains most on agents whose updates take the time (many critics, wide
+networks, world models) and little on those spending it on one simulator
+step per seed (<a href="../../guide/performance/#cpu-or-gpu">CPU or GPU</a>). The same
+script runs on a GPU once JAX has CUDA (<a href="../installation/#cpu-or-gpu">Installation</a>).</p>
+<p>This needs an environment written in JAX: gymnax, Brax, MuJoCo Playground,
+Gymnasium's MuJoCo tasks on MJX or your own
+(<a href="../../guide/environments/">Environments</a>); a Gymnasium environment steps in
+Python. Only logging leaves the program, to hand over each evaluation.
+<code>TDMPC2MultiTask</code> alone trains otherwise: offline, evaluating its tasks from
+Python between compiled chunks of updates.</p>
+<h2 id="variations-that-combine">Variations that combine<a class="headerlink" href="#variations-that-combine" title="Permanent link">&para;</a></h2>
+<p>A variant of an algorithm is an argument of its agent, not another class:
+recurrent PPO is PPO with <code>memory=</code> (<a href="../../guide/memory/">Memory</a>), images
+go through a CNN encoder with <code>cnn_image_shape=</code>, and a <code>PIDPolicy</code> as
+<code>actor_architecture</code> makes the actor a PID controller
+(<a href="../../guide/networks/">Networks</a>). Research features (cloning an expert, an
+extra loss term, a diagnostic) are <a href="../../guide/extensions/">extensions</a>,
+passed as <code>extensions=(...)</code>, and they add up: the TD3
+<a href="#learning-from-an-expert-or-from-data">below</a> clones an expert, then keeps
+an imitation term in its loss. An agent refuses, when built, an extension it
+cannot run, and says why (<a href="../../guide/compatibility/">Compatibility</a>).</p>
+<h2 id="checked-against-the-original-code">Checked against the original code<a class="headerlink" href="#checked-against-the-original-code" title="Permanent link">&para;</a></h2>
+<p>Each agent starts from the code behind its paper's results, with that
+code's defaults, initialisation and order of updates; its
+<a href="../../algorithms/">algorithm page</a> cites the code and lists where Ajax
+departs from it. Its defaults can therefore differ from another library's
+(<a href="../coming-from-sb3/#the-defaults-are-the-originals">Coming from SB3</a>).
+Three kinds of tests check the agents (<a href="../../developer/testing/">Testing</a>):</p>
+<ul>
+<li>unit tests, on each update's maths with hand-computed values;</li>
+<li>probes, which train an agent on a small problem with a known answer and
+  name the mistake behind a wrong one, such as a discount applied twice;</li>
+<li><a href="../../developer/testing/#conformance-checks">conformance checks</a>, which
+  run one training step of Ajax and of the original implementation from the
+  same state and compare them.</li>
+</ul>
+<p>Comparisons of whole training runs with reference implementations are in
+progress (<a href="../../reproduction/">Reproduction</a>).</p>
 <h2 id="average-reward-agents">Average-reward agents<a class="headerlink" href="#average-reward-agents" title="Permanent link">&para;</a></h2>
 <p>Most agents maximise a discounted return: a reward <code>k</code> steps ahead counts
 <code>gamma**k</code> times as much as one now. For a task that never ends, such as
 holding a setpoint or running a plant, the discount is not part of the
 problem; it only shortens how far ahead the agent looks. An average-reward
 agent maximises the reward per step over the long run instead, and has no
-discount factor. Ajax has two, each following its paper:
-<a href="../../algorithms/asac/">ASAC</a> (Adamczyk et al., 2025), SAC for this
+discount factor. Ajax has three, each following its paper:
+<a href="../../algorithms/asac/">ASAC</a> (Adamczyk et al., 2025) and
+<a href="../../algorithms/rvisac/">RVI-SAC</a> (Hisaki and Ono, 2024), SAC for this
 criterion, and <a href="../../algorithms/apo/">APO</a> (Ma et al., 2021), PPO for it.
-Each keeps its estimate of the reward per step on the state.</p>
+ASAC and APO keep their estimate of the reward per step on the state:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax</span><span class="w"> </span><span class="kn">import</span> <span class="n">APO</span><span class="p">,</span> <span class="n">ASAC</span>
 <a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>
 <a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="c1"># On-policy: PPO&#39;s clipped update on the reward minus the reward per step.</span>
@@ -3154,24 +3186,22 @@ Each keeps its estimate of the reward per step on the state.</p>
 <a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="nb">print</span><span class="p">(</span><span class="n">state</span><span class="o">.</span><span class="n">theta</span><span class="p">)</span>  <span class="c1"># its reward-rate estimate, entropy term included</span>
 </code></pre></div>
 <p>These budgets show the calls; Pendulum needs far more steps to be solved.</p>
-<h2 id="expert-guided-agents">Expert-guided agents<a class="headerlink" href="#expert-guided-agents" title="Permanent link">&para;</a></h2>
+<h2 id="learning-from-an-expert-or-from-data">Learning from an expert or from data<a class="headerlink" href="#learning-from-an-expert-or-from-data" title="Permanent link">&para;</a></h2>
 <p>Often a controller already exists for the task: a tuned PID, a model
-predictive controller, an earlier policy. In Ajax an <em>expert</em> is a JAX
-function from observations to actions (or a stateful one, such as a PID
-carrying its integral, which gets its state back at every step), and an
-agent can learn from it instead of starting from scratch. The expert reads
-the environment's raw observations and answers in the environment's action
-units; the agent converts its answers to its own units, <code>[-1, 1]</code>.</p>
-<p>SAC uses it the most: it fills the replay buffer with the expert's
-experience, lets the expert act during warm-up, and takes the expert
-<a href="../../guide/extensions/">extensions</a>: online behaviour cloning, residual
-policies, JSRL hand-over, IBRL targets and EDGE exploration, among others.
-SAC, TD3, REDQ and APO can clone the expert before training
-(<code>CloningPretrain</code>), and SAC, TD3, REDQ, ASAC and APO can add an imitation
-term to the actor's loss (<code>ImitationLoss</code>). SAC, TD3, REDQ, APO and AVG,
-given <code>expert_policy=</code>, also log the expert's own return at each evaluation,
-so the curves show whether the agent has overtaken it.
-<a href="../../guide/expert-guidance/">Expert guidance</a> covers every option.</p>
+predictive controller, an earlier policy. In Ajax this <em>expert</em> is a JAX
+function from the environment's raw observations to actions in its units
+(a stateful one, such as a PID with its integral, works too), and an agent
+can learn from it instead of starting from scratch.</p>
+<p>Most agents can clone the expert before training (<code>CloningPretrain</code>) or add
+an imitation term to the actor's loss (<code>ImitationLoss</code>), and most replay
+agents can start with its transitions in the replay (<code>ExpertPrefill</code>). SAC
+takes nearly every such extension, among them residual policies, JSRL
+hand-over and IBRL targets. Recorded transitions work too: prior data in the
+replay, as in RLPD (<code>PriorData</code>), or <code>train_offline</code>. Given
+<code>expert_policy=</code>, an agent logs the expert's return at each evaluation, so
+the curves show when it overtakes the expert.
+<a href="../../guide/expert-guidance/">Expert guidance</a> gives each method and its
+paper.</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">jax.numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">jnp</span>
 <a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>
 <a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax</span><span class="w"> </span><span class="kn">import</span> <span class="n">SAC</span><span class="p">,</span> <span class="n">TD3</span>
@@ -3207,13 +3237,11 @@ so the curves show whether the agent has overtaken it.
 predicts what happens next and what reward follows, and uses it to act.
 <a href="../../algorithms/dreamerv3/">DreamerV3</a> learns its policy inside the model,
 from imagined trajectories; <a href="../../algorithms/tdmpc2/">TD-MPC2</a> plans with
-the model at every step; <code>TDMPC2MultiTask</code> trains one model offline on the
-data of several tasks. Each follows the code that produced its paper's
-results: the <a href="../../world_models/deviations/">deviations register</a> lists
-where Ajax departs from it, and tests compare Ajax's components with it.
-DreamerV3 and TD-MPC2 run in one compiled program with the environment, like
-the other agents; <code>TDMPC2MultiTask</code> steps no environment while it trains.
-<a href="../../guide/world-models/">World models</a> explains them in plain words.</p>
+the model at every step, and <code>TDMPC2MultiTask</code> trains one model offline on
+the data of several tasks. Each follows the code behind its paper's
+results, and the <a href="../../world_models/deviations/">deviations register</a> lists
+where Ajax departs from it. <a href="../../guide/world-models/">World models</a>
+explains them in plain words.</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="c1"># doc: skip (about half a minute on a laptop CPU, compilation included)</span>
 <a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax</span><span class="w"> </span><span class="kn">import</span> <span class="n">DreamerV3</span>
 <a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>
@@ -3222,12 +3250,16 @@ the other agents; <code>TDMPC2MultiTask</code> steps no environment while it tra
 <a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>                  <span class="n">batch_size</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span> <span class="n">batch_length</span><span class="o">=</span><span class="mi">16</span><span class="p">)</span>
 <a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="n">state</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">seed</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">1_000</span><span class="p">)</span>
 </code></pre></div>
-<p>Both agents are much heavier than the model-free ones: use a GPU for
-anything beyond a check.</p>
+<p>Both are much heavier than the model-free agents: use a GPU for anything
+beyond a check.</p>
 <h2 id="comparison">Comparison<a class="headerlink" href="#comparison" title="Permanent link">&para;</a></h2>
-<p>What each library offers, as its own pages describe it. Every cell about
-another library links to the page it was read from, on 11 October 2026; the
-Ajax cells link to its documentation.</p>
+<p><a href="https://github.com/DLR-RM/stable-baselines3">Stable-Baselines3</a> (SB3) is a
+PyTorch library of agents, with more in sb3-contrib;
+<a href="https://github.com/araffin/sbx">SBX</a> is its JAX version, and
+<a href="https://github.com/luchris429/purejaxrl">PureJaxRL</a> a set of single-file
+JAX implementations. Each cell about another library links to the page it
+comes from, as read in October 2026; the Ajax cells link to its
+documentation.</p>
 <table>
 <thead>
 <tr>
@@ -3255,14 +3287,14 @@ Ajax cells link to its documentation.</p>
 </tr>
 <tr>
 <td>Average-reward agents</td>
-<td><a href="../../algorithms/asac/">ASAC</a>, <a href="../../algorithms/apo/">APO</a></td>
+<td><a href="../../algorithms/asac/">ASAC</a>, <a href="../../algorithms/rvisac/">RVI-SAC</a>, <a href="../../algorithms/apo/">APO</a></td>
 <td>None listed (<a href="https://stable-baselines3.readthedocs.io/en/master/guide/algos.html">algorithms</a>, <a href="https://github.com/Stable-Baselines-Team/stable-baselines3-contrib">contrib</a>)</td>
 <td>None listed (<a href="https://github.com/araffin/sbx">README</a>)</td>
 <td>None listed (<a href="https://github.com/luchris429/purejaxrl/tree/main/purejaxrl">files</a>)</td>
 </tr>
 <tr>
-<td>Expert-guided agents</td>
-<td>SAC with its expert extensions; cloning before training for TD3, REDQ, ASAC, AVG and APO; an imitation term for those and PPO, APG and UDRL; prior data in the replay for TD3, REDQ, ASAC and DQN (<a href="../../guide/expert-guidance/">Expert guidance</a>)</td>
+<td>Learning from an expert or from data</td>
+<td>Cloning, imitation terms, prior data and hand-over on most agents, offline training, and the DAgger agent (<a href="../../guide/expert-guidance/">Expert guidance</a>)</td>
 <td>None listed in SB3 (<a href="https://stable-baselines3.readthedocs.io/en/master/guide/algos.html">algorithms</a>) or sb3-contrib (<a href="https://github.com/Stable-Baselines-Team/stable-baselines3-contrib">contrib</a>); the guide points to the separate <code>imitation</code> package: behaviour cloning, DAgger, AIRL, GAIL, learning from human preferences (<a href="https://stable-baselines3.readthedocs.io/en/master/guide/imitation.html">imitation</a>)</td>
 <td>None listed (<a href="https://github.com/araffin/sbx">README</a>)</td>
 <td>None listed (<a href="https://github.com/luchris429/purejaxrl">README</a>)</td>
@@ -3276,7 +3308,7 @@ Ajax cells link to its documentation.</p>
 </tr>
 <tr>
 <td>Recurrent memory</td>
-<td>GRU, LSTM, transformer or Mamba for PPO, SAC, TD3, REDQ, TQC, ASAC and APG; DreamerV3 is recurrent by design (<a href="../../guide/memory/">Memory</a>)</td>
+<td>GRU, LSTM, transformer or Mamba, on the agents <a href="../../guide/memory/#which-agents">Memory</a> lists; DreamerV3 is recurrent by design</td>
 <td>RecurrentPPO, an LSTM PPO, in sb3-contrib (<a href="https://github.com/Stable-Baselines-Team/stable-baselines3-contrib">contrib</a>)</td>
 <td>None listed (<a href="https://github.com/araffin/sbx">README</a>)</td>
 <td>A GRU PPO, <code>ppo_rnn.py</code>, and an experimental S5 PPO in <code>experimental/s5</code> (<a href="https://github.com/luchris429/purejaxrl/tree/main/purejaxrl">files</a>)</td>
@@ -3299,73 +3331,69 @@ Ajax cells link to its documentation.</p>
 </table>
 <p>"None listed" means the page cited does not list one; it is not a claim
 about every fork or companion project.</p>
-<h3 id="other-end-to-end-jax-libraries">Other end-to-end JAX libraries<a class="headerlink" href="#other-end-to-end-jax-libraries" title="Permanent link">&para;</a></h3>
+<h3 id="other-libraries">Other libraries<a class="headerlink" href="#other-libraries" title="Permanent link">&para;</a></h3>
 <p>These also compile the environment and the training loop into one JAX
-program, as their repositories read on 17 October 2026:</p>
+program:</p>
 <ul>
 <li><strong><a href="https://github.com/google/brax/tree/main/brax/training/agents">Brax's training agents</a></strong>: PPO, SAC, APG, ARS, ES and
-  behaviour cloning, which can run DAgger online from a teacher policy. They
-  train across devices and hosts. Ajax's <a href="../../algorithms/apg/">APG</a> adds
-  recurrent memory and Busetto et al.'s contextual controller.</li>
-<li><strong><a href="https://github.com/EdanToledo/Stoix">Stoix</a></strong>: about 25 algorithms, among them R2D2, MPO and MuZero.
-  Its Anakin architecture runs end to end with a JAX environment, and
-  Sebulba trains on environments not written in JAX. It trains across
-  devices.</li>
-<li><strong><a href="https://github.com/keraJLi/rejax">Rejax</a></strong>: PPO, SAC, DQN and its variants, PQN, IQN and TD3. The
-  whole run is jitted, and it can be vmapped over seeds and over
-  hyperparameters (<a href="https://github.com/keraJLi/rejax">README</a>).</li>
+  behaviour cloning (with DAgger from a teacher policy), trained across
+  devices and hosts. Ajax's <a href="../../algorithms/apg/">APG</a> adds recurrent
+  memory and Busetto et al.'s contextual controller.</li>
+<li><strong><a href="https://github.com/EdanToledo/Stoix">Stoix</a></strong>: about 25 algorithms, among them R2D2, MPO and MuZero,
+  trained across devices. Its Anakin architecture runs end to end, and
+  Sebulba trains on environments not written in JAX.</li>
+<li><strong><a href="https://github.com/keraJLi/rejax">Rejax</a></strong>: PPO, SAC, DQN and its variants, PQN, IQN and TD3. A
+  whole run is jitted, and can be vmapped over seeds and hyperparameters
+  (<a href="https://github.com/keraJLi/rejax">README</a>).</li>
 </ul>
 <p>CleanRL's <a href="https://docs.cleanrl.dev/rl-algorithms/qdagger/">QDagger</a> also learns from a teacher policy, for
-DQN.</p>
-<h3 id="torchrl-and-tianshou">TorchRL and Tianshou<a class="headerlink" href="#torchrl-and-tianshou" title="Permanent link">&para;</a></h3>
-<p>As their repositories read on 27 October 2026, both take Gymnasium
+DQN. <a href="https://github.com/pytorch/rl">TorchRL</a> and <a href="https://github.com/thu-ml/tianshou">Tianshou</a> take Gymnasium
 environments, and between them their pages list IQL, CQL, GAIL, REDQ, CrossQ
-and Dreamer (<a href="https://github.com/pytorch/rl">TorchRL</a>, <a href="https://github.com/thu-ml/tianshou">Tianshou</a>). Ajax's offline
-agents match what they offer. TorchRL's Dreamer is written in PyTorch and
-steps its environments from Python. Ajax's range of agents is unusual among
-end-to-end JAX libraries, not beside these two.</p>
+and Dreamer, all of which Ajax has; TorchRL's Dreamer is written in PyTorch
+and steps its environments from Python.</p>
 <h2 id="when-to-use-something-else">When to use something else<a class="headerlink" href="#when-to-use-something-else" title="Permanent link">&para;</a></h2>
 <ul>
-<li><strong>Your environment is not written in JAX.</strong> A Gymnasium environment that
-  steps in Python, an external simulator or a real system cannot run inside
-  Ajax's compiled program (<a href="../../guide/environments/">Environments</a>). SB3
-  and SBX take environments with the Gymnasium interface, and SB3 ships a
+<li><strong>Your environment is not written in JAX.</strong> Ajax trains on a Gymnasium
+  environment, but slowly, stepping it in Python
+  (<a href="../../guide/environments/#gymnasium-environments">Gymnasium environments</a>).
+  SB3 and SBX are built around Gymnasium's interface, and SB3 ships a
   checker for it (<a href="https://stable-baselines3.readthedocs.io/en/master/guide/custom_env.html">custom envs</a>, <a href="https://github.com/araffin/sbx">README</a>); TorchRL and
-  Tianshou take them too (<a href="https://github.com/pytorch/rl">TorchRL</a>, <a href="https://github.com/thu-ml/tianshou">Tianshou</a>). For such
-  environments at scale, Stoix has its Sebulba architecture (<a href="https://github.com/EdanToledo/Stoix">Stoix</a>).</li>
-<li><strong>You train one run on several devices.</strong> Ajax splits a run's seeds
-  over devices (<a href="../../guide/performance/">Performance</a>), but each seed
-  trains on one: it has no <code>pmap</code> or sharding. Brax's training agents and
-  Stoix train across devices (<a href="https://github.com/google/brax/tree/main/brax/training/agents">Brax</a>, <a href="https://github.com/EdanToledo/Stoix">Stoix</a>).</li>
+  Tianshou take such environments too (<a href="https://github.com/pytorch/rl">TorchRL</a>,
+  <a href="https://github.com/thu-ml/tianshou">Tianshou</a>), and Stoix's Sebulba architecture trains on them at
+  scale (<a href="https://github.com/EdanToledo/Stoix">Stoix</a>).</li>
+<li><strong>You train one run on several devices.</strong> Ajax splits a run's seeds over
+  devices (<a href="../../guide/performance/">Performance</a>), but each seed trains on
+  one: it has no <code>pmap</code> or sharding. Brax's training agents and Stoix train
+  across devices (<a href="https://github.com/google/brax/tree/main/brax/training/agents">Brax</a>, <a href="https://github.com/EdanToledo/Stoix">Stoix</a>).</li>
 <li><strong>You want to sweep any hyperparameter of any agent in one program.</strong>
-  <code>train(sweep=...)</code> trains several configurations in one program, but only
-  over the numbers an agent declares sweepable, and APG, DreamerV3 and
-  TD-MPC2 declare none (<a href="../../guide/training/#hyperparameter-sweeps">Training an agent</a>).
-  Any other trial compiles anew. Rejax vmaps over hyperparameters as well
-  as seeds (<a href="https://github.com/keraJLi/rejax">README</a>).</li>
-<li><strong>You want a mature, stable library.</strong> SB3 describes itself as stable, with
-  development focused on bug fixes and maintenance, and lists documentation,
-  high code coverage and type hints among its features (<a href="https://github.com/DLR-RM/stable-baselines3">README</a>). It
-  installs with <code>pip</code>, and the RL Baselines3 Zoo adds tuned hyperparameters,
-  pre-trained agents and training scripts (<a href="https://github.com/DLR-RM/stable-baselines3">README</a>). Ajax is on PyPI
-  as <code>ajax-rl</code> (<a href="../installation/">Installation</a>) and has no such zoo.</li>
+  <code>train(sweep=...)</code> varies only the numbers an agent declares sweepable,
+  and APG, DreamerV3 and TD-MPC2 declare none
+  (<a href="../../guide/training/#hyperparameter-sweeps">Hyperparameter sweeps</a>). Any
+  other value compiles a program of its own. Rejax vmaps over
+  hyperparameters as well as seeds (<a href="https://github.com/keraJLi/rejax">README</a>).</li>
+<li><strong>You want a mature, stable library.</strong> SB3 describes itself as stable,
+  focused on bug fixes and maintenance, with documentation, high code
+  coverage and type hints, and its RL Baselines3 Zoo adds tuned
+  hyperparameters, pre-trained agents and training scripts (<a href="https://github.com/DLR-RM/stable-baselines3">README</a>).
+  Ajax is younger, with no zoo or pre-trained agents.</li>
 <li><strong>Your observations are dictionaries.</strong> SB3 supports single-level <code>Dict</code>
-  observation spaces (<a href="https://stable-baselines3.readthedocs.io/en/master/guide/algos.html">algorithms</a>); Ajax's networks read one flat
-  vector, and it flattens image observations into one
-  (<a href="../../guide/networks/">Networks</a>).</li>
+  observation spaces (<a href="https://stable-baselines3.readthedocs.io/en/master/guide/algos.html">algorithms</a>); Ajax's networks read one
+  flat vector, and flatten an image into one
+  (<a href="../../guide/networks/#image-observations">Networks</a>).</li>
 <li><strong>You want SB3's interface with JAX networks.</strong> SBX shares SB3's API and
-  works with the RL Zoo (<a href="https://github.com/araffin/sbx">README</a>). It calls itself a proof of concept
-  (<a href="https://github.com/araffin/sbx">README</a>).</li>
-<li><strong>You want to read or change one algorithm in one file.</strong> PureJaxRL's
-  implementations are single files, not a library meant to be imported
-  (<a href="https://github.com/luchris429/purejaxrl">README</a>). Its README reports its own speed comparisons with PyTorch
-  implementations, including on a GPU; Ajax has
-  <a href="../../guide/performance/#cpu-or-gpu">its own GPU speeds</a> but no comparison
-  with PureJaxRL there.</li>
+  works with the RL Zoo; it calls itself a proof of concept (<a href="https://github.com/araffin/sbx">README</a>).</li>
+<li><strong>You want an algorithm in one file, with nothing imported.</strong> PureJaxRL's
+  implementations are single files, not a library to import (<a href="https://github.com/luchris429/purejaxrl">README</a>);
+  an Ajax agent's file holds its algorithm, on a shared loop, networks and
+  logging. PureJaxRL's README compares its speed with PyTorch
+  implementations; <a href="../../guide/performance/#cpu-or-gpu">Ajax's speeds</a>
+  include no comparison with PureJaxRL.</li>
 <li><strong>You need an algorithm Ajax does not have,</strong> such as A2C, TRPO or
   invalid-action masking: SB3, sb3-contrib or SBX have them
   (<a href="https://stable-baselines3.readthedocs.io/en/master/guide/algos.html">algorithms</a>, <a href="https://github.com/Stable-Baselines-Team/stable-baselines3-contrib">contrib</a>, <a href="https://github.com/araffin/sbx">README</a>).</li>
 </ul>
+<p>Coming from Stable-Baselines3? <a href="../coming-from-sb3/">Coming from SB3</a> puts
+its calls and defaults beside Ajax's.</p>
 
 
 

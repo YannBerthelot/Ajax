@@ -3026,8 +3026,8 @@
 <h1 id="checkpoints-and-resuming">Checkpoints and resuming<a class="headerlink" href="#checkpoints-and-resuming" title="Permanent link">&para;</a></h1>
 <p>A run can stop and continue: in the same process by passing its state back
 to <code>train</code>, or in another process through a checkpoint file. Either way the
-continued run is the run that never stopped, up to rounding. The tests check
-it state by state for every agent (<a href="#what-the-tests-guarantee">below</a>).</p>
+continued run is the run that never stopped, up to rounding; the tests
+check it for every agent (<a href="#what-the-tests-guarantee">below</a>).</p>
 <h2 id="in-the-same-process">In the same process<a class="headerlink" href="#in-the-same-process" title="Permanent link">&para;</a></h2>
 <p><code>train</code> returns the whole agent state. Passing it back as <code>initial_state</code>
 continues the run from its timestep:</p>
@@ -3039,11 +3039,11 @@ continues the run from its timestep:</p>
 <a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="nb">print</span><span class="p">(</span><span class="n">state</span><span class="o">.</span><span class="n">collector_state</span><span class="o">.</span><span class="n">timestep</span><span class="p">)</span>  <span class="c1"># [2000 2000]</span>
 </code></pre></div>
 <p>Pass the same seeds in every call. The state carries each run's random
-streams, so a resumed run continues the same whatever seeds the call names;
-they only name the runs in the logs and in <code>agent.members</code>, and <code>train</code> cannot
-tell that they changed. A different number of seeds is refused. The call may
-reuse the memory of the state you pass in, so read or save what you need from
-it first.</p>
+streams, so a resumed run continues the same whatever seeds the call names:
+they only name the runs in the logs and in <code>agent.members</code>, and <code>train</code>
+cannot tell that they changed. A different number of seeds is refused. The
+call may reuse the memory of the state you pass in, so read or save what
+you need from it first.</p>
 <h2 id="save-and-load-an-agent">Save and load an agent<a class="headerlink" href="#save-and-load-an-agent" title="Permanent link">&para;</a></h2>
 <p><code>agent.save</code> writes the state together with the agent's class and its
 arguments, and <code>load</code> gives both back, so the loading script does not build
@@ -3064,15 +3064,23 @@ the agent again:</p>
 <a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a><span class="nb">print</span><span class="p">(</span><span class="n">agent</span><span class="o">.</span><span class="n">gamma</span><span class="p">)</span>  <span class="c1"># 0.98</span>
 <a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a><span class="n">state</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">seed</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">],</span> <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">2_048</span><span class="p">,</span> <span class="n">initial_state</span><span class="o">=</span><span class="n">state</span><span class="p">)</span>
 </code></pre></div>
-<p>The file stores the arguments that are plain values: ids, numbers, strings,
-architectures, a memory configuration. An argument that is an object (a
-prebuilt environment, extensions, an expert policy) is not stored: <code>load</code>
-refuses, naming it, until you pass it again, as in
-<code>ajax.load(path, extensions=(...,))</code>. Any other argument given to <code>load</code>
-replaces the stored one. <code>train_options</code> goes to the 0-step <code>train</code> call
-that rebuilds the state (<a href="#across-processes">below</a>).</p>
-<p>The file is also a checkpoint: <code>load_checkpoint</code> and <code>restore_into</code> read it.
-Like any checkpoint it is a pickle, so load only files you trust.</p>
+<ul>
+<li><strong>What the file stores.</strong> The state, which <code>load_checkpoint</code> and
+  <code>restore_into</code> read too, and the arguments that are plain values: ids,
+  numbers, strings, architectures, a memory configuration.</li>
+<li><strong>What you pass again.</strong> An argument that is an object (a prebuilt
+  environment, extensions, an expert policy) is not stored: <code>load</code> refuses,
+  naming it, until you pass it again, as in
+  <code>ajax.load(path, extensions=(...,))</code>. Any other argument given to <code>load</code>
+  replaces the stored one.</li>
+<li><strong>Options of the original <code>train</code> call.</strong> <code>train_options</code> goes to the
+  0-step <code>train</code> call that rebuilds the state
+  (<a href="#across-processes">below</a>).</li>
+</ul>
+<div class="admonition warning">
+<p class="admonition-title">Load only files you trust</p>
+<p>A checkpoint is a pickle, and unpickling can run code.</p>
+</div>
 <h2 id="across-processes">Across processes<a class="headerlink" href="#across-processes" title="Permanent link">&para;</a></h2>
 <p><code>ajax.checkpoint</code> has four functions:</p>
 <table>
@@ -3085,11 +3093,11 @@ Like any checkpoint it is a pickle, so load only files you trust.</p>
 <tbody>
 <tr>
 <td><code>save_checkpoint(state, path)</code></td>
-<td>writes the state's arrays and counters to <code>path</code>, atomically (a crash mid-write leaves the previous file intact)</td>
+<td>writes the state's arrays and counters to <code>path</code>, atomically: a crash mid-write leaves the previous file intact</td>
 </tr>
 <tr>
 <td><code>load_checkpoint(agent, path, **train_options)</code></td>
-<td>loads <code>path</code> into <code>agent</code>, an agent built with the same arguments: <code>restore_into</code> on a 0-step <code>train</code> of as many seeds as the file holds, given <code>train_options</code></td>
+<td>loads <code>path</code> into <code>agent</code>, an agent built with the same arguments: <code>restore_into</code> on a 0-step <code>train</code> call of as many seeds as the file holds, given <code>train_options</code></td>
 </tr>
 <tr>
 <td><code>restore_into(skeleton, path)</code></td>
@@ -3102,15 +3110,16 @@ Like any checkpoint it is a pickle, so load only files you trust.</p>
 </tbody>
 </table>
 <p>A checkpoint stores data only. The optimisers' update rules and the
-networks' functions are code, not data: they come from the skeleton, which
-an identically configured agent builds with a 0-step <code>train</code> call given the
-run's <code>train</code> options (an update rule may depend on them, as APG's
-learning-rate schedule does, <a href="#things-to-know">below</a>). <code>load_checkpoint</code>
-passes on the options you give it, as <code>restore_into</code> on such a skeleton
-does; without any, it serves a run trained with <code>train</code>'s defaults and a
-policy to act with (<a href="../deploy/">Train, evaluate, deploy</a>). The agent may be a
-new instance in a new process. A run that saves a checkpoint after each
-chunk of training, and picks up from the last one when restarted:</p>
+networks' functions are code, not data: they come from the skeleton, the
+state an identically configured agent builds with a 0-step <code>train</code> call.
+That call takes the run's <code>train</code> options, since an update rule may depend
+on them, as APG's learning-rate schedule does (<a href="#things-to-know">below</a>).
+<code>load_checkpoint</code> passes on the options you give it; without any, it serves
+a run trained with <code>train</code>'s defaults, and a policy to act with
+(<a href="../deploy/">Train, evaluate, deploy</a>). The agent may be a new instance in a
+new process.</p>
+<p>A run that saves a checkpoint after each chunk of training, and picks up
+from the last one when restarted:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
 <a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="kn">import</span><span class="w"> </span><span class="nn">tempfile</span>
 <a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>
@@ -3126,40 +3135,39 @@ chunk of training, and picks up from the last one when restarted:</p>
 <a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a><span class="k">if</span> <span class="n">checkpoint_exists</span><span class="p">(</span><span class="n">path</span><span class="p">):</span>
 <a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a>    <span class="n">state</span> <span class="o">=</span> <span class="n">restore_into</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="n">path</span><span class="p">)</span>
 <a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a>
-<a id="__codelineno-2-16" name="__codelineno-2-16" href="#__codelineno-2-16"></a><span class="k">while</span> <span class="p">(</span><span class="n">done</span> <span class="o">:=</span> <span class="nb">int</span><span class="p">(</span><span class="n">state</span><span class="o">.</span><span class="n">collector_state</span><span class="o">.</span><span class="n">timestep</span><span class="p">[</span><span class="mi">0</span><span class="p">]))</span> <span class="o">&lt;</span> <span class="n">total</span><span class="p">:</span>
-<a id="__codelineno-2-17" name="__codelineno-2-17" href="#__codelineno-2-17"></a>    <span class="n">state</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span>
-<a id="__codelineno-2-18" name="__codelineno-2-18" href="#__codelineno-2-18"></a>        <span class="n">seed</span><span class="o">=</span><span class="n">seeds</span><span class="p">,</span>
-<a id="__codelineno-2-19" name="__codelineno-2-19" href="#__codelineno-2-19"></a>        <span class="n">n_timesteps</span><span class="o">=</span><span class="nb">min</span><span class="p">(</span><span class="n">chunk</span><span class="p">,</span> <span class="n">total</span> <span class="o">-</span> <span class="n">done</span><span class="p">),</span>
-<a id="__codelineno-2-20" name="__codelineno-2-20" href="#__codelineno-2-20"></a>        <span class="n">initial_state</span><span class="o">=</span><span class="n">state</span><span class="p">,</span>
-<a id="__codelineno-2-21" name="__codelineno-2-21" href="#__codelineno-2-21"></a>        <span class="n">total_timesteps</span><span class="o">=</span><span class="n">total</span><span class="p">,</span>  <span class="c1"># the schedules run over the whole run</span>
-<a id="__codelineno-2-22" name="__codelineno-2-22" href="#__codelineno-2-22"></a>    <span class="p">)</span>
-<a id="__codelineno-2-23" name="__codelineno-2-23" href="#__codelineno-2-23"></a>    <span class="n">save_checkpoint</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="n">path</span><span class="p">)</span>
-<a id="__codelineno-2-24" name="__codelineno-2-24" href="#__codelineno-2-24"></a><span class="nb">print</span><span class="p">(</span><span class="n">state</span><span class="o">.</span><span class="n">collector_state</span><span class="o">.</span><span class="n">timestep</span><span class="p">)</span>  <span class="c1"># [2000 2000]</span>
+<a id="__codelineno-2-16" name="__codelineno-2-16" href="#__codelineno-2-16"></a><span class="n">done</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">state</span><span class="o">.</span><span class="n">collector_state</span><span class="o">.</span><span class="n">timestep</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+<a id="__codelineno-2-17" name="__codelineno-2-17" href="#__codelineno-2-17"></a><span class="k">while</span> <span class="n">done</span> <span class="o">&lt;</span> <span class="n">total</span><span class="p">:</span>
+<a id="__codelineno-2-18" name="__codelineno-2-18" href="#__codelineno-2-18"></a>    <span class="n">state</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span>
+<a id="__codelineno-2-19" name="__codelineno-2-19" href="#__codelineno-2-19"></a>        <span class="n">seed</span><span class="o">=</span><span class="n">seeds</span><span class="p">,</span>
+<a id="__codelineno-2-20" name="__codelineno-2-20" href="#__codelineno-2-20"></a>        <span class="n">n_timesteps</span><span class="o">=</span><span class="nb">min</span><span class="p">(</span><span class="n">chunk</span><span class="p">,</span> <span class="n">total</span> <span class="o">-</span> <span class="n">done</span><span class="p">),</span>
+<a id="__codelineno-2-21" name="__codelineno-2-21" href="#__codelineno-2-21"></a>        <span class="n">initial_state</span><span class="o">=</span><span class="n">state</span><span class="p">,</span>
+<a id="__codelineno-2-22" name="__codelineno-2-22" href="#__codelineno-2-22"></a>        <span class="n">total_timesteps</span><span class="o">=</span><span class="n">total</span><span class="p">,</span>  <span class="c1"># the schedules run over the whole run</span>
+<a id="__codelineno-2-23" name="__codelineno-2-23" href="#__codelineno-2-23"></a>    <span class="p">)</span>
+<a id="__codelineno-2-24" name="__codelineno-2-24" href="#__codelineno-2-24"></a>    <span class="n">save_checkpoint</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="n">path</span><span class="p">)</span>
+<a id="__codelineno-2-25" name="__codelineno-2-25" href="#__codelineno-2-25"></a>    <span class="n">done</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">state</span><span class="o">.</span><span class="n">collector_state</span><span class="o">.</span><span class="n">timestep</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+<a id="__codelineno-2-26" name="__codelineno-2-26" href="#__codelineno-2-26"></a><span class="nb">print</span><span class="p">(</span><span class="n">state</span><span class="o">.</span><span class="n">collector_state</span><span class="o">.</span><span class="n">timestep</span><span class="p">)</span>  <span class="c1"># [2000 2000]</span>
 </code></pre></div>
-<p>The file is a pickle. Load only checkpoints you trust, since unpickling can
-run code. Arrays of 16 MiB or more (a large replay) are stored after the
+<p>Arrays of 16 MiB or more, such as a large replay, are stored after the
 pickle stream, and a restore copies each one once, from the file to where
 the state keeps it: a resume holds no second copy of the replay.</p>
 <h2 id="what-a-resume-keeps">What a resume keeps<a class="headerlink" href="#what-a-resume-keeps" title="Permanent link">&para;</a></h2>
-<p>Everything in the state: the network parameters, the optimisers' moments and
-step counts, the replay buffer, each environment copy where it stood (in the
-middle of an episode, if it was), the observation and reward statistics,
-the memory carries, a stateful expert's state, the random keys, the
-extensions' states, and the counters. Because the counters come back, the
-evaluations continue on their cadence, each from the key of its own count:
-a run split in two logs and evaluates at the same steps, on the same
+<p>Everything in the state: the network parameters, the optimisers' moments
+and step counts, the replay buffer, each environment copy where it stood
+(in the middle of an episode, if it was), the observation and reward
+statistics, the memory carries, a stateful expert's state, the random keys,
+the extensions' states and the counters. Because the counters come back,
+the evaluations keep their cadence, each from the key of its own count: a
+run split in two logs and evaluates at the same steps, on the same
 episodes, as the run left whole.</p>
-<p>Schedules continue rather than restart. Each call trains from the timestep
-it was given to that timestep plus <code>n_timesteps</code>, and measures the training
-fraction, the exploration, the extensions' schedules and the logging
-against the horizon <code>total_timesteps</code>. Pass the whole run's horizon to every
-call, as the loop above does, and a split run follows the schedules of one
-call; without it, each call's horizon is its own end.</p>
+<p>Schedules continue rather than restart, and run to the horizon
+<code>total_timesteps</code>. Pass the whole run's horizon to every call, as the loop
+above does, and a split run follows the schedules of one call; without it,
+each call's horizon is its own end
+(<a href="../training/#continuing-a-run">Continuing a run</a>).</p>
 <h2 id="what-the-tests-guarantee">What the tests guarantee<a class="headerlink" href="#what-the-tests-guarantee" title="Permanent link">&para;</a></h2>
-<p>The resume tests train a run in one call and again in two. Between the
-two calls they save the state, check that it restores leaf for leaf into a
-new agent's skeleton, and continue from the restored state on that new
-agent; then they compare the two end states:</p>
+<p>The resume tests train a run in one call and again in two. Between the two
+calls they save the state, restore it into a new agent's skeleton, and
+continue from it on that new agent; then they compare the two end states:</p>
 <table>
 <thead>
 <tr>
@@ -3169,8 +3177,8 @@ agent; then they compare the two end states:</p>
 </thead>
 <tbody>
 <tr>
-<td>SAC, ASAC, REDQ, TD3, AVG, APO, PPO, DQN, PQN, UDRL</td>
-<td>every array of the final state equal, to a relative 1e-5, with every normalisation the agent takes switched on and every call told the run's horizon (DQN's and PQN's epsilon decays across the split); once more with a GRU memory for SAC, ASAC, REDQ, TD3 and PPO</td>
+<td>DAgger, SAC, ASAC, RVI-SAC, REDQ, TD3, TQC, CrossQ, IQL, AVG, APO, PPO, REINFORCE, DQN, PQN, UDRL</td>
+<td>every array of the final state equal, to a relative 1e-5 (CrossQ to an absolute 1e-4), with every normalisation the agent takes switched on and every call told the run's horizon; once more with a GRU memory for the agents that take one</td>
 </tr>
 <tr>
 <td>APG</td>
@@ -3182,25 +3190,23 @@ agent; then they compare the two end states:</p>
 </tr>
 </tbody>
 </table>
+<p>For SAC, DQN, PPO and PQN they also check that the two halves log and
+evaluate at exactly the steps the whole run does.</p>
 <p>The tolerance is there because two programs compiled apart may round
-differently. On physics tasks that rounding can grow: PPO on HumanoidWalk,
-paused once on a CPU, ended with different weights from the unbroken run, and
-so did PPO on CheetahRun on a GPU. Each is still a valid run, but not the same
-run. On a GPU, <code>XLA_FLAGS=--xla_gpu_deterministic_ops=true</code> removed the gap on
-both tasks. A test fails if an agent is added without a row, or one that
-takes normalisation or memory without the rows for them. Logging is checked
-too: for SAC, DQN, PPO and PQN, the two halves log and evaluate at exactly
-the steps the whole run does.</p>
+differently, and on physics tasks that rounding can grow. PPO on
+HumanoidWalk, paused once on a CPU, ended with different weights from the
+unbroken run, and so did PPO on CheetahRun on a GPU: each a valid run, but
+not the same run. On a GPU, <code>XLA_FLAGS=--xla_gpu_deterministic_ops=true</code>
+removed the gap on both tasks.</p>
 <h2 id="things-to-know">Things to know<a class="headerlink" href="#things-to-know" title="Permanent link">&para;</a></h2>
 <ul>
 <li><strong>The seeds must stand at the same timestep.</strong> A state whose seeds
   disagree on the timestep cannot be resumed and raises an error.</li>
-<li><strong>On-policy agents train whole rollouts.</strong> PPO, APO, REINFORCE and PQN train the
-  whole rollouts (<code>n_envs x n_steps</code> steps) a call's <code>n_timesteps</code> holds, at
-  least one, and warn when it is not a whole number of them. A run split
-  into calls of whole rollouts ends where one call does
-  (<a href="../training/#continuing-a-run">Continuing a run</a>); otherwise it may end
-  elsewhere.</li>
+<li><strong>On-policy agents train whole rollouts.</strong> PPO, APO, REINFORCE and PQN
+  train the whole rollouts (<code>n_envs x n_steps</code> steps) a call's
+  <code>n_timesteps</code> holds, at least one. A run split into calls of whole
+  rollouts ends where one call does; otherwise it may end elsewhere
+  (<a href="../training/#the-budget">The budget</a>).</li>
 <li><strong>A resumed call logs as new runs.</strong> Each <code>train</code> call opens a run per
   seed with a new run id, so a run made of two calls leaves two TensorBoard
   folders (or W&amp;B runs) per seed; their steps continue, and each run's
@@ -3212,45 +3218,45 @@ the steps the whole run does.</p>
   the skeleton: give that call <code>reset_optimizer_on_resume=False</code> and the
   run's <code>total_timesteps</code> too, and the schedule spans the run.</li>
 <li><strong>Checkpoints follow the code.</strong> A checkpoint restores into the state
-  layout of the Ajax version that loads it. When a layout changes, Ajax keeps
-  a conversion for older checkpoints for a while, then removes it. Today
-  these restore:<ul>
-<li>a replay buffer saved before it stored each row's next observation
+  layout of the Ajax version that loads it. When a layout changes, Ajax
+  converts older checkpoints for a while, then drops the conversion; a file
+  it cannot convert raises, naming what differs.</li>
+</ul>
+<details class="note">
+<summary>The older checkpoints that restore today</summary>
+<ul>
+<li>A replay buffer saved before it stored each row's next observation
   (<code>next_obs</code>, or the environment's own <code>raw_next_obs</code>): the field is
-  rebuilt from the following row, which is what that replay read then;</li>
-<li>a replay buffer saved with the raw observations and expert flags in a
+  rebuilt from the following row, which is what that replay read then.</li>
+<li>A replay buffer saved with the raw observations and expert flags in a
   run without an expert, from before the buffer kept them only for an
-  expert: it keeps them, and the resumed run keeps writing them;</li>
-<li>a state saved before a field that the new layout leaves empty existed:
+  expert: it keeps them, and the resumed run keeps writing them.</li>
+<li>A state saved before a field that the new layout leaves empty existed:
   the field is restored empty. A missing field that holds data is a
-  mismatch and still raises;</li>
-<li>an on-policy agent's state saved while its observation statistics
-  lived in the environment's normaliser (before 2026-10-23): they move
-  to the collector, a gymnax run's statistics, one set per copy, merged
-  into one, and a Brax state gets its raw observation back;</li>
+  mismatch and still raises.</li>
+<li>An on-policy agent's state saved while its observation statistics
+  lived in the environment's normaliser: they move to the collector (a
+  gymnax run's statistics, one set per copy, merged into one), and a
+  Brax state gets its raw observation back.</li>
 <li>UDRL's segment buffer saved with <code>cum_rewards</code>, a running sum of its
   rewards that nothing read: the field is dropped. A saved field that
   the new layout lacks and does not list as removed is a mismatch and
-  still raises;</li>
-<li>a PPO's or an APO's optimiser state saved when that optimiser
-  clipped its network's gradient (<code>max_grad_norm</code>), as PPO's two did
-  before PPO took ppo2's one clip over both networks, and APO's two
-  before APO took its official code's, into an optimiser without the
-  clip: the clip holds no data, so the moments and step counts are
-  kept. Another agent's is refused;</li>
-<li>an optimiser state saved with one Adam moment array per parameter
-  array, from before Ajax's optimisers held each moment as one vector
-  over every parameter (2026-11-12): the arrays are joined into that
-  vector, every moment and step count kept. A state missing a
-  parameter's moment is refused;</li>
-<li>a state saved before collection drew on its own stream of keys
-  (checkpoint format 2, 2026-10-27): its collector's key restarts from
-  one derived from the updates' key, since the one it held was an
-  ancestor of the updates' key and would hand out keys they had already
-  drawn.</li>
+  still raises.</li>
+<li>A PPO's or an APO's optimiser state saved when each network's
+  optimiser clipped its own gradient (<code>max_grad_norm</code>), before they took
+  their reference codes' one clip over both networks: the clip holds no
+  data, so the moments and step counts are kept. Another agent's is
+  refused.</li>
+<li>An optimiser state saved with one Adam moment array per parameter
+  array, from before the optimisers held each moment as one vector over
+  every parameter: the arrays are joined into that vector, every moment
+  and step count kept. A state missing a parameter's moment is refused.</li>
+<li>A state saved before collection drew on its own stream of keys
+  (checkpoint format 2): its collector's key restarts from one derived
+  from the updates' key, since the one it held was an ancestor of the
+  updates' key and would hand out keys they had already drawn.</li>
 </ul>
-</li>
-</ul>
+</details>
 
 
 

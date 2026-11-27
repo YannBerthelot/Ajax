@@ -1348,10 +1348,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#can-i-use" class="md-nav__link">
+  <a href="#when-to-use-it" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Can I use?
+        When to use it
       
     </span>
   </a>
@@ -1385,6 +1385,17 @@
     <span class="md-ellipsis">
       
         Presets
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#differences-from-the-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Differences from the reference
       
     </span>
   </a>
@@ -3005,10 +3016,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#can-i-use" class="md-nav__link">
+  <a href="#when-to-use-it" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Can I use?
+        When to use it
       
     </span>
   </a>
@@ -3042,6 +3053,17 @@
     <span class="md-ellipsis">
       
         Presets
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#differences-from-the-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Differences from the reference
       
     </span>
   </a>
@@ -3168,51 +3190,70 @@
 
 
 <h1 id="tqc">TQC<a class="headerlink" href="#tqc" title="Permanent link">&para;</a></h1>
-<p>TQC is SAC with distributional critics. Each of its critics predicts
-quantiles of the return. The target pools every target critic's quantiles
-at the next state and action, sorts them, and drops the largest, which
-controls the overestimation a maximising actor feeds on. Every critic
-regresses its quantiles on the remaining atoms with the quantile Huber loss.
-The actor maximises the mean of all the critics' quantiles.</p>
-<p><strong>Paper.</strong> Kuznetsov, Shvechikov, Grishin and Vetrov, <em>Controlling
+<p>TQC is SAC with distributional critics: each critic predicts quantiles of
+the return. The target pools every target critic's quantiles at the next
+state and action, sorts them, and drops the largest, which controls the
+over-estimation a maximising actor feeds on. Every critic regresses its
+quantiles on the remaining atoms with the quantile Huber loss, and the
+actor maximises the mean of all the critics' quantiles.</p>
+<p><strong>Paper:</strong> Kuznetsov, Shvechikov, Grishin and Vetrov, <em>Controlling
 Overestimation Bias with Truncated Mixture of Continuous Distributional
 Quantile Critics</em>, ICML 2020
-(<a href="https://arxiv.org/abs/2005.04269">arXiv:2005.04269</a>). Where the authors'
-code (<code>bayesgroup/tqc_pytorch</code>, archived by Software Heritage as
-<code>swh:1:rev:65114eba5d868e9f0355e33b96acab7530191f16</code>) is more specific, Ajax
-follows the code.</p>
-<h2 id="can-i-use">Can I use?<a class="headerlink" href="#can-i-use" title="Permanent link">&para;</a></h2>
+(<a href="https://arxiv.org/abs/2005.04269">arXiv:2005.04269</a>). Ajax follows the
+authors' code, <code>bayesgroup/tqc_pytorch</code> as Software Heritage archives it
+(<code>swh:1:rev:65114eba5d868e9f0355e33b96acab7530191f16</code>).</p>
+<h2 id="when-to-use-it">When to use it<a class="headerlink" href="#when-to-use-it" title="Permanent link">&para;</a></h2>
+<p>TQC suits the tasks <a href="../sac/">SAC</a> suits, with one knob more for
+over-estimation: the number of quantiles dropped, which its authors tune
+per task (the presets). Its five critics of three 512-unit layers make
+each step costly on a CPU.</p>
 <table>
 <thead>
 <tr>
-<th></th>
+<th>Feature</th>
 <th>TQC</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>Continuous actions (<code>Box</code>)</td>
-<td>Yes</td>
-</tr>
-<tr>
 <td>Discrete actions</td>
-<td>No</td>
+<td>no</td>
 </tr>
 <tr>
-<td>Learning</td>
-<td>Off-policy, replay buffer</td>
+<td>Continuous actions</td>
+<td>yes, a <code>tanh</code>-squashed Gaussian, mapped onto the environment's bounds</td>
 </tr>
 <tr>
-<td>Vectorised environments (<code>n_envs</code>)</td>
-<td>Yes</td>
+<td>Memory (<code>memory=</code>)</td>
+<td>yes, on replayed sequences, without <code>expert_policy</code> or most extensions (<a href="../../guide/memory/">Memory</a>)</td>
 </tr>
 <tr>
-<td>Recurrent memory (<code>memory=</code>)</td>
-<td>Yes: Ni et al. (2022)'s recurrent networks, on replayed windows</td>
+<td>Environments</td>
+<td>gymnax, Brax, MuJoCo Playground</td>
+</tr>
+<tr>
+<td>Image observations</td>
+<td>no</td>
+</tr>
+<tr>
+<td>PID policy</td>
+<td>yes, <code>actor_architecture=PIDPolicy(...)</code> (<a href="../../guide/networks/">Networks</a>)</td>
+</tr>
+<tr>
+<td>Several seeds in one call</td>
+<td>yes, <code>train(seed=[...])</code></td>
+</tr>
+<tr>
+<td>Offline training</td>
+<td>yes, <code>train_offline</code> (<a href="../../guide/training/#training-offline">Training</a>)</td>
 </tr>
 <tr>
 <td>Extension phases</td>
-<td><code>pretrain</code>, <code>post_update</code>, <code>eval_metrics</code>, <code>observe</code>, <code>on_target</code>, <code>critic_loss</code>, <code>actor_loss</code>, <code>transform_action</code>, <code>actuate</code>, <code>choose_replay_action</code></td>
+<td><code>pretrain</code>, <code>post_update</code>, <code>eval_metrics</code>, <code>observe</code>, <code>on_target</code>, <code>critic_loss</code>, <code>actor_loss</code>, <code>action</code>, <code>eval_action</code>, <code>transform_action</code>, <code>actuate</code>, <code>choose_replay_action</code>, <code>track_memory</code> (<a href="../../guide/compatibility/">which extensions run</a>)</td>
+</tr>
+<tr>
+<td>Resume and checkpoints</td>
+<td>yes; a run split by a checkpoint equals the run left whole</td>
 </tr>
 </tbody>
 </table>
@@ -3227,7 +3268,8 @@ follows the code.</p>
 <a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="nb">print</span><span class="p">(</span><span class="n">evaluations</span><span class="p">[</span><span class="s2">&quot;Eval/episodic mean reward&quot;</span><span class="p">])</span>  <span class="c1"># one row per seed</span>
 </code></pre></div>
 <h2 id="key-hyperparameters">Key hyperparameters<a class="headerlink" href="#key-hyperparameters" title="Permanent link">&para;</a></h2>
-<p>Defaults are read from <code>TQC.__init__</code>, the authors' <code>main.py</code> and <code>tqc/</code>.</p>
+<p>The defaults are the authors' code's (<code>main.py</code> and <code>tqc/</code>). The
+<a href="#api">API</a> section lists every argument.</p>
 <table>
 <thead>
 <tr>
@@ -3245,16 +3287,16 @@ follows the code.</p>
 <tr>
 <td><code>actor_learning_rate</code>, <code>critic_learning_rate</code>, <code>alpha_learning_rate</code></td>
 <td><code>3e-4</code></td>
-<td>Adam step sizes</td>
+<td>Adam step sizes (epsilon <code>1e-8</code>, torch's)</td>
 </tr>
 <tr>
 <td><code>actor_architecture</code></td>
 <td><code>("256", "relu", "256", "relu")</code></td>
-<td>actor hidden layers</td>
+<td>the actor's hidden layers</td>
 </tr>
 <tr>
 <td><code>critic_architecture</code></td>
-<td>three <code>"512", "relu"</code></td>
+<td><code>("512", "relu", "512", "relu", "512", "relu")</code></td>
 <td>each critic's hidden layers</td>
 </tr>
 <tr>
@@ -3270,7 +3312,7 @@ follows the code.</p>
 <tr>
 <td><code>top_quantiles_to_drop_per_net</code></td>
 <td><code>2</code></td>
-<td>pooled target quantiles dropped per critic; the paper tunes it per task: <a href="#presets">Presets</a></td>
+<td>pooled target quantiles dropped per critic; the paper tunes it per task (<a href="#presets">Presets</a>)</td>
 </tr>
 <tr>
 <td><code>gamma</code></td>
@@ -3280,7 +3322,7 @@ follows the code.</p>
 <tr>
 <td><code>tau</code></td>
 <td><code>0.005</code></td>
-<td>target networks' Polyak rate</td>
+<td>Polyak rate of the target critics</td>
 </tr>
 <tr>
 <td><code>buffer_size</code></td>
@@ -3290,12 +3332,12 @@ follows the code.</p>
 <tr>
 <td><code>batch_size</code></td>
 <td><code>None</code></td>
-<td>replay minibatch: 256 rows, or 64 windows with <code>memory=</code></td>
+<td>rows per update: 256, or 64 sequences with <code>memory=</code></td>
 </tr>
 <tr>
 <td><code>learning_starts</code></td>
 <td><code>257</code></td>
-<td>the step of the first update; the policy acts from the first step (no uniform warm-up)</td>
+<td>the step of the first update; the policy acts from the first step, with no uniform warm-up</td>
 </tr>
 <tr>
 <td><code>alpha_init</code></td>
@@ -3305,7 +3347,7 @@ follows the code.</p>
 <tr>
 <td><code>target_entropy_per_dim</code></td>
 <td><code>-1.0</code></td>
-<td>target entropy, times the action dimension</td>
+<td>target entropy per action dimension</td>
 </tr>
 <tr>
 <td><code>reward_scale</code></td>
@@ -3313,40 +3355,41 @@ follows the code.</p>
 <td>multiplies the rewards in the target</td>
 </tr>
 <tr>
-<td><code>memory</code>, <code>burn_in</code>, <code>sequence_length</code>, <code>stored_state</code></td>
-<td><code>None</code>, <code>0</code>, <code>64</code>, <code>False</code></td>
-<td>recurrent memory and its sequence replay</td>
-</tr>
-<tr>
-<td><code>max_grad_norm</code>, <code>weight_decay</code></td>
-<td><code>None</code>, <code>0.0</code></td>
-<td>gradient clipping, decoupled weight decay</td>
+<td><code>max_grad_norm</code></td>
+<td><code>None</code></td>
+<td>gradient clipping</td>
 </tr>
 <tr>
 <td><code>normalize_observations</code>, <code>normalize_rewards</code></td>
 <td><code>False</code></td>
-<td>running normalisation</td>
+<td>running normalisation (<a href="../../guide/environments/">Environments</a>)</td>
 </tr>
 <tr>
-<td><code>expert_policy</code></td>
-<td><code>None</code></td>
-<td>an expert whose return the evaluation reports next to the agent's</td>
+<td><code>memory</code>, <code>burn_in</code>, <code>sequence_length</code>, <code>stored_state</code></td>
+<td><code>None</code>, <code>0</code>, <code>64</code>, <code>False</code></td>
+<td>recurrent memory and its sequence replay (<a href="../../guide/memory/">Memory</a>)</td>
 </tr>
 <tr>
 <td><code>episode_length</code>, <code>action_repeat</code></td>
 <td><code>None</code>, <code>1</code></td>
-<td>simulator steps per episode and per agent step, on Brax and Playground</td>
+<td>simulator steps per episode and per agent step, on Brax and Playground; <code>None</code> is 1,000 steps, or a <code>mujoco:</code> task's own time limit (<a href="../../guide/environments/#brax-and-playground">Environments</a>)</td>
+</tr>
+<tr>
+<td><code>expert_policy</code></td>
+<td><code>None</code></td>
+<td>an expert the run tracks; each evaluation logs its return next to the agent's</td>
 </tr>
 <tr>
 <td><code>extensions</code></td>
 <td><code>()</code></td>
-<td>research features (see <a href="../../guide/extensions/">Extensions</a>)</td>
+<td>research features (<a href="../../guide/extensions/">Extensions</a>)</td>
 </tr>
 </tbody>
 </table>
 <h2 id="presets">Presets<a class="headerlink" href="#presets" title="Permanent link">&para;</a></h2>
 <p><code>TQC.preset(task, env_id)</code> drops the authors' number of quantiles for the
-task (bayesgroup/tqc_pytorch, <code>README.md:42-48</code>; the paper's Table 6; <a href="../../guide/training/#presets">Presets</a>).</p>
+task (<code>README.md:42-48</code>, the paper's Table 6;
+<a href="../../guide/training/#presets">Presets</a>).</p>
 <table>
 <thead>
 <tr>
@@ -3369,41 +3412,41 @@ task (bayesgroup/tqc_pytorch, <code>README.md:42-48</code>; the paper's Table 6;
 </tr>
 </tbody>
 </table>
+<h2 id="differences-from-the-reference">Differences from the reference<a class="headerlink" href="#differences-from-the-reference" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>The actor's step.</strong> As in the authors' code, the critics step and the
+  targets update first, then the actor and the temperature, the actor's
+  loss built on the critics from before their step. The authors' torch
+  (1.3.0) backpropagated that loss through the critics' stepped weights;
+  Ajax differentiates it at the critics from before their step. Nothing
+  else differs (<a href="#results">Results</a>).</li>
+</ul>
 <h2 id="notes">Notes<a class="headerlink" href="#notes" title="Permanent link">&para;</a></h2>
 <ul>
-<li><strong>Quantile critics.</strong> Each critic's head has <code>n_quantiles</code> outputs
-  (<code>NetworkConfig.critic_quantiles</code>). Every value query, for evaluation,
-  the probes or an extension, reads their mean, Q(s, a). The target and the
-  critics' loss read the quantiles (<code>q_values(..., quantiles=True)</code>).</li>
-<li><strong>Update order.</strong> As the authors' code: the critics' step and the target
-  update, then the actor's and the temperature's steps. The actor's loss
-  reads the critics from before their step. The authors' code builds it
-  there too, but its torch (1.3.0) backpropagated it after the critics'
-  step, through their new weights; Ajax does not follow that (see Results).</li>
-<li><strong>Extensions.</strong> Those that shift the target by a value per row (IBRL,
-  LCBGatedBootstrap, TargetBC) shift every quantile alike. Those that read one
-  target value (CriticBlend, MCVarianceCorrection, BiasVorePenalty) need a
-  <code>scalar_target</code> and refuse TQC.</li>
-<li><strong>Initialisation.</strong> As the authors' code (torch's <code>nn.Linear</code> defaults):
-  kernels and biases uniform in ±1/sqrt(fan_in) on every layer. Recurrent
-  TQC keeps Ajax's initialisation, as recurrent SAC and REDQ do.</li>
-<li><strong>Shared maths.</strong> The target is SAC's soft Bellman target
-  (<code>ajax.agents.SAC.SAC</code>) on the kept quantiles, the actor step is SAC's on
-  the critics' mean, and the critic step is the shared one.</li>
+<li><strong>Quantile critics.</strong> Each critic's head has <code>n_quantiles</code> outputs. A
+  value query (an evaluation, a probe, an extension) reads their mean,
+  Q(s, a); the target and the critics' loss read the quantiles.</li>
+<li><strong>Extensions.</strong> Those that shift the target by a value per row (<code>IBRL</code>,
+  <code>LCBGatedBootstrap</code>, <code>TargetBC</code>) shift every quantile alike. Those that
+  read one target value (<code>CriticBlend</code>, <code>MCVarianceCorrection</code>,
+  <code>BiasVorePenalty</code>) refuse TQC.</li>
+<li><strong>Initialisation.</strong> As in the authors' code (torch's <code>nn.Linear</code>
+  defaults): kernels and biases uniform in <code>±1/sqrt(fan_in)</code> on every
+  layer. With <code>memory=</code>, TQC builds Ni et al. (2022)'s recurrent networks
+  and their initialisation, as the other recurrent off-policy agents do.</li>
+<li><strong>Time limits.</strong> A transition cut by a time limit bootstraps on its final
+  observation; only a termination stops the bootstrap.</li>
 </ul>
 <h2 id="results">Results<a class="headerlink" href="#results" title="Permanent link">&para;</a></h2>
-<p>The repository records no learning curves for TQC yet. Unit tests
-(<code>tests/agents/TQC</code> and the contracts every agent shares) check the
-truncation, the quantile Huber loss and the authors' settings. The probes
-(<code>tests/probing</code>) train it briefly on tiny environments with known answers.
-A conformance check (<code>tests/conformance/test_tqc_original.py</code>) runs one update
-of Ajax's TQC and of the authors' code from the same state, with the same
-batch and noises, and compares every parameter, Adam moment and the
-temperature. Their update runs unchanged on torch 1.4, its records committed:
-their actor's backward pass runs after the critics' step, which torch before
-1.5 allows, and reads the stepped critics' weights. Ajax's actor still reads
-the critics from before their step, so the actor's Adam moments differ; the
-rest conforms.</p>
+<p>The repository records no learning curves for TQC yet. A conformance
+check (<code>tests/conformance/test_tqc_original.py</code>) runs one update of Ajax's
+TQC and of the authors' code, unchanged on torch 1.4, from the same state,
+with the same batch and noises: the critics, their targets, the
+temperature and their optimisers conform, to within float32 rounding, and
+the actor's step differs, as above. The probes (<code>tests/probing</code>) train it
+briefly on tiny environments with known answers.
+<a href="../../guide/performance/">Performance</a> compares its speed with the other
+agents'.</p>
 <h2 id="api">API<a class="headerlink" href="#api" title="Permanent link">&para;</a></h2>
 
 

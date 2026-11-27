@@ -1404,10 +1404,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#can-i-use" class="md-nav__link">
+  <a href="#when-to-use-it" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Can I use?
+        When to use it
       
     </span>
   </a>
@@ -1430,6 +1430,17 @@
     <span class="md-ellipsis">
       
         Key hyperparameters
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#differences-from-the-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Differences from the reference
       
     </span>
   </a>
@@ -3016,10 +3027,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#can-i-use" class="md-nav__link">
+  <a href="#when-to-use-it" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Can I use?
+        When to use it
       
     </span>
   </a>
@@ -3042,6 +3053,17 @@
     <span class="md-ellipsis">
       
         Key hyperparameters
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#differences-from-the-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Differences from the reference
       
     </span>
   </a>
@@ -3190,59 +3212,72 @@
 
 
 <h1 id="avg">AVG<a class="headerlink" href="#avg" title="Permanent link">&para;</a></h1>
-<p>Action Value Gradient is an incremental actor-critic: after each environment
-step it makes one update on that single transition, with no replay buffer and
-no target network. It stays stable through normalisation instead: the
-observations are normalised, the networks' penultimate features are
-L2-normalised, and the TD error is divided by a running estimate of its
-scale. Use it when the agent must learn from each step as it comes, without
-storing past experience.</p>
-<p><strong>Paper.</strong> Vasan et al., <em>Deep Policy Gradient Methods Without Batch Updates,
-Target Networks, or Replay Buffers</em>, 2024
-(<a href="https://arxiv.org/abs/2411.15370">arXiv:2411.15370</a>). The update follows its
-Algorithm 1 and the authors' code (<code>gauthamvasan/avg</code>).</p>
-<h2 id="can-i-use">Can I use?<a class="headerlink" href="#can-i-use" title="Permanent link">&para;</a></h2>
+<p>Action Value Gradient is an incremental actor-critic: after each
+environment step it makes one update on that single transition, with no
+replay buffer and no target network. It stays stable through normalisation
+instead: the observations are normalised, the networks' penultimate
+features are L2-normalised, and the TD error is divided by a running
+estimate of its scale.</p>
+<p><strong>Paper:</strong> Vasan et al., <em>Deep Policy Gradient Methods Without Batch
+Updates, Target Networks, or Replay Buffers</em>, 2024
+(<a href="https://arxiv.org/abs/2411.15370">arXiv:2411.15370</a>). Ajax follows its
+Algorithm 1 as the authors' code makes it, <code>gauthamvasan/avg</code> at
+<code>6b6822c</code>.</p>
+<h2 id="when-to-use-it">When to use it<a class="headerlink" href="#when-to-use-it" title="Permanent link">&para;</a></h2>
+<p>AVG suits an agent that must learn from each step as it comes, without
+storing past experience: on-device or real-time learning, or a memory
+budget too small for a replay buffer. Where a replay buffer fits,
+<a href="../sac/">SAC</a> reuses each transition many times.</p>
 <table>
 <thead>
 <tr>
-<th></th>
+<th>Feature</th>
 <th>AVG</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>Continuous actions (<code>Box</code>)</td>
-<td>Yes</td>
-</tr>
-<tr>
 <td>Discrete actions</td>
-<td>No</td>
+<td>no</td>
 </tr>
 <tr>
-<td>Learning</td>
-<td>Incremental: one update per step, no replay buffer</td>
+<td>Continuous actions</td>
+<td>yes, a <code>tanh</code>-squashed Gaussian, mapped onto the environment's bounds</td>
 </tr>
 <tr>
-<td>Vectorised environments (<code>n_envs</code>)</td>
-<td>Yes</td>
+<td>Memory (<code>memory=</code>)</td>
+<td>no: with one-transition updates, a memory block could learn nothing temporal</td>
 </tr>
 <tr>
-<td>Recurrent memory (<code>memory=</code>)</td>
-<td>No</td>
+<td>Environments</td>
+<td>gymnax, Brax, MuJoCo Playground</td>
 </tr>
 <tr>
-<td>PID policy (<code>actor_architecture=PIDPolicy(...)</code>)</td>
-<td>Yes</td>
+<td>Image observations</td>
+<td>no</td>
+</tr>
+<tr>
+<td>PID policy</td>
+<td>yes, <code>actor_architecture=PIDPolicy(...)</code> (<a href="../../guide/networks/">Networks</a>)</td>
+</tr>
+<tr>
+<td>Several seeds in one call</td>
+<td>yes, <code>train(seed=[...])</code></td>
+</tr>
+<tr>
+<td>Offline training</td>
+<td>no: it keeps no replay</td>
 </tr>
 <tr>
 <td>Extension phases</td>
-<td><code>pretrain</code>, <code>post_update</code>, <code>eval_metrics</code>, <code>observe</code>, <code>on_target</code>, <code>critic_loss</code>, <code>actor_loss</code>, <code>transform_action</code>, <code>actuate</code>, <code>choose_warmup_action</code></td>
+<td><code>pretrain</code>, <code>post_update</code>, <code>eval_metrics</code>, <code>observe</code>, <code>on_target</code>, <code>critic_loss</code>, <code>actor_loss</code>, <code>action</code>, <code>eval_action</code>, <code>transform_action</code>, <code>actuate</code>, <code>choose_warmup_action</code>, <code>track_memory</code> (<a href="../../guide/compatibility/">which extensions run</a>)</td>
+</tr>
+<tr>
+<td>Resume and checkpoints</td>
+<td>yes; a run split by a checkpoint equals the run left whole</td>
 </tr>
 </tbody>
 </table>
-<p>AVG has no memory option: with one-transition updates, backpropagation
-through time has length 1, so a memory block could not learn anything
-temporal without eligibility traces or real-time recurrent learning.</p>
 <h2 id="example">Example<a class="headerlink" href="#example" title="Permanent link">&para;</a></h2>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax</span><span class="w"> </span><span class="kn">import</span> <span class="n">AVG</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax.logging</span><span class="w"> </span><span class="kn">import</span> <span class="n">LoggingConfig</span>
@@ -3254,7 +3289,8 @@ temporal without eligibility traces or real-time recurrent learning.</p>
 </code></pre></div>
 <p>This budget only shows the call; Pendulum needs more steps to be solved.</p>
 <h2 id="key-hyperparameters">Key hyperparameters<a class="headerlink" href="#key-hyperparameters" title="Permanent link">&para;</a></h2>
-<p>Defaults are read from <code>AVG.__init__</code>.</p>
+<p>The defaults are the authors'. The <a href="#api">API</a> section lists every
+argument.</p>
 <table>
 <thead>
 <tr>
@@ -3282,7 +3318,7 @@ temporal without eligibility traces or real-time recurrent learning.</p>
 <tr>
 <td><code>beta_1</code>, <code>beta_2</code></td>
 <td><code>0</code>, <code>0.999</code></td>
-<td>Adam's moment decays (AVG uses <code>beta_1 = 0</code>; Adam's epsilon is torch's 1e-8)</td>
+<td>Adam's moment decays (epsilon <code>1e-8</code>, torch's)</td>
 </tr>
 <tr>
 <td><code>actor_architecture</code>, <code>critic_architecture</code></td>
@@ -3320,86 +3356,81 @@ temporal without eligibility traces or real-time recurrent learning.</p>
 <td>gradient clipping</td>
 </tr>
 <tr>
-<td><code>expose_recent_rollout</code></td>
-<td><code>False</code></td>
-<td>keep the last transition on <code>state.last_rollout</code> even when no extension reads it</td>
+<td><code>episode_length</code>, <code>action_repeat</code></td>
+<td><code>None</code>, <code>1</code></td>
+<td>simulator steps per episode and per agent step, on Brax and Playground; <code>None</code> is 1,000 steps, or a <code>mujoco:</code> task's own time limit (<a href="../../guide/environments/#brax-and-playground">Environments</a>)</td>
 </tr>
 <tr>
 <td><code>expert_policy</code></td>
 <td><code>None</code></td>
-<td>an expert whose return the evaluation reports next to the agent's (<code>Eval/expert bias</code>); its actions, from its state when it has one, reach the expert extensions (<code>ImitationLoss</code>, <code>CloningPretrain</code>, <code>IBRL</code>)</td>
-</tr>
-<tr>
-<td><code>episode_length</code>, <code>action_repeat</code></td>
-<td><code>None</code>, <code>1</code></td>
-<td>simulator steps per episode (1,000 when <code>None</code>) and per agent step, on Brax and Playground</td>
+<td>an expert the run tracks; each evaluation logs its return next to the agent's (<code>Eval/expert bias</code>)</td>
 </tr>
 <tr>
 <td><code>extensions</code></td>
 <td><code>()</code></td>
-<td>research features (see <a href="../../guide/extensions/">Extensions</a>)</td>
+<td>research features (<a href="../../guide/extensions/">Extensions</a>)</td>
 </tr>
 </tbody>
 </table>
-<p>AVG keeps <code>alpha</code> fixed at <code>alpha_init</code>, as the authors' code does, so it has
-no <code>alpha_learning_rate</code> or <code>target_entropy_per_dim</code>. There is no
-<code>normalize_observations</code> argument, since AVG always normalises its
-observations, and no reward normalisation.</p>
+<p>AVG keeps <code>alpha</code> fixed, as the authors' code does, so it has no
+<code>alpha_learning_rate</code> or <code>target_entropy_per_dim</code>. It always normalises
+its observations and never its rewards, so it has no
+<code>normalize_observations</code> or <code>normalize_rewards</code> argument.</p>
+<h2 id="differences-from-the-reference">Differences from the reference<a class="headerlink" href="#differences-from-the-reference" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>Actions.</strong> The authors' code hands its <code>tanh</code> action to the
+  environment as it is; Ajax maps it onto the environment's bounds. On a
+  <code>[-1, 1]</code> box the two are the same.</li>
+<li><strong>Several environments.</strong> The paper trains on one environment. With
+  <code>n_envs &gt; 1</code>, each update uses the transitions of all the environments
+  from the same step.</li>
+<li><strong>Update order.</strong> Algorithm 1 writes the critic update before the
+  actor's; the authors' code builds both losses from the same parameters,
+  then steps the actor and the critic. Ajax follows the code, which
+  produced the paper's results: the actor's loss sees the critic before
+  its step, and the critic's target the actor before its step.</li>
+</ul>
 <h2 id="notes">Notes<a class="headerlink" href="#notes" title="Permanent link">&para;</a></h2>
 <ul>
 <li><strong>TD-error scale.</strong> The critic minimises the squared TD error divided by
   <code>sqrt(max(var(r) + E[G^2] var(gamma), 1e-4))</code>, where <code>r</code> is the
   entropy-regularised reward, <code>gamma</code> the per-step discount (zero at a
-  termination) and <code>G</code> the returns of finished episodes, as the authors'
-  <code>TDErrorScaler</code> does (<code>incremental_rl/td_error_scaler.py</code>). The scale is
-  1 while that variance is at most 0.01 and no episode has finished; on a
-  task without terminations it follows the reward's variance alone. The
-  statistics are updated after every step, warm-up included, and shared by
-  all envs; each finished episode's return counts once, whatever
-  <code>n_envs</code>.</li>
-<li><strong>Actor gradient.</strong> The actor loss is <code>alpha log pi(a|s) - Q(s, a)</code> at the
-  action actually executed, reparameterised from its stored pre-squash
-  sample, so the gradient flows through that action.</li>
-<li><strong>Update order, a deliberate choice.</strong> Algorithm 1 writes the critic
-  update before the actor's; the authors' code builds both losses from the
-  same parameters, then steps the actor and the critic. Ajax follows the
-  code, which produced the paper's results: the actor's loss sees the critic
-  before its step, and the critic's target the actor before its step.</li>
+  termination) and <code>G</code> the returns of the episodes that terminated, as
+  the authors' <code>TDErrorScaler</code> does. The scale is 1 while that variance is
+  at most 0.01 and no episode has terminated; on a task without
+  terminations it follows the reward's variance alone. The statistics are
+  updated after every step, warm-up included, and shared by all the
+  environments.</li>
+<li><strong>Actor gradient.</strong> The actor loss is <code>alpha log pi(a|s) - Q(s, a)</code> at
+  the action actually executed, reparameterised from its stored
+  pre-squash sample, so the gradient flows through that action.</li>
 <li><strong>Time limits.</strong> Only a termination stops the bootstrap, as in the
   authors' code; a transition cut by a time limit bootstraps on its final
   observation.</li>
-<li><strong>Several envs.</strong> The paper trains on one environment. With <code>n_envs &gt; 1</code>,
-  each update uses the transitions of all envs from the same step.</li>
 <li><strong>Initialisation.</strong> As in the authors' code, every layer starts
   orthogonal with gain 1 and a zero bias, the mean and log-std heads
   included. So the first policy's mean and log-std are unit-scale
   projections of the normalised features, not a near-zero mean and a
-  constant std.</li>
-<li><strong>Log-std head.</strong> As in the authors' code, the head's output is a
+  constant standard deviation.</li>
+<li><strong>Log-std head.</strong> As in the authors' code, whose <code>MultivariateNormal</code>
+  takes it as the covariance's diagonal, the head's output is a
   log-variance: the standard deviation is <code>exp(out / 2)</code>, and its clip to
-  <code>[-20, 2]</code> bounds the log-variance. Their code builds a
-  <code>MultivariateNormal</code> whose second argument is the covariance.</li>
-<li><strong>Actions and evaluation.</strong> A <code>tanh</code>-squashed Gaussian in <code>[-1, 1]</code>,
-  mapped onto the environment's bounds; evaluation uses the mean action.
-  The authors' code hands the <code>tanh</code> action to the environment as it is.</li>
+  <code>[-20, 2]</code> bounds the log-variance.</li>
+<li><strong>Evaluation</strong> uses the mean action.</li>
 </ul>
 <h2 id="results">Results<a class="headerlink" href="#results" title="Permanent link">&para;</a></h2>
 <p>The repository records no learning curves for AVG yet. A conformance
-check (<code>tests/conformance/test_avg_original.py</code>) makes one update of Ajax's
-AVG and of gauthamvasan/avg from the same state and transition, and
-compares the actor, the critic, their optimisers and the TD-error scaler.
-Every leaf conforms. One difference is asserted there: the authors' code
-hands its <code>tanh</code> action to the environment without mapping it onto the
-box, which Ajax does. Unit tests
-(<code>tests/agents/AVG</code> and the contracts every agent shares) check its pieces
-against exact contracts, without learning. The probes (<code>tests/probing</code>)
-train it briefly on tiny environments with known answers: its target,
-discounting, time limits, observation normalisation, and a run split by a
-checkpoint matching the run left whole. On the CPU speed benchmark
-(<code>benchmarks/agent_bench.py</code>: Pendulum, 4 envs, 8,000 steps) AVG ran at
-9,460 steps per second of execution (4,027 with compilation), updates
-included, at main <code>a8a13c2</code> (see
-<a href="https://github.com/YannBerthelot/Ajax/blob/main/PERFORMANCE_REPORT.md">PERFORMANCE_REPORT.md</a>).</p>
+check (<code>tests/conformance/test_avg_original.py</code>) makes one update of
+Ajax's AVG and of <code>gauthamvasan/avg</code> from the same state and transition,
+and compares the actor, the critic, their optimisers and the TD-error
+scaler: every leaf conforms, to within float32 rounding. It asserts the
+one difference from that code, the action handed to the environment. The
+probes
+(<code>tests/probing</code>) train it briefly on tiny environments with known
+answers: its target, discounting, time limits, observation normalisation,
+and a run split by a checkpoint matching the run left whole.
+<a href="../../guide/performance/">Performance</a> compares its speed with the other
+agents'.</p>
 <h2 id="api">API<a class="headerlink" href="#api" title="Permanent link">&para;</a></h2>
 
 

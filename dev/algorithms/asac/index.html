@@ -1208,10 +1208,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#can-i-use" class="md-nav__link">
+  <a href="#when-to-use-it" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Can I use?
+        When to use it
       
     </span>
   </a>
@@ -1245,6 +1245,17 @@
     <span class="md-ellipsis">
       
         Presets
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#differences-from-the-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Differences from the reference
       
     </span>
   </a>
@@ -3005,10 +3016,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#can-i-use" class="md-nav__link">
+  <a href="#when-to-use-it" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Can I use?
+        When to use it
       
     </span>
   </a>
@@ -3042,6 +3053,17 @@
     <span class="md-ellipsis">
       
         Presets
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#differences-from-the-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Differences from the reference
       
     </span>
   </a>
@@ -3168,50 +3190,66 @@
 
 
 <h1 id="asac">ASAC<a class="headerlink" href="#asac" title="Permanent link">&para;</a></h1>
-<p>Average-Reward Soft Actor-Critic is SAC for the average-reward criterion: it
-maximises the long-run reward per step instead of a discounted sum, so it has
-no <code>gamma</code>. Its critics learn a differential soft value on <code>r - theta</code>, where
-<code>theta</code> tracks the entropy-regularised reward rate. Use it for continuing
-tasks, where no discount is natural; episodic tasks fit by charging each
-termination a learned penalty.</p>
-<p><strong>Paper.</strong> Adamczyk et al., <em>Average-Reward Soft Actor-Critic</em>, 2025
-(<a href="https://arxiv.org/abs/2501.09080v2">arXiv:2501.09080v2</a>).</p>
-<h2 id="can-i-use">Can I use?<a class="headerlink" href="#can-i-use" title="Permanent link">&para;</a></h2>
+<p>Average-Reward Soft Actor-Critic is SAC for the average-reward criterion:
+it maximises the long-run reward per step instead of a discounted sum, so
+it has no <code>gamma</code>. Its critics learn a differential soft value on
+<code>r - theta</code>, where <code>theta</code> tracks the entropy-regularised reward rate.</p>
+<p><strong>Paper:</strong> Adamczyk et al., <em>Average-Reward Soft Actor-Critic</em>, 2025
+(<a href="https://arxiv.org/abs/2501.09080v2">arXiv:2501.09080v2</a>). Ajax follows
+the authors' code, <code>BobMak/asac</code> at <code>4b68862</code>.</p>
+<h2 id="when-to-use-it">When to use it<a class="headerlink" href="#when-to-use-it" title="Permanent link">&para;</a></h2>
+<p>ASAC suits continuing tasks, such as holding a setpoint, where there is no
+natural horizon and a discount factor only shortens the agent's view.
+Episodic tasks fit too: each termination is charged a learned penalty.
+<a href="../rvisac/">RVI-SAC</a> is the other off-policy average-reward agent, and
+<a href="../apo/">APO</a> the on-policy one.</p>
 <table>
 <thead>
 <tr>
-<th></th>
+<th>Feature</th>
 <th>ASAC</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>Continuous actions (<code>Box</code>)</td>
-<td>Yes</td>
-</tr>
-<tr>
 <td>Discrete actions</td>
-<td>No</td>
+<td>no</td>
 </tr>
 <tr>
-<td>Learning</td>
-<td>Off-policy, replay buffer</td>
+<td>Continuous actions</td>
+<td>yes, a <code>tanh</code>-squashed Gaussian, mapped onto the environment's bounds</td>
 </tr>
 <tr>
-<td>Vectorised environments (<code>n_envs</code>)</td>
-<td>Yes</td>
+<td>Memory (<code>memory=</code>)</td>
+<td>yes, on replayed sequences, without <code>expert_policy</code> or most extensions (<a href="../../guide/memory/">Memory</a>)</td>
 </tr>
 <tr>
-<td>Recurrent memory (<code>memory=</code>)</td>
-<td>Yes, without extensions or <code>expert_policy</code></td>
+<td>Environments</td>
+<td>gymnax, Brax, MuJoCo Playground</td>
 </tr>
 <tr>
-<td>PID policy (<code>actor_architecture=PIDPolicy(...)</code>)</td>
-<td>Yes</td>
+<td>Image observations</td>
+<td>no</td>
+</tr>
+<tr>
+<td>PID policy</td>
+<td>yes, <code>actor_architecture=PIDPolicy(...)</code> (<a href="../../guide/networks/">Networks</a>)</td>
+</tr>
+<tr>
+<td>Several seeds in one call</td>
+<td>yes, <code>train(seed=[...])</code></td>
+</tr>
+<tr>
+<td>Offline training</td>
+<td>yes, <code>train_offline</code> (<a href="../../guide/training/#training-offline">Training</a>)</td>
 </tr>
 <tr>
 <td>Extension phases</td>
-<td><code>pretrain</code>, <code>post_update</code>, <code>eval_metrics</code>, <code>observe</code>, <code>on_target</code>, <code>critic_loss</code>, <code>actor_loss</code>, <code>transform_action</code>, <code>actuate</code>, <code>choose_warmup_action</code>, <code>choose_replay_action</code></td>
+<td><code>pretrain</code>, <code>post_update</code>, <code>eval_metrics</code>, <code>observe</code>, <code>on_target</code>, <code>critic_loss</code>, <code>actor_loss</code>, <code>action</code>, <code>eval_action</code>, <code>transform_action</code>, <code>actuate</code>, <code>choose_warmup_action</code>, <code>choose_replay_action</code>, <code>track_memory</code> (<a href="../../guide/compatibility/">which extensions run</a>)</td>
+</tr>
+<tr>
+<td>Resume and checkpoints</td>
+<td>yes; a run split by a checkpoint equals the run left whole</td>
 </tr>
 </tbody>
 </table>
@@ -3228,7 +3266,8 @@ termination a learned penalty.</p>
 </code></pre></div>
 <p>This budget only shows the call; Pendulum needs more steps to be solved.</p>
 <h2 id="key-hyperparameters">Key hyperparameters<a class="headerlink" href="#key-hyperparameters" title="Permanent link">&para;</a></h2>
-<p>Defaults are read from <code>ASAC.__init__</code>.</p>
+<p>The learning rates, the gradient clip and <code>tau_theta</code> are the authors'.
+The <a href="#api">API</a> section lists every argument.</p>
 <table>
 <thead>
 <tr>
@@ -3246,27 +3285,12 @@ termination a learned penalty.</p>
 <tr>
 <td><code>actor_learning_rate</code>, <code>critic_learning_rate</code>, <code>alpha_learning_rate</code></td>
 <td><code>1e-4</code>, <code>5e-4</code>, <code>1e-4</code></td>
-<td>Adam step sizes (the authors'; Adam's epsilon is torch's 1e-8)</td>
+<td>Adam step sizes (epsilon <code>1e-8</code>, torch's)</td>
 </tr>
 <tr>
 <td><code>actor_architecture</code>, <code>critic_architecture</code></td>
 <td><code>("256", "relu", "256", "relu")</code></td>
-<td>hidden layers (plain MLPs)</td>
-</tr>
-<tr>
-<td><code>buffer_size</code></td>
-<td><code>1_000_000</code></td>
-<td>replay capacity</td>
-</tr>
-<tr>
-<td><code>batch_size</code></td>
-<td><code>None</code></td>
-<td>replay minibatch: 256 rows, or 64 windows with <code>memory=</code></td>
-</tr>
-<tr>
-<td><code>learning_starts</code></td>
-<td><code>10_000</code></td>
-<td>steps of uniform random actions before the first update</td>
+<td>hidden layers</td>
 </tr>
 <tr>
 <td><code>tau</code></td>
@@ -3276,12 +3300,27 @@ termination a learned penalty.</p>
 <tr>
 <td><code>tau_theta</code></td>
 <td><code>0.005</code></td>
-<td>rate of the <code>theta</code> and penalty averages (the authors tune it per environment, 0.0005 to 0.1: <a href="#presets">Presets</a>)</td>
+<td>rate of the <code>theta</code> and penalty averages; the authors tune it per task (<a href="#presets">Presets</a>)</td>
 </tr>
 <tr>
 <td><code>p_0</code></td>
 <td><code>20</code></td>
 <td>scale of the termination penalty</td>
+</tr>
+<tr>
+<td><code>buffer_size</code></td>
+<td><code>1_000_000</code></td>
+<td>replay capacity</td>
+</tr>
+<tr>
+<td><code>batch_size</code></td>
+<td><code>None</code></td>
+<td>rows per update: 256, or 64 sequences with <code>memory=</code></td>
+</tr>
+<tr>
+<td><code>learning_starts</code></td>
+<td><code>10_000</code></td>
+<td>steps of uniform random actions before the first update</td>
 </tr>
 <tr>
 <td><code>alpha_init</code></td>
@@ -3296,7 +3335,7 @@ termination a learned penalty.</p>
 <tr>
 <td><code>target_entropy_per_dim</code></td>
 <td><code>-1.0</code></td>
-<td>target entropy, times the action dimension (with <code>fixed_alpha=False</code>)</td>
+<td>target entropy per action dimension, with <code>fixed_alpha=False</code></td>
 </tr>
 <tr>
 <td><code>reward_scale</code></td>
@@ -3306,47 +3345,39 @@ termination a learned penalty.</p>
 <tr>
 <td><code>max_grad_norm</code></td>
 <td><code>10.0</code></td>
-<td>gradient clipping, each critic and the actor on its own (the authors'); <code>None</code> turns it off</td>
+<td>gradient clipping, each critic and the actor on its own; <code>None</code> turns it off</td>
 </tr>
 <tr>
 <td><code>normalize_observations</code>, <code>normalize_rewards</code></td>
 <td><code>False</code></td>
-<td>running normalisation</td>
-</tr>
-<tr>
-<td><code>reward_normalization_gamma</code></td>
-<td><code>None</code></td>
-<td>with <code>normalize_rewards</code>, the discount of the return whose spread divides the rewards: 0.99 if None, 0 for the single reward's</td>
-</tr>
-<tr>
-<td><code>expert_policy</code></td>
-<td><code>None</code></td>
-<td>an expert whose return the evaluation reports next to the agent's (<code>Eval/expert bias</code>)</td>
+<td>running normalisation (<a href="../../guide/environments/">Environments</a>); without a <code>gamma</code>, the rewards' return is discounted at 0.99</td>
 </tr>
 <tr>
 <td><code>memory</code>, <code>burn_in</code>, <code>sequence_length</code>, <code>stored_state</code></td>
 <td><code>None</code>, <code>0</code>, <code>64</code>, <code>False</code></td>
-<td>recurrent memory (see <a href="../../guide/memory/">Memory</a>)</td>
+<td>recurrent memory and its sequence replay (<a href="../../guide/memory/">Memory</a>)</td>
 </tr>
 <tr>
 <td><code>episode_length</code>, <code>action_repeat</code></td>
 <td><code>None</code>, <code>1</code></td>
-<td>simulator steps per episode (1,000 when <code>None</code>) and per agent step, on Brax and Playground</td>
+<td>simulator steps per episode and per agent step, on Brax and Playground; <code>None</code> is 1,000 steps, or a <code>mujoco:</code> task's own time limit (<a href="../../guide/environments/#brax-and-playground">Environments</a>)</td>
+</tr>
+<tr>
+<td><code>expert_policy</code></td>
+<td><code>None</code></td>
+<td>an expert the run tracks; each evaluation logs its return next to the agent's (<code>Eval/expert bias</code>)</td>
 </tr>
 <tr>
 <td><code>extensions</code></td>
 <td><code>()</code></td>
-<td>research features (see <a href="../../guide/extensions/">Extensions</a>)</td>
+<td>research features (<a href="../../guide/extensions/">Extensions</a>)</td>
 </tr>
 </tbody>
 </table>
-<p>With an <code>expert_policy</code>, ASAC stores the expert's actions along each
-trajectory, from its state when it has one, and takes the <code>CloningPretrain</code>
-and <code>ImitationLoss</code> extensions (<a href="../../guide/expert-guidance/">Expert guidance</a>).</p>
 <h2 id="presets">Presets<a class="headerlink" href="#presets" title="Permanent link">&para;</a></h2>
-<p><code>ASAC.preset(task, env_id)</code> takes the authors' tuned values for a Gymnasium
-MuJoCo task (BobMak/asac@<code>4b68862</code>, <code>hparams/&lt;task&gt;-v5/asac.yaml</code>; <a href="../../guide/training/#presets">Presets</a>).
-Their temperature is 1 / <code>beta</code>.</p>
+<p><code>ASAC.preset(task, env_id)</code> takes the authors' tuned values for a
+Gymnasium MuJoCo task (<code>hparams/&lt;task&gt;-v5/asac.yaml</code>;
+<a href="../../guide/training/#presets">Presets</a>). Their temperature is 1 / <code>beta</code>.</p>
 <table>
 <thead>
 <tr>
@@ -3416,65 +3447,62 @@ Their temperature is 1 / <code>beta</code>.</p>
 </tr>
 </tbody>
 </table>
-<p>Their Swimmer-v3 config (<code>tau_theta</code> 0.1, the critics averaged rather than
-minimised) has no preset: Ajax runs v5.</p>
+<p>Their Swimmer-v3 configuration (<code>tau_theta</code> 0.1, the critics averaged
+rather than minimised) has no preset: Ajax runs v5.</p>
+<h2 id="differences-from-the-reference">Differences from the reference<a class="headerlink" href="#differences-from-the-reference" title="Permanent link">&para;</a></h2>
+<p>None in the update: one update of Ajax's ASAC and of <code>BobMak/asac</code> from the
+same state agree to within float32 rounding (<a href="#results">Results</a>). Ajax
+follows the authors' code even where it reads like a slip: the
+termination penalty reads two rows of the batch (below), and the entropy
+term subtracts <code>log(1/nA)</code>, a uniform discrete policy's log-probability,
+for a continuous policy.</p>
 <h2 id="notes">Notes<a class="headerlink" href="#notes" title="Permanent link">&para;</a></h2>
 <ul>
-<li><strong>Target.</strong> <code>r - theta + (1 - done) (min(Q'_1, Q'_2)(s', a') - alpha (log pi(a'|s') - log(1/nA))) - Q'(0, 0)</code>
+<li><strong>Target.</strong> <code>r - theta + (1 - done) (min(Q'_1, Q'_2)(s', a') - alpha (log pi(a'|s') - log(1/nA))) - Q'(0, 0)</code>,
   with <code>a' ~ pi(.|s')</code>, <code>done</code> a termination and <code>nA</code> the action
-  dimension, as the authors' code measures the entropy term. The shift by the target
-  critics' value at the origin, <code>Q'(0, 0)</code>, is their reference point: a
-  differential value is defined only up to a constant. It applies to every
-  row, terminal ones included, as in the authors' code.</li>
+  dimension. A differential value is defined only up to a constant: the
+  shift by the target critics' value at the origin, <code>Q'(0, 0)</code>, is the
+  authors' reference point, and applies to every row, terminal ones
+  included.</li>
 <li><strong>Episode ends.</strong> A termination drops the next value and is charged a
-  penalty, subtracted from the terminal transition's reward: an average (at
-  rate <code>tau_theta</code>) of <code>p_0</code> times the larger of the rewards of the batch's
-  first row (read for the rows that do not terminate) and its second row
-  (for those that do). The authors' code computes it this way (<code>gather</code> by
-  the done flags);
-  its comment describes the mean reward of the steps that did not
-  terminate. A time limit bootstraps from the final observation.</li>
-<li><strong>Reward rate.</strong> After each update <code>theta</code> moves, at rate <code>tau_theta</code>, towards
-  the batch mean of the reward, without the penalty, minus `alpha (log pi(a|s)</li>
-<li>log(1/nA))<code>, at the actions</code>a ~ pi(.|s)` the actor step sampled.</li>
+  penalty, subtracted from the terminal transition's reward: an average,
+  at rate <code>tau_theta</code>, of <code>p_0</code> times the larger of the rewards of the
+  batch's first row (read for the rows that do not terminate) and its
+  second row (for those that do), as the authors' code computes it; its
+  comment describes the mean reward of the steps that did not terminate.
+  A time limit bootstraps from the final observation.</li>
+<li><strong>Reward rate.</strong> After each update <code>theta</code> moves, at rate <code>tau_theta</code>,
+  towards the batch mean of the reward, without the penalty, minus
+  <code>alpha (log pi(a|s) - log(1/nA))</code> at the actions the actor step sampled.</li>
 <li><strong>One update.</strong> The penalty, then a critic step, an actor step on
-  <code>alpha log pi - min_i Q_i</code>, a temperature step on the actor step's samples
-  (skipped with <code>fixed_alpha</code>), the <code>theta</code> step and the target update. Each
-  iteration steps every env once, then makes one update.</li>
-<li><strong>Temperature.</strong> As in the authors' published runs, <code>alpha</code> is fixed:
-  0.2 by default. Those runs use 0.05 for Humanoid and Swimmer, as their
-  <a href="#presets">presets</a> do. <code>fixed_alpha=False</code> learns it as SAC does.</li>
-<li><strong>Two critics.</strong> ASAC always uses two critics; it has no <code>num_critics</code>.</li>
-<li><strong>Extensions.</strong> ASAC tells its extensions there is no discount: they
-  receive <code>gamma=None</code>.</li>
-<li><strong>Initialisation.</strong> As the authors' code (stable-baselines3's SAC actor
-  and plain torch critics): every layer, the mean and log-std heads
-  included, starts as torch's <code>nn.Linear</code> does, its kernel and bias
-  uniform in <code>±1/sqrt(fan_in)</code>. With <code>memory=</code>, ASAC builds Ni et al.
-  (2022)'s recurrent networks and their initialisation, by analogy with
-  their SAC (see <a href="../../guide/memory/">Memory</a>).</li>
-<li><strong>Actions and evaluation.</strong> As SAC: a <code>tanh</code>-squashed Gaussian in
-  <code>[-1, 1]</code>, mapped onto the environment's bounds; evaluation uses the mean
-  action. Its log-probability subtracts <code>log(1 - tanh(u)^2 + 1e-6)</code>, as the
-  authors' stable-baselines3 actor does. The logged evaluation return is the usual episodic sum. ASAC
-  reports no <code>Eval/mean bias</code>.</li>
+  <code>alpha log pi - min_i Q_i</code>, a temperature step on the actor step's
+  samples (skipped with <code>fixed_alpha</code>), the <code>theta</code> step and the target
+  update.</li>
+<li><strong>Temperature.</strong> Fixed, as in the authors' published runs;
+  <code>fixed_alpha=False</code> learns it as SAC does.</li>
+<li><strong>Two critics,</strong> always: ASAC has no <code>num_critics</code>. It tells its
+  extensions there is no discount: they receive <code>gamma=None</code>.</li>
+<li><strong>Initialisation.</strong> As in the authors' code (Stable-Baselines3's SAC
+  actor and plain torch critics): every layer, the mean and log-std heads
+  included, starts as torch's <code>nn.Linear</code> does, kernel and bias uniform in
+  <code>±1/sqrt(fan_in)</code>. With <code>memory=</code>, ASAC builds Ni et al. (2022)'s
+  recurrent networks and their initialisation, by analogy with their SAC.</li>
+<li><strong>Actions and evaluation.</strong> As SAC; evaluation uses the mean action. The
+  log-probability subtracts <code>log(1 - tanh(u)^2 + 1e-6)</code>, as the authors'
+  Stable-Baselines3 actor does. The logged evaluation return is the usual
+  episodic sum; ASAC reports no <code>Eval/mean bias</code>.</li>
 </ul>
 <h2 id="results">Results<a class="headerlink" href="#results" title="Permanent link">&para;</a></h2>
 <p>The repository records no learning curves for ASAC yet. A conformance
 check (<code>tests/conformance/test_asac_original.py</code>) makes one update of
-Ajax's ASAC and of BobMak/asac from the same state and batch, on two
-gymnasium tasks and on a Pendulum with a two-dimensional torque that
-terminates every 20th step, and compares the actor, both critics and their
-targets, the three optimisers, <code>theta</code> and the penalty. Unit tests
-(<code>tests/agents/ASAC</code> and the contracts every agent shares) check its pieces
-against exact contracts, without learning. The probes (<code>tests/probing</code>)
-train it briefly on tiny environments with known answers: its differential
-target, its average-reward bookkeeping (reward scale, episode ends), memory,
-and a run split by a checkpoint matching the run left whole. On the CPU
-speed benchmark (<code>benchmarks/agent_bench.py</code>: Pendulum, 4 envs, 8,000 steps,
-updates from step 1,000) ASAC ran at 1,254 steps per second of execution
-(1,032 with compilation) at main <code>a8a13c2</code> (see
-<a href="https://github.com/YannBerthelot/Ajax/blob/main/PERFORMANCE_REPORT.md">PERFORMANCE_REPORT.md</a>).</p>
+Ajax's ASAC and of <code>BobMak/asac</code> from the same state and batch, on two
+Gymnasium tasks and on a Pendulum with a two-dimensional torque that
+terminates every 20th step, and compares the actor, both critics and
+their targets, the three optimisers, <code>theta</code> and the penalty. The probes
+(<code>tests/probing</code>) train it briefly on tiny environments with known
+answers: its differential target, its average-reward bookkeeping and
+memory. <a href="../../guide/performance/">Performance</a> compares its speed with the
+other agents'.</p>
 <h2 id="api">API<a class="headerlink" href="#api" title="Permanent link">&para;</a></h2>
 
 

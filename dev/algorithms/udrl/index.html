@@ -1572,10 +1572,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#can-i-use" class="md-nav__link">
+  <a href="#when-to-use-it" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Can I use?
+        When to use it
       
     </span>
   </a>
@@ -1609,6 +1609,17 @@
     <span class="md-ellipsis">
       
         How it works
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#differences-from-the-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Differences from the reference
       
     </span>
   </a>
@@ -3038,10 +3049,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#can-i-use" class="md-nav__link">
+  <a href="#when-to-use-it" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Can I use?
+        When to use it
       
     </span>
   </a>
@@ -3075,6 +3086,17 @@
     <span class="md-ellipsis">
       
         How it works
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#differences-from-the-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Differences from the reference
       
     </span>
   </a>
@@ -3236,19 +3258,21 @@
 <h1 id="udrl">UDRL<a class="headerlink" href="#udrl" title="Permanent link">&para;</a></h1>
 <p>Upside-Down RL turns reinforcement learning into supervised learning. The
 policy takes a <em>command</em> next to the observation: a return to obtain and a
-number of steps to obtain it in. It learns, from its own past experience, which
-action led to which outcome, then is asked for slightly better outcomes than
-the best it has seen. There is no critic, no value estimate and no discount by
-default.</p>
+number of steps to obtain it in. It learns, from its own past experience,
+which action led to which outcome, then is asked for slightly better
+outcomes than the best it has seen.</p>
 <p><strong>Papers:</strong> Schmidhuber, <em>Reinforcement Learning Upside Down: Don't Predict
 Rewards -- Just Map Them to Actions</em>, 2019
-(<a href="https://arxiv.org/abs/1912.02875">arXiv:1912.02875</a>). Ajax follows its
-training procedure; the code cites it as Algorithms 3 to 5. The companion
-paper by Srivastava, Shyam, Mutz, Jaśkowski and Schmidhuber, <em>Training Agents
-using Upside-Down Reinforcement Learning</em>, 2019
-(<a href="https://arxiv.org/abs/1912.02877">arXiv:1912.02877</a>), reports the first
-experiments.</p>
-<h2 id="can-i-use">Can I use?<a class="headerlink" href="#can-i-use" title="Permanent link">&para;</a></h2>
+(<a href="https://arxiv.org/abs/1912.02875">arXiv:1912.02875</a>), whose training
+procedure Ajax follows. The companion paper by Srivastava, Shyam, Mutz,
+Jaśkowski and Schmidhuber, <em>Training Agents using Upside-Down Reinforcement
+Learning</em>, 2019 (<a href="https://arxiv.org/abs/1912.02877">arXiv:1912.02877</a>),
+reports the first experiments; its code is not public.</p>
+<h2 id="when-to-use-it">When to use it<a class="headerlink" href="#when-to-use-it" title="Permanent link">&para;</a></h2>
+<p>UDRL has no critic, no value estimate and, by default, no discount: it
+learns only by supervised steps on its own replayed experience. Its
+commands are a return and a horizon, so it suits episodic tasks, and
+research on command-conditioned policies.</p>
 <table>
 <thead>
 <tr>
@@ -3263,7 +3287,7 @@ experiments.</p>
 </tr>
 <tr>
 <td>Continuous actions</td>
-<td>yes, tanh-bounded, mapped onto the environment's bounds</td>
+<td>yes, a <code>tanh</code>-squashed Gaussian, mapped onto the environment's bounds</td>
 </tr>
 <tr>
 <td>Memory (<code>memory=</code>)</td>
@@ -3283,11 +3307,11 @@ experiments.</p>
 </tr>
 <tr>
 <td>Extension phases</td>
-<td><code>pretrain</code>, <code>post_update</code>, <code>eval_metrics</code>, <code>actor_loss</code>, <code>transform_action</code>, <code>actuate</code>, <code>observe</code>, <code>action</code>, <code>choose_replay_action</code></td>
+<td><code>pretrain</code>, <code>post_update</code>, <code>eval_metrics</code>, <code>observe</code>, <code>actor_loss</code>, <code>action</code>, <code>transform_action</code>, <code>actuate</code>, <code>choose_replay_action</code> (<a href="../../guide/compatibility/">which extensions run</a>)</td>
 </tr>
 <tr>
 <td>Resume and checkpoints</td>
-<td>yes; a split run equals the uninterrupted one (probe and resume contract)</td>
+<td>yes; a run split by a checkpoint equals the run left whole</td>
 </tr>
 </tbody>
 </table>
@@ -3302,14 +3326,14 @@ experiments.</p>
 <a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="nb">print</span><span class="p">(</span><span class="n">evaluations</span><span class="p">[</span><span class="s2">&quot;Train/episodic mean reward&quot;</span><span class="p">])</span>  <span class="c1"># returns of the episodes collected</span>
 <a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="nb">print</span><span class="p">(</span><span class="n">state</span><span class="o">.</span><span class="n">command_target_return</span><span class="p">)</span>                <span class="c1"># the return the agent now asks for</span>
 </code></pre></div>
-<p>With a <code>logging_config</code>, every <code>log_frequency</code> steps UDRL evaluates its
-policy on <code>num_episode_test</code> episodes and <code>train</code> returns, next to the
-evaluation (<code>Eval/episodic mean reward</code>, <code>Eval/episodic entropy</code>,
+<p>With a <code>logging_config</code>, UDRL evaluates its policy every <code>log_frequency</code>
+steps on <code>num_episode_test</code> episodes. <code>train</code> returns the evaluation
+(<code>Eval/episodic mean reward</code>, <code>Eval/episodic entropy</code>,
 <code>Eval/mean episodic length</code>, and <code>Eval/commanded return</code> and
-<code>Eval/commanded horizon</code>, the command each episode starts from), the
-training metrics of those iterations
-(<code>Train/episodic mean reward</code>, <code>Train/actor_loss</code>, <code>Train/mean_rtg</code>,
-<code>Train/mean_horizon</code>, <code>Train/n_completed_episodes</code>).</p>
+<code>Eval/commanded horizon</code>, the command each episode starts from) and the
+training metrics of those iterations (<code>Train/episodic mean reward</code>,
+<code>Train/actor_loss</code>, <code>Train/mean_rtg</code>, <code>Train/mean_horizon</code>,
+<code>Train/n_completed_episodes</code>).</p>
 <h2 id="key-hyperparameters">Key hyperparameters<a class="headerlink" href="#key-hyperparameters" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
@@ -3322,32 +3346,32 @@ training metrics of those iterations
 <tbody>
 <tr>
 <td><code>n_envs</code></td>
-<td>1</td>
+<td><code>1</code></td>
 <td>environments stepped in parallel</td>
 </tr>
 <tr>
 <td><code>n_steps</code></td>
-<td>64</td>
+<td><code>64</code></td>
 <td>length of the segment collected per iteration</td>
 </tr>
 <tr>
 <td><code>buffer_capacity</code></td>
-<td>64</td>
+<td><code>64</code></td>
 <td>segments kept in the replay</td>
 </tr>
 <tr>
 <td><code>n_updates_per_iter</code></td>
-<td>64</td>
+<td><code>64</code></td>
 <td>gradient steps per iteration</td>
 </tr>
 <tr>
 <td><code>batch_size</code></td>
-<td>64</td>
+<td><code>64</code></td>
 <td>samples per gradient step</td>
 </tr>
 <tr>
 <td><code>actor_learning_rate</code></td>
-<td>3e-4</td>
+<td><code>3e-4</code></td>
 <td>Adam step size</td>
 </tr>
 <tr>
@@ -3357,53 +3381,53 @@ training metrics of those iterations
 </tr>
 <tr>
 <td><code>max_grad_norm</code></td>
-<td>None</td>
+<td><code>None</code></td>
 <td>gradient clipping by global norm</td>
 </tr>
 <tr>
 <td><code>gamma</code></td>
-<td>1.0</td>
+<td><code>1.0</code></td>
 <td>discount of the returns-to-go logged as <code>Train/mean_rtg</code>, a diagnostic only: commands, the top-K statistics and the training targets sum rewards undiscounted, as in the paper</td>
 </tr>
 <tr>
 <td><code>command_return_init</code>, <code>command_horizon_init</code></td>
-<td>1.0, 100.0</td>
+<td><code>1.0</code>, <code>100.0</code></td>
 <td>the first command</td>
 </tr>
 <tr>
 <td><code>command_topk</code></td>
-<td>32</td>
+<td><code>32</code></td>
 <td>best episodes the next command is built from</td>
 </tr>
 <tr>
 <td><code>command_return_boost</code></td>
-<td>1.0</td>
+<td><code>1.0</code></td>
 <td>multiplies the top episodes' mean return</td>
 </tr>
 <tr>
 <td><code>command_target_tau</code></td>
-<td>1.0</td>
+<td><code>1.0</code></td>
 <td>smoothing of the command (1: replaced every iteration)</td>
 </tr>
 <tr>
 <td><code>command_scale_r</code>, <code>command_scale_h</code></td>
-<td>0.02, 0.01</td>
+<td><code>0.02</code>, <code>0.01</code></td>
 <td>scaling of the command before the network</td>
 </tr>
 <tr>
 <td><code>normalize_observations</code>, <code>normalize_rewards</code>, <code>reward_normalization_gamma</code></td>
-<td>False, False, None</td>
+<td><code>False</code>, <code>False</code>, <code>None</code></td>
 <td>running normalisation; the rewards' divisor is the spread of the return discounted by <code>reward_normalization_gamma</code>, <code>gamma</code> if None</td>
 </tr>
 <tr>
 <td><code>cnn_image_shape</code>, <code>cnn_extra_obs_dim</code>, <code>cnn_spec</code></td>
-<td>None, 0, None</td>
+<td><code>None</code>, <code>0</code>, <code>None</code></td>
 <td>convolutional encoder for flat image observations, the features after the image, and the encoder's layers; the command joins the encoder's output</td>
 </tr>
 <tr>
 <td><code>episode_length</code>, <code>action_repeat</code></td>
-<td>None, 1</td>
-<td>simulator steps per episode (1,000 when <code>None</code>) and per agent step, on Brax and Playground</td>
+<td><code>None</code>, <code>1</code></td>
+<td>simulator steps per episode and per agent step, on Brax and Playground; <code>None</code> is 1,000 steps, or a <code>mujoco:</code> task's own time limit (<a href="../../guide/environments/#brax-and-playground">Environments</a>)</td>
 </tr>
 <tr>
 <td><code>expert_policy</code></td>
@@ -3437,6 +3461,18 @@ training metrics of those iterations
    taken there, and as command what actually followed: the reward summed up
    to a random later step of the same episode, and that number of steps.</li>
 </ol>
+<h2 id="differences-from-the-reference">Differences from the reference<a class="headerlink" href="#differences-from-the-reference" title="Permanent link">&para;</a></h2>
+<p>From Srivastava et al. (arXiv:1912.02877v2):</p>
+<ul>
+<li><strong>The replay</strong> is first-in first-out; the paper's keeps the best
+  episodes by return (Sec. 2.2.1).</li>
+<li><strong>Training intervals</strong> end at a random later step of their episode, the
+  paper's general form; its experiments all end them at the episode's end
+  (Sec. 2.2.3).</li>
+<li><strong>No warm-up.</strong> The paper first fills the replay with 30 to 50 episodes
+  of random actions (Algorithm 1, Table 4); in Ajax the first segments are
+  the untrained policy's.</li>
+</ul>
 <h2 id="notes">Notes<a class="headerlink" href="#notes" title="Permanent link">&para;</a></h2>
 <ul>
 <li><strong>Segments, read as episodes.</strong> The replay stores fixed-length segments
@@ -3449,32 +3485,21 @@ training metrics of those iterations
   that collection adds, and the command decreases as in collection. The
   policy acts deterministically.</li>
 <li><strong>Command scaling.</strong> The command enters the network multiplied by
-  <code>command_scale_r</code> and <code>command_scale_h</code> (two values of the paper's LunarLander search), so
-  that it is of order one; the replay keeps it unscaled.</li>
-<li><strong>Deviations from Srivastava et al.</strong> (arXiv:1912.02877v2). The replay is
-  first-in first-out; the paper's keeps the best episodes by return
-  (Sec. 2.2.1). A training interval ends at a random later step of its
-  episode, the paper's general form; its experiments all end it at the
-  episode's end (Sec. 2.2.3). There is no warm-up; the paper first fills
-  the replay with 30 to 50 episodes of random actions (Algorithm 1,
-  Table 4).</li>
-<li>The policy's encoder ends with a LayerNorm, as Ajax's earlier networks did.</li>
-<li>The command is carried in the last two entries of the observation, after
-  the observation features; with <code>cnn_image_shape</code> the image is flattened in
-  front of them.</li>
+  <code>command_scale_r</code> and <code>command_scale_h</code> (two values of the paper's
+  LunarLander search), so that it is of order one; the replay keeps it
+  unscaled.</li>
+<li><strong>Network.</strong> The policy's encoder ends with a LayerNorm, unlike the other
+  agents' plain MLPs. The command is carried in the last two entries of the
+  observation, after the observation features; with <code>cnn_image_shape</code> the
+  image is flattened in front of them.</li>
 </ul>
 <h2 id="results">Results<a class="headerlink" href="#results" title="Permanent link">&para;</a></h2>
-<p>No learning curves are published for UDRL yet. Unit tests
-(<code>tests/agents/UDRL</code> and the contracts every agent shares) check its pieces
-against exact contracts, without learning. The probes (<code>tests/probing</code>)
+<p>No learning curves are published for UDRL yet. The probes (<code>tests/probing</code>)
 train it briefly on tiny environments with known answers: that it learns
-from the commands that actually followed and scales its command alike when
-acting and when training, its extension phases, and a run split by a
-checkpoint matching the run left whole. On the CPU speed benchmark
-(<code>benchmarks/agent_bench.py</code>: Pendulum, 4 environments, 8,000 steps) UDRL
-ran at 12,575 steps per second of execution (4,441 with compilation) at main
-<code>a8a13c2</code>; its trials spread from 9,604 to 15,069
-(<a href="https://github.com/YannBerthelot/Ajax/blob/main/PERFORMANCE_REPORT.md">PERFORMANCE_REPORT.md</a>).</p>
+from the commands that actually followed, that it scales its command alike
+when acting and when training, its extension phases, and a run split by a
+checkpoint matching the run left whole. <a href="../../guide/performance/">Performance</a>
+compares its speed with the other agents'.</p>
 <h2 id="api">API<a class="headerlink" href="#api" title="Permanent link">&para;</a></h2>
 
 

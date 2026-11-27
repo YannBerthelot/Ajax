@@ -1460,10 +1460,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#can-i-use" class="md-nav__link">
+  <a href="#when-to-use-it" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Can I use?
+        When to use it
       
     </span>
   </a>
@@ -1497,6 +1497,17 @@
     <span class="md-ellipsis">
       
         Presets
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#differences-from-the-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Differences from the reference
       
     </span>
   </a>
@@ -3016,10 +3027,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#can-i-use" class="md-nav__link">
+  <a href="#when-to-use-it" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Can I use?
+        When to use it
       
     </span>
   </a>
@@ -3053,6 +3064,17 @@
     <span class="md-ellipsis">
       
         Presets
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#differences-from-the-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Differences from the reference
       
     </span>
   </a>
@@ -3193,47 +3215,54 @@
 <p>Parallelised Q-Network is Q-learning without a replay buffer and without a
 target network. It collects short rollouts from many environments at once,
 as PPO does, and regresses the Q-network on Q(lambda) returns computed from
-them. A LayerNorm after every hidden layer keeps this stable. It is built
-for many vectorised environments, which replace the buffer as the source of
-varied data.</p>
-<p><strong>Paper.</strong> Gallici et al., <em>Simplifying Deep Temporal Difference Learning</em>,
-2024.</p>
-<h2 id="can-i-use">Can I use?<a class="headerlink" href="#can-i-use" title="Permanent link">&para;</a></h2>
+them. A LayerNorm after every hidden layer keeps this stable.</p>
+<p><strong>Paper:</strong> Gallici et al., <em>Simplifying Deep Temporal Difference Learning</em>,
+2024. Ajax follows the authors' code, purejaxql (<code>mttga/purejaxql</code> at
+<code>47af6d7</code>).</p>
+<h2 id="when-to-use-it">When to use it<a class="headerlink" href="#when-to-use-it" title="Permanent link">&para;</a></h2>
+<p>PQN is built for many vectorised environments, which replace the buffer as
+the source of varied data. It suits discrete-action tasks whose steps are
+cheap, as in JAX simulators. With few environments, or costly steps,
+<a href="../dqn/">DQN</a> reuses its data through a replay buffer.</p>
 <table>
 <thead>
 <tr>
-<th></th>
+<th>Feature</th>
 <th>PQN</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>Continuous actions (<code>Box</code>)</td>
-<td>No</td>
+<td>Discrete actions</td>
+<td>yes</td>
 </tr>
 <tr>
-<td>Discrete actions (<code>Discrete</code>)</td>
-<td>Yes</td>
+<td>Continuous actions</td>
+<td>no</td>
 </tr>
 <tr>
-<td>Learning</td>
-<td>On-policy rollouts, no replay buffer</td>
+<td>Memory (<code>memory=</code>)</td>
+<td>no</td>
 </tr>
 <tr>
-<td>Vectorised environments (<code>n_envs</code>)</td>
-<td>Yes, and it relies on them</td>
+<td>Environments</td>
+<td>gymnax (Brax and Playground tasks have continuous actions)</td>
 </tr>
 <tr>
-<td>Recurrent memory (<code>memory=</code>)</td>
-<td>No</td>
+<td>Image observations</td>
+<td>yes, a CNN encoder (<code>cnn_image_shape</code>)</td>
 </tr>
 <tr>
-<td>Image observations (CNN encoder)</td>
-<td>Yes, with <code>cnn_image_shape</code></td>
+<td>Several seeds in one call</td>
+<td>yes, <code>train(seed=[...])</code></td>
 </tr>
 <tr>
 <td>Extension phases</td>
-<td><code>pretrain</code>, <code>post_update</code>, <code>eval_metrics</code>, <code>observe</code>, <code>on_target</code>, <code>critic_loss</code></td>
+<td><code>pretrain</code>, <code>post_update</code>, <code>eval_metrics</code>, <code>observe</code>, <code>on_target</code>, <code>critic_loss</code>, <code>action</code>, <code>eval_action</code>, <code>track_memory</code> (<a href="../../guide/compatibility/">which extensions run</a>)</td>
+</tr>
+<tr>
+<td>Resume and checkpoints</td>
+<td>yes; a run split by a checkpoint equals the run left whole</td>
 </tr>
 </tbody>
 </table>
@@ -3241,17 +3270,16 @@ varied data.</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax</span><span class="w"> </span><span class="kn">import</span> <span class="n">PQN</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax.logging</span><span class="w"> </span><span class="kn">import</span> <span class="n">LoggingConfig</span>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="n">agent</span> <span class="o">=</span> <span class="n">PQN</span><span class="p">(</span><span class="s2">&quot;CartPole-v1&quot;</span><span class="p">)</span>  <span class="c1"># 8 envs, 128-step rollouts</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="n">agent</span> <span class="o">=</span> <span class="n">PQN</span><span class="p">(</span><span class="s2">&quot;CartPole-v1&quot;</span><span class="p">)</span>  <span class="c1"># 128 envs, 32-step rollouts</span>
 <a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="n">logging</span> <span class="o">=</span> <span class="n">LoggingConfig</span><span class="p">(</span><span class="n">log_frequency</span><span class="o">=</span><span class="mi">32_768</span><span class="p">,</span> <span class="n">backends</span><span class="o">=</span><span class="p">())</span>
 <a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="n">state</span><span class="p">,</span> <span class="n">evaluations</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">seed</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">],</span> <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">131_072</span><span class="p">,</span> <span class="n">logging_config</span><span class="o">=</span><span class="n">logging</span><span class="p">)</span>
 <a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="nb">print</span><span class="p">(</span><span class="n">evaluations</span><span class="p">[</span><span class="s2">&quot;Eval/episodic mean reward&quot;</span><span class="p">])</span>  <span class="c1"># one row per seed</span>
 </code></pre></div>
 <h2 id="key-hyperparameters">Key hyperparameters<a class="headerlink" href="#key-hyperparameters" title="Permanent link">&para;</a></h2>
-<p>Defaults are read from <code>PQN.__init__</code>. They are purejaxql's MinAtar
-config (<code>config/alg/pqn_minatar.yaml</code>); its CartPole config, on vector
-observations, takes 32 envs of 64 steps, 4 epochs of 16 minibatches, lambda
-0.95, epsilon to 0.2 over 20% of the run, a 256-256 network, rate 1e-4 and
-rewards scaled by 0.1.</p>
+<p>The defaults are purejaxql's MinAtar configuration
+(<code>config/alg/pqn_minatar.yaml</code>), with a 128-128 network on vector
+observations, which that configuration does not cover. Its CartPole
+configuration is a <a href="#presets">preset</a>.</p>
 <table>
 <thead>
 <tr>
@@ -3274,7 +3302,7 @@ rewards scaled by 0.1.</p>
 <tr>
 <td><code>learning_rate_decay</code></td>
 <td><code>"linear"</code></td>
-<td>decay the rate linearly to ~0 over the run's gradient steps, as every purejaxql config does; <code>None</code> keeps it constant</td>
+<td>decay the rate linearly to ~0 over the run's gradient steps, as every purejaxql configuration does; <code>None</code> keeps it constant</td>
 </tr>
 <tr>
 <td><code>architecture</code></td>
@@ -3294,7 +3322,7 @@ rewards scaled by 0.1.</p>
 <tr>
 <td><code>n_steps</code></td>
 <td><code>32</code></td>
-<td>rollout length per env</td>
+<td>rollout length per environment</td>
 </tr>
 <tr>
 <td><code>n_epochs</code></td>
@@ -3344,7 +3372,7 @@ rewards scaled by 0.1.</p>
 <tr>
 <td><code>cnn_image_shape</code>, <code>cnn_extra_obs_dim</code>, <code>cnn_spec</code></td>
 <td><code>None</code>, <code>0</code>, <code>None</code></td>
-<td>convolutional encoder for flat image observations; <code>None</code> builds the reference network (see Notes)</td>
+<td>convolutional encoder for flat image observations; <code>None</code> builds the reference network (see the notes)</td>
 </tr>
 <tr>
 <td><code>expose_recent_rollout</code></td>
@@ -3354,7 +3382,12 @@ rewards scaled by 0.1.</p>
 <tr>
 <td><code>episode_length</code>, <code>action_repeat</code></td>
 <td><code>None</code>, <code>1</code></td>
-<td>simulator steps per episode (1,000 when <code>None</code>) and per agent step, on Brax and Playground</td>
+<td>simulator steps per episode and per agent step, on Brax and Playground; <code>None</code> is 1,000 steps, or a <code>mujoco:</code> task's own time limit (<a href="../../guide/environments/#brax-and-playground">Environments</a>)</td>
+</tr>
+<tr>
+<td><code>expert_policy</code></td>
+<td><code>None</code></td>
+<td>an expert, as an action index per row (see the notes)</td>
 </tr>
 <tr>
 <td><code>extensions</code></td>
@@ -3363,12 +3396,12 @@ rewards scaled by 0.1.</p>
 </tr>
 </tbody>
 </table>
-<p>A rollout holds <code>n_steps * n_envs</code> rows (1,024 by default), which must divide
-evenly into <code>num_minibatches</code>; PQN raises otherwise.</p>
+<p>A rollout holds <code>n_steps * n_envs</code> rows (4,096 by default), which must
+divide evenly into <code>num_minibatches</code>; PQN raises otherwise.</p>
 <h2 id="presets">Presets<a class="headerlink" href="#presets" title="Permanent link">&para;</a></h2>
-<p><code>PQN.preset(task, env_id)</code> takes purejaxql's config for the task
-(mttga/purejaxql@<code>47af6d7</code>, <code>purejaxql/config/alg/pqn_&lt;task&gt;.yaml</code>; <a href="../../guide/training/#presets">Presets</a>);
-its MinAtar config is the defaults.</p>
+<p><code>PQN.preset(task, env_id)</code> takes purejaxql's configuration for the task
+(<code>purejaxql/config/alg/pqn_&lt;task&gt;.yaml</code>; <a href="../../guide/training/#presets">Presets</a>);
+its MinAtar configuration is the defaults.</p>
 <table>
 <thead>
 <tr>
@@ -3411,6 +3444,14 @@ its MinAtar config is the defaults.</p>
 </tbody>
 </table>
 <p>Atari's frame skip, life loss and reward clipping are the environment's.</p>
+<h2 id="differences-from-the-reference">Differences from the reference<a class="headerlink" href="#differences-from-the-reference" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>Pixels.</strong> The authors' Atari network divides pixels by 255; Ajax
+  leaves that scaling to the environment.</li>
+<li><strong>Evaluation.</strong> Ajax scores one episode per environment; purejaxql
+  scores the last episode each of its test environments ends within a
+  fixed window of steps.</li>
+</ul>
 <h2 id="notes">Notes<a class="headerlink" href="#notes" title="Permanent link">&para;</a></h2>
 <ul>
 <li><strong>Returns.</strong> As purejaxql computes them. With <code>V(s) = max_a Q(s, a)</code>,
@@ -3424,53 +3465,42 @@ its MinAtar config is the defaults.</p>
 <li><strong>One update.</strong> The returns are computed once per rollout with the
   current network, then held fixed for <code>n_epochs</code> passes of
   <code>num_minibatches</code> gradient steps, the rollout reshuffled each pass.</li>
-<li><strong>Why several envs.</strong> Without a buffer, the data's diversity comes from
-  the parallel envs. The probes run PQN with 8 envs because with one
-  env the value of the action it stops exploring drifts.</li>
+<li><strong>Several environments.</strong> Without a buffer, the data's diversity comes
+  from the parallel environments. With one environment, the value of an
+  action PQN stops exploring drifts.</li>
 <li><strong>Exploration.</strong> Epsilon decays linearly with the training fraction,
   read once per update at the rollout's start, as purejaxql reads it;
   evaluation is greedy.</li>
-<li><strong>Extensions.</strong> <code>on_target</code> extensions reshape the returns before they are
-  held fixed; <code>critic_loss</code> extensions add a term to every minibatch's TD
-  loss.</li>
-<li><strong>Expert.</strong> With <code>expert_policy=</code> (an index per row), collection tracks
-  the expert, its observation features read it, and evaluations log its
-  return. Under <code>JSRLCurriculum</code> the expert acts the first steps of each
-  episode; Q is fitted at the actions the steps executed, whose rewards the
-  returns hold, not at the policy's choice. JSRL with PQN is Ajax's
-  composition, not a published pairing; as with epsilon-greedy, the
-  expert's steps lean PQN's untruncated returns toward its behaviour.</li>
-<li><strong>Initialisation.</strong> As the authors' code (<code>mttga/purejaxql</code>), which sets
-  no initialiser: every Dense layer, the Q head included, starts with
-  Flax's default <code>lecun_normal</code> kernel and a zero bias.</li>
+<li><strong>Initialisation.</strong> As the authors' code, which sets no initialiser:
+  every Dense layer, the Q head included, starts with Flax's default
+  <code>lecun_normal</code> kernel and a zero bias.</li>
 <li><strong>Images.</strong> With <code>cnn_image_shape</code> and no <code>cnn_spec</code>, PQN builds the
   authors' image network: Mnih et al.'s (<code>MNIH_CNN</code>) for images of at
   least 36 pixels a side, MinAtar's (<code>MINATAR_CNN</code>) for smaller ones, each
   layer <code>he_normal</code> and followed by a LayerNorm. The image features go
-  straight to the Q head; <code>architecture</code> is not used. Their Atari network
-  also divides pixels by 255; Ajax leaves that scaling to the environment.</li>
-<li><strong>Shared code.</strong> PQN shares the value agents' Q-network wrapper, TD
-  loss step and epsilon-greedy collection, and the on-policy family's loop
-  and minibatch shuffler; it imports nothing from DQN. Its own code
-  (<code>agents/PQN/PQN.py</code>) is its update and the Q(lambda) returns, beside the
-  LayerNorm network (<code>agents/PQN/networks.py</code>).</li>
+  straight to the Q head; <code>architecture</code> is not used.</li>
+<li><strong>Extensions.</strong> <code>on_target</code> extensions reshape the returns before they are
+  held fixed; <code>critic_loss</code> extensions add a term to every minibatch's TD
+  loss.</li>
+<li><strong>Expert.</strong> With <code>expert_policy=</code> (an action index per row), collection
+  tracks the expert, its observation features read it, and evaluations log
+  its return. Under <code>JSRLCurriculum</code> the expert acts the first steps of
+  each episode; Q is fitted at the actions the steps executed, whose
+  rewards the returns hold, not at the policy's choice. JSRL with PQN is
+  Ajax's composition, not a published pairing; as with epsilon-greedy, the
+  expert's steps lean PQN's returns towards its behaviour.</li>
 </ul>
 <h2 id="results">Results<a class="headerlink" href="#results" title="Permanent link">&para;</a></h2>
 <p>The <a href="../../reproduction/results/">reproduction results</a> set PQN beside its
-authors' code (purejaxql) on CartPole and Asterix-MinAtar, with learning
-curves. A conformance check (<code>tests/conformance/test_pqn_purejaxql.py</code>)
-runs one training iteration of each from the same state with the same
-random numbers and compares them step by step; the differences it finds
-are listed in the <a href="../../reproduction/specs/">specifications</a>. Unit tests
-(<code>tests/agents/PQN</code> and the contracts every agent shares) check its pieces
-against exact contracts, without learning. The probes (<code>tests/probing</code>)
-train it briefly on tiny environments with known answers: its Q(lambda)
-returns, discounting, episode ends, extension phases, and a run split by a
-checkpoint matching the run left whole. On the CPU speed benchmark
-(<code>benchmarks/agent_bench.py</code>: CartPole, 4 envs, 8,000 steps) PQN ran at
-36,961 steps per second of execution (7,358 with compilation) at main
-<code>a8a13c2</code> (see
-<a href="https://github.com/YannBerthelot/Ajax/blob/main/PERFORMANCE_REPORT.md">PERFORMANCE_REPORT.md</a>).</p>
+authors' code on CartPole and Asterix-MinAtar, with learning curves: they
+are similar on CartPole, and the Asterix comparison is inconclusive so far.
+A conformance check (<code>tests/conformance/test_pqn_purejaxql.py</code>) runs one
+training iteration of each from the same state with the same random numbers
+and compares them step by step. The probes (<code>tests/probing</code>) train
+it briefly on tiny environments with known answers: its Q(lambda) returns,
+discounting, episode ends, extension phases, and a run split by a
+checkpoint matching the run left whole. <a href="../../guide/performance/">Performance</a>
+compares its speed with the other agents'.</p>
 <h2 id="api">API<a class="headerlink" href="#api" title="Permanent link">&para;</a></h2>
 
 

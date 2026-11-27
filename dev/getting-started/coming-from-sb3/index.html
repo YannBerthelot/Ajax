@@ -3046,12 +3046,12 @@
 
 
 <h1 id="coming-from-stable-baselines3">Coming from Stable-Baselines3<a class="headerlink" href="#coming-from-stable-baselines3" title="Permanent link">&para;</a></h1>
-<p>This page puts the <a href="https://github.com/DLR-RM/stable-baselines3">Stable-Baselines3</a>
-(SB3) calls you know beside Ajax's. The SB3 blocks are for comparison; the
-Ajax blocks run as written.</p>
+<p>For readers who know <a href="https://github.com/DLR-RM/stable-baselines3">Stable-Baselines3</a>
+(SB3), this page puts its calls beside Ajax's and lists the defaults that
+differ. The SB3 blocks are for comparison; the Ajax blocks run in order.</p>
 <h2 id="the-main-difference">The main difference<a class="headerlink" href="#the-main-difference" title="Permanent link">&para;</a></h2>
 <p>In SB3 a model holds its networks, and <code>learn</code> changes it in place. In Ajax
-an agent holds only its settings. <code>train</code> returns the trained <strong>state</strong> (the
+an agent holds only its settings: <code>train</code> returns the trained <strong>state</strong> (the
 networks, the optimisers, the replay), and everything that uses a trained
 agent takes that state. One <code>train</code> call trains several seeds, so a state
 holds one copy per seed.</p>
@@ -3068,18 +3068,18 @@ holds one copy per seed.</p>
 <a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="n">state</span><span class="p">,</span> <span class="n">evaluations</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">seed</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">],</span> <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">4_096</span><span class="p">)</span>
 <a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="nb">print</span><span class="p">(</span><span class="n">evaluations</span><span class="o">.</span><span class="n">returns</span><span class="p">)</span>  <span class="c1"># one row per seed, one column per evaluation</span>
 </code></pre></div>
-<p><code>train</code> evaluates the policy about ten times over the run and prints a line
-for each, with no callback to set up; <code>logging_config=None</code> turns both off.</p>
+<p><code>train</code> evaluates the policy about ten times over a run, after whole
+rollouts (here twice: two rollouts of 2,048 steps), and prints a line for
+each, with no callback to set up. <code>logging_config=None</code> turns both off.</p>
 <p>There is no policy name to give: an MLP reads the observations. For images,
 pass <code>cnn_image_shape</code> to read them with a CNN encoder
 (<a href="../../guide/networks/#image-observations">Networks</a>); Ajax warns when
 images reach an MLP.</p>
 <h2 id="the-defaults-are-the-originals">The defaults are the original's<a class="headerlink" href="#the-defaults-are-the-originals" title="Permanent link">&para;</a></h2>
 <p>Ajax implements each algorithm as its paper or its authors' code does, and
-its defaults are theirs; each <a href="../../algorithms/">algorithm page</a> cites
-them. SB3 sets some of its own. So the same call does not train the same
-thing in both libraries, and settings brought from SB3 need the lines below.
-The SB3 values are those of its 2.9.0 constructors.</p>
+keeps their defaults, which each <a href="../../algorithms/">algorithm page</a>
+cites. SB3 sets some of its own (here those of its 2.9.0 constructors), so
+the same call does not train the same thing in both libraries.</p>
 <table>
 <thead>
 <tr>
@@ -3106,8 +3106,8 @@ The SB3 values are those of its 2.9.0 constructors.</p>
 </tr>
 <tr>
 <td>PPO</td>
-<td><code>batch_size=64</code> gives 32 minibatches, whatever <code>n_envs</code> is</td>
-<td><code>batch_size</code> is a minibatch's size</td>
+<td><code>batch_size=64</code> with <code>n_steps=2048</code> gives 2048 / 64 = 32 minibatches, whatever <code>n_envs</code> is</td>
+<td><code>batch_size</code> is a minibatch's size: 32 minibatches per environment</td>
 </tr>
 <tr>
 <td>SAC</td>
@@ -3132,17 +3132,20 @@ the first half unless <code>learning_starts</code> is lowered.</p>
 <a href="../../algorithms/ppo/#presets">its page</a> says what stays yours to set (the
 number of minibatches with several environments) and what no option
 matches:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax</span><span class="w"> </span><span class="kn">import</span> <span class="n">PPO</span>
-<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>
-<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="n">ported</span> <span class="o">=</span> <span class="n">PPO</span><span class="o">.</span><span class="n">preset</span><span class="p">(</span><span class="s2">&quot;SB3&quot;</span><span class="p">,</span> <span class="s2">&quot;CartPole-v1&quot;</span><span class="p">,</span> <span class="n">n_envs</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">n_steps</span><span class="o">=</span><span class="mi">256</span><span class="p">,</span> <span class="n">num_minibatches</span><span class="o">=</span><span class="mi">32</span><span class="p">)</span>
-<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="nb">print</span><span class="p">(</span><span class="n">ported</span><span class="o">.</span><span class="n">clip_value_loss</span><span class="p">,</span> <span class="n">ported</span><span class="o">.</span><span class="n">normalize_observations</span><span class="p">)</span>  <span class="c1"># False False</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="n">ported</span> <span class="o">=</span> <span class="n">PPO</span><span class="o">.</span><span class="n">preset</span><span class="p">(</span><span class="s2">&quot;SB3&quot;</span><span class="p">,</span> <span class="s2">&quot;CartPole-v1&quot;</span><span class="p">,</span> <span class="n">n_envs</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">n_steps</span><span class="o">=</span><span class="mi">256</span><span class="p">,</span> <span class="n">num_minibatches</span><span class="o">=</span><span class="mi">32</span><span class="p">)</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="nb">print</span><span class="p">(</span><span class="n">ported</span><span class="o">.</span><span class="n">clip_value_loss</span><span class="p">,</span> <span class="n">ported</span><span class="o">.</span><span class="n">normalize_observations</span><span class="p">)</span>  <span class="c1"># False False</span>
 </code></pre></div>
 <p>The other agents have no such preset: pass the values of the SB3 column.
 For DQN, SB3's Huber loss is <code>td_loss_fn=compute_huber_1_td_loss</code>
-(<a href="../../algorithms/dqn/#notes">its notes</a>). An argument SB3 calls otherwise is refused with the
-closest Ajax names, or, for SB3's own (<code>verbose</code>, <code>net_arch</code>,
-<code>tensorboard_log</code>, ...), with where Ajax takes it; <code>total_timesteps</code> exists in both and means another
-thing here: <code>train(n_timesteps=...)</code> is SB3's <code>learn(total_timesteps=...)</code>.</p>
+(<a href="../../algorithms/dqn/#notes">its notes</a>).</p>
+<div class="admonition tip">
+<p class="admonition-title">SB3 argument names</p>
+<p>An SB3 argument Ajax does not have is refused with the closest Ajax
+names, or with where Ajax takes it (<code>verbose</code>, <code>net_arch</code>, ...). One
+name differs in meaning: SB3's <code>learn(total_timesteps=N)</code> is
+<code>train(n_timesteps=N)</code>, and Ajax's <code>total_timesteps</code> is the horizon of a
+run split over several calls.</p>
+</div>
 <h2 id="the-calls-side-by-side">The calls side by side<a class="headerlink" href="#the-calls-side-by-side" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
@@ -3185,7 +3188,7 @@ thing here: <code>train(n_timesteps=...)</code> is SB3's <code>learn(total_times
 </tr>
 <tr>
 <td><code>learning_rate=3e-4</code></td>
-<td><code>actor_learning_rate=3e-4, critic_learning_rate=3e-4</code>: one per network, and <code>alpha_learning_rate</code> for SAC's temperature</td>
+<td><code>actor_learning_rate=3e-4, critic_learning_rate=3e-4</code>, one per network, and <code>alpha_learning_rate</code> for SAC's temperature; DQN, PQN and CrossQ take one <code>learning_rate</code></td>
 <td><a href="../../algorithms/">Algorithms</a></td>
 </tr>
 <tr>
@@ -3260,7 +3263,6 @@ something between steps (a memory, a world model) refuses <code>predict</code>;
 <code>agent.policy(state)</code> gives a policy with <code>reset</code> and <code>act</code> instead
 (<a href="../../guide/deploy/">Train, evaluate, deploy</a>).</p>
 <h2 id="save-and-load">Save and load<a class="headerlink" href="#save-and-load" title="Permanent link">&para;</a></h2>
-<p><code>save</code> takes the state, and <code>load</code> returns the agent with it:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="c1"># doc: skip (Stable-Baselines3, for comparison)</span>
 <a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="n">model</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="s2">&quot;ppo_cartpole&quot;</span><span class="p">)</span>
 <a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="n">model</span> <span class="o">=</span> <span class="n">PPO</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="s2">&quot;ppo_cartpole&quot;</span><span class="p">)</span>
@@ -3275,10 +3277,10 @@ something between steps (a memory, a world model) refuses <code>predict</code>;
 <a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a><span class="n">agent</span><span class="p">,</span> <span class="n">state</span> <span class="o">=</span> <span class="n">PPO</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">path</span><span class="p">)</span>
 <a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a><span class="nb">print</span><span class="p">(</span><span class="n">agent</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="n">obs</span><span class="p">))</span>
 </code></pre></div>
-<p><code>load</code> returns two values, the agent and its state, where SB3's returns the
-model alone. The file records the agent's plain arguments. Objects (a prebuilt
-environment, extensions) are passed to <code>load</code> again
-(<a href="../../guide/checkpoints/#save-and-load-an-agent">Checkpoints</a>).</p>
+<p><code>save</code> takes the state, and <code>load</code> returns two values, the agent and its
+state, where SB3's returns the model alone. The file records the agent's
+plain arguments; objects (a prebuilt environment, extensions) are passed to
+<code>load</code> again (<a href="../../guide/checkpoints/#save-and-load-an-agent">Checkpoints</a>).</p>
 <h2 id="what-ajax-does-not-have">What Ajax does not have<a class="headerlink" href="#what-ajax-does-not-have" title="Permanent link">&para;</a></h2>
 <ul>
 <li><strong>Callbacks.</strong> A training run is one compiled program, so no Python runs
@@ -3287,15 +3289,15 @@ environment, extensions) are passed to <code>load</code> again
   <a href="../../guide/extensions/">extensions</a>, and a run can be cut into several
   <code>train</code> calls with your own code between them
   (<a href="../../guide/training/#continuing-a-run">Continuing a run</a>).</li>
-<li><strong>Fast training on a Python environment.</strong> The speed comes from the
-  environment compiling with the agent. A Gymnasium environment works, at
-  the speed of Python, and some features refuse it
+<li><strong>Fast training on a Python environment.</strong> A Gymnasium environment trains
+  at the speed of Python
   (<a href="../../guide/environments/#gymnasium-environments">Gymnasium environments</a>).</li>
 <li><strong>A2C, DDPG and HER.</strong> <a href="../../algorithms/">Algorithms</a> lists what
-  Ajax has.</li>
+  Ajax has, and <a href="../why-ajax/#when-to-use-something-else">Why Ajax</a> says
+  when SB3 fits better.</li>
 </ul>
-<p><a href="../why-ajax/#when-to-use-something-else">Why Ajax</a> says when SB3 is the
-better choice.</p>
+<p>Next, the user guide starts with <a href="../../guide/training/">Training an agent</a>:
+building an agent, the budget, seeds, sweeps and resuming.</p>
 
 
 

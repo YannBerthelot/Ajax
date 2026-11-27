@@ -61,30 +61,13 @@ Coming from Stable-Baselines3? [The calls side by side](https://yannberthelot.gi
 CartPole, written in JAX. That is the intended use: with a JAX environment
 (gymnax, Brax, MuJoCo Playground) the environment, the agent and every seed
 compile into one program that stays on the CPU or the GPU from start to
-end. [Gymnasium](https://gymnasium.farama.org) environments are supported
-too, with `PPO("gymnasium:CartPole-v1")`; they step in Python, so training
-is slower and a GPU does not help
+end. Gymnasium's MuJoCo tasks also run in JAX, with the `gymnasium-mjx`
+extra: `SAC("mujoco:HalfCheetah-v5")`
+([Environments](https://yannberthelot.github.io/Ajax/latest/guide/environments/#gymnasiums-mujoco-tasks-in-jax)).
+Any [Gymnasium](https://gymnasium.farama.org) environment runs too, with
+`PPO("gymnasium:CartPole-v1")`; it steps in Python, so training is slower
+and a GPU does not help
 ([Environments](https://yannberthelot.github.io/Ajax/latest/guide/environments/#gymnasium-environments)).
-
-Parts combine in the constructor:
-
-```python
-from ajax import PPO, SAC
-from ajax.extensions.instrumentation import CriticDiagnostics
-
-# A recurrent actor and critic, for when one observation is not enough.
-agent = SAC("Pendulum-v1", memory={"kind": "lstm", "hidden_size": 64})
-
-# An extension adds measurements: here whether the critic's features are degrading
-# (how many directions they span, how many units went silent), logged at each evaluation.
-agent = PPO("CartPole-v1", extensions=(CriticDiagnostics(),))
-
-# Gymnasium's MuJoCo tasks, run in JAX (the gymnasium-mjx extra).
-agent = SAC("mujoco:HalfCheetah-v5")
-
-# Brax and MuJoCo Playground environments by id (their extras), here 8 copies in parallel.
-agent = PPO("ant", n_envs=8)
-```
 
 A notebook trains, acts and saves step by step: [`notebooks/quickstart.ipynb`](https://github.com/YannBerthelot/Ajax/blob/main/notebooks/quickstart.ipynb)
 ([open in Colab](https://colab.research.google.com/github/YannBerthelot/Ajax/blob/main/notebooks/quickstart.ipynb)).
@@ -96,11 +79,59 @@ Ajax has twenty agents, each from a published paper. Compared with
 [Stable-Baselines3](https://github.com/DLR-RM/stable-baselines3) and
 [SBX](https://github.com/araffin/sbx), it offers:
 
-- **[Fast and parallel](https://yannberthelot.github.io/Ajax/latest/guide/performance/)**: the environment steps beside the agent on a CPU or a GPU, with no Python in the loop, so many seeds and environment copies train at once on one device. With 10 seeds, one NVIDIA L40S ran SAC about 7 times as fast as four CPU cores, and CrossQ and REDQ over 50 times ([speeds](https://yannberthelot.github.io/Ajax/latest/guide/performance/#cpu-or-gpu)).
-- **[Modular](https://yannberthelot.github.io/Ajax/latest/guide/extensions/)**: GRU, LSTM, transformer and Mamba memories, CNN encoders, sequence replay with burn-in, a PID policy and forty-four extensions, combined in the agent's constructor. The [compatibility table](https://yannberthelot.github.io/Ajax/latest/guide/compatibility/) shows which parts go together.
-- **Multi-paradigm**: discounted and average-reward agents ([ASAC](https://yannberthelot.github.io/Ajax/latest/algorithms/asac/), [RVI-SAC](https://yannberthelot.github.io/Ajax/latest/algorithms/rvisac/), [APO](https://yannberthelot.github.io/Ajax/latest/algorithms/apo/)), model-free and model-based, online and offline, all behind one interface.
+- **[Faster](https://yannberthelot.github.io/Ajax/latest/guide/performance/)**: the environment steps beside the agent on a CPU or a GPU, with no Python in the loop. With 10 seeds, one NVIDIA L40S ran SAC about 7 times as fast as four CPU cores, and CrossQ and REDQ over 50 times ([speeds](https://yannberthelot.github.io/Ajax/latest/guide/performance/#cpu-or-gpu)).
+- **[More experiments per run](https://yannberthelot.github.io/Ajax/latest/guide/training/#hyperparameter-sweeps)**: several seeds and several values of a hyperparameter train in one compiled program. Here 30 runs, 10 seeds for each of 3 learning rates:
+
+```python
+from ajax import PPO
+
+agent = PPO("CartPole-v1", n_envs=8, n_steps=128)
+state, evaluations = agent.train(
+    seed=list(range(10)),
+    n_timesteps=40_960,
+    sweep={"actor_learning_rate": [1e-4, 3e-4, 1e-3]},
+)
+for configuration, returns in agent.by_configuration(evaluations.returns):
+    print(configuration, returns[:, -1].mean())  # mean final return over the 10 seeds
+```
+
+- **[Variations in one argument, parts that compose](https://yannberthelot.github.io/Ajax/latest/guide/extensions/)**: GRU, LSTM, transformer and Mamba memories, CNN encoders, sequence replay with burn-in, a PID policy and forty-four extensions, combined in the agent's constructor. The [compatibility table](https://yannberthelot.github.io/Ajax/latest/guide/compatibility/) shows which parts go together.
+
+```python
+import jax.numpy as jnp
+
+from ajax import PPO, SAC
+from ajax.extensions.instrumentation import CriticDiagnostics
+from ajax.extensions.pretrain import CloningPretrain, ExpertPrefill
+
+# A variation is one argument: recurrent PPO is PPO with a memory.
+agent = PPO("CartPole-v1", memory={"kind": "lstm", "hidden_size": 64})
+
+
+def pd_expert(obs):
+    """A PD controller on Pendulum's angle, a torque in the env's range."""
+    theta = jnp.arctan2(obs[..., 1], obs[..., 0])
+    return jnp.clip(-(2.0 * theta + 0.5 * obs[..., 2]), -2.0, 2.0)[..., None]
+
+
+# Parts add up in one constructor: the actor cloned from the expert before
+# training, the expert's transitions in the replay, and at each evaluation
+# whether the critic's features are degrading (how many directions they
+# span, how many units went silent).
+agent = SAC(
+    "Pendulum-v1",
+    extensions=(
+        CloningPretrain(pd_expert, n_steps=1_000),
+        ExpertPrefill(n_steps=1_000, expert=pd_expert),
+        # It reads the replay, with the buffer of a SAC built with the same settings.
+        CriticDiagnostics(buffer=SAC("Pendulum-v1").buffer),
+    ),
+)
+```
+
+- **Multi-paradigm**: discounted and average-reward agents ([ASAC](https://yannberthelot.github.io/Ajax/latest/algorithms/asac/), [RVI-SAC](https://yannberthelot.github.io/Ajax/latest/algorithms/rvisac/), [APO](https://yannberthelot.github.io/Ajax/latest/algorithms/apo/)), model-free and model-based, online and offline.
 - **[Expert-guided](https://yannberthelot.github.io/Ajax/latest/guide/expert-guidance/)**: cloning, imitation, prior data and offline training.
-- **[World models, ready to use](https://yannberthelot.github.io/Ajax/latest/guide/world-models/)**: DreamerV3 and TD-MPC2 are among the hardest agents to get right, and their papers run them on over a hundred tasks with one set of hyperparameters. Ajax checks them against the official code, update by update.
+- **[World models](https://yannberthelot.github.io/Ajax/latest/guide/world-models/)**: DreamerV3 and TD-MPC2, which their papers run on over a hundred tasks with one set of hyperparameters.
 
 [Why Ajax](https://yannberthelot.github.io/Ajax/latest/getting-started/why-ajax/) compares it with SB3, SBX,
 PureJaxRL, Brax, Stoix, Rejax, TorchRL and Tianshou, including when to use
@@ -146,7 +177,7 @@ each method's paper and the agents that take it.
 <tr>
 <td valign="top"><a href="https://yannberthelot.github.io/Ajax/latest/guide/comparing-agents/"><b>Comparing agents</b></a><br/>AdaStop, which adds seeds only while the answer is unclear</td>
 <td valign="top"><a href="https://yannberthelot.github.io/Ajax/latest/guide/checkpoints/"><b>Checkpoints</b></a><br/>Save a run and resume it in another process</td>
-<td valign="top"><a href="https://yannberthelot.github.io/Ajax/latest/developer/testing/"><b>Tests</b></a><br/>Unit tests, probes with known answers, conformance checks</td>
+<td valign="top"><a href="https://yannberthelot.github.io/Ajax/latest/developer/testing/"><b>Tests</b></a><br/>Unit tests and probes with known answers</td>
 </tr>
 </table>
 

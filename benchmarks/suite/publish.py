@@ -142,6 +142,12 @@ def read_timings(directory: pathlib.Path = TIMING) -> dict[tuple, dict]:
     return timings
 
 
+def steps_per_second(record: dict) -> float:
+    """A timing record's steps per second per seed, from its unrounded
+    parts: the record's own rate keeps one decimal, too few below one."""
+    return record["timed_steps"] / record["exec_s"]
+
+
 def score_scales(runs: list[Run]) -> dict[tuple[str, str], float]:
     """What each (suite, task)'s returns are divided by to share one scale:
     1000 on DeepMind Control, its tasks' highest return; elsewhere the
@@ -345,11 +351,11 @@ def timing_block(runs: list[Run], timings: dict) -> str:
             speeds, compiles, gain = ["pending"] * 2, ["pending"] * 2, DASH
             for column, record in enumerate((cpu, gpu)):
                 if record is not None:
-                    speed = record["run_steps_per_s"]
+                    speed = steps_per_second(record)
                     speeds[column] = f"{speed:,.0f}" if speed >= 10 else f"{speed:.2g}"
                     compiles[column] = f"{record['compile_s']:.0f}"
             if cpu is not None and gpu is not None:
-                gain = f"{gpu['run_steps_per_s'] / cpu['run_steps_per_s']:.2g} times"
+                gain = f"{steps_per_second(gpu) / steps_per_second(cpu):.2g} times"
             task = suite_and_task((cpu or gpu)["env"])[1]
             lines.append(
                 f"| {name(agent)} | {task} | {speeds[0]} | {speeds[1]} | {gain}"
@@ -360,12 +366,13 @@ def timing_block(runs: list[Run], timings: dict) -> str:
     machines = f"The CPU column ran on four cores of an {' and '.join(cpus)}"
     if gpus:
         machines += f", the GPU column on one {' and '.join(gpus)} of the same machine"
+    commit = "commits" if len(commits) > 1 else "commit"
     lines.append(
         "\nEnvironment steps per second per seed, higher is faster, with"
         f" {seeds} seeds trained together: the run makes {seeds} times as many"
         " in all. Each is timed on a segment of training once the agent's"
         " updates run, without evaluations; the compile seconds are those of"
-        f" the run's first call. {machines}, at commit {' and '.join(commits)}"
+        f" the run's first call. {machines}, at {commit} {' and '.join(commits)}"
         f" ([records]({RECORDS_URL}/timing-0.6))."
     )
     return "\n".join(lines)
@@ -605,7 +612,7 @@ def write_aggregate_figures(
             returns[run.agent][run.task] = run.returns / scales[(suite, run.task)]
             timing = timings.get((run.agent, suite, "gpu"))
             if timing is not None:
-                hours[run.agent] = run.steps / timing["run_steps_per_s"] / 3600
+                hours[run.agent] = run.steps / steps_per_second(timing) / 3600
         complete = {
             agent: list(returns[agent].values())
             for agent in agents

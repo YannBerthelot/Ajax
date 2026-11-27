@@ -162,14 +162,19 @@ def test_profile_counts_the_runs_strictly_above_each_threshold():
     np.testing.assert_allclose(fractions, [1.0, 1 / 3, 0.0])
 
 
+def timing_record(machine, timed_steps, exec_s, compile_s):
+    manifest = {"commit": "abcdef0", "machine": {"cpu": "A CPU"}, "device": "B"}
+    record = {"agent": "SAC", "env": "CheetahRun", "machine": machine}
+    record.update({"n_seeds": 10, "timed_steps": timed_steps, "exec_s": exec_s})
+    record.update({"compile_s": compile_s, "manifest": manifest})
+    return record
+
+
 def test_timing_table_gives_each_machine_and_the_gpu_gain(tmp_path):
     """Catches the gain inverted, or the machines' columns swapped."""
-    for machine, speed, compile_s in (("cpu", 40.0, 19.0), ("gpu", 240.0, 63.0)):
-        manifest = {"commit": "abcdef0", "machine": {"cpu": "A CPU"}, "device": "B"}
-        record = {"agent": "SAC", "env": "CheetahRun", "machine": machine}
-        record.update({"n_seeds": 10, "run_steps_per_s": speed})
-        record.update({"compile_s": compile_s, "manifest": manifest})
-        write(tmp_path / f"{machine}.jsonl", [record])
+    # 4,000 steps in 100 s on the CPU, 24,000 on the GPU: 40 and 240 per second.
+    write(tmp_path / "cpu.jsonl", [timing_record("cpu", 4000, 100.0, 19.0)])
+    write(tmp_path / "gpu.jsonl", [timing_record("gpu", 24000, 100.0, 63.0)])
     runs = [final_run("SAC", "CheetahRun", "DeepMind Control", [1.0])]
 
     table = publish.timing_block(runs, publish.read_timings(tmp_path))
@@ -178,14 +183,12 @@ def test_timing_table_gives_each_machine_and_the_gpu_gain(tmp_path):
 
 
 def test_timing_table_shows_a_machine_not_timed_yet_as_pending(tmp_path):
-    """Catches a missing GPU record read as a speed, or the row dropped."""
-    manifest = {"commit": "abcdef0", "machine": {"cpu": "A CPU"}, "device": "cpu"}
-    record = {"agent": "SAC", "env": "CheetahRun", "machine": "cpu", "n_seeds": 10}
-    record.update({"run_steps_per_s": 40.0, "compile_s": 19.0, "manifest": manifest})
-    write(tmp_path / "cpu.jsonl", [record])
+    """Catches a missing GPU record read as a speed, or the row dropped; a
+    speed below one keeps two digits (16 steps in 250 s)."""
+    write(tmp_path / "cpu.jsonl", [timing_record("cpu", 16, 250.0, 19.0)])
     runs = [final_run("SAC", "CheetahRun", "DeepMind Control", [1.0])]
 
     table = publish.timing_block(runs, publish.read_timings(tmp_path))
 
-    row = f"| SAC | CheetahRun | 40 | pending | {publish.DASH} | 19 / pending |"
+    row = f"| SAC | CheetahRun | 0.064 | pending | {publish.DASH} | 19 / pending |"
     assert row in table.splitlines()

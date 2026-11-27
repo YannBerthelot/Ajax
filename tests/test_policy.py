@@ -134,9 +134,7 @@ def shared_evaluation_return(agent: Any, policy: Any) -> jax.Array:
     counted to its first done."""
     env_args, state = agent.env_args, policy.agent_state
     eval_key, _ = evaluation_keys(state, state.collector_state.timestep)
-    env, mode, _ = setup_environment(
-        env_args.env, env_args.env_params, EPISODES, None, 0.99
-    )
+    env, mode, _ = setup_environment(env_args.env, env_args.env_params, EPISODES, None)
     params = env_args.env_params
     rng, reset_key = jax.random.split(eval_key)
     obs, env_state = reset(env_keys(reset_key, mode, EPISODES), env, mode, params)
@@ -179,7 +177,7 @@ def world_model_evaluation_return(agent: Any, policy: Any) -> jax.Array:
     eval_key, _ = evaluation_keys(state, state.collector_state.timestep)
     params, repeat = env_args.env_params, env_args.action_repeat
     env, mode, _ = setup_environment(
-        env_args.env, params, EPISODES, None, 0.99, action_repeat=repeat
+        env_args.env, params, EPISODES, None, action_repeat=repeat
     )
     key, reset_key = jax.random.split(eval_key)
     obs, env_state = reset(env_keys(reset_key, mode, EPISODES), env, mode, params)

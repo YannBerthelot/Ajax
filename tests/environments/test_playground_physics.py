@@ -106,7 +106,7 @@ def test_evaluation_keeps_the_training_physics(physics_requested):
     rebuild starts again from the task's id."""
     env, env_params = build_env_from_id(TASK, physics="warp")
 
-    setup_environment(env, env_params, num_episodes=2, norm_info=None, gamma=0.99)
+    setup_environment(env, env_params, num_episodes=2, norm_info=None)
 
     assert physics_requested == ["warp", "warp"]
 

@@ -128,7 +128,7 @@ def setup_environment(
     env_params,
     num_episodes,
     norm_info,
-    gamma,  # noqa: ARG001 -- positional in downstream calls; eval never normalises rewards
+    *,
     action_repeat: int = 1,
     episode_length: Optional[int] = None,
 ):
@@ -619,7 +619,7 @@ def _infer_max_eval_steps(env, env_params) -> int:
     return 1000
 
 
-def _reset_eval_env(env, env_params, num_episodes, norm_info, rng, gamma=0.99):
+def _reset_eval_env(env, env_params, num_episodes, norm_info, rng):
     """The evaluation env, reset from ``rng``: ``(env, mode, continuous,
     key, obs, state)``, ``key`` the rollout's.
 
@@ -633,7 +633,6 @@ def _reset_eval_env(env, env_params, num_episodes, norm_info, rng, gamma=0.99):
         env_params,
         num_episodes,
         norm_info,
-        gamma,
         action_repeat=env_action_repeat(env),
         episode_length=(
             getattr(env, "episode_length", None)
@@ -695,7 +694,6 @@ def _start_rollout(
     rng: jax.Array,
     env_params: Optional[EnvParams],
     recurrent: bool,
-    gamma: float,
     norm_info: Optional[NormalizationInfo],
     expert_policy: Optional[Callable],
     max_eval_steps: Optional[int],
@@ -707,7 +705,7 @@ def _start_rollout(
     """The evaluation env reset from ``rng`` and the policy's rollout on it,
     from fresh memory, features and expert state."""
     env, mode, continuous, key, obs, state = _reset_eval_env(
-        env, env_params, num_episodes, norm_info, rng, gamma
+        env, env_params, num_episodes, norm_info, rng
     )
     # Fresh actor memory for evaluation: same structure as the live carry,
     # but batch-sized to num_episodes and zeroed (every supported memory
@@ -812,7 +810,7 @@ def evaluate(
     rng: jax.Array,
     env_params: Optional[EnvParams],
     recurrent: bool = False,
-    gamma: float = 0.99,
+    gamma: float = 0.99,  # noqa: ARG001 -- kept for callers; evaluation never normalises rewards
     norm_info: Optional[NormalizationInfo] = None,
     avg_reward_mode: bool = False,
     expert_policy: Optional[Callable] = None,
@@ -858,7 +856,6 @@ def evaluate(
         "rng": rng,
         "env_params": env_params,
         "recurrent": recurrent,
-        "gamma": gamma,
         "norm_info": norm_info,
         "expert_policy": expert_policy,
         "max_eval_steps": max_eval_steps,
@@ -994,7 +991,6 @@ def policy_episodes(
         rng,
         env_params,
         recurrent,
-        0.99,  # unused: evaluation never normalises rewards
         norm_info,
         expert_policy,
         None,
@@ -1102,7 +1098,6 @@ def evaluate_policy(
         env_params,
         num_episodes,
         norm_info=None,
-        gamma=0.99,  # unused without norm_info
         action_repeat=env_args.action_repeat,
         episode_length=train_episode_length,
     )
@@ -1210,7 +1205,6 @@ def _raw_evaluation_env(env_args: EnvironmentConfig, num_episodes: int) -> tuple
         env_params,
         num_episodes,
         norm_info=None,
-        gamma=0.99,  # unused without norm_info
         action_repeat=env_args.action_repeat,
         episode_length=train_episode_length,
     )

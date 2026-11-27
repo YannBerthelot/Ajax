@@ -152,9 +152,7 @@ def test_eval_rebuild_keeps_the_reset_semantics():
 
     for fresh_reset in (False, True):
         env, _ = build_env_from_id("CartpoleBalance", n_envs=1, fresh_reset=fresh_reset)
-        eval_env, _, _ = setup_environment(
-            env, None, num_episodes=2, norm_info=None, gamma=0.99
-        )
+        eval_env, _, _ = setup_environment(env, None, num_episodes=2, norm_info=None)
         assert eval_env._ajax_fresh_reset is fresh_reset
 
 

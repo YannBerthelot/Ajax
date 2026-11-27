@@ -115,9 +115,9 @@ Each update samples one replay batch and runs, in the reference's order:
   over its range of episode returns, and subtracts 1 from antmaze's. Compute
   the factor from your dataset and pass it as `reward_scale` (or shift the
   dataset's rewards).
-- **The value's input.** V reads the raw observation. With
-  `normalize_observations=True` only the actor and the critics normalise
-  theirs.
+- **The value's input.** V reads the observation as the actor and the
+  critics do: normalised with `normalize_observations=True` (until 0.6.0, V
+  read it raw).
 
 ## Results
 

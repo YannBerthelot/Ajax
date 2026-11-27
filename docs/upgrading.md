@@ -27,7 +27,7 @@ the minor version (0.5.0 to 0.6.0) and a fix bumps the patch (0.5.0 to
 - a task or environment definition changed.
 
 A project that needs stable results pins the minor version, for example
-`ajax-rl>=0.5,<0.6`.
+`ajax-rl>=0.6,<0.7`.
 
 ## The notes of each release
 
@@ -36,7 +36,7 @@ results that worked on the release before, with what to do about each:
 
 | From | To | Notes |
 | --- | --- | --- |
-| 0.5.0 | the next release (0.6.0), on main | [Upgrading from 0.5.0](changelog.md#upgrading-from-050) |
+| 0.5.0 | 0.6.0 | [Upgrading from 0.5.0](changelog.md#upgrading-from-050) |
 | 0.4.0 | 0.5.0 | [Upgrading from 0.4.0](changelog.md#upgrading-from-040) |
 | 0.3.1 | 0.4.0 | [0.4.0](changelog.md#040): a rework, read as a new library |
 

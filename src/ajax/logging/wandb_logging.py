@@ -275,8 +275,10 @@ def start_async_logging() -> None:
             # Python refuses a process started while another is being
             # imported: this is the worker, importing a script that trains
             # at its top level. It ends with the message alone: a traceback
-            # of the spawn machinery buried it.
-            if mp.parent_process() is not None:
+            # of the spawn machinery buried it. Python names this refusal
+            # in its message only (the worker's parent_process is not set
+            # until the import ends).
+            if "bootstrapping phase" in str(error):
                 raise SystemExit(UNGUARDED_SCRIPT) from error
             raise
         finally:

@@ -184,7 +184,7 @@ agent = APG(
     pid=PIDHeadConfig(),  # close the controller with a learnable PID layer
 )
 state, aux = agent.train(seed=0, n_timesteps=8 * 100 * 200)  # 200 updates
-print(aux.m_rmse[0, 0], aux.m_rmse[0, -1])  # (seeds, updates): falls from about 1.7 to 0.45
+print(aux.m_rmse[0, 0], aux.m_rmse[0, -1])  # (seeds, updates): falls from about 1.7 to 0.3
 ```
 
 `train` always returns every update's `loss`, `matching_loss`, `m_rmse`,

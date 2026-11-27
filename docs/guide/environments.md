@@ -647,7 +647,7 @@ action of 1 applies a torque of 2.
 - The map is the same for every agent and wherever an action reaches the
   environment: collection, evaluation and expert rollouts. Replay buffers
   and rollouts store the action in agent units.
-- SAC, TQC, RVI-SAC, CrossQ, TD3, REDQ, ASAC, AVG, DAgger, UDRL and APG (by
+- SAC, TQC, RVI-SAC, CrossQ, TD3, REDQ, ASAC, AVG, UDRL and APG (by
   default) squash their actions into `[-1, 1]` with `tanh`. PPO and
   REINFORCE sample an unbounded Gaussian (PPO unless `squash=True`), and APO
   and IQL one whose mean is bounded by `tanh`: the map clips their samples.

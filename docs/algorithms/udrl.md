@@ -2,32 +2,35 @@
 
 Upside-Down RL turns reinforcement learning into supervised learning. The
 policy takes a *command* next to the observation: a return to obtain and a
-number of steps to obtain it in. It learns, from its own past experience, which
-action led to which outcome, then is asked for slightly better outcomes than
-the best it has seen. There is no critic, no value estimate and no discount by
-default.
+number of steps to obtain it in. It learns, from its own past experience,
+which action led to which outcome, then is asked for slightly better
+outcomes than the best it has seen.
 
 **Papers:** Schmidhuber, *Reinforcement Learning Upside Down: Don't Predict
 Rewards -- Just Map Them to Actions*, 2019
-([arXiv:1912.02875](https://arxiv.org/abs/1912.02875)). Ajax follows its
-training procedure; the code cites it as Algorithms 3 to 5. The companion
-paper by Srivastava, Shyam, Mutz, Jaśkowski and Schmidhuber, *Training Agents
-using Upside-Down Reinforcement Learning*, 2019
-([arXiv:1912.02877](https://arxiv.org/abs/1912.02877)), reports the first
-experiments.
+([arXiv:1912.02875](https://arxiv.org/abs/1912.02875)), whose training
+procedure Ajax follows. The companion paper by Srivastava, Shyam, Mutz,
+Jaśkowski and Schmidhuber, *Training Agents using Upside-Down Reinforcement
+Learning*, 2019 ([arXiv:1912.02877](https://arxiv.org/abs/1912.02877)),
+reports the first experiments; its code is not public.
 
-## Can I use?
+## When to use it
+
+UDRL has no critic, no value estimate and, by default, no discount: it
+learns only by supervised steps on its own replayed experience. Its
+commands are a return and a horizon, so it suits episodic tasks, and
+research on command-conditioned policies.
 
 | Feature | UDRL |
 | --- | --- |
 | Discrete actions | yes |
-| Continuous actions | yes, tanh-bounded, mapped onto the environment's bounds |
+| Continuous actions | yes, `tanh`-bounded, mapped onto the environment's bounds |
 | Memory (`memory=`) | no |
 | Environments | gymnax, Brax, MuJoCo Playground |
 | Image observations | yes, a CNN encoder (`cnn_image_shape`) |
 | Several seeds in one call | yes, `train(seed=[...])` |
-| Extension phases | `pretrain`, `post_update`, `eval_metrics`, `actor_loss`, `transform_action`, `actuate`, `observe`, `action`, `choose_replay_action` |
-| Resume and checkpoints | yes; a split run equals the uninterrupted one (probe and resume contract) |
+| Extension phases | `pretrain`, `post_update`, `eval_metrics`, `observe`, `actor_loss`, `action`, `transform_action`, `actuate`, `choose_replay_action` ([which extensions run](../guide/compatibility.md)) |
+| Resume and checkpoints | yes; a run split by a checkpoint equals the run left whole |
 
 ## Example
 
@@ -43,14 +46,14 @@ print(evaluations["Train/episodic mean reward"])  # returns of the episodes coll
 print(state.command_target_return)                # the return the agent now asks for
 ```
 
-With a `logging_config`, every `log_frequency` steps UDRL evaluates its
-policy on `num_episode_test` episodes and `train` returns, next to the
-evaluation (`Eval/episodic mean reward`, `Eval/episodic entropy`,
+With a `logging_config`, UDRL evaluates its policy every `log_frequency`
+steps on `num_episode_test` episodes. `train` returns the evaluation
+(`Eval/episodic mean reward`, `Eval/episodic entropy`,
 `Eval/mean episodic length`, and `Eval/commanded return` and
-`Eval/commanded horizon`, the command each episode starts from), the
-training metrics of those iterations
-(`Train/episodic mean reward`, `Train/actor_loss`, `Train/mean_rtg`,
-`Train/mean_horizon`, `Train/n_completed_episodes`).
+`Eval/commanded horizon`, the command each episode starts from) and the
+training metrics of those iterations (`Train/episodic mean reward`,
+`Train/actor_loss`, `Train/mean_rtg`, `Train/mean_horizon`,
+`Train/n_completed_episodes`).
 
 ## Key hyperparameters
 
@@ -93,6 +96,19 @@ Each iteration:
    taken there, and as command what actually followed: the reward summed up
    to a random later step of the same episode, and that number of steps.
 
+## Differences from the reference
+
+From Srivastava et al. (arXiv:1912.02877v2):
+
+- **The replay** is first-in first-out; the paper's keeps the best
+  episodes by return (Sec. 2.2.1).
+- **Training intervals** end at a random later step of their episode, the
+  paper's general form; its experiments all end them at the episode's end
+  (Sec. 2.2.3).
+- **No warm-up.** The paper first fills the replay with 30 to 50 episodes
+  of random actions (Algorithm 1, Table 4); in Ajax the first segments are
+  the untrained policy's.
+
 ## Notes
 
 - **Segments, read as episodes.** The replay stores fixed-length segments
@@ -105,33 +121,22 @@ Each iteration:
   that collection adds, and the command decreases as in collection. The
   policy acts deterministically.
 - **Command scaling.** The command enters the network multiplied by
-  `command_scale_r` and `command_scale_h` (two values of the paper's LunarLander search), so
-  that it is of order one; the replay keeps it unscaled.
-- **Deviations from Srivastava et al.** (arXiv:1912.02877v2). The replay is
-  first-in first-out; the paper's keeps the best episodes by return
-  (Sec. 2.2.1). A training interval ends at a random later step of its
-  episode, the paper's general form; its experiments all end it at the
-  episode's end (Sec. 2.2.3). There is no warm-up; the paper first fills
-  the replay with 30 to 50 episodes of random actions (Algorithm 1,
-  Table 4).
-- The policy's encoder ends with a LayerNorm, as Ajax's earlier networks did.
-- The command is carried in the last two entries of the observation, after
-  the observation features; with `cnn_image_shape` the image is flattened in
-  front of them.
+  `command_scale_r` and `command_scale_h` (two values of the paper's
+  LunarLander search), so that it is of order one; the replay keeps it
+  unscaled.
+- **Network.** The policy's encoder ends with a LayerNorm, unlike the other
+  agents' plain MLPs. The command is carried in the last two entries of the
+  observation, after the observation features; with `cnn_image_shape` the
+  image is flattened in front of them.
 
 ## Results
 
-No learning curves are published for UDRL yet. Unit tests
-(`tests/agents/UDRL` and the contracts every agent shares) check its pieces
-against exact contracts, without learning. The probes (`tests/probing`)
+No learning curves are published for UDRL yet. The probes (`tests/probing`)
 train it briefly on tiny environments with known answers: that it learns
-from the commands that actually followed and scales its command alike when
-acting and when training, its extension phases, and a run split by a
-checkpoint matching the run left whole. On the CPU speed benchmark
-(`benchmarks/agent_bench.py`: Pendulum, 4 environments, 8,000 steps) UDRL
-ran at 12,575 steps per second of execution (4,441 with compilation) at main
-`a8a13c2`; its trials spread from 9,604 to 15,069
-([PERFORMANCE_REPORT.md](https://github.com/YannBerthelot/Ajax/blob/main/PERFORMANCE_REPORT.md)).
+from the commands that actually followed, that it scales its command alike
+when acting and when training, its extension phases, and a run split by a
+checkpoint matching the run left whole. [Performance](../guide/performance.md)
+compares its speed with the other agents'.
 
 ## API
 

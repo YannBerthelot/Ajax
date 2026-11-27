@@ -357,7 +357,7 @@ process takes them off and writes them. The worker:
 - is drained and stopped when `train` returns, so every metric is written
   before `train` hands back the state.
 
-The worker starts only when a run has a backend. The callback has one cost:
-JAX never stores a program that contains one in its persistent compile
-cache, so a run with a `LoggingConfig` compiles again in every new process
-([Performance](performance.md)).
+The worker starts only when a run has a backend. JAX 0.10 never stores a
+program that contains a callback in its persistent compile cache, so there a
+run with a `LoggingConfig` compiles again in every new process; JAX 0.11
+caches it ([Performance](performance.md)).

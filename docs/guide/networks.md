@@ -282,8 +282,8 @@ u = Kp e + Ki I + Kd D
 where `e`, `I` and `D` are the tracking error, its integral and its
 difference, which the [`PIDTermsInput`](environments.md#pid-error-terms)
 feature appends to the observation. The agent learns the gains. Pass a
-`PIDPolicy` as the `actor_architecture` of SAC, TD3, REDQ, ASAC, AVG, PPO
-or APO:
+`PIDPolicy` as the `actor_architecture` of SAC, TD3, REDQ, TQC, ASAC,
+RVI-SAC, AVG, IQL, PPO or APO:
 
 ```python
 import jax
@@ -372,16 +372,16 @@ gains:
 - **Exploration.** The stochastic agents explore with a learned standard
   deviation that does not depend on the observation, clipped as the agent's
   other heads are (`log_std_bounds`: none in PPO and APO by default,
-  `[-20, 2]` in the others).
+  `[-5, 2]` in IQL, `[-20, 2]` in the others).
 - **No memory.** A PID policy needs a continuous action space and takes no
   `memory`: its memory is the integral and the difference in the
   observation.
 
-Each agent's own output rule applies to `u`. SAC, TD3, REDQ, ASAC and AVG
-squash it with `tanh` and APO takes `tanh(u)` as its mean, so the deployed
-controller is a saturated PID; APO samples unsquashed around `tanh(u)`, PPO
-around `u` (unless `squash=True`), and their samples are clipped to
-`[-1, 1]`. Like every action, `u` is then mapped onto the environment's
+Each agent's own output rule applies to `u`. SAC, TD3, REDQ, TQC, ASAC,
+RVI-SAC and AVG squash it with `tanh`, and APO and IQL take `tanh(u)` as
+their mean, so the deployed controller is a saturated PID; APO and IQL
+sample unsquashed around `tanh(u)`, PPO around `u` (unless `squash=True`),
+and their samples are clipped to `[-1, 1]`. Like every action, `u` is then mapped onto the environment's
 bounds ([Actions](environments.md#actions)): the deployed controller is
 `c + h · sat(u)`, with `c` the centre of the action box, `h` its half-width
 and `sat` the agent's `tanh` or clip. So a PID written in the environment's

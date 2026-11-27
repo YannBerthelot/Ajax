@@ -44,7 +44,7 @@ from ajax.agents.REINFORCE.REINFORCE import REINFORCE
 from ajax.agents.RVISAC.RVISAC import RVISAC
 from ajax.agents.SAC.SAC import SAC
 from ajax.agents.TD3.TD3 import TD3
-from ajax.agents.TDMPC2.TDMPC2 import TDMPC2
+from ajax.agents.TDMPC2.TDMPC2 import TDMPC2, TDMPC2State
 from ajax.agents.TQC.TQC import TQC
 from ajax.agents.UDRL.UDRL import UDRL, EvalCommand
 from ajax.evaluate import evaluate, get_deterministic_action_and_entropy_fn
@@ -54,7 +54,7 @@ from ajax.extensions.instrumentation import (
     COND_METRIC_KEYS,
     EVAREST_DECOMP_KEYS,
     BiasVoreDecomposition,
-    ConditioningMetrics,
+    CriticDiagnostics,
 )
 from ajax.extensions.observe import TrainingProgressInput
 from ajax.logging.wandb_logging import LoggingConfig
@@ -355,7 +355,7 @@ def _extended_run(case: Case) -> SimpleNamespace:
     if case.critic:
         buffer = getattr(case.cls(**kwargs), "buffer", None)
         extensions += [
-            ConditioningMetrics(buffer=buffer),
+            CriticDiagnostics(buffer=buffer),
             BiasVoreDecomposition(buffer=buffer),
         ]
     shared = evaluate
@@ -427,7 +427,7 @@ def test_a_run_observes_its_features(name: str, extended_run: Any) -> None:
 def test_the_instrumentation_finds_the_critic_on_its_own(
     name: str, extended_run: Any
 ) -> None:
-    """ConditioningMetrics and BiasVoreDecomposition, with no per-agent
+    """CriticDiagnostics and BiasVoreDecomposition, with no per-agent
     setting, find the critic (on critic_state, taking the observation or
     the observation and action, or a Q-network on actor_state) and their
     batch (the replay buffer or the exposed rollout): each evaluation of an
@@ -438,7 +438,7 @@ def test_the_instrumentation_finds_the_critic_on_its_own(
         kwargs = {"env_id": case.envs[-1], "n_envs": 2, **case.kwargs}
         buffer = getattr(case.cls(**kwargs), "buffer", None)
         extensions = [
-            ConditioningMetrics(buffer=buffer),
+            CriticDiagnostics(buffer=buffer),
             BiasVoreDecomposition(buffer=buffer),
         ]
         with pytest.raises(MissingCapability, match="needs critic"):
@@ -607,7 +607,8 @@ def test_a_world_model_acts_on_the_whole_box(name: str) -> None:
         actions, rewards = action[:-1][paid], reward[1:][paid]
     else:
         tdmpc2 = TDMPC2(env, env_params=params, seed_steps=4, **TDMPC2_TINY)
-        ring = tdmpc2.train(seed=0, n_timesteps=20, logging_config=None)[0].buffer_state
+        trained = tdmpc2.train(seed=0, n_timesteps=20, logging_config=None)[0]
+        ring = cast(TDMPC2State, trained).buffer_state
         written = ring.obs[0, :, 0, 0] != 0  # not the staging round's slots
         actions = ring.action[0, written, :-1, 0].ravel()
         rewards = ring.reward[0, written, 1:].ravel()

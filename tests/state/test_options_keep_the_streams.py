@@ -21,7 +21,7 @@ import pytest
 import ajax
 from ajax.agents.DreamerV3.DreamerV3 import DreamerV3
 from ajax.extensions.exploration import EDGEExploration
-from ajax.extensions.instrumentation import ConditioningMetrics
+from ajax.extensions.instrumentation import CriticDiagnostics
 from ajax.extensions.target_mods import IBRL
 from ajax.networks.memory import MemoryConfig
 from ajax.networks.networks import Actor, init_network_state
@@ -73,10 +73,10 @@ EXTENDED: dict[str, tuple[Any, dict[str, Any], int]] = {
 
 
 @pytest.mark.parametrize("name", EXTENDED)
-@pytest.mark.parametrize("extension", [CounterExt(), ConditioningMetrics()])
+@pytest.mark.parametrize("extension", [CounterExt(), CriticDiagnostics()])
 def test_an_extension_moves_neither_stream(name: str, extension: Any) -> None:
     """An inert post_update (CounterExt) and an evaluation metric
-    (ConditioningMetrics) leave both streams where they end without them."""
+    (CriticDiagnostics) leave both streams where they end without them."""
     cls, kwargs, steps = EXTENDED[name]
     assert_same_streams(cls, kwargs, {"extensions": (extension,)}, steps)
 

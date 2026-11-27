@@ -85,12 +85,11 @@ import numpy as np
 from flax import struct
 
 from ajax.controller import (
-    ObserveInputs,
+    _observe_inputs,
     observe_features,
-    previous_action_input,
-    previous_reward_input,
     restart_observers,
 )
+from ajax.environments.create import _build_of
 from ajax.environments.interaction import (
     get_final_obs,
     init_rolling_mean,
@@ -353,7 +352,7 @@ def collect_row(
             mode,
         )
     else:
-        if check_env_is_playground(env) and not getattr(env, "_ajax_fresh_reset", True):
+        if check_env_is_playground(env) and not _build_of(env).fresh_reset:
             warn_user(
                 "Dynamic reset mode on a mujoco_playground env built with"
                 " fresh_reset=False: its auto-reset returns a cached first"
@@ -372,16 +371,15 @@ def collect_row(
         observer_states, _ = restart_observers(
             nxt.is_first, env_args.observers, observer_states, None, None, n_envs
         )
-        inputs = ObserveInputs(
+        inputs = _observe_inputs(
+            env_args.observers,
             nxt.obs.astype(jnp.float32),
+            env,
+            env_params,
+            action,
+            nxt.reward,
             timestep=cs.timestep,
             horizon=cs.max_timesteps,
-            previous_action=previous_action_input(
-                env_args.observers, action, n_envs, env, env_params
-            ),
-            previous_reward=previous_reward_input(
-                env_args.observers, nxt.reward, n_envs
-            ),
         )
         next_obs, observer_states = observe_features(
             nxt.obs, inputs, env_args.observers, observer_states

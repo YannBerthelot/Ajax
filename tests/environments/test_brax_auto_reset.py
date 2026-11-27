@@ -275,7 +275,7 @@ def test_build_env_from_id_passes_differentiable_reset(episode_keys, auto_reset)
         )
         [layer] = [x for x in wrapper_chain(env) if type(x) is auto_reset]
         assert layer.differentiable_reset == differentiable
-    rebuilt, _, _ = setup_environment(env, None, 2, None, 0.99)
+    rebuilt, _, _ = setup_environment(env, None, 2, None)
     assert any(type(x) is auto_reset for x in wrapper_chain(rebuilt))
 
 

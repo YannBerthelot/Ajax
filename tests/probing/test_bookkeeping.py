@@ -556,7 +556,7 @@ def test_q3_the_evaluation_env_is_the_task() -> None:
     """The evaluation env built from the task as every evaluation builds it:
     one episode in each of 4 envs returns 14 and terminates on step 7."""
     env, params = task()
-    built, mode, _ = setup_environment(env, params, 4, norm_info=None, gamma=0.99)
+    built, mode, _ = setup_environment(env, params, 4, norm_info=None)
     keys = jax.random.split(jax.random.PRNGKey(0), 4)
     _, state = jax.vmap(built.reset, in_axes=(0, None))(keys, params)
     total, step = np.zeros(4), jax.vmap(built.step, (0, 0, None, None))

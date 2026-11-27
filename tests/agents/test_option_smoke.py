@@ -212,7 +212,7 @@ EXTENSIONS: dict[str, tuple[Callable[[], Extension], str]] = {
     "ImitationLoss": (lambda: expert.ImitationLoss(stateless_expert), "APO"),
     "KernelRepulsion": (ensemble.KernelRepulsion, "REDQ"),
     "BiasVorePenalty": (instrumentation.BiasVorePenalty, "AVG"),
-    "ConditioningMetrics": (instrumentation.ConditioningMetrics, "PQN"),
+    "CriticDiagnostics": (instrumentation.CriticDiagnostics, "PQN"),
     "BiasVoreDecomposition": (instrumentation.BiasVoreDecomposition, "PPO"),
     "ConservativeQ": (lambda: offline.ConservativeQ(n_actions=2), "SAC"),
     "CalQL": (lambda: offline.CalQL(n_actions=2), "SAC"),
@@ -273,7 +273,7 @@ REQUIRES.update({"CHEQ": {"expert_policy", "PIDTermsInput"}})
 REQUIRES.update(
     {
         o: {"expose_recent_rollout"}
-        for o in ("ConditioningMetrics", "BiasVoreDecomposition")
+        for o in ("CriticDiagnostics", "BiasVoreDecomposition")
     }
 )
 EXPERTS = {"expert_policy", "eval_expert_policy"}

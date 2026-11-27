@@ -1,4 +1,3 @@
-import copy
 import dataclasses
 from typing import Any, Callable, NamedTuple, Optional, TypeVar
 
@@ -9,12 +8,16 @@ from jax.tree_util import Partial as partial
 
 from ajax.controller import (
     Controller,
-    ObserveInputs,
+    _observe_inputs,
     call_expert,
     init_observers,
     observe_features,
-    previous_action_input,
-    previous_reward_input,
+)
+from ajax.environments.create import (
+    _build_of,
+    _rebuild_for_evaluation,
+    add_ajax_wrappers,
+    strip_ajax_wrappers,
 )
 from ajax.environments.interaction import (
     APPLIED_ACTION_KEY,
@@ -29,15 +32,12 @@ from ajax.environments.utils import (
     ExpertInAgentUnits,
     agent_action_to_env,
     agent_episode_length,
-    check_env_is_playground,
     check_if_environment_has_continuous_actions,
     env_action_repeat,
     env_keys,
     flatten_action_column,
     get_env_type,
-    get_raw_env,
     steps_in_python,
-    wrapper_chain,
 )
 from ajax.networks.memory import tree_where_reset
 from ajax.policy import frozen_progress, make_act, normalised_reward
@@ -115,7 +115,7 @@ def evaluation_physics(env: Any) -> str:
     that is not a GPU (an asynchronous evaluator on the CPU,
     ``LoggingConfig.evaluation_device``), where Warp cannot run. Both step
     the same model; tasks with contacts drift apart over an episode."""
-    physics = getattr(env, "_ajax_physics", "jax")
+    physics = _build_of(env).physics
     device = jax.config.jax_default_device  # set by the evaluator's thread
     platform = getattr(device, "platform", device)
     if physics == "warp" and platform not in (None, "gpu", "cuda"):
@@ -128,7 +128,7 @@ def setup_environment(
     env_params,
     num_episodes,
     norm_info,
-    gamma,  # noqa: ARG001 -- positional in downstream calls; eval never normalises rewards
+    *,
     action_repeat: int = 1,
     episode_length: Optional[int] = None,
 ):
@@ -145,86 +145,20 @@ def setup_environment(
 
     brax / playground tasks are rebuilt from their id with ``num_episodes``
     parallel envs, and the wrappers over the stack the builder returned go
-    back over the rebuilt one. ``episode_length`` (simulator steps) and
+    back over the rebuilt one (_rebuild_for_evaluation, on the physics of
+    evaluation_physics). ``episode_length`` (simulator steps) and
     ``action_repeat`` are the training env's; the defaults are ``None`` ->
     the env's native episode length, falling back to 1000, and repeat 1.
     gymnax envs do not support ``action_repeat > 1``.
     """
-    from ajax.environments.create import (
-        _build_brax_env,
-        _build_playground_env,
-        add_ajax_wrappers,
-        strip_ajax_wrappers,
-        wrap_playground_env,
-    )
-
     env, layers = strip_ajax_wrappers(env)
     mode = get_env_type(env)
     continuous = check_if_environment_has_continuous_actions(env, env_params)
 
     if mode == "brax":
-        # The user's wrappers over the built stack come back over the rebuilt one.
-        users = _over_the_built_stack(env)
-        ajax_env_id = getattr(env, "_ajax_env_id", None)
-        if ajax_env_id is None:
-            raw = get_raw_env(env)
-            ajax_env_id = type(raw).__name__.lower()
-        # The env's native episode length (``_config.episode_length``, the
-        # playground convention, found by peeling our wrappers), else 1000.
-        # A fixed 1000 would run eval episodes past the env's own
-        # truncation (150 on mujoco_playground manip), a silent eval/train
-        # mismatch in episode budget.
-        _native_ep = getattr(
-            getattr(env, "_config", None),
-            "episode_length",
-            None,
+        env = _rebuild_for_evaluation(
+            env, num_episodes, episode_length, action_repeat, evaluation_physics(env)
         )
-        _inner = env
-        while _native_ep is None and _inner is not None:
-            _inner = getattr(_inner, "env", None)
-            _native_ep = getattr(
-                getattr(_inner, "_config", None),
-                "episode_length",
-                None,
-            )
-        eval_ep_len = int(_native_ep) if _native_ep is not None else 1000
-        if episode_length is not None:
-            eval_ep_len = int(episode_length)
-        episode_keys = getattr(env, "_ajax_episode_keys", True)
-        prebuilt = getattr(env, "_ajax_prebuilt", None)
-        if prebuilt is not None:
-            # A bare env object given to the agent: no id, so the same
-            # object is wrapped again.
-            env = wrap_playground_env(
-                prebuilt,
-                n_envs=num_episodes,
-                episode_length=eval_ep_len,
-                action_repeat=action_repeat,
-                fresh_reset=getattr(env, "_ajax_fresh_reset", True),
-                episode_keys=episode_keys,
-            )
-        elif check_env_is_playground(env):
-            env = _build_playground_env(
-                ajax_env_id,
-                n_envs=num_episodes,
-                episode_length=eval_ep_len,
-                action_repeat=action_repeat,
-                fresh_reset=getattr(env, "_ajax_fresh_reset", True),
-                episode_keys=episode_keys,
-                physics=evaluation_physics(env),
-            )
-        else:
-            env = _build_brax_env(
-                ajax_env_id,
-                n_envs=num_episodes,
-                episode_length=eval_ep_len,
-                action_repeat=action_repeat,
-                episode_keys=episode_keys,
-            )
-        for layer in reversed(users):
-            layer = copy.copy(layer)
-            layer.env = env
-            env = layer
     elif action_repeat > 1:
         raise NotImplementedError(
             "action_repeat > 1 is not supported on gymnax envs (see"
@@ -245,18 +179,6 @@ def setup_environment(
             "norm_info": repeat_first_entry(norm_info, num_repeats=num_episodes),
         }
     return add_ajax_wrappers(env, **normaliser), mode, continuous
-
-
-def _over_the_built_stack(env: Any) -> list:
-    """The wrappers over the brax / playground stack an Ajax builder returned
-    (the layer it tagged with ``_ajax_env_id``), outermost first; none when
-    no layer carries the tag (the whole env is rebuilt from its id)."""
-    over: list = []
-    for layer in wrapper_chain(env):
-        if "_ajax_env_id" in getattr(layer, "__dict__", {}):
-            return over
-        over.append(layer)
-    return []
 
 
 def _expert_obs(state, env, mode, env_params) -> jax.Array:
@@ -517,17 +439,16 @@ def step_environment(
         if controller.observers:
             fresh = init_observers(controller.observers, obs.shape[0])
             observer_states = tree_where_reset(new_done, fresh, observer_states)
-            inputs = ObserveInputs(
+            inputs = _observe_inputs(
+                controller.observers,
                 _expert_obs(new_state, env, mode, env_params),
+                env,
+                env_params,
+                actions,
+                new_rewards,
                 expert=expert_policy,
                 expert_state=new_expert_state if expert_is_stateful else None,
                 progress=progress_now,
-                previous_action=previous_action_input(
-                    controller.observers, actions, obs.shape[0], env, env_params
-                ),
-                previous_reward=previous_reward_input(
-                    controller.observers, new_rewards, obs.shape[0]
-                ),
             )
             obs, observer_states = observe_features(
                 obs, inputs, controller.observers, observer_states
@@ -619,7 +540,7 @@ def _infer_max_eval_steps(env, env_params) -> int:
     return 1000
 
 
-def _reset_eval_env(env, env_params, num_episodes, norm_info, rng, gamma=0.99):
+def _reset_eval_env(env, env_params, num_episodes, norm_info, rng):
     """The evaluation env, reset from ``rng``: ``(env, mode, continuous,
     key, obs, state)``, ``key`` the rollout's.
 
@@ -633,7 +554,6 @@ def _reset_eval_env(env, env_params, num_episodes, norm_info, rng, gamma=0.99):
         env_params,
         num_episodes,
         norm_info,
-        gamma,
         action_repeat=env_action_repeat(env),
         episode_length=(
             getattr(env, "episode_length", None)
@@ -695,7 +615,6 @@ def _start_rollout(
     rng: jax.Array,
     env_params: Optional[EnvParams],
     recurrent: bool,
-    gamma: float,
     norm_info: Optional[NormalizationInfo],
     expert_policy: Optional[Callable],
     max_eval_steps: Optional[int],
@@ -707,7 +626,7 @@ def _start_rollout(
     """The evaluation env reset from ``rng`` and the policy's rollout on it,
     from fresh memory, features and expert state."""
     env, mode, continuous, key, obs, state = _reset_eval_env(
-        env, env_params, num_episodes, norm_info, rng, gamma
+        env, env_params, num_episodes, norm_info, rng
     )
     # Fresh actor memory for evaluation: same structure as the live carry,
     # but batch-sized to num_episodes and zeroed (every supported memory
@@ -729,17 +648,14 @@ def _start_rollout(
     observer_states = None
     if controller.observers:
         stateful = expert_policy is not None and hasattr(expert_policy, "init_state")
-        inputs = ObserveInputs(
+        inputs = _observe_inputs(
+            controller.observers,
             _expert_obs(state, env, mode, env_params),
+            env,
+            env_params,
             expert=expert_policy,
             expert_state=expert_state if stateful else None,
             progress=frozen_progress(agent_state),
-            previous_action=previous_action_input(
-                controller.observers, None, num_episodes, env, env_params
-            ),
-            previous_reward=previous_reward_input(
-                controller.observers, None, num_episodes
-            ),
         )
         first_obs, observer_states = observe_features(
             first_obs,
@@ -812,7 +728,7 @@ def evaluate(
     rng: jax.Array,
     env_params: Optional[EnvParams],
     recurrent: bool = False,
-    gamma: float = 0.99,
+    gamma: float = 0.99,  # noqa: ARG001 -- kept for callers; evaluation never normalises rewards
     norm_info: Optional[NormalizationInfo] = None,
     avg_reward_mode: bool = False,
     expert_policy: Optional[Callable] = None,
@@ -858,7 +774,6 @@ def evaluate(
         "rng": rng,
         "env_params": env_params,
         "recurrent": recurrent,
-        "gamma": gamma,
         "norm_info": norm_info,
         "expert_policy": expert_policy,
         "max_eval_steps": max_eval_steps,
@@ -994,7 +909,6 @@ def policy_episodes(
         rng,
         env_params,
         recurrent,
-        0.99,  # unused: evaluation never normalises rewards
         norm_info,
         expert_policy,
         None,
@@ -1102,7 +1016,6 @@ def evaluate_policy(
         env_params,
         num_episodes,
         norm_info=None,
-        gamma=0.99,  # unused without norm_info
         action_repeat=env_args.action_repeat,
         episode_length=train_episode_length,
     )
@@ -1119,14 +1032,14 @@ def evaluate_policy(
     ) -> tuple[jax.Array, Any]:
         """obs with the features, after action and the reward it earned
         (None: a reset)."""
-        previous_action = previous_action_input(
-            observers, action, num_episodes, env, env_params
-        )
-        inputs = ObserveInputs(
+        inputs = _observe_inputs(
+            observers,
             obs.astype(jnp.float32),
+            env,
+            env_params,
+            action,
+            reward,
             progress=progress_now,
-            previous_action=previous_action,
-            previous_reward=previous_reward_input(observers, reward, num_episodes),
         )
         return observe_features(obs, inputs, observers, states)
 
@@ -1210,12 +1123,59 @@ def _raw_evaluation_env(env_args: EnvironmentConfig, num_episodes: int) -> tuple
         env_params,
         num_episodes,
         norm_info=None,
-        gamma=0.99,  # unused without norm_info
         action_repeat=env_args.action_repeat,
         episode_length=train_episode_length,
     )
     horizon = agent_episode_length(env, env_params, env_args.action_repeat)
     return env, mode, env_params, horizon
+
+
+class _PartsRollout(NamedTuple):
+    """Where a rollout of a policy's parts stands, per env: the observation
+    they act on next, the env's state, their carry, whether an episode
+    starts at the next step, and the reward the env paid for the last
+    action."""
+
+    obs: jax.Array
+    env_state: Any
+    policy_carry: Any
+    starts: jax.Array
+    reward: jax.Array
+
+
+def _step_policy_parts(
+    parts: Any,
+    env: Any,
+    mode: str,
+    env_params: Optional[EnvParams],
+    key: jax.Array,
+    index: int | jax.Array,
+    at: _PartsRollout,
+) -> tuple[_PartsRollout, jax.Array]:
+    """Step index of a rollout of a policy's parts, from at: the parts act,
+    then the envs step on their action, each on keys named from key folded
+    with index. Returns where the rollout then stands, and whether the step
+    ended each env's episode."""
+    n_envs = at.starts.shape[0]
+    step_key = fold_index(key, index)
+    policy_key = derive_key(step_key, "rollout_action")
+    action, policy_carry = parts.step(
+        at.obs, at.policy_carry, at.starts, at.reward, policy_key
+    )
+    obs, env_state, reward, terminated, truncated, _ = step(
+        env_keys(derive_key(step_key, "rollout_env_step"), mode, n_envs),
+        at.env_state,
+        action,
+        env,
+        mode,
+        env_params,
+    )
+    ended = (terminated.reshape(n_envs) > 0) | (truncated.reshape(n_envs) > 0)
+    reward = reward.reshape(n_envs).astype(jnp.float32)
+    stepped = _PartsRollout(
+        obs, env_state, policy_carry, jnp.zeros_like(at.starts), reward
+    )
+    return stepped, ended
 
 
 def policy_episode(
@@ -1240,24 +1200,12 @@ def policy_episode(
     key, obs, env_state = _reset_envs(env, mode, env_params, 1, key)
 
     @jax.jit
-    def advance(obs, env_state, policy_carry, starts, reward, index):
-        step_key = fold_index(key, index)
-        policy_key = derive_key(step_key, "rollout_action")
-        action, policy_carry = parts.step(obs, policy_carry, starts, reward, policy_key)
-        obs, env_state, reward, terminated, truncated, _ = step(
-            env_keys(derive_key(step_key, "rollout_env_step"), mode, 1),
-            env_state,
-            action,
-            env,
-            mode,
-            env_params,
-        )
-        ended = (terminated.reshape(1) > 0) | (truncated.reshape(1) > 0)
-        reward = reward.reshape(1).astype(jnp.float32)
-        return obs, env_state, policy_carry, reward, ended[0]
+    def advance(at: _PartsRollout, index: int) -> tuple[_PartsRollout, jax.Array]:
+        return _step_policy_parts(parts, env, mode, env_params, key, index, at)
 
-    policy_carry, starts = parts.initial(1), jnp.ones(1, bool)
-    reward = jnp.zeros(1, jnp.float32)
+    at = _PartsRollout(
+        obs, env_state, parts.initial(1), jnp.ones(1, bool), jnp.zeros(1, jnp.float32)
+    )
 
     def kept(env_state: Any) -> Any:
         if snapshot is None:
@@ -1268,15 +1216,22 @@ def policy_episode(
 
     states, rewards = [kept(env_state)], []
     for index in range(horizon if max_steps is None else min(horizon, max_steps)):
-        obs, env_state, policy_carry, reward, ended = advance(
-            obs, env_state, policy_carry, starts, reward, index
-        )
-        starts = jnp.zeros(1, bool)
-        rewards.append(float(reward[0]))
-        if bool(ended):
+        at, ended = advance(at, index)
+        rewards.append(float(at.reward[0]))
+        if bool(ended[0]):
             break
-        states.append(kept(env_state))
+        states.append(kept(at.env_state))
     return env, states, rewards
+
+
+class _ReturnsCarry(NamedTuple):
+    """policy_returns' scan carry: where the rollout stands, and each env's
+    end, return and length, counted to its episode's first end."""
+
+    rollout: _PartsRollout
+    done: jax.Array
+    episode_return: jax.Array
+    length: jax.Array
 
 
 def policy_returns(
@@ -1296,48 +1251,22 @@ def policy_returns(
     env, mode, env_params, horizon = _raw_evaluation_env(env_args, num_episodes)
     key, obs, env_state = _reset_envs(env, mode, env_params, num_episodes, key)
 
-    def body(carry: tuple, index: jax.Array) -> tuple[tuple, None]:
-        obs, env_state, policy_carry, starts, reward, done, ret, length = carry
-        step_key = fold_index(key, index)
-        policy_key = derive_key(step_key, "rollout_action")
-        action, policy_carry = parts.step(obs, policy_carry, starts, reward, policy_key)
-        obs, env_state, reward, terminated, truncated, _ = step(
-            env_keys(derive_key(step_key, "rollout_env_step"), mode, num_episodes),
-            env_state,
-            action,
-            env,
-            mode,
-            env_params,
+    def body(carry: _ReturnsCarry, index: jax.Array) -> tuple[_ReturnsCarry, None]:
+        rollout, ended = _step_policy_parts(
+            parts, env, mode, env_params, key, index, carry.rollout
         )
-        reward = reward.reshape(num_episodes).astype(jnp.float32)
-        running = jnp.logical_not(done)
-        ret = ret + jnp.where(running, reward, 0.0)
-        length = length + running.astype(jnp.float32)
-        ended = (terminated.reshape(num_episodes) > 0) | (
-            truncated.reshape(num_episodes) > 0
-        )
+        running = jnp.logical_not(carry.done)
         # One episode per env, counted until its first end: no restart.
-        return (
-            obs,
-            env_state,
-            policy_carry,
-            jnp.zeros_like(starts),
-            reward,
-            done | ended,
-            ret,
-            length,
+        return _ReturnsCarry(
+            rollout,
+            carry.done | ended,
+            carry.episode_return + jnp.where(running, rollout.reward, 0.0),
+            carry.length + running.astype(jnp.float32),
         ), None
 
     zeros = jnp.zeros(num_episodes, jnp.float32)
-    init = (
-        obs,
-        env_state,
-        parts.initial(num_episodes),
-        jnp.ones(num_episodes, bool),
-        zeros,
-        jnp.zeros(num_episodes, bool),
-        zeros,
-        zeros,
-    )
-    final, _ = jax.lax.scan(body, init, jnp.arange(horizon))
-    return final[6], final[7]
+    starts = jnp.ones(num_episodes, bool)
+    first = _PartsRollout(obs, env_state, parts.initial(num_episodes), starts, zeros)
+    carry = _ReturnsCarry(first, jnp.zeros(num_episodes, bool), zeros, zeros)
+    final, _ = jax.lax.scan(body, carry, jnp.arange(horizon))
+    return final.episode_return, final.length

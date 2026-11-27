@@ -424,6 +424,31 @@ def previous_reward_input(
     return reward.reshape(n_envs, 1).astype(jnp.float32)
 
 
+def _observe_inputs(
+    observers: Any,
+    raw_obs: jax.Array,
+    env: Any,
+    env_params: Any,
+    action: Optional[jax.Array] = None,
+    reward: Optional[jax.Array] = None,
+    **fields: Any,
+) -> ObserveInputs:
+    """The ObserveInputs of raw_obs, the env's own observations (one row
+    per env) after the envs executed action, in agent units, and were paid
+    reward (both None at a reset): their columns where a feature among
+    observers reads them (previous_action_input, previous_reward_input),
+    and fields, the inputs' others (expert, expert_state, timestep, ...)."""
+    n_envs = raw_obs.shape[0]
+    return ObserveInputs(
+        raw_obs,
+        previous_action=previous_action_input(
+            observers, action, n_envs, env, env_params
+        ),
+        previous_reward=previous_reward_input(observers, reward, n_envs),
+        **fields,
+    )
+
+
 def reads_agent_expert(env_args: Any) -> bool:
     """Whether a feature of ``env_args.observers`` reads the agent's expert."""
     return any("agent_expert" in e.requires for e in env_args.observers)

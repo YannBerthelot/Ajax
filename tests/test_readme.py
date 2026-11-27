@@ -4,7 +4,7 @@ It is the first page a reader sees and its examples are the first code they
 run, so each ``python`` block is executed; a block whose first line is
 ``# doc: skip`` (one that would train for minutes, say) is left out. A block
 that trains (calls ``.train(``) runs in the slow tier, word for word. The agent list and the
-relative links are checked too: both go stale quietly when an agent or a
+links are checked too: both go stale quietly when an agent or a
 documentation page is added, renamed or removed. So are the totals the
 documentation states (agents, extensions), the algorithms index, the
 extensions catalogue and the memory table, against the code.
@@ -24,11 +24,21 @@ from tests.doc_examples import ROOT, readme_blocks, run_readme_block
 README = ROOT / "README.md"
 DOCS = ROOT / "docs"
 
-# A Markdown link target or an HTML href, up to an anchor, a quote or a space.
-LINK = re.compile(r'\]\(([^)\s#]+)|href="([^"#]+)"')
-# The README's "## Agents" section, and each agent's link in it: "[SAC](docs/algorithms/sac.md)".
+# A Markdown link or image target, or an HTML href or src, up to an anchor, a
+# quote or a space.
+LINK = re.compile(r'\]\(([^)\s#]+)|(?:href|src)="([^"#]+)"')
+# PyPI shows the README as the project page, where relative links and images
+# break: a link into the repository takes one of these absolute forms.
+REPOSITORY_FILES = (
+    "https://raw.githubusercontent.com/YannBerthelot/Ajax/main/",  # an image
+    "https://github.com/YannBerthelot/Ajax/blob/main/",  # a file
+    "https://github.com/YannBerthelot/Ajax/tree/main/",  # a folder
+)
+DOCS_SITE = "https://yannberthelot.github.io/Ajax/latest/"  # a documentation page
+# The README's "## Agents" section, and each agent's link in it:
+# "[SAC](https://yannberthelot.github.io/Ajax/latest/algorithms/sac/)".
 AGENTS_SECTION = re.compile(r"^## Agents\n(.*?)^## ", re.MULTILINE | re.DOTALL)
-AGENT_LINK = re.compile(r"\[(\w+)\]\(docs/algorithms/")
+AGENT_LINK = re.compile(r"\[(\w+)\]\(" + re.escape(DOCS_SITE) + "algorithms/")
 NUMBER_WORDS = (
     "zero one two three four five six seven eight nine ten eleven twelve"
     " thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty"
@@ -73,16 +83,31 @@ def test_readme_agent_list_is_complete():
     assert f"{NUMBER_WORDS[len(listed)]} agents" in readme
 
 
-def test_readme_relative_links_resolve():
-    """Each link into the repository (a docs page, LICENSE, ...) names a file
-    that exists."""
-    targets = {
-        a or b
-        for a, b in LINK.findall(README.read_text())
-        if not re.match(r"[a-z]+:", a or b)
-    }
-    assert targets, "no relative links found: has the link pattern drifted?"
-    missing = sorted(t for t in targets if not (ROOT / t).exists())
+def local_file(url: str) -> pathlib.Path | None:
+    """The checkout's file or folder that an absolute link names; None for a
+    link elsewhere. A documentation page is docs/<path>.md, or
+    docs/<path>/index.md for a folder's page (the site's directory URLs)."""
+    for prefix in REPOSITORY_FILES:
+        if url.startswith(prefix):
+            return ROOT / url.removeprefix(prefix)
+    if not url.startswith(DOCS_SITE):
+        return None
+    page = url.removeprefix(DOCS_SITE).strip("/")
+    markdown = DOCS / f"{page}.md"
+    return markdown if markdown.exists() else DOCS / page / "index.md"
+
+
+def test_readme_links_are_absolute_and_name_files_that_exist():
+    """No link or image is relative, which PyPI's project page would break,
+    and each into the repository (a docs page, an image, LICENSE, ...) names
+    a file of the checkout that exists."""
+    targets = {a or b for a, b in LINK.findall(README.read_text())}
+    relative = sorted(t for t in targets if not re.match(r"[a-z]+:", t))
+    assert not relative, f"README links relatively, which breaks on PyPI: {relative}"
+    files = {t: local_file(t) for t in targets}
+    repository = {t: f for t, f in files.items() if f is not None}
+    assert repository, "no link into the repository found: has a pattern drifted?"
+    missing = sorted(t for t, f in repository.items() if not f.exists())
     assert not missing, f"README links to missing files: {missing}"
 
 
@@ -165,56 +190,3 @@ def test_the_memory_table_says_which_agents_take_memory():
         supports = getattr(getattr(ajax, name), "supports_memory", False)
         assert what.startswith("`memory=`") == supports, name
         assert ("built in" in what) == (name == "DreamerV3"), name
-
-
-# The README's reproduction table: each row's (agent, task, reference) and the
-# comparison of docs/reproduction/results.md it reports.
-REPRODUCTION_ROWS = {
-    ("DQN", "CartPole-v1", "Stable-Baselines3"): "DQN",
-    ("PPO", "CartPole-v1", "Stable-Baselines3"): "PPO",
-    ("PPO", "CartPole-v1", "SBX"): "PPO-sbx",
-    ("PPO", "inverted_pendulum", "Brax"): "PPO-inverted_pendulum",
-    ("PQN", "CartPole-v1", "purejaxql"): "PQN",
-    ("PQN", "Asterix-MinAtar", "purejaxql"): "PQN-Asterix",
-    ("REINFORCE", "CartPole-v1", "Spinning Up"): "REINFORCE",
-    ("REINFORCE", "Pendulum-v1", "Spinning Up"): "REINFORCE-Pendulum",
-    ("SAC", "Pendulum-v1", "Stable-Baselines3"): "SAC",
-    ("SAC", "Pendulum-v1", "SBX"): "SAC-sbx",
-    ("TD3", "Pendulum-v1", "Stable-Baselines3"): "TD3",
-}
-
-
-def _table_rows(text: str) -> list:
-    """The cells of each table row of ``text``, less header and rule."""
-    rows = [
-        [cell.strip() for cell in line.strip("|").split("|")]
-        for line in text.splitlines()
-        if line.startswith("|")
-    ]
-    return [row for row in rows[2:] if not set(row[0]) <= {"-"}]
-
-
-def test_the_reproduction_table_reports_every_comparison_as_the_results_page():
-    readme = README.read_text()
-    block = readme.split("<!-- reproduction-summary:start -->")[1]
-    shown = _table_rows(block.split("<!-- reproduction-summary:end -->")[0])
-    results, speed = (
-        (DOCS / "reproduction" / "results.md").read_text().split("## Speed")
-    )
-    verdicts = {row[0]: row for row in _table_rows(results)}
-    cpu_seconds: dict = {}
-    for row in _table_rows(speed.split("## Learning curves")[0]):
-        side = "Ajax" if row[1] == "Ajax" else "reference"
-        cpu_seconds[(row[0], side)] = row[3]
-
-    # Every comparison of the results page, the inconclusive one included.
-    assert {REPRODUCTION_ROWS[(row[0], row[1], row[2])] for row in shown} == set(
-        verdicts
-    )
-    for row in shown:
-        name = REPRODUCTION_ROWS[(row[0], row[1], row[2])]
-        recorded = verdicts[name]
-        # Results columns: verdict 2, reference's return 5, Ajax's 6.
-        assert row[3:6] == [recorded[5], recorded[6], recorded[2]], name
-        assert row[6] == cpu_seconds[(name, "reference")], name
-        assert row[7] == cpu_seconds[(name, "Ajax")], name

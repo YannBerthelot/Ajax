@@ -5,7 +5,7 @@ A `LoggingConfig` says when a run evaluates and where it logs. Every
 evaluations, and each run logs them to its backends: TensorBoard, Weights &
 Biases, or a backend of your own. A `train` call given none evaluates about
 ten times and prints a line for each; `logging_config=None` evaluates
-nothing.
+nothing ([What `train` returns](training.md#what-train-returns)).
 
 ## `LoggingConfig`
 
@@ -21,38 +21,38 @@ logging = LoggingConfig(
 
 | Field | Default | Meaning |
 | --- | --- | --- |
-| `backends` | `TensorBoardBackend(folder)` | where each run logs ([below](#backends)); `()` logs nowhere |
-| `config` | `{}` | a dictionary stored with each run, with the agent's run configuration added (below) |
-| `log_frequency` | 10,000 | environment steps between evaluations |
+| `log_frequency` | `10_000` | environment steps between evaluations |
+| `backends` | `(TensorBoardBackend(folder),)` | where each run logs ([below](#backends)); `()` logs nowhere, and `train` still returns the evaluations |
+| `config` | `{}` | a dictionary stored with each run, with the agent's run configuration added ([below](#the-run-configuration)) |
 | `run_name` | `None` | each run's name prefix: a run is named `<run_name>_<run id>` |
-| `evaluate_last_fifth_only` | `False` | evaluate only in the last 20% of training, for hyperparameter searches that read the final scores |
-| `sweep` | `False` | deprecated: the earlier name of `evaluate_last_fifth_only`. Set `True`, it warns. It is not `train(sweep=...)` |
-| `evaluation_device` | `None` | a JAX device to evaluate on while training goes on ([below](#evaluating-on-another-device)); `None`: training waits for each evaluation |
-| `use_wandb`, `use_tensorboard` | not set | deprecated: the earlier way to name backends. Set, they warn and name W&B (on unless set `False`) and TensorBoard (off unless set `True`), as before |
-| `on_evaluation` | `None` | a function called in the training process with each seed's evaluation, `on_evaluation(metrics, index)`, where `index` says which seed; within one evaluation the seeds' calls come in no fixed order; a backend logs in a process of its own |
 | `folder` | `None` | where the default TensorBoard backend writes, `<folder>/tensorboard/<run id>/` (the working directory when `None`) |
+| `evaluate_last_fifth_only` | `False` | evaluate only in the last 20% of training, for hyperparameter searches that read the final scores |
+| `evaluation_device` | `None` | a JAX device to evaluate on while training goes on ([below](#evaluating-on-another-device)); `None`: training waits for each evaluation |
+| `on_evaluation` | `None` | a function called in the training process with each seed's evaluation, `on_evaluation(metrics, index)`, where `index` says which seed; within one evaluation the seeds' calls come in no fixed order |
+| `sweep` | `False` | deprecated: the earlier name of `evaluate_last_fifth_only`, which warns when set. It is not `train(sweep=...)` |
+| `use_wandb`, `use_tensorboard` | not set | deprecated: the earlier way to name backends. Set, they warn and name W&B (on unless set `False`) and TensorBoard (off unless set `True`), as before; setting one together with `backends` is refused |
 | `project_name`, `group_name` | `None` | with the deprecated flags: the W&B project and group |
 
-With `backends=()`, `train` still evaluates and returns the evaluations in
+With `backends=()`, `train` evaluates and returns the evaluations in
 memory: the quickest way to get learning curves. A `LoggingConfig` built
-without the `backends` argument writes each run's TensorBoard event files
-under `./tensorboard/<run id>/`; the folder is named by the run id alone,
-without `run_name`. A `train` call given no `logging_config` writes no
-file: it prints a line per evaluation. With a `LoggingConfig` of yours, it
-prints one line when the run starts, saying how often it evaluates and where
-it logs, and nothing more until `train` returns. Setting
-a deprecated flag together with `backends` is refused.
+without `backends` writes each run's TensorBoard event files under
+`./tensorboard/<run id>/`; the folder is named by the run id alone, without
+`run_name`. A run with a `LoggingConfig` prints one line when it starts,
+saying how often it evaluates and where it logs, and nothing more until
+`train` returns.
 
 ### The run configuration
 
 Each run stores `config` merged with the agent's `agent.config`: every
 argument of the agent's constructor, by name, with the value it was given or
 its default (`TDMPC2MultiTask` leaves out its dataset and evaluation
-environments), and `algo_name`, the agent's name. `train` merges them into a
-copy, so one `LoggingConfig` can serve several agents' runs. DreamerV3 and TD-MPC2 add the values they
-resolve from those arguments (their discount, replay size and so on). W&B
-stores the result as the run's configuration; TensorBoard stores it as text
-and, in each run directory, as `config.json` with the `seed` and the
+environments), and `algo_name`, the agent's name. DreamerV3 and TD-MPC2 add
+the values they resolve from those arguments (their discount, replay size
+and so on). `train` merges them into a copy, so one `LoggingConfig` can
+serve several agents' runs.
+
+W&B stores the result as the run's configuration. TensorBoard stores it as
+text and, in each run directory, as `config.json` with the `seed` and the
 `run_id` added, so a run can be reproduced and paired with others by seed.
 Values that are not JSON (an environment object, a function) are written as
 their text.
@@ -72,28 +72,28 @@ Each evaluation records:
 | `Eval/episodic mean expert reward`, `Eval/expert bias` | with an expert policy: the expert's return on the same episodes, and the agent's minus it; NaN without |
 | `Eval/expert share` | with an extension choosing the evaluation's action (`eval_action`): the share of the evaluated steps it executed the expert's action |
 | `Train/episodic mean reward` | mean return of the training episodes that ended recently |
-| `Train/non-finite env steps` | on Brax and Playground envs: the steps the simulator diverged on so far, over all the seed's envs ([Environments](environments.md#diverging-simulators)) |
+| `Train/non-finite env steps` | on Brax and Playground environments: the steps the simulator diverged on so far, over all the seed's copies ([Environments](environments.md#diverging-simulators)) |
 | `<group>/<metric>` | the agent's training metrics, such as `value/critic_loss` or `policy/policy_loss` |
 
-Extensions add their own, such as `ConditioningMetrics`'s
-`Cond/critic_srank`. UDRL logs `timestep`, its training metrics
-(`Train/episodic mean reward`, `Train/actor_loss`, `Train/mean_rtg`,
-`Train/mean_horizon`, `Train/n_completed_episodes`), its evaluation's return,
-entropy and length, the command the evaluation starts from (below), and its
-extensions' metrics. The world models log their
-own sets: see their pages.
+Extensions add their own, such as `CriticDiagnostics`'s `Cond/critic_srank`.
+UDRL logs `timestep`, its training metrics (`Train/episodic mean reward`,
+`Train/actor_loss`, `Train/mean_rtg`, `Train/mean_horizon`,
+`Train/n_completed_episodes`), its evaluation's return, entropy and length,
+the command the evaluation starts from (below), and its extensions'
+metrics. The world models log their own sets: see their pages.
 
-Each evaluation runs on episodes of its own: their initial states and noise
-are drawn afresh from the evaluation count ([Training](training.md#evaluation)).
-Returns are in the environment's units even when the agent normalises
-rewards. A metric that is NaN (an agent that has not started updating yet,
-an expert metric without an expert) is dropped from W&B and TensorBoard,
-but kept as NaN in the returned evaluations.
-
-An evaluation logs the update just before it. On an update whose actor
-step is skipped (TD3's and CrossQ's `policy_delay`, any agent's
-`policy_update_start`), the actor's metrics are those of its last step
-that ran: NaN before its first.
+- **Fresh episodes.** Each evaluation runs on episodes of its own, their
+  initial states and noise drawn afresh from the evaluation count
+  ([Training](training.md#evaluation)).
+- **The environment's units.** Returns are in the environment's units, even
+  when the agent normalises rewards.
+- **NaN.** A metric that is NaN (an agent that has not started updating
+  yet, an expert metric without an expert) is dropped from W&B and
+  TensorBoard, but kept as NaN in the returned evaluations.
+- **The last update.** An evaluation logs the update just before it. On an
+  update whose actor step is skipped (TD3's and CrossQ's `policy_delay`,
+  any agent's `policy_update_start`), the actor's metrics are those of its
+  last step that ran: NaN before its first.
 
 ### Training diagnostics
 
@@ -103,10 +103,10 @@ APO and PQN average theirs over the update's epochs and minibatches.
 
 | Name | Agents | Meaning |
 | --- | --- | --- |
-| `policy/approx_kl` | PPO, APO | the mean of `(r - 1) - log r`, `r` the ratio of the new policy's probability of each action to the old one's: an estimate of how far an update moved the policy, as CleanRL and Stable-Baselines3 log it |
-| `policy/policy_std` | PPO, APO | the mean standard deviation of the policy's Gaussian, before any squashing (SAC logs the same); NaN for a discrete policy |
-| `value/explained_variance` | PPO, APO | `1 - Var[target - V] / Var[target]` over the minibatch: 1 for a critic that predicts its targets, 0 for one no better than their mean; NaN when the targets do not vary |
-| `policy/grad_norm`, `value/grad_norm` | PPO, APO | the global norm of each network's gradient, before clipping. PPO clips the two networks' gradients together (`max_grad_norm`): the clip acts when the norm of both, `sqrt(policy² + value²)`, exceeds it |
+| `policy/approx_kl` | PPO, APO, REINFORCE | the mean of `(r - 1) - log r`, `r` the ratio of the new policy's probability of each action to the old one's: an estimate of how far an update moved the policy, as CleanRL and Stable-Baselines3 log it |
+| `policy/policy_std` | PPO, APO, REINFORCE | the mean standard deviation of the policy's Gaussian, before any squashing (SAC logs the same); NaN for a discrete policy |
+| `value/explained_variance` | PPO, APO, REINFORCE | `1 - Var[target - V] / Var[target]` over the batch: 1 for a critic that predicts its targets, 0 for one no better than their mean; NaN when the targets do not vary |
+| `policy/grad_norm`, `value/grad_norm` | PPO, APO, REINFORCE | the global norm of each network's gradient, before clipping. PPO and APO clip the two networks' gradients together (`max_grad_norm`): the clip acts when the norm of both, `sqrt(policy² + value²)`, exceeds it |
 | `value/value_bias`, `value/average_reward` | APO | the value bias `b` and the reward rate `rho` the update used |
 | `policy/epsilon` | DQN, PQN | the exploration rate of the epsilon-greedy schedule at the current timestep |
 | `value/abs_td_error` | DQN, PQN | the mean of `abs(Q(s, a) - target)` over the batch |
@@ -173,10 +173,12 @@ as in training and multiplied by the agent's `reward_scale`. An episode cut
 by the time limit realises no return past it, so even an exact critic shows
 a positive bias over its last steps.
 
-SAC, TD3, REDQ and AVG report it with their action-value critic, DQN and
-PQN with their Q-network, PPO with its state-value critic. ASAC and APO,
-which learn average-reward values rather than discounted ones, report NaN,
-as does a critic with memory.
+SAC, TQC, CrossQ, TD3, REDQ, AVG and IQL report it with their action-value
+critic, DQN and PQN with their Q-network, PPO and REINFORCE with their
+state-value critic. ASAC, RVI-SAC and APO, which learn average-reward
+values rather than discounted ones, report NaN, as do APG, UDRL and DAgger,
+which have no discounted critic, and any critic with memory. The world
+models log their own sets.
 
 ## In memory
 
@@ -198,18 +200,17 @@ print(agent.config["algo_name"], agent.config["n_steps"])  # PPO 128
 ```
 
 A call that evaluates fewer times than its maximum pads the remaining
-columns with -1 (`timestep`) and NaN (the rest). Pass an `n_timesteps` that
-is a whole number of the agent's iterations (`n_envs` steps for the replay
-agents, `n_envs × n_steps` for PPO, APO, PQN and UDRL, `n_envs × horizon`
-for APG): the iterations stop at a multiple of one, so otherwise an
-evaluation due at the end of the run does not happen, and `train` warns.
+columns with -1 (`timestep`) and NaN (the rest). Give `n_timesteps` as a
+whole number of the agent's iterations
+([The budget](training.md#the-budget)): otherwise an evaluation due at the
+end of the run does not happen, and `train` warns.
 
 ## Evaluating on another device
 
 Training waits for each evaluation. With `evaluation_device` it does not
-(asynchronous evaluation, `ajax.async_evaluation`): at
-each evaluation, the training program hands the policy over and goes on, and
-a thread scores it on that device.
+(asynchronous evaluation, `ajax.async_evaluation`): at each evaluation, the
+training program hands the policy over and goes on, and a thread scores it
+on that device.
 
 ```python
 import jax
@@ -220,46 +221,39 @@ device = devices[1] if len(devices) > 1 else jax.devices("cpu")[0]
 logging = LoggingConfig(evaluation_device=device)
 ```
 
-- The scores are those of the evaluation in place: the policy at that
-  timestep, on the same keys, up to floating-point rounding. The training
-  metrics are taken at the evaluation's step, as before.
-- Each evaluation reaches the backends once scored, under its own timestep.
-  `train` waits for the last one and returns every evaluation, as without
-  the option.
-- Use a second GPU, not the training GPU: one process's programs run there
-  one after the other, so training would still wait. NVIDIA's MPS does not
-  change that: it lets several processes share a GPU, and the evaluator is a
-  thread of the training process.
-- The CPU also works, but an evaluation of a GPU run is much slower there,
-  and it shares the host's cores with training. On a busy machine, a CPU
+- **The same scores.** They are those of the evaluation in place: the
+  policy at that timestep, on the same keys, up to floating-point rounding.
+  The training metrics are taken at the evaluation's step.
+- **When they arrive.** Each evaluation reaches the backends once scored,
+  under its own timestep. `train` waits for the last one and returns every
+  evaluation, as without the option.
+- **Which device.** A second GPU, not the training GPU: one process's
+  programs run there one after the other, so training would still wait
+  (NVIDIA's MPS does not change that: the evaluator is a thread of the
+  training process). The CPU works too, but evaluates a GPU run much more
+  slowly, on the host's cores that training uses: on a busy machine, a CPU
   evaluator saved a MuJoCo Warp run no time.
-- On the CPU, a MuJoCo Warp task is evaluated on MJX's pure-JAX physics,
-  as Warp runs on NVIDIA GPUs only. Both step the same model, but tasks with
-  contacts drift apart over an episode, so the scores differ a little from
-  a Warp evaluation's.
-- The device must keep up: an evaluation that takes longer than the training
-  between two waits for the one before it, and `train` waits for all of
-  them at the end.
-- Gymnasium environments, which step in Python, and APG, which evaluates
-  inside its iterations, refuse it.
+- **Warp on the CPU.** A MuJoCo Warp task is evaluated there on MJX's
+  pure-JAX physics, as Warp runs on NVIDIA GPUs only. Both step the same
+  model, but tasks with contacts drift apart over an episode, so the scores
+  differ a little from a Warp evaluation's.
+- **Keeping up.** An evaluation that takes longer than the training between
+  two waits for the one before it, and `train` waits for all of them at the
+  end.
+- **Refused** by Gymnasium environments, which step in Python, and by APG,
+  which evaluates inside its iterations.
 
 ## Backends
 
-Each seed is its own run, with its own id; after `train`, `agent.run_ids`
+Each seed is its own run, with its own id. After `train`, `agent.run_ids`
 lists them, and `train(..., on_ids_ready=callback)` hands them to
 `callback` before training starts.
 
-- `TensorBoardBackend(folder=".")` writes each run to
-  `<folder>/tensorboard/<run id>/`, with its `config.json`. Metrics that are
-  not one number are left out. Ajax writes the files; the viewer is
-  TensorBoard itself, installed apart: `pip install tensorboard`, then
-  `tensorboard --logdir <folder>`.
-- `WandbBackend(project=None, group=None)` logs to Weights & Biases: install
-  the `wandb` extra and log in once with `wandb login`. Each run is created
-  in your process before training, so a missing login fails at once.
-  `WandbBackend(steps=False)` creates the runs and sends them no evaluation,
-  as the deprecated `use_wandb` with `evaluate_last_fifth_only=True` does.
-- A backend of your own: [below](#a-backend-of-your-own).
+| Backend | Where it logs |
+| --- | --- |
+| `TensorBoardBackend(folder=".")` | each run in `<folder>/tensorboard/<run id>/`, with its `config.json`; metrics that are not one number are left out. Ajax writes the files; the viewer is TensorBoard itself, installed apart: `pip install tensorboard`, then `tensorboard --logdir <folder>` |
+| `WandbBackend(project=None, group=None)` | Weights & Biases: install the `wandb` extra and log in once with `wandb login`. Each run is created in your process before training, so a missing login fails at once. `WandbBackend(steps=False)` creates the runs and sends them no evaluation, as the deprecated `use_wandb` with `evaluate_last_fifth_only=True` does |
+| your own | [below](#a-backend-of-your-own) |
 
 !!! warning "Guard your script's entry point"
     The logging worker is a separate Python process started with `spawn`,
@@ -304,13 +298,15 @@ if __name__ == "__main__":
 ### A backend of your own
 
 Any object with `open(run)`, `log(run_id, step, metrics)` and `close()` is a
-backend (`ajax.logging.LoggingBackend`). `open` gets a `RunInfo` (the run's
-`run_id`, `name`, `config` and `seed`) before the run's first evaluation;
-`log` gets each evaluation's metrics, numpy arrays by name, at environment
-step `step`, without those that are NaN; `close` comes once, when training
-ends. One backend object serves every seed's run. An optional
-`start(run)` runs in your process for each run before training, for what
-must happen at once.
+backend (`ajax.logging.LoggingBackend`). One backend object serves every
+seed's run:
+
+| Method | When it is called | What it gets |
+| --- | --- | --- |
+| `open(run)` | before the run's first evaluation | a `RunInfo`: the run's `run_id`, `name`, `config` and `seed` |
+| `log(run_id, step, metrics)` | at each evaluation | the metrics, numpy arrays by name, at environment step `step`, without those that are NaN |
+| `close()` | once, when training ends | |
+| `start(run)`, optional | in your process, for each run, before training | a `RunInfo`, for what must happen at once |
 
 ```python
 import json
@@ -354,14 +350,14 @@ process takes them off and writes them. The worker:
 
 - runs on the CPU, so it never reserves GPU memory;
 - passes each evaluation to the run's backends as it arrives: TensorBoard
-  writes it at once; W&B buffers the steps and sends them ten at a time
-  (`WandbBackend(batch_size=10)`), in one W&B session per batch, because
-  opening a W&B run is slow and W&B allows only one active run per process,
-  so W&B charts update in steps of ten evaluations;
+  writes it at once; W&B sends the steps ten at a time
+  (`WandbBackend(batch_size=10)`), one W&B session per batch, since opening
+  a W&B run is slow and W&B allows one active run per process, so its
+  charts update in steps of ten evaluations;
 - is drained and stopped when `train` returns, so every metric is written
   before `train` hands back the state.
 
-The worker starts only when a run has a backend. The callback has one cost:
-JAX never stores a program that contains one in its persistent compile
-cache, so a run with a `LoggingConfig` compiles again in every new process.
-See [Performance](performance.md).
+The worker starts only when a run has a backend. JAX 0.10 never stores a
+program that contains a callback in its persistent compile cache, so there a
+run with a `LoggingConfig` compiles again in every new process; JAX 0.11
+caches it ([Performance](performance.md)).

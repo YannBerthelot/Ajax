@@ -61,7 +61,6 @@ This budget shows the calls; CartPole takes longer to learn.
 | `value_steps` | 80 | full-batch Adam steps of the critic per rollout |
 | `normalize_advantage` | True | standardise the advantages over the rollout |
 | `actor_architecture`, `critic_architecture` | `("64", "tanh", "64", "tanh")` | hidden layers |
-| `log_std_init` | -0.5 | the continuous policy's initial log-std, one learned value per action dimension |
 | `max_grad_norm` | None | clips each network's gradient to this global norm |
 | `normalize_observations`, `normalize_rewards` | False | running normalisation |
 | `extensions` | `()` | research features (see [Extensions](../guide/extensions.md)) |
@@ -109,7 +108,9 @@ Both steps read the advantages and returns computed before either moves.
   as Spinning Up's VPG does at its `max_ep_len`. Without one, it ends the
   return, as in Spinning Up's example.
 - **Initialisation.** Every layer starts as torch's `nn.Linear`, kernel and
-  bias uniform in `±1/sqrt(fan_in)`, as in the reference.
+  bias uniform in `±1/sqrt(fan_in)`, and the continuous policy's log-std,
+  one learned value per action dimension, starts at -0.5, as in the
+  reference.
 - **Optimiser.** Two Adams with torch's epsilon `1e-8`, no gradient clipping,
   as in the reference.
 - **Differences from the reference.** The advantages are divided by their

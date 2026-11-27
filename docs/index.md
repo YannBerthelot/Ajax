@@ -81,8 +81,8 @@ Tianshou, and says when one of them fits better.
 | Differentiable simulation | [APG](algorithms/apg.md) |
 | World models | [DreamerV3](algorithms/dreamerv3.md), [TD-MPC2 and its multi-task variant](algorithms/tdmpc2.md) |
 
-Each page gives the agent's paper, its defaults and where it departs from
-the original; [Algorithms](algorithms/index.md) helps choose one.
+Each agent's page gives its paper, its defaults and where it departs from
+the original.
 
 ## What else is in the box
 

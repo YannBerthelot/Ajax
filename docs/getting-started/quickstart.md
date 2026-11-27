@@ -172,6 +172,6 @@ says what changes, and Gymnasium's MuJoCo tasks need the `gymnasium` extra
 ## Next
 
 [Why Ajax](why-ajax.md) shows what else Ajax offers, and when another
-library fits better. Coming from Stable-Baselines3,
+library fits better. If you know Stable-Baselines3,
 [Coming from SB3](coming-from-sb3.md) puts its calls beside Ajax's. The user
 guide starts with [Training an agent](../guide/training.md).

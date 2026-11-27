@@ -212,8 +212,8 @@ program:
 - **[Stoix][stoix]**: about 25 algorithms, among them R2D2, MPO and MuZero,
   trained across devices. Its Anakin architecture runs end to end, and
   Sebulba trains on environments not written in JAX.
-- **[Rejax][rejax]**: PPO, SAC, DQN and its variants, PQN, IQN and TD3, each
-  run jitted whole and vmapped over seeds and hyperparameters
+- **[Rejax][rejax]**: PPO, SAC, DQN and its variants, PQN, IQN and TD3. A
+  whole run is jitted, and can be vmapped over seeds and hyperparameters
   ([README][rejax]).
 
 CleanRL's [QDagger][cleanrl-qdagger] also learns from a teacher policy, for

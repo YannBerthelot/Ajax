@@ -1,29 +1,34 @@
 # PPO
 
-Proximal Policy Optimization collects a fixed-length rollout from `n_envs`
-parallel environments, then takes several passes of minibatch gradient steps on
-it. A clipped objective keeps each update close to the policy that collected the
-data, so the same rollout can be reused for `n_epochs` passes without the policy
-running away. PPO is the default on-policy agent in Ajax: it handles discrete and
-continuous actions, memory, image observations and the minibatch layouts of
-Brax's PPO.
+Proximal Policy Optimization collects a rollout from `n_envs` parallel
+environments, then takes several passes of minibatch gradient steps on it.
+A clipped objective keeps each update close to the policy that collected
+the data, so the same rollout can be reused for `n_epochs` passes.
 
 **Paper:** Schulman, Wolski, Dhariwal, Radford and Klimov, *Proximal Policy
 Optimization Algorithms*, 2017 ([arXiv:1707.06347](https://arxiv.org/abs/1707.06347)).
+Ajax follows its reference code, OpenAI Baselines' ppo2 (`ea25b9e`).
 
-## Can I use?
+## When to use it
+
+PPO is Ajax's general-purpose on-policy agent: discrete or continuous
+actions, memory, image observations and many parallel environments. It
+suits tasks where environment steps are cheap, as in JAX simulators. Where
+steps are scarce, an off-policy agent such as [SAC](sac.md) reuses each one
+more. With demonstrations and no reward, see
+[GAIL](#gail-imitation-by-a-discriminator) below.
 
 | Feature | PPO |
 | --- | --- |
 | Discrete actions | yes |
-| Continuous actions | yes (Gaussian; `squash=True` for a tanh-bounded one) |
-| Memory (`memory=`) | yes: GRU, LSTM, transformer, Mamba ([Memory](../guide/memory.md)), without extensions |
+| Continuous actions | yes, a Gaussian; `squash=True` bounds it with `tanh` |
+| Memory (`memory=`) | yes: GRU, LSTM, transformer, Mamba ([Memory](../guide/memory.md)), without extensions or `expert_policy` |
 | Environments | gymnax, Brax, MuJoCo Playground |
 | Image observations | yes, a CNN encoder (`cnn_image_shape`) |
 | PID policy | yes, `actor_architecture=PIDPolicy(...)` ([Networks](../guide/networks.md)) |
 | Several seeds in one call | yes, `train(seed=[...])` |
-| Extension phases | `pretrain`, `post_update`, `eval_metrics`, `observe`, `on_target`, `critic_loss`, `actor_loss`, `transform_action`, `actuate` |
-| Resume and checkpoints | yes; a split run equals the uninterrupted one (probe and resume contract) |
+| Extension phases | `pretrain`, `post_update`, `eval_metrics`, `observe`, `reward`, `on_target`, `critic_loss`, `actor_loss`, `eval_action`, `transform_action`, `actuate`, `track_memory` ([which extensions run](../guide/compatibility.md)) |
+| Resume and checkpoints | yes; a run split by a checkpoint equals the run left whole |
 
 ## Example
 
@@ -51,55 +56,61 @@ state, _ = agent.train(seed=0, n_timesteps=4_096)
 
 ## Key hyperparameters
 
-Defaults are those of the constructor.
+The defaults are ppo2's MuJoCo configuration.
 
 | Argument | Default | What it does |
 | --- | --- | --- |
-| `n_envs` | 1 | environments stepped in parallel (ppo2's MuJoCo runs use one) |
+| `n_envs` | 1 | environments stepped in parallel |
 | `n_steps` | 2048 | steps per environment in each rollout |
-| `batch_size` | 64 | sets the number of minibatches (see the notes) |
+| `batch_size` | 64 | sets the number of minibatches, not their size (see the notes) |
 | `num_minibatches` | 0 | when positive, the number of minibatches, as in Brax |
 | `n_epochs` | 10 | passes over the rollout per update, each reshuffled |
-| `actor_learning_rate`, `critic_learning_rate` | 3e-4 | Adam step sizes (each a float or a schedule) |
-| `adam_eps` | 1e-5 | Adam's epsilon (ppo2's), added as TensorFlow 1's Adam adds it (see the notes) |
+| `actor_learning_rate`, `critic_learning_rate` | 3e-4 | Adam step sizes, each a float or a schedule |
+| `adam_eps` | 1e-5 | Adam's epsilon |
 | `gamma` | 0.99 | discount |
 | `gae_lambda` | 0.95 | GAE's lambda |
 | `clip_range` | 0.2 | the ratio clip; a float or a schedule of the timestep |
 | `ent_coef` | 0 | entropy bonus weight |
-| `vf_coef` | 0.5 | critic loss weight, on half the squared error (ppo2's) |
-| `clip_value_loss` | None | ppo2's clipped value loss (see the notes); `None` clips except with `unroll_length` |
-| `max_grad_norm` | 0.5 | one gradient clip by global norm over both networks (`None` turns it off) |
-| `normalize_advantage` | True | advantages standardised in each minibatch |
-| `actor_architecture`, `critic_architecture` | `("64", "tanh", "64", "tanh")` | hidden layers, as width and activation strings (ppo2's MLP) |
-| `normalize_observations`, `normalize_rewards` | True | running normalisation, as ppo2's MuJoCo run wraps its env in `VecNormalize` |
-| `observation_clip` | 10.0 | bound of the normalised observations, `VecNormalize`'s `clipob` (rewards clip at 10 too) |
+| `vf_coef` | 0.5 | critic loss weight, on half the squared error |
+| `clip_value_loss` | None | clip the value loss (see the notes); `None` clips except with `unroll_length` |
+| `max_grad_norm` | 0.5 | one gradient clip by global norm over both networks; `None` turns it off |
+| `normalize_advantage` | True | standardise the advantages in each minibatch |
+| `actor_architecture`, `critic_architecture` | `("64", "tanh", "64", "tanh")` | hidden layers, as width and activation strings |
+| `share_encoder` | None | one encoder for the actor and the critic; `None` shares it with images only |
+| `normalize_observations`, `normalize_rewards` | True | running normalisation, as ppo2's `VecNormalize` wrapper |
+| `observation_clip` | 10.0 | bound of the normalised observations (rewards are clipped at 10 too) |
 | `reward_normalization_gamma` | None | with `normalize_rewards`, the discount of the return whose spread divides the rewards: `gamma` if None, 0 for the single reward's |
-| `memory`, `bptt_length` | None | memory block, and the length of the replayed chunks (by default the longest that split into the minibatches; see the notes) |
-| `unroll_length` | None | use Brax's minibatching: fragments of this length, advantages per minibatch (feedforward only) |
-| `log_std_state_independent`, `log_std_init` | True, 0.0 | one learned log standard deviation per action dimension, and its initial value (see the notes) |
+| `memory`, `bptt_length` | None | memory block, and the length of the replayed chunks (see the notes) |
+| `unroll_length` | None | Brax's minibatching: fragments of this length, advantages per minibatch (feedforward only) |
+| `log_std_state_independent`, `log_std_init` | True, 0.0 | one learned log standard deviation per action dimension, and its initial value |
 | `log_std_bounds` | None | the `(low, high)` clip of that log standard deviation; `None` leaves it unclipped |
+| `squash` | False | bound the Gaussian with `tanh` |
 | `actor_bias_init`, `critic_bias_init` | None | initialisers by name ([Networks](../guide/networks.md)) |
-| `encoder_kernel_init` | `"orthogonal(np.sqrt(2))"` | the hidden layers' initialiser (Baselines' ppo2; PureJaxRL's recurrent PPO, with `memory=`); None is the same one |
+| `encoder_kernel_init` | `"orthogonal(np.sqrt(2))"` | the hidden layers' initialiser; None is the same one |
 | `cnn_image_shape`, `cnn_extra_obs_dim`, `cnn_spec` | None, 0, None | convolutional encoder for flat image observations |
 | `episode_length`, `action_repeat` | None, 1 | simulator steps per episode (1,000 when `None`) and per agent step, on Brax and Playground |
 | `expose_recent_rollout` | False | keep the last rollout on the state even when no extension reads it |
-| `expert_policy` | `None` | an expert the collector tracks: its actions feed the observation features and a residual policy (`ResidualPolicy`), and the evaluation reports its return next to the agent's |
+| `expert_policy` | None | an expert the collector tracks: its actions feed the observation features and a residual policy (`ResidualPolicy`), and the evaluation reports its return next to the agent's |
 | `extensions` | `()` | research features (see [Extensions](../guide/extensions.md)) |
+
+`squash`, `mean_kernel_init`, `num_resets_per_eval` and `num_evals`
+reproduce choices of Brax's PPO. They are off by default, as is
+`encoder_layer_norm` (a LayerNorm on the encoder's output).
 
 ## Presets
 
-`PPO.preset("Atari", env_id)` takes ppo2's Atari config
-(openai/baselines@`ea25b9e`, `ppo2/defaults.py:15-22`; [Presets](../guide/training.md#presets)): 8 environments
-(the paper's actors; ppo2 runs one per CPU) of 128 steps, 4 minibatches, 4
-epochs, learning rates `2.5e-4`, `clip_range=0.1`, `ent_coef=0.01` and one
-network shared by the actor and the critic. The learning rate stays constant,
-as the defaults keep MuJoCo's. Atari's frame skip, frame stack and reward
-clipping are the environment's.
+`PPO.preset("Atari", env_id)` takes ppo2's Atari configuration
+(`ppo2/defaults.py:15-22`; [Presets](../guide/training.md#presets)): 8
+environments of 128 steps, 4 minibatches, 4 epochs, learning rates
+`2.5e-4`, `clip_range=0.1`, `ent_coef=0.01` and one network shared by the
+actor and the critic. The 8 environments are the PPO paper's actors, where
+ppo2 runs one per CPU. Atari's frame skip, frame stack and reward clipping
+are the environment's.
 
-`PPO.preset("SB3", env_id)` is for settings brought from Stable-Baselines3
-or SBX: it is SB3's PPO defaults (2.9.0, `ppo/ppo.py:84-95`) in Ajax's names.
-Ajax's own defaults follow OpenAI Baselines' ppo2, which differs from SB3 in
-three ways that change results, and the preset sets each to SB3's:
+`PPO.preset("SB3", env_id)` is Stable-Baselines3's PPO defaults (2.9.0,
+`ppo/ppo.py:84-95`) in Ajax's names, for settings brought from SB3 or SBX.
+Ajax's own defaults are ppo2's, which differ from SB3's in three ways that
+change results; the preset sets each to SB3's:
 
 | | Ajax's default (ppo2) | SB3 and SBX | The preset sets |
 |---|---|---|---|
@@ -107,14 +118,11 @@ three ways that change results, and the preset sets each to SB3's:
 | Observations and rewards | normalised (ppo2's `VecNormalize`) | as the environment gives them | `normalize_observations=False`, `normalize_rewards=False` |
 | `vf_coef` | weighs half the squared error | weighs the whole squared error | `vf_coef=1.0` for SB3's 0.5 |
 
-On CartPole, with SBX's settings but Ajax's value-loss clip left on, returns
-kept dipping after reaching 500; without it they stayed there, as SBX's did.
-
-Three things stay yours to set or cannot be matched:
+Three things stay yours to set, or cannot be matched:
 
 - **Minibatches.** SB3's `batch_size=64` is a minibatch's size. In Ajax it
-  gives 32 minibatches whatever `n_envs` is (see Notes), which is SB3's 64
-  samples with one environment only. With `n_envs=N`, pass
+  gives 32 minibatches whatever `n_envs` is (see the notes), which is SB3's
+  64 samples with one environment only. With `n_envs=N`, pass
   `num_minibatches=n_steps * N // 64` for minibatches of 64.
 - **SBX's networks.** SBX starts its layers as flax does
   (`encoder_kernel_init="lecun_normal()"` matches the hidden ones) and clips
@@ -123,94 +131,77 @@ Three things stay yours to set or cannot be matched:
 - **Adam.** Ajax's PPO steps TensorFlow 1's form of Adam, as ppo2; SB3 and
   SBX step the usual one. The two differ over the first few thousand steps.
 
+## Differences from the reference
+
+- **The learning rate is constant.** ppo2's MuJoCo configuration decays it
+  linearly to 0; pass a schedule as `actor_learning_rate` and
+  `critic_learning_rate` to do the same.
+- **With memory, the actor and the critic keep separate networks.** ppo2
+  and PureJaxRL share one network between them; a shared memory failed
+  Ajax's memory probe on masked CartPole.
+
 ## Notes
 
 - **`batch_size` sets the number of minibatches, not their size.** Unless
   `num_minibatches` is positive, the rollout of `n_steps * n_envs` samples
   splits into `max(n_steps, batch_size) // min(n_steps, batch_size)`
-  minibatches. With the defaults that is 32 minibatches of 64 samples
-  (`batch_size * n_envs`). This differs from Stable-Baselines3, where
-  `batch_size` is the minibatch size.
-- **Shuffling.** Every epoch draws a new split of the rollout into
-  minibatches, as OpenAI Baselines' and CleanRL's PPO do.
-- **Where the advantages are computed.** The advantages are computed once on
-  the whole rollout and its `n_steps * n_envs` samples are shuffled flat into
-  the minibatches, as in the PPO paper's Algorithm 1 and OpenAI Baselines'
-  ppo2. `unroll_length` switches to Brax's PPO: the rollout is cut into
-  fragments of that length that bootstrap at their ends, each minibatch holds
-  whole fragments, and its advantages are recomputed with the current critic.
-  `unroll_length=n_steps` keeps each environment's whole rollout as one
-  fragment. PPO refuses at construction a length that does not split the
-  rollout evenly into the minibatches. The choice is the update's rollout
-  split (`ajax.agents.minibatch.RolloutSplit`, its `kind` `"flat"`,
-  `"time"` or, with memory, `"recurrent"`).
-- **Actions.** A continuous PPO samples an unbounded Gaussian by default;
-  Ajax clips the sample to `[-1, 1]` and maps that range onto the
-  environment's bounds, so on gymnax Pendulum (torque in `[-2, 2]`) one unit
-  of the Gaussian is two units of torque. `squash=True` bounds it with
-  `tanh` instead. Evaluation uses the mean action.
-- **Exploration noise.** The Gaussian learns one log standard deviation per
-  action dimension, whatever the observation, starting at 0 (a standard
-  deviation of 1) and never clipped (`log_std_bounds=None`, which the run
-  config records), as PPO's reference code does: OpenAI Baselines at
-  `ea25b9e` (ppo2's `common/distributions.py:96-106`; ppo1's
-  `ppo1/mlp_policy.py:36-39`, `gaussian_fixed_var=True`), CleanRL at
-  `fe8d8a0` (`ppo_continuous_action.py:129`) and PureJaxRL at `31756b1`
-  (`ppo_continuous_action.py:41`). As in theirs, it is updated with the
-  rest of the model, under one gradient clip over both networks (see
-  separate networks). `log_std_bounds` clips every log standard deviation
-  PPO can learn, so by default none is clipped.
-  `log_std_state_independent=False` with `log_std_init=-1.0` builds the
-  head PPO had before: a log standard deviation computed from the
-  observation, starting at -1; `log_std_bounds=(-20.0, 2.0)` adds the clip
-  it then had, SAC's. A checkpoint saved with that head restores only into
-  that network, and restoring it into the default one is refused with this
-  advice. A PID policy keeps its own log standard deviation, which starts
-  at `log_std_init` and is clipped to `log_std_bounds`.
-- **Brax-style options.** `mean_kernel_init`, `squash`,
-  `num_resets_per_eval` and `num_evals` reproduce choices of Brax's PPO.
-  They are off by default, as is `encoder_layer_norm` (a LayerNorm on the
-  encoder's output).
-- **Separate networks, or one encoder.** The actor and the critic are
-  separate MLP networks, as ppo2 copies them on MuJoCo
-  (`ppo2/defaults.py:12`). With images they share one encoder, as ppo2's
-  Atari policies do (`common/policies.py:155-167`). With memory they stay
-  separate, unlike ppo2 and PureJaxRL (see the networks guide).
-  `share_encoder` overrides the default. As ppo2's one optimizer, their gradients are clipped together to one
-  global norm, then each takes an Adam step (Adam is per coordinate, so
-  the two are one Adam over the whole model). It is ppo2's,
-  TensorFlow 1's Adam, whose epsilon joins the square root of the second
-  moment before the bias correction (`optimizer="tf1_adam"`); optax's adds
-  it after, a 32 times smaller epsilon at the first step, about the same
-  after a few thousand. With memory or `unroll_length` PPO takes optax's
-  Adam, as PureJaxRL and Brax do. As ppo2's, the value loss
-  is clipped (`ppo2/model.py:66-75`): each squared error is the larger of
-  its own and that of the value clipped to `clip_range` around the value
-  that collected the rollout, so the loss stops pulling a value once it
-  has moved `clip_range` towards its target. With `unroll_length`, Brax's
-  PPO, it is not clipped, as in Brax. As in Baselines' ppo2,
-  their hidden layers start orthogonal with gain `sqrt(2)`, the policy's
-  output layer with gain 0.01 and the value layer with gain 1. An entropy bonus on a
-  squashed policy is a one-sample estimate of the executed action's entropy,
-  as in Brax.
-- **Normalisation.** With `normalize_observations=True` the loss sees the
-  observations normalised with the statistics of the step that collected them,
+  minibatches. With the defaults that is 32 minibatches of `64 * n_envs`
+  samples. In Stable-Baselines3, `batch_size` is the minibatch size.
+- **Minibatches.** The advantages are computed once on the whole rollout,
+  and its samples are shuffled flat into new minibatches at every epoch, as
+  in ppo2 and the paper's Algorithm 1. `unroll_length` switches to Brax's
+  PPO: the rollout is cut into fragments of that length that bootstrap at
+  their ends, each minibatch holds whole fragments, and its advantages are
+  recomputed with the current critic. `unroll_length=n_steps` keeps each
+  environment's rollout as one fragment. A length that does not split the
+  rollout evenly into the minibatches is refused at construction.
+- **Actions.** A continuous PPO samples an unbounded Gaussian. Ajax clips
+  the sample to `[-1, 1]` and maps that range onto the environment's
+  bounds, so on gymnax Pendulum (torque in `[-2, 2]`) one unit of the
+  Gaussian is two units of torque. Evaluation uses the mean action.
+- **Exploration noise.** The Gaussian learns one log standard deviation
+  per action dimension, whatever the observation, starting at 0 (a standard
+  deviation of 1) and never clipped, as in ppo2, CleanRL and PureJaxRL.
+  `log_std_bounds` adds a clip, and `log_std_state_independent=False`
+  computes the log standard deviation from the observation instead. A PID
+  policy's log standard deviation starts at `log_std_init` and is clipped
+  to `log_std_bounds`.
+- **Networks.** The actor and the critic are separate networks, as ppo2's
+  MuJoCo configuration copies them; with images they share one encoder, as
+  ppo2's Atari policies do. Hidden layers start orthogonal with gain
+  `sqrt(2)`, the policy's output layer with gain 0.01 and the value layer
+  with gain 1, as in ppo2.
+- **Optimiser.** As ppo2's one optimiser, the two networks' gradients are
+  clipped together to one global norm, then each takes an Adam step; Adam
+  acts on each coordinate, so this is one Adam over the whole model. It is
+  TensorFlow 1's Adam (`optimizer="tf1_adam"`), whose epsilon is added
+  before the bias correction: at the first step it is 32 times smaller than
+  optax's, and about the same after a few thousand steps. With memory or
+  `unroll_length`, PPO steps optax's Adam, as PureJaxRL and Brax do.
+- **Value loss.** As in ppo2, each squared error is the larger of its own
+  and that of the value clipped to `clip_range` around the value that
+  collected the rollout, so the loss stops pulling a value once it has
+  moved `clip_range` towards its target. With `unroll_length` it is not
+  clipped, as in Brax.
+- **Entropy bonus.** On a squashed policy it is a one-sample estimate of
+  the executed action's entropy, as in Brax.
+- **Normalisation.** With `normalize_observations=True` the loss sees each
+  observation normalised with the statistics of the step that collected it,
   as SB3's `VecNormalize` and CleanRL do.
-- **Extensions.** PPO folds the loss and target phases, so instrumentation such
-  as `CriticDiagnostics` works on it (PPO keeps its latest rollout for it).
-  It has no `action` phase: extensions that act
-  during collection need SAC. A recurrent PPO refuses extensions. See
+- **Extensions.** PPO folds the loss and target phases, so instrumentation
+  such as `CriticDiagnostics` works on it (PPO keeps its latest rollout for
+  it). Extensions that replace the collected action (the `action` phase)
+  need an off-policy agent, and PPO refuses them. See
   [Extensions](../guide/extensions.md).
 - **Memory.** A recurrent PPO minibatches whole chunks of `bptt_length`
-  steps of the rollout. Libraries disagree on that length, so by default the
-  number of minibatches chooses it: each environment's whole rollout when
-  `n_envs` is a multiple of the number of minibatches, as OpenAI Baselines'
-  ppo2, CleanRL and PureJaxRL do, otherwise the fewest equal chunks that
-  split (256 steps with the defaults). PPO refuses at construction chunks
-  that do not split. [Memory](../guide/memory.md#the-libraries-disagree-on-the-length)
-  compares the libraries and says how to set it: to reproduce theirs, choose
-  `num_minibatches` to divide `n_envs`. `unroll_length` is for feedforward
-  policies; recurrent ones use `bptt_length`.
+  steps. By default the number of minibatches sets that length: each
+  environment's whole rollout when `n_envs` is a multiple of the number of
+  minibatches, as ppo2, CleanRL and PureJaxRL do, otherwise the fewest
+  equal chunks that split (64 steps with the defaults). Chunks that do not
+  split are refused at construction.
+  [Memory](../guide/memory.md#the-libraries-disagree-on-the-length)
+  compares the libraries: to reproduce theirs, choose `num_minibatches` to
+  divide `n_envs`.
 
 ## GAIL: imitation by a discriminator
 
@@ -242,31 +233,25 @@ agent = PPO("Pendulum-v1", extensions=(AdversarialReward(demonstrations),))
 
 After each rollout, the rewards become `-log(1 - D(s, a))` from the current
 discriminator, and the discriminator takes `n_updates` (2) cross-entropy
-steps on the rollout's rows and as many demonstration rows. It follows
-HumanCompatibleAI/imitation at `e5ef188` (`algorithms/adversarial/gail.py`,
-`common.py`): its 32-32 ReLU reward network and torch's Adam at 1e-3. PPO
-replaces the paper's TRPO, as in that code. The evaluations still report
-the environment's return. The discriminator reads the action the
-environment runs, clipped to `[-1, 1]`, on the rollout and on the
-demonstrations, as the reference records the clipped action SB3 steps with.
-Deviations: it reads `(s, a)` without the running normalisation of the
-reference's examples, and trains on the whole rollout, where the reference
-draws `demo_batch_size` rows.
+steps on the rollout's rows and as many demonstration rows. The evaluations
+still report the environment's return. It follows HumanCompatibleAI/imitation
+at `e5ef188` (`algorithms/adversarial/gail.py`): its 32-32 ReLU reward
+network, torch's Adam at 1e-3, and PPO in place of the paper's TRPO. The
+discriminator reads the action the environment runs, clipped to `[-1, 1]`,
+as the reference records the clipped action SB3 steps with. It differs
+from the reference in two ways: it reads `(s, a)` without the running
+normalisation of the reference's examples, and it trains on the whole
+rollout, where the reference draws `demo_batch_size` rows.
 
 ## Results
 
 The [reproduction results](../reproduction/results.md) set PPO beside
 Stable-Baselines3's on CartPole and Brax's on inverted_pendulum, with
-learning curves. Unit tests (`tests/agents/PPO`
-and the contracts every agent shares) check its pieces against exact
-contracts, without learning, such as the fresh split of each epoch. The
-probes (`tests/probing`) train it briefly on tiny environments with known
-answers: the exact values of small problems, episode ends, memory, extension
-phases, and a run split by a checkpoint matching the run left whole. On the
-CPU speed benchmark (`benchmarks/agent_bench.py`: CartPole, 4 environments,
-8,000 steps) PPO ran at 17,817 steps per second of execution (4,298 with
-compilation) at main `a8a13c2`
-([PERFORMANCE_REPORT.md](https://github.com/YannBerthelot/Ajax/blob/main/PERFORMANCE_REPORT.md)).
+learning curves. The probes (`tests/probing`) train it briefly on tiny
+environments with known answers: exact values of small problems, episode
+ends, memory, extension phases, and a run split by a checkpoint matching
+the run left whole. [Performance](../guide/performance.md) compares its
+speed with the other agents'.
 
 ## API
 

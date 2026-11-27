@@ -811,10 +811,6 @@ class ActorCritic:
             return None, {}
         return self.resumed_state(state, n_timesteps, train_options), {}
 
-    def _check_trained(self, state: BaseAgentState) -> None:
-        """Check the state a train call ends with: nothing here."""
-        del state
-
     def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
         declared: set[str] = set()
@@ -1057,9 +1053,7 @@ class ActorCritic:
         # worker before any log events were queued.
         jax.block_until_ready(result)
         stop_async_logging()
-        state, out = finished(result, printer)
-        self._check_trained(state)
-        return state, out
+        return finished(result, printer)
 
     def _check_call(
         self,

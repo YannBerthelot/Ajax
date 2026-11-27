@@ -9,13 +9,15 @@ PyPI as `ajax-rl`.
 What a user of 0.5.0 meets:
 
 - **A first run shows itself.** `train` with no `logging_config` now
-  evaluates about ten times and prints a line each time, the results come
+  evaluates about ten times and prints a line each time, with the time left;
+  a run with a `LoggingConfig` of yours says where it logs. The results come
   back by name (`evaluations.returns`), `agent.evaluate` scores a trained
   policy, and `agent.save` and `ajax.load` keep an agent with its state.
-- **Clearer errors and warnings**, after newcomer trials: an unknown id or
-  argument names the closest ones, a state from another agent or
-  environment is refused saying so, and an architecture of widths alone
-  warns.
+- **Clearer errors and warnings**, after six newcomer trials: an unknown id
+  or argument names the closest ones, Stable-Baselines3's call shapes and
+  argument names get Ajax's answer, a state from another agent or
+  environment is refused saying so, a run that ends inside the warm-up says
+  it does not train, and warnings name your line.
 - **Defaults from each agent's reference code.** PPO's are ppo2's MuJoCo
   run (normalisation, value clipping, TensorFlow 1's Adam, one env, 64-64
   tanh layers), DQN's are CleanRL's, APO, PQN, IQL and DAgger follow their

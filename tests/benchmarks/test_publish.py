@@ -162,9 +162,9 @@ def test_profile_counts_the_runs_strictly_above_each_threshold():
     np.testing.assert_allclose(fractions, [1.0, 1 / 3, 0.0])
 
 
-def timing_record(machine, timed_steps, exec_s, compile_s):
+def timing_record(machine, timed_steps, exec_s, compile_s, agent="SAC"):
     manifest = {"commit": "abcdef0", "machine": {"cpu": "A CPU"}, "device": "B"}
-    record = {"agent": "SAC", "env": "CheetahRun", "machine": machine}
+    record = {"agent": agent, "env": "CheetahRun", "machine": machine}
     record.update({"n_seeds": 10, "timed_steps": timed_steps, "exec_s": exec_s})
     record.update({"compile_s": compile_s, "manifest": manifest})
     return record
@@ -182,13 +182,58 @@ def test_timing_table_gives_each_machine_and_the_gpu_gain(tmp_path):
     assert "| SAC | CheetahRun | 40 | 240 | 6 times | 19 / 63 |" in table.splitlines()
 
 
-def test_timing_table_shows_a_machine_not_timed_yet_as_pending(tmp_path):
-    """Catches a missing GPU record read as a speed, or the row dropped; a
-    speed below one keeps two digits (16 steps in 250 s)."""
-    write(tmp_path / "cpu.jsonl", [timing_record("cpu", 16, 250.0, 19.0)])
-    runs = [final_run("SAC", "CheetahRun", "DeepMind Control", [1.0])]
+def test_timing_table_shows_a_dash_where_the_gpu_has_not_timed_an_agent(tmp_path):
+    """Catches a missing GPU record read as a speed, or the row dropped."""
+    cpu = [timing_record("cpu", 4000, 100.0, 19.0, agent) for agent in ("SAC", "TD3")]
+    write(tmp_path / "cpu.jsonl", cpu)
+    write(tmp_path / "gpu.jsonl", [timing_record("gpu", 24000, 100.0, 63.0)])
+    runs = [
+        final_run(agent, "CheetahRun", "DeepMind Control", [1.0])
+        for agent in ("SAC", "TD3")
+    ]
 
     table = publish.timing_block(runs, publish.read_timings(tmp_path))
 
-    row = f"| SAC | CheetahRun | 0.064 | pending | {publish.DASH} | 19 / pending |"
+    dash = publish.DASH
+    row = f"| TD3 | CheetahRun | 40 | {dash} | {dash} | 19 / {dash} |"
     assert row in table.splitlines()
+
+
+def test_timing_table_without_a_gpu_record_has_only_the_cpu_columns(tmp_path):
+    """Catches empty GPU columns left in; a speed below one keeps two digits
+    (16 steps in 250 s)."""
+    write(tmp_path / "cpu.jsonl", [timing_record("cpu", 16, 250.0, 19.0)])
+    runs = [final_run("SAC", "CheetahRun", "DeepMind Control", [1.0])]
+
+    table = publish.timing_block(runs, publish.read_timings(tmp_path)).splitlines()
+
+    assert table[:3] == [
+        "| Agent | Task | Four CPU cores | Compile s |",
+        "|---|---|---:|---:|",
+        "| SAC | CheetahRun | 0.064 | 19 |",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("machines", "hours", "where"),
+    [(["cpu"], 0.25, "four CPU cores"), (["cpu", "gpu"], 1 / 24, "one B")],
+)
+def test_time_axis_takes_the_gpu_once_timed_there_and_the_cpu_until_then(
+    tmp_path, machines, hours, where
+):
+    """Catches hours read from the other machine, or a label naming it."""
+    # 4,000 steps in 100 s on the CPU and 24,000 on the GPU: 40 and 240 per
+    # second, so step 36,000 comes at 36,000 / 40 / 3600 = 0.25 h on the CPU
+    # and at 36,000 / 240 / 3600 = 1/24 h on the GPU.
+    timed_steps = {"cpu": 4000, "gpu": 24000}
+    for machine in machines:
+        record = timing_record(machine, timed_steps[machine], 100.0, 19.0)
+        write(tmp_path / f"{machine}.jsonl", [record])
+    run = publish.Run(
+        "SAC", "CheetahRun", "DeepMind Control", np.array([0, 36000]), np.zeros((1, 2))
+    )
+
+    timed, label = publish.figure_hours([run], publish.read_timings(tmp_path))
+
+    np.testing.assert_allclose(timed["SAC"], [0.0, hours])
+    assert label == f"Hours on {where}, from the timing pass on CheetahRun"

@@ -15,6 +15,7 @@
 <p align="center">
   <a href="#install">Install</a> ·
   <a href="#quickstart">Quickstart</a> ·
+  <a href="docs/getting-started/coming-from-sb3.md">Coming from SB3</a> ·
   <a href="#why-ajax">Why Ajax</a> ·
   <a href="#beside-reference-implementations">Reproduction</a> ·
   <a href="#agents">Agents</a> ·
@@ -26,9 +27,10 @@
 ## Install
 
 ```bash
-pip install ajax-rl                 # imports as ajax; Python 3.12 or newer
-pip install "ajax-rl[playground]"   # adds Brax and MuJoCo Playground environments
-pip install "ajax-rl[cuda]"         # adds CUDA, on Linux with an NVIDIA GPU
+pip install ajax-rl                    # imports as ajax; Python 3.12 or newer
+pip install "ajax-rl[playground]"      # adds Brax and MuJoCo Playground environments
+pip install "ajax-rl[gymnasium-mjx]"   # adds Gymnasium's MuJoCo tasks (HalfCheetah-v5, ...) in JAX
+pip install "ajax-rl[cuda]"            # adds CUDA, on Linux with an NVIDIA GPU
 ```
 
 `ajax-rl[brax]` adds Brax alone; [Installation](docs/getting-started/installation.md)
@@ -51,6 +53,12 @@ print(agent.evaluate(state, episodes=20).mean(axis=1))  # each seed's score now
 The three seeds train together, in under a minute on a laptop CPU,
 compilation included.
 
+`agent.predict(state, obs)` returns the trained policy's action for an
+observation, and `agent.save(state, path)` and `ajax.load(path)` keep it
+for later ([Train, evaluate, deploy](docs/guide/deploy.md)).
+
+Coming from Stable-Baselines3? [The calls side by side](docs/getting-started/coming-from-sb3.md).
+
 `"CartPole-v1"` here is [gymnax](https://github.com/RobertTLange/gymnax)'s
 CartPole, written in JAX. That is the intended use: with a JAX environment
 (gymnax, Brax, MuJoCo Playground) the environment, the agent and every seed
@@ -69,8 +77,12 @@ from ajax.extensions.instrumentation import CriticDiagnostics
 # A recurrent actor and critic, for when one observation is not enough.
 agent = SAC("Pendulum-v1", memory={"kind": "lstm", "hidden_size": 64})
 
-# A research feature as an extension: the critic's health at each evaluation.
+# An extension adds measurements: here whether the critic's features are degrading
+# (how many directions they span, how many units went silent), logged at each evaluation.
 agent = PPO("CartPole-v1", extensions=(CriticDiagnostics(),))
+
+# Gymnasium's MuJoCo tasks, run in JAX (the gymnasium-mjx extra).
+agent = SAC("mujoco:HalfCheetah-v5")
 
 # Brax and MuJoCo Playground environments by id (their extras), here 8 copies in parallel.
 agent = PPO("ant", n_envs=8)

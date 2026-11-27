@@ -18,7 +18,7 @@ import numpy as np
 import pytest
 from flax import struct
 
-from ajax.environments.create import build_env_from_id, build_of
+from ajax.environments.create import build_env_from_id, _build_of
 from ajax.wrappers import FreshAutoResetWrapper, _call_if_any
 
 N_ENVS, EPISODE_LENGTH, N_STEPS, N_SEEDS = 2, 3, 9, 2  # 4 episode starts each
@@ -153,7 +153,7 @@ def test_eval_rebuild_keeps_the_reset_semantics():
     for fresh_reset in (False, True):
         env, _ = build_env_from_id("CartpoleBalance", n_envs=1, fresh_reset=fresh_reset)
         eval_env, _, _ = setup_environment(env, None, num_episodes=2, norm_info=None)
-        assert build_of(eval_env).fresh_reset is fresh_reset
+        assert _build_of(eval_env).fresh_reset is fresh_reset
 
 
 @struct.dataclass

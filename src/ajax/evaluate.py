@@ -15,8 +15,8 @@ from ajax.controller import (
 )
 from ajax.environments.create import (
     add_ajax_wrappers,
-    build_of,
-    rebuild_for_evaluation,
+    _build_of,
+    _rebuild_for_evaluation,
     strip_ajax_wrappers,
 )
 from ajax.environments.interaction import (
@@ -115,7 +115,7 @@ def evaluation_physics(env: Any) -> str:
     that is not a GPU (an asynchronous evaluator on the CPU,
     ``LoggingConfig.evaluation_device``), where Warp cannot run. Both step
     the same model; tasks with contacts drift apart over an episode."""
-    physics = build_of(env).physics
+    physics = _build_of(env).physics
     device = jax.config.jax_default_device  # set by the evaluator's thread
     platform = getattr(device, "platform", device)
     if physics == "warp" and platform not in (None, "gpu", "cuda"):
@@ -145,7 +145,7 @@ def setup_environment(
 
     brax / playground tasks are rebuilt from their id with ``num_episodes``
     parallel envs, and the wrappers over the stack the builder returned go
-    back over the rebuilt one (rebuild_for_evaluation, on the physics of
+    back over the rebuilt one (_rebuild_for_evaluation, on the physics of
     evaluation_physics). ``episode_length`` (simulator steps) and
     ``action_repeat`` are the training env's; the defaults are ``None`` ->
     the env's native episode length, falling back to 1000, and repeat 1.
@@ -156,7 +156,7 @@ def setup_environment(
     continuous = check_if_environment_has_continuous_actions(env, env_params)
 
     if mode == "brax":
-        env = rebuild_for_evaluation(
+        env = _rebuild_for_evaluation(
             env, num_episodes, episode_length, action_repeat, evaluation_physics(env)
         )
     elif action_repeat > 1:

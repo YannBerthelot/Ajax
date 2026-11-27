@@ -131,8 +131,8 @@ dataset's rows and each step collected, as on the other agents.
 - **Learning-rate schedule.** The actor's cosine decay is the reference's
   offline training's. A decayed rate carries into a
   `train(initial_state=...)` that fine-tunes the state: to fine-tune at a
-  constant rate, as the reference's fine-tuning configuration does, pass
-  `actor_learning_rate_decay=None` to both calls.
+  constant rate, as the reference's fine-tuning configuration does, build
+  the agent with `actor_learning_rate_decay=None`.
 - **The value's input.** With `normalize_observations=True`, V reads the
   normalised observations, as the actor and the critics do.
 - **Initialisation.** As in the authors' code: orthogonal kernels with gain

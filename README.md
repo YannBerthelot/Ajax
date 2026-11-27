@@ -123,8 +123,7 @@ agent = SAC(
     extensions=(
         CloningPretrain(pd_expert, n_steps=1_000),
         ExpertPrefill(n_steps=1_000, expert=pd_expert),
-        # It reads the replay, with the buffer of a SAC built with the same settings.
-        CriticDiagnostics(buffer=SAC("Pendulum-v1").buffer),
+        CriticDiagnostics(),
     ),
 )
 ```

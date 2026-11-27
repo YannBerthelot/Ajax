@@ -149,9 +149,44 @@ learning you want, then use seeds to fill the device.
 
 ## CPU or GPU
 
+On four CPU cores, on CheetahRun (top) and Breakout-MinAtar (below):
+
+<!-- agent-timing:start -->
+| Agent | Task | Four CPU cores | Compile s |
+|---|---|---:|---:|
+| SAC | CheetahRun | 41 | 19 |
+| TD3 | CheetahRun | 51 | 17 |
+| ASAC | CheetahRun | 34 | 28 |
+| RVI-SAC | CheetahRun | 42 | 21 |
+| AVG | CheetahRun | 171 | 20 |
+| APO | CheetahRun | 1,066 | 29 |
+| PPO | CheetahRun | 1,269 | 29 |
+| REDQ | CheetahRun | 0.71 | 26 |
+| TQC | CheetahRun | 3.1 | 20 |
+| CrossQ | CheetahRun | 0.98 | 21 |
+| DreamerV3 | CheetahRun | 0.064 | 51 |
+| TD-MPC2 | CheetahRun | 0.3 | 34 |
+| DQN | Breakout | 2,926 | 4 |
+| PQN | Breakout | 14,045 | 3 |
+| PPO | Breakout | 4,622 | 5 |
+| UDRL | Breakout | 545 | 5 |
+
+Environment steps per second per seed, higher is faster, with 10 seeds trained together: the run makes 10 times as many in all. Each is timed on a segment of training once the agent's updates run, without evaluations; the compile seconds are those of the run's first call. The CPU column ran on four cores of an AMD EPYC 9454 48-Core Processor, at commits `7687a4d` and `7bc8b3c` ([records](https://github.com/YannBerthelot/Ajax/tree/main/benchmarks/suite/results/timing-0.6)).
+<!-- agent-timing:end -->
+
+Each agent has the [benchmark's](../reproduction/benchmark.md) settings, with
+MJX's pure-JAX physics on CheetahRun, except that the off-policy agents
+started their updates by step 256 in these runs, so that the timed segment
+trains throughout. The benchmark's
+[score against time](../reproduction/benchmark.md#at-a-glance) turns these
+speeds into hours.
+
 A GPU gains most where updates take the time: many critics, wide networks,
-world models. It gains little on one simulator step per seed. With 10 seeds,
-steps per second per seed, on CheetahRun (top) and Breakout-MinAtar (below):
+world models. It gains little on one simulator step per seed. This comparison
+is from earlier code, with 10 seeds, in steps per second per seed on
+CheetahRun (top) and Breakout-MinAtar (below): the CPU column on four cores of
+a cloud machine's Intel Xeon on 2 and 3 November 2026, the GPU column on one
+NVIDIA L40S on 6 November.
 
 | Agent | Four CPU cores | One NVIDIA L40S | Gain |
 | --- | --- | --- | --- |
@@ -169,10 +204,12 @@ steps per second per seed, on CheetahRun (top) and Breakout-MinAtar (below):
 | PPO | 3,316* | 13,799 | 4 times |
 
 The GPU column and the plain CPU figures are short timing runs without
-evaluations (`benchmarks/suite/results/timing-gpu` and `PHASE0.md`). Starred
-figures are full runs with evaluations. At one seed, DreamerV3 went from 0.78
-to 60 steps per second and TD-MPC2 from 2.98 to 143. DreamerV3 gained nothing
-from sharing seeds: 3 seeds gave 73 steps per second in all and 5 gave 60.
+evaluations ([GPU records](https://github.com/YannBerthelot/Ajax/tree/main/benchmarks/suite/results/timing-gpu),
+[CPU records](https://github.com/YannBerthelot/Ajax/blob/main/benchmarks/suite/results/PHASE0.md)).
+Starred figures are full runs with evaluations. At one seed, DreamerV3 went
+from 0.78 to 60 steps per second and TD-MPC2 from 2.98 to 143. DreamerV3
+gained nothing from sharing seeds: 3 seeds gave 73 steps per second in all and
+5 gave 60.
 
 More seeds help until the card is full. SAC's total levelled off near 8,000
 steps per second from 64 seeds, while PPO reached 42,000 at 256. Three SAC jobs

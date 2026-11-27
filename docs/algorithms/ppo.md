@@ -22,12 +22,12 @@ more. With demonstrations and no reward, see
 | --- | --- |
 | Discrete actions | yes |
 | Continuous actions | yes, a Gaussian; `squash=True` bounds it with `tanh` |
-| Memory (`memory=`) | yes: GRU, LSTM, transformer, Mamba ([Memory](../guide/memory.md)), without extensions or `expert_policy` |
+| Memory (`memory=`) | yes: GRU, LSTM, transformer, Mamba, without `expert_policy` or most extensions ([Memory](../guide/memory.md)) |
 | Environments | gymnax, Brax, MuJoCo Playground |
 | Image observations | yes, a CNN encoder (`cnn_image_shape`) |
 | PID policy | yes, `actor_architecture=PIDPolicy(...)` ([Networks](../guide/networks.md)) |
 | Several seeds in one call | yes, `train(seed=[...])` |
-| Extension phases | `pretrain`, `post_update`, `eval_metrics`, `observe`, `reward`, `on_target`, `critic_loss`, `actor_loss`, `eval_action`, `transform_action`, `actuate`, `track_memory` ([which extensions run](../guide/compatibility.md)) |
+| Extension phases | `pretrain`, `post_update`, `eval_metrics`, `observe`, `reward`, `on_target`, `critic_loss`, `actor_loss`, `action`, `eval_action`, `transform_action`, `actuate`, `track_memory` ([which extensions run](../guide/compatibility.md)) |
 | Resume and checkpoints | yes; a run split by a checkpoint equals the run left whole |
 
 ## Example
@@ -88,7 +88,7 @@ The defaults are ppo2's MuJoCo configuration.
 | `actor_bias_init`, `critic_bias_init` | `None` | initialisers by name ([Networks](../guide/networks.md)) |
 | `encoder_kernel_init` | `"orthogonal(np.sqrt(2))"` | the hidden layers' initialiser; None is the same one |
 | `cnn_image_shape`, `cnn_extra_obs_dim`, `cnn_spec` | `None`, `0`, `None` | convolutional encoder for flat image observations |
-| `episode_length`, `action_repeat` | `None`, `1` | simulator steps per episode (1,000 when `None`) and per agent step, on Brax and Playground |
+| `episode_length`, `action_repeat` | `None`, `1` | simulator steps per episode and per agent step, on Brax and Playground; `None` is 1,000 steps, or a `mujoco:` task's own time limit ([Environments](../guide/environments.md#brax-and-playground)) |
 | `expose_recent_rollout` | `False` | keep the last rollout on the state even when no extension reads it |
 | `expert_policy` | `None` | an expert the collector tracks: its actions feed the observation features and a residual policy (`ResidualPolicy`), and the evaluation reports its return next to the agent's |
 | `extensions` | `()` | research features (see [Extensions](../guide/extensions.md)) |

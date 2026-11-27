@@ -26,12 +26,12 @@ it with [TD-MPC2](tdmpc2.md), which plans with its model at every step.
 | Feature | DreamerV3 |
 | --- | --- |
 | Discrete actions | yes |
-| Continuous actions | yes |
+| Continuous actions | yes, a Gaussian around a `tanh`-bounded mean, clipped and mapped onto the environment's bounds |
 | Memory | built in: the world model is recurrent (`memory=` is not accepted) |
 | Environments | gymnax, Brax, MuJoCo Playground |
 | Observations | flat vectors only; the environment must not normalise observations or rewards |
 | Several seeds in one call | yes, `train(seed=[...])` |
-| Extension phases | `pretrain`, `post_update`, `eval_metrics`, `observe` (the features join the observation the encoder reads and the decoder reconstructs) |
+| Extension phases | `pretrain`, `post_update`, `eval_metrics`, `observe` (the features join the observation the encoder reads and the decoder reconstructs; [which extensions run](../guide/compatibility.md)) |
 | Resume and checkpoints | yes; a resumed run continues the schedules and the replay, and equals the run left whole |
 
 ## Example
@@ -86,7 +86,7 @@ observations (its defaults block has the 200m widths and a ratio of 32).
 | `dyn_scale`, `rep_scale` | `1.0`, `0.1` | dynamics and representation loss scales |
 | `replay_capacity` | `5_000_000` | rows kept, over all environments |
 | `replay_on_host` | `False` | keep the stored latents in pinned host memory instead of the accelerator's |
-| `action_repeat`, `episode_length` | `1`, `1000` | simulator steps per agent step, and per episode (Brax, Playground) |
+| `episode_length`, `action_repeat` | `1000`, `1` | simulator steps per episode and per agent step, on Brax and Playground ([Environments](../guide/environments.md#brax-and-playground)) |
 
 The other arguments (network depths, `bins`, `unimix`, the other loss
 scales, the slow critic, the return normaliser) are in the [API](#api)

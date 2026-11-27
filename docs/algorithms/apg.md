@@ -27,7 +27,7 @@ transition gradients and the reference-tracking wrapper.
 | --- | --- |
 | Discrete actions | no |
 | Continuous actions | yes, `tanh`-bounded by default (`squash=True`), mapped onto the environment's bounds |
-| Memory (`memory=`) | yes: GRU, LSTM, transformer, Mamba |
+| Memory (`memory=`) | yes: GRU, LSTM, transformer, Mamba, with `expert_policy` and extensions ([Memory](../guide/memory.md)) |
 | Environments | gymnax environments with transition gradients: Pendulum, MountainCarContinuous, PointRobot, Reacher, Swimmer |
 | Families of systems | yes, `system_class=` |
 | Several seeds in one call | yes, `train(seed=[...])` |
@@ -163,7 +163,7 @@ the `APG` docstrings).
   zero biases where it has any (`MemoryConfig(init="nanogpt")`). Other
   memory kinds keep flax's.
 - **Curriculum.** `train_curriculum` resumes each stage from the previous
-  one's parameters and, by default, restarts the optimizer and its schedule
+  one's parameters and, by default, restarts the optimiser and its schedule
   at each stage. All stages must share `n_envs`, the network and the PID
   layer.
 - **Tasks.** `ajax.environments.model_reference` turns a plant into a

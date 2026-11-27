@@ -30,7 +30,7 @@ with a reward, see [below](#dagger-and-imitationloss).
 | Several seeds in one call | yes, `train(seed=[...])` |
 | Offline training | yes, `train_offline` ([Training](../guide/training.md#training-offline)) |
 | Extension phases | `pretrain`, `post_update`, `eval_metrics`, `observe`, `actor_loss`, `action`, `eval_action`, `track_memory` ([which extensions run](../guide/compatibility.md)) |
-| Resume and checkpoints | yes |
+| Resume and checkpoints | yes; a run split by a checkpoint equals the run left whole |
 
 ## Example
 
@@ -76,7 +76,7 @@ at the last step (`dagger/expert_frac`).
 | `actor_architecture` | `("32", "tanh", "32", "tanh")` | hidden layers |
 | `max_grad_norm` | `None` | gradient clipping by global norm |
 | `normalize_observations` | `False` | running observation normalisation |
-| `episode_length`, `action_repeat` | `None`, `1` | simulator steps per episode and per agent step, on Brax and Playground |
+| `episode_length`, `action_repeat` | `None`, `1` | simulator steps per episode and per agent step, on Brax and Playground; `None` is 1,000 steps, or a `mujoco:` task's own time limit ([Environments](../guide/environments.md#brax-and-playground)) |
 | `extensions` | `()` | research features (see [Extensions](../guide/extensions.md)) |
 
 ## How it works
@@ -109,10 +109,11 @@ for discrete actions. The paper's analysis holds for any no-regret online
 learner (Sec. 4), and an online fit costs one step per environment step,
 where each `IterationFit` fit costs more as the replay grows.
 
-The default `beta` schedule is the reference code's. The paper prefers its parameter-free `beta_i = I(i = 1)`, which it reports "often
-performs best in practice" (Sec. 3): `ExponentialBetaSchedule(0.0)`. Any
-decay in (0, 1] gives its exponential schedule. The guarantee needs only
-that the mean of the `beta_i` goes to 0.
+The default `beta` schedule is the reference code's. The paper prefers its
+parameter-free `beta_i = I(i = 1)`, which it reports "often performs best
+in practice" (Sec. 3): `ExponentialBetaSchedule(0.0)`. Any decay in (0, 1]
+gives its exponential schedule. The guarantee needs only that the mean of
+the `beta_i` goes to 0.
 
 ## Differences from the reference
 
@@ -141,9 +142,10 @@ that the mean of the `beta_i` goes to 0.
 
 ## DAgger and `ImitationLoss`
 
-A replay agent (SAC, TD3, REDQ, ASAC) given an `expert_policy` and
-`ImitationLoss` with the same expert stores the expert's action at every
-state it visits and pulls its actor towards those actions on replay batches.
+A replay agent (SAC, TD3, REDQ, CrossQ, TQC, ASAC, RVI-SAC) given an
+`expert_policy` and `ImitationLoss` with the same expert stores the
+expert's action at every state it visits and pulls its actor towards those
+actions on replay batches.
 That is DAgger's aggregation with `beta_i = I(i = 1)`, plus the agent's
 reinforcement-learning loss, its critic and its exploration noise. Use
 DAgger to imitate without a reward, or as the imitation baseline. Use

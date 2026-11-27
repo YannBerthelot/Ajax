@@ -27,7 +27,7 @@ off-policy counterpart is [ASAC](asac.md).
 | Image observations | no |
 | PID policy | yes, `actor_architecture=PIDPolicy(...)` ([Networks](../guide/networks.md)) |
 | Several seeds in one call | yes, `train(seed=[...])` |
-| Extension phases | `pretrain`, `post_update`, `eval_metrics`, `observe`, `on_target`, `critic_loss`, `actor_loss`, `eval_action`, `transform_action`, `actuate`, `track_memory` ([which extensions run](../guide/compatibility.md)) |
+| Extension phases | `pretrain`, `post_update`, `eval_metrics`, `observe`, `on_target`, `critic_loss`, `actor_loss`, `action`, `eval_action`, `transform_action`, `actuate`, `track_memory` ([which extensions run](../guide/compatibility.md)) |
 | Resume and checkpoints | yes; a run split by a checkpoint equals the run left whole |
 
 ## Example
@@ -78,7 +78,7 @@ configuration's.
 | `actor_bias_init`, `critic_bias_init` | `None` | the heads' bias initialisers by name ([Networks](../guide/networks.md)) |
 | `encoder_kernel_init` | `"torch_linear"` | the hidden layers start as torch's `nn.Linear`; any initialiser by name sets their kernels instead |
 | `log_std_bounds` | `None` | the `(low, high)` clip of the continuous actor's log standard deviation; `None` leaves it unclipped |
-| `episode_length`, `action_repeat` | `None`, `1` | simulator steps per episode (1,000 when `None`) and per agent step, on Brax and Playground |
+| `episode_length`, `action_repeat` | `None`, `1` | simulator steps per episode and per agent step, on Brax and Playground; `None` is 1,000 steps, or a `mujoco:` task's own time limit ([Environments](../guide/environments.md#brax-and-playground)) |
 | `expose_recent_rollout` | `False` | keep the last rollout on the state even when no extension reads it |
 | `extensions` | `()` | research features (see [Extensions](../guide/extensions.md)) |
 

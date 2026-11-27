@@ -33,7 +33,7 @@ compute cost: it updates its model and plans at every step.
 | Observations | flat vectors, raw (no normalisation) | flat vectors of different sizes per task |
 | Terminating episodes | refused, unless `episodic=True` | no |
 | Several seeds in one call | yes | yes |
-| Extension phases | `pretrain`, `post_update`, `eval_metrics`, `observe` | the same but `observe`: its dataset holds no feature columns |
+| Extension phases | `pretrain`, `post_update`, `eval_metrics`, `observe` ([which extensions run](../guide/compatibility.md)) | the same but `observe`: its dataset holds no feature columns |
 | Resume and checkpoints | yes; a checkpoint restored by a new agent equals the run left whole | yes, the same |
 
 ## Example
@@ -87,7 +87,7 @@ Every default is the paper's (`config.yaml` at `5f6fade`).
 | `entropy_coef` | `1e-4` | policy prior's entropy weight |
 | `tau` | `0.01` | target Q update rate |
 | `episodic` | `False` | accept terminating tasks (the latest code's episodic mode) |
-| `action_repeat`, `episode_length` | `1`, `1000` | simulator steps per agent step, and per episode (Brax, Playground) |
+| `episode_length`, `action_repeat` | `1000`, `1` | simulator steps per episode and per agent step, on Brax and Playground ([Environments](../guide/environments.md#brax-and-playground)) |
 
 ## Presets
 

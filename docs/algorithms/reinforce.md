@@ -27,8 +27,8 @@ on: a baseline to compare against, or a starting point for teaching.
 | Environments | gymnax, Brax, MuJoCo Playground |
 | Image observations | no |
 | Several seeds in one call | yes, `train(seed=[...])` |
-| Extension phases | `pretrain`, `post_update`, `eval_metrics`, `observe`, `eval_action`, `track_memory` ([which extensions run](../guide/compatibility.md)) |
-| Resume and checkpoints | yes |
+| Extension phases | `pretrain`, `post_update`, `eval_metrics`, `observe`, `action`, `eval_action`, `track_memory` ([which extensions run](../guide/compatibility.md)) |
+| Resume and checkpoints | yes; a run split by a checkpoint equals the run left whole |
 
 ## Example
 
@@ -66,7 +66,7 @@ The defaults are those of Spinning Up's `vpg()`.
 | `actor_architecture`, `critic_architecture` | `("64", "tanh", "64", "tanh")` | hidden layers |
 | `max_grad_norm` | `None` | clips each network's gradient to this global norm |
 | `normalize_observations`, `normalize_rewards` | `False` | running normalisation |
-| `episode_length`, `action_repeat` | `None`, `1` | simulator steps per episode (1,000 when `None`) and per agent step, on Brax and Playground |
+| `episode_length`, `action_repeat` | `None`, `1` | simulator steps per episode and per agent step, on Brax and Playground; `None` is 1,000 steps, or a `mujoco:` task's own time limit ([Environments](../guide/environments.md#brax-and-playground)) |
 | `extensions` | `()` | research features (see [Extensions](../guide/extensions.md)) |
 
 There is no `n_epochs` or `num_minibatches` argument: a second pass over a

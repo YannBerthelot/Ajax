@@ -96,7 +96,7 @@ the notes). On CartPole-v1 they reach a return near 500 within CleanRL's
 | `td_loss_fn` | `None` | the loss; `None` is the squared error on vector observations and the Huber loss with delta 1 on images |
 | `q_network_cls` | `None` | the network; `None` is `QNetwork`, `DuelingQNetwork` the dueling one |
 | `cnn_image_shape`, `cnn_extra_obs_dim`, `cnn_spec` | `None`, `0`, `None` | convolutional encoder for flat image observations; `None` builds the reference network |
-| `episode_length`, `action_repeat` | `None`, `1` | simulator steps per episode (1,000 when `None`) and per agent step, on Brax and Playground |
+| `episode_length`, `action_repeat` | `None`, `1` | simulator steps per episode and per agent step, on Brax and Playground; `None` is 1,000 steps, or a `mujoco:` task's own time limit ([Environments](../guide/environments.md#brax-and-playground)) |
 | `expert_policy` | `None` | an expert, as an action index per row: collection tracks it and stores its actions, and evaluations log its return |
 | `extensions` | `()` | research features (see [Extensions](../guide/extensions.md)) |
 

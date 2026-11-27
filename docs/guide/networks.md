@@ -25,22 +25,24 @@ agent = PPO(
 state, _ = agent.train(seed=0, n_timesteps=2_048)
 ```
 
-The activations are `relu`, `tanh`, `leaky_relu`, `swish`, `silu` and `mish`;
-a callable works too. Another name is refused when training starts, with
-that list. `"layernorm"` adds a LayerNorm where it stands, so
-`("256", "layernorm", "relu", "256", "layernorm", "relu")` is RLPD's critic
-(Ball et al., 2023). The agent adds its output heads after the hidden
-layers: the policy's mean and standard deviation, the value, the Q-values.
-DQN and PQN take a single `architecture` for their Q-network.
+- **Activations**: `relu`, `tanh`, `leaky_relu`, `swish`, `silu` and `mish`,
+  or a callable. Another name is refused when training starts, with that
+  list.
+- **`"layernorm"`** adds a LayerNorm where it stands, so
+  `("256", "layernorm", "relu", "256", "layernorm", "relu")` is RLPD's
+  critic (Ball et al., 2023).
+- **Widths alone**, as SB3's `net_arch=[64, 64]`, leave the layers without
+  an activation between them; Ajax warns and shows the tuple to write.
+- **The output heads** come after the hidden layers: the policy's mean and
+  standard deviation, the value, the Q-values. DQN and PQN take a single
+  `architecture` for their Q-network.
 
-Widths alone, as SB3's `net_arch=[64, 64]`, leave the layers without an
-activation between them; Ajax warns and shows the tuple to write.
+`print(agent)` shows the arguments that differ from their defaults, so a
+setting that did not reach the agent is missing from it.
 
-`print(agent)` shows the agent as the call that builds it, with every
-argument that differs from its default, so a setting that did not reach the
-agent is missing from it. `agent.config` is the dict of all of them.
-
-Each agent's default follows its paper or reference implementation:
+Each agent's default follows its paper or reference implementation. The
+table gives the actor's (DQN's and PQN's Q-network's); the critics have the
+same layers, but TQC's, which have three of 512 units:
 
 | Default | Agents |
 | --- | --- |
@@ -51,31 +53,33 @@ Each agent's default follows its paper or reference implementation:
 | `("128", "relu", "128", "relu")` | PQN, UDRL, APG (its controller) |
 | `("120", "relu", "84", "relu")` | DQN |
 
-DreamerV3 and TD-MPC2 build their own networks to their papers'
-specifications: see [World models](world-models.md).
+CrossQ sets its widths with `actor_width` and `critic_width`, and DreamerV3
+and TD-MPC2 build their own networks to their papers' specifications: see
+their pages and [World models](world-models.md).
 
 ### Initialisers
 
-Kernels start from an orthogonal initialiser with gain 1 and biases from
-zero, except the policy's output layer (the mean, or the logits for
-discrete actions), whose kernel starts from `orthogonal(0.01)`: a near-zero
-first mean, or a near-uniform first policy (TD3's deterministic actor
-starts its last layer uniform in `±3e-3`, as DDPG does), and APO's hidden
-layers, which start as its reference code's (`"torch_linear"`, below).
+Each agent starts its layers as its reference code does, and its page says
+how: SAC's from Glorot-uniform, as `haarnoja/sac`; PPO's hidden layers from
+`orthogonal(np.sqrt(2))` and its policy's output layer from
+`orthogonal(0.01)`, a near-zero first mean, as ppo2. A layer neither the
+agent nor you set starts from `orthogonal(1.0)`, its bias from zero.
 Initialisers are named by string:
 
 - `"orthogonal(0.01)"`, `"lecun_uniform"`, or any other factory in
   `flax.linen.initializers`, with its argument in brackets (`np`, `jnp` and
   `math` may appear in it, as in `"orthogonal(np.sqrt(2))"`);
-- `"zeros"`, and `"trunc_normal_fan_in(1.0)"` (DreamerV3's initialiser);
+- `"zeros"`, `"trunc_normal_fan_in(1.0)"` (DreamerV3's initialiser) and
+  `"symmetric_uniform(3e-3)"`, uniform in `±3e-3`;
+- `"torch_linear"` for a kernel: the layer starts as torch's `nn.Linear`
+  does, its kernel and its bias both uniform in `±1/sqrt(fan_in)`, the
+  fan-in being the layer's input width (so it takes no bias initialiser);
 - a number such as `"0.0"` or `"-1.0"`, for a constant.
 
 PPO and APO take three of them: `encoder_kernel_init` for the hidden
 layers' kernels, `actor_bias_init` for the policy head's bias and
 `critic_bias_init` for the value head's. PPO also takes `mean_kernel_init`
-(below). `encoder_kernel_init="torch_linear"` starts each hidden layer as
-torch's `nn.Linear` does: its kernel and its bias both uniform in
-`±1/sqrt(fan_in)`, the fan-in being the layer's input width.
+([below](#the-policy-head)).
 
 ### Layer normalisation
 
@@ -94,22 +98,20 @@ agent.network_args = agent.network_args.replace(encoder_layer_norm=True)
 state, _ = agent.train(seed=0, n_timesteps=1_000)
 ```
 
-UDRL turns it on for its policy and APG's controller always keeps a
-LayerNorm on its encoder, as Ajax's earlier networks did. PQN puts one after
-every hidden layer, as its paper does, whatever the setting. AVG normalises
-its penultimate features instead, as its paper does, which overrides the
-setting.
+UDRL turns it on for its policy, and APG's controller always has one on its
+encoder. PQN puts one after every hidden layer, and AVG normalises its
+penultimate features instead, as their papers do, whatever the setting.
 
 ### Layers per head
 
 By default the output layers read the encoder's features, or the memory's,
 directly. `head_architecture` puts hidden layers in between, written as
 `actor_architecture` is. Each network gets its own copy, and so does each
-critic of an ensemble. With a shared encoder, the actor and the critic
+critic of an ensemble; with a shared encoder, the actor and the critic
 separate after it. `head_kernel_init` sets their initialiser; `None` uses
-the encoder's. Recurrent PPO sets PureJaxRL's by default (see
-[A shared encoder](#a-shared-encoder)). The other agents read it from the
-network configuration:
+the encoder's. Recurrent PPO sets PureJaxRL's by default
+([A shared encoder](#a-shared-encoder)); the other actor-critic agents read
+it from the network configuration:
 
 ```python
 from ajax import SAC
@@ -119,28 +121,12 @@ agent = SAC("Pendulum-v1", memory=MemoryConfig("gru", 32), learning_starts=500)
 agent.network_args = agent.network_args.replace(head_architecture=("64", "relu"))
 ```
 
-The actor-critic agents read it. DQN's, PQN's and APG's networks do not
-yet, and a PID policy has no hidden layers, so it gets no head layers.
+DQN's, PQN's and APG's networks do not read it yet, and a PID policy, which
+has no hidden layers, gets no head layers.
 
 ### The policy head
 
-PPO exposes the policy head's options. By default its Gaussian learns one
-log standard deviation per action dimension, whatever the observation,
-starting at 0 (a standard deviation of 1) and never clipped
-(`log_std_bounds=None`), as PPO's reference code does: OpenAI Baselines at
-`ea25b9e` (ppo2's
-`common/distributions.py:96-106`; ppo1's `ppo1/mlp_policy.py:36-39`, with
-`gaussian_fixed_var=True`), CleanRL at `fe8d8a0`
-(`ppo_continuous_action.py:129`) and PureJaxRL at `31756b1`
-(`ppo_continuous_action.py:41`). `log_std_state_independent=False` with
-`log_std_init=-1.0` builds the head PPO had before, SAC's: a log standard
-deviation computed from the observation, which `log_std_bounds=(-20.0,
-2.0)` clips as SAC's is. APO sets its reference code's head (`xtma/apo`,
-built on the authors' rlpyt fork): one learned log standard deviation per
-dimension, starting at 0 and unclipped by default (`log_std_bounds=None`),
-around a mean passed through `tanh` (`tanh_mean`), with an unsquashed
-sample; its mean layer is `lecun_uniform`. The other agents clip theirs, a
-PID policy's included, to `(-20.0, 2.0)`.
+PPO exposes the policy head's options:
 
 | Argument | Default (PPO) | Effect |
 | --- | --- | --- |
@@ -150,27 +136,42 @@ PID policy's included, to `(-20.0, 2.0)`.
 | `mean_kernel_init` | `None`: `orthogonal(0.01)`, a near-zero first mean | the initialiser of the mean's output layer |
 | `squash` | `False` | `tanh` on the sampled action, with the matching log-probability correction ([Squashing](#squashing)) |
 
+PPO's defaults are its reference codes' head: a standard deviation of 1 to
+start, never clipped, whatever the observation (OpenAI Baselines at
+`ea25b9e`, ppo2's `common/distributions.py:96-106` and ppo1's
+`ppo1/mlp_policy.py:36-39` with `gaussian_fixed_var=True`; CleanRL at
+`fe8d8a0`, `ppo_continuous_action.py:129`; PureJaxRL at `31756b1`,
+`ppo_continuous_action.py:41`). `log_std_state_independent=False` with
+`log_std_init=-1.0` builds SAC's head instead, which
+`log_std_bounds=(-20.0, 2.0)` clips as SAC's is.
+
+APO sets its reference code's head (`xtma/apo`, built on the authors' rlpyt
+fork): PPO's, around a mean passed through `tanh` (`tanh_mean`), with an
+unsquashed sample and a `lecun_uniform` mean layer. IQL clips its log
+standard deviation to `(-5.0, 2.0)` and DAgger leaves it unclipped, as
+their reference codes do; the other agents clip theirs, a PID policy's
+included, to `(-20.0, 2.0)`.
+
 ### Squashing
 
-SAC, TD3, REDQ, ASAC, AVG and UDRL's continuous policy, and PPO's with
-`squash=True`, act through `tanh`, which keeps actions in `[-1, 1]`. The
-squashing is one wrapper, not an option of each head:
-`Squashed(actor)` wraps any actor, and its policy is `squash(pi)` of the
-actor's: `Squash(pi)` for a distribution, `tanh` of the action for TD3's
-deterministic one. `Squashed` shares the actor's parameters, so they are
-saved and read under the same names as the actor's alone.
+SAC, TQC, RVI-SAC, CrossQ, TD3, REDQ, ASAC, AVG and UDRL's continuous
+policy, and PPO's with `squash=True`, act through `tanh`, which keeps
+actions in `[-1, 1]`. The squashing is one wrapper, not an option of each
+head: `Squashed(actor)` wraps any actor, and its policy is `squash(pi)` of
+the actor's: `Squash(pi)` for a distribution, `tanh` of the action for
+TD3's deterministic one. `Squashed` shares the actor's parameters, so they
+are saved and read under the same names as the actor's alone.
 
 `Squash` (in `ajax.networks.distributions`) takes any distrax distribution,
 its latent, `pi.distribution`. Sampling and log-probabilities are exact.
 `log_prob(action)` inverts `tanh`, which float32 cannot do once the action
-rounds to ±1; `log_prob_from_raw(raw)` reads the pre-`tanh` sample instead,
-as a squashed PPO does when it recomputes a log-probability. Two quantities have
-no closed form: `mean()` is `tanh` of the latent's mean, the action the
-agent evaluates with, not the mean of the squashed action; `entropy(seed)`
-is a one-sample estimate, the latent's entropy plus the `tanh`
-log-det-Jacobian at a sample, as brax estimates it. The functions `latent`,
-`sample_with_raw`, `log_prob_from_raw` and `entropy` read any policy,
-squashed or not, so code that uses them works with both.
+rounds to ±1, so `log_prob_from_raw(raw)` reads the pre-`tanh` sample
+instead, as a squashed PPO does. Two quantities have no closed form:
+`mean()` is `tanh` of the latent's mean, the action the agent evaluates
+with, and `entropy(seed)` a one-sample estimate (the latent's entropy plus
+the `tanh` log-det-Jacobian at a sample), as brax's. The functions
+`latent`, `sample_with_raw`, `log_prob_from_raw` and `entropy` read any
+policy, squashed or not.
 
 ## Image observations
 
@@ -194,16 +195,20 @@ agent = PQN(
 state, _ = agent.train(seed=0, n_timesteps=2_048)
 ```
 
-DQN and PQN default to their reference codes' networks (see their pages);
-PPO and UDRL to `CNNSpec()`. `CNNSpec()` with no arguments is this encoder: two ReLU convolutions
-of 16 and 32 channels (kernels 4 and 3, stride 2, `"SAME"` padding), then a
-128-wide dense layer, all at flax's default initialisation. The image is
-read in height, width, channels order: on a gymnax environment, a
-`cnn_image_shape` other than the environment's raises an error, and leaving
-it out warns that an MLP reads the flattened image. `padding` takes flax's padding
-(`"VALID"` for none), `layer_norm=True` puts a LayerNorm after every layer,
-before its ReLU, and `kernel_init` names the initialiser of every layer, as
-the network's other `*_kernel_init` settings do.
+DQN and PQN default to their reference codes' networks (see their pages),
+PPO and UDRL to `CNNSpec()`:
+
+| `CNNSpec` field | Default | Meaning |
+| --- | --- | --- |
+| `channels`, `kernel_sizes`, `strides` | `(16, 32)`, `(4, 3)`, `(2, 2)` | the ReLU convolutions |
+| `feature_dim` | `128` | the dense layer after them |
+| `padding` | `"SAME"` | flax's padding (`"VALID"` for none) |
+| `layer_norm` | `False` | a LayerNorm after every layer, before its ReLU |
+| `kernel_init` | `None` | the initialiser of every layer, named as the network's other `*_kernel_init` settings are; `None` is flax's default |
+
+The image is read in height, width, channels order. On a gymnax
+environment, a `cnn_image_shape` other than the environment's raises an
+error, and leaving it out warns that an MLP reads the flattened image.
 
 ## A shared encoder
 
@@ -219,32 +224,32 @@ agent = PPO("CartPole-v1", share_encoder=True, n_envs=2, n_steps=16, batch_size=
 state, _ = agent.train(seed=0, n_timesteps=64)
 ```
 
-- The critic owns the encoder, and the critic's optimiser steps it, at
+- **Who owns it.** The critic, whose optimiser steps it at
   `critic_learning_rate`. The actor keeps a copy, which the training loop
   refreshes after every update and every critic step.
-- PPO and APO train it with both losses: its gradient is the sum of the
+- **PPO and APO** train it with both losses: its gradient is the sum of the
   value loss's and the policy loss's, as in one network trained down the
   summed loss. One encoder needs one architecture: `actor_architecture` and
   `critic_architecture` must be equal (a CNN replaces both).
-- The off-policy agents (SAC, TD3, REDQ, TQC, ASAC, RVI-SAC, AVG, IQL)
+- **The off-policy agents** (SAC, TD3, REDQ, TQC, ASAC, RVI-SAC, AVG, IQL)
   train it with the critic's loss alone; the actor reads it without a
   gradient, as SAC-AE, DrQ and SB3's `share_features_extractor` do. The
   encoder is `actor_architecture`: the actor's heads read its features, and
   the critic's `critic_architecture` layers read them with the action. A
   target actor (TD3's) reads the target critic's encoder, and IQL's state
   value keeps an encoder of its own.
-- Cloning pretraining (`CloningPretrain`) trains the encoder too, and hands
-  it back to the critic.
-- With memory, the off-policy agents share the input embeddings and the
+- **Cloning pretraining** (`CloningPretrain`) trains the encoder too, and
+  hands it back to the critic.
+- **With memory**, the off-policy agents share the input embeddings and the
   memory block too, as Ni et al. (2022)'s shared recurrent network does.
   They read the observation, the previous action and the previous reward,
   which a run with memory observes (`PreviousAction()`,
   `PreviousReward()`; [Memory](memory.md)); each network keeps its own
-  shortcut and layers after the memory, and the action the critic is
-  asked about joins there. A target actor (TD3's) warms its memory up
-  through the target critic's.
-- Not yet: CrossQ, whose batch renormalisation would have both networks'
-  training passes move the shared encoder's running statistics.
+  shortcut and layers after the memory, and the action the critic is asked
+  about joins there. A target actor (TD3's) warms its memory up through the
+  target critic's.
+- **Not yet**: CrossQ, whose batch renormalisation would have both
+  networks' training passes move the shared encoder's running statistics.
 
 `share_encoder=None`, the default, does what the agent's reference code
 does:
@@ -255,14 +260,14 @@ does:
 | APO | separate (its rlpyt model) | - | - |
 | SAC, TD3, REDQ, TQC, ASAC, RVI-SAC, AVG, IQL | separate (each reference) | - | separate (Ni et al. 2022) |
 
-ppo2 also shares MLP networks outside MuJoCo; Ajax keeps them apart, as
-its MuJoCo setting does. With memory, ppo2 and PureJaxRL share the
-encoder and the memory block. PureJaxRL also gives each head a hidden layer
-of its own after the memory: a Dense(128) and a ReLU, orthogonal with gain 2.
-Recurrent PPO has those layers by default ([layers per head](#layers-per-head)),
-but keeps separate memories. With one memory, it fails the memory probe
-(CartPole with the velocities hidden, as in [Memory](memory.md)) even with the layers and with
-normalised rewards, while separate memories pass it.
+ppo2 also shares MLP networks outside MuJoCo; Ajax keeps them apart, as its
+MuJoCo setting does. With memory, ppo2 and PureJaxRL share the encoder and
+the memory block, and PureJaxRL gives each head a Dense(128) and a ReLU of
+its own after the memory, orthogonal with gain 2. Recurrent PPO has those
+layers by default ([layers per head](#layers-per-head)) but keeps separate
+memories: with one, it fails the memory probe (CartPole with the
+velocities hidden, as in [Memory](memory.md)), even with normalised
+rewards, while separate memories pass it.
 
 ## The PID policy
 
@@ -276,9 +281,9 @@ u = Kp e + Ki I + Kd D
 
 where `e`, `I` and `D` are the tracking error, its integral and its
 difference, which the [`PIDTermsInput`](environments.md#pid-error-terms)
-feature appends to the observation. The agent learns the gains. Pass a `PIDPolicy` as
-the `actor_architecture` of any continuous-action agent: SAC, TD3, REDQ,
-ASAC, AVG, PPO or APO.
+feature appends to the observation. The agent learns the gains. Pass a
+`PIDPolicy` as the `actor_architecture` of SAC, TD3, REDQ, ASAC, AVG, PPO
+or APO:
 
 ```python
 import jax
@@ -349,50 +354,44 @@ print({name: value.squeeze() for name, value in gains.items()})
 ```
 
 The best controller here is `Kp = 1/4, Ki = Kd = 0`, which reaches the
-set-point in one step; the repository's tests check that SAC and PPO find it
-with longer training.
+set-point in one step; the repository's tests check that SAC and PPO find
+it with longer training.
 
-`PIDPolicy` has two kinds of gains:
+`PIDPolicy(n_errors=1, gains="fixed", architecture=())` has two kinds of
+gains:
 
-- **`gains="fixed"`** makes the gains the actor's only parameters: a linear
-  map with no bias and no hidden layer. The trained policy deploys as a
-  plain PID with the gains `pid_gains` reads off it, in the agent's units
-  (below) (Lawrence et al., 2022, tune PID gains with reinforcement learning
-  the same way).
-- **`gains="observation"`** predicts the gains from the observation with an
-  MLP of `architecture`, as gain scheduling does. Read them for given
-  observations with `PIDActor(policy, action_dim).apply(params, obs,
-  method="gains")`, an array of shape `(..., 3, action_dim, n_errors)`;
-  the parameters of a squashed PID actor are the same.
+| `gains` | The gains | Reading them |
+| --- | --- | --- |
+| `"fixed"` | the actor's only parameters: a linear map with no bias and no hidden layer. The trained policy deploys as a plain PID (Lawrence et al., 2022, tune PID gains with reinforcement learning the same way) | `pid_gains(params)`, in the agent's units (below) |
+| `"observation"` | predicted from the observation by an MLP of `architecture`, as gain scheduling does | `PIDActor(policy, action_dim).apply(params, obs, method="gains")`, an array of shape `(..., 3, action_dim, n_errors)`; a squashed PID actor's parameters are the same |
 
-`n_errors` is the number of errors the feature tracks; with several, each
-action dimension gets its own gain on each error. The gains start at zero:
-the untrained controller commands the centre of the action box, which is
-no action on a symmetric box. The stochastic agents explore with a
-learned standard deviation that does not depend on the observation,
-clipped as the agent's other heads are (`log_std_bounds`: none in PPO and
-APO by default, `[-20, 2]` in the others).
+- **Errors.** `n_errors` is the number of errors the feature tracks; with
+  several, each action dimension gets its own gain on each error.
+- **The start.** The gains start at zero: the untrained controller commands
+  the centre of the action box, which is no action on a symmetric box.
+- **Exploration.** The stochastic agents explore with a learned standard
+  deviation that does not depend on the observation, clipped as the agent's
+  other heads are (`log_std_bounds`: none in PPO and APO by default,
+  `[-20, 2]` in the others).
+- **No memory.** A PID policy needs a continuous action space and takes no
+  `memory`: its memory is the integral and the difference in the
+  observation.
 
 Each agent's own output rule applies to `u`. SAC, TD3, REDQ, ASAC and AVG
 squash it with `tanh` and APO takes `tanh(u)` as its mean, so the deployed
-controller is a saturated PID; APO samples unsquashed around `tanh(u)`,
-PPO around `u` (unless `squash=True`), and their samples are clipped to
-`[-1, 1]`. Like every action, `u` is in the agent's units and is
-then mapped onto the environment's bounds
-([Actions](environments.md#actions)): the deployed controller is
+controller is a saturated PID; APO samples unsquashed around `tanh(u)`, PPO
+around `u` (unless `squash=True`), and their samples are clipped to
+`[-1, 1]`. Like every action, `u` is then mapped onto the environment's
+bounds ([Actions](environments.md#actions)): the deployed controller is
 `c + h · sat(u)`, with `c` the centre of the action box, `h` its half-width
-and `sat` the agent's `tanh` or clip. The learned gains are therefore
-normalised: a PID written in the environment's units has gains `h · K`
-(for small signals, where `tanh` is close to linear) and the offset `c`.
-Observation normalisation leaves the
-error terms raw, so the gains act on errors in the environment's units,
-while the gain network of `gains="observation"` reads the rest of the
-observation normalised.
-
-A PID policy needs a continuous action space and takes no `memory`: its
-memory is the integral and the difference in the observation.
+and `sat` the agent's `tanh` or clip. So a PID written in the environment's
+units has gains `h · K` (for small signals, where `tanh` is close to
+linear) and the offset `c`. Observation normalisation leaves the error
+terms raw, so the gains act on errors in the environment's units; the gain
+network of `gains="observation"` reads the rest of the observation
+normalised.
 
 Two other PID features are separate from this one. APG's in-context
 controller ends with a learnable PID layer on its network's output: see
-[APG](../algorithms/apg.md). Gain mode (`ExpertGains`) lets SAC tune the gains
-of an expert controller: see [Expert guidance](expert-guidance.md).
+[APG](../algorithms/apg.md). Gain mode (`ExpertGains`) lets SAC tune the
+gains of an expert controller: see [Expert guidance](expert-guidance.md).

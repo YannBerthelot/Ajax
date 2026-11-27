@@ -49,6 +49,9 @@ def test_published_tables_match_the_records():
     )
     summary = publish.readme_block(runs)
     assert publish.replace_block(readme, "benchmark-summary", summary) == readme
+    performance = publish.PERFORMANCE_PAGE.read_text()
+    timing = publish.timing_block(runs, publish.read_timings())
+    assert publish.replace_block(performance, "agent-timing", timing) == performance
 
 
 def test_score_uses_the_latest_attempt_and_gathers_seeds_run_in_parts(tmp_path):

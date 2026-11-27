@@ -9,7 +9,7 @@ import jax
 import jax.numpy as jnp
 from jax.tree_util import Partial as partial
 
-from ajax.controller import init_observers, observe_features, observe_inputs
+from ajax.controller import init_observers, observe_features, _observe_inputs
 from ajax.environments.interaction import (
     bootstrap_obs,
     get_final_obs,
@@ -87,7 +87,7 @@ def collect_experience_from_expert_policy(
     observer_states = None
     if observers:
         raw = get_raw_obs(env_state, env_args.env, mode, env_args.env_params)
-        inputs = observe_inputs(
+        inputs = _observe_inputs(
             observers,
             raw.astype(jnp.float32),
             env_args.env,

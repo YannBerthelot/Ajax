@@ -86,7 +86,7 @@ from flax import struct
 
 from ajax.controller import (
     observe_features,
-    observe_inputs,
+    _observe_inputs,
     restart_observers,
 )
 from ajax.environments.create import _build_of
@@ -371,7 +371,7 @@ def collect_row(
         observer_states, _ = restart_observers(
             nxt.is_first, env_args.observers, observer_states, None, None, n_envs
         )
-        inputs = observe_inputs(
+        inputs = _observe_inputs(
             env_args.observers,
             nxt.obs.astype(jnp.float32),
             env,

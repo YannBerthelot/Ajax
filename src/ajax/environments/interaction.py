@@ -23,7 +23,7 @@ from ajax.controller import (
     init_observers,
     memory_tracker_of,
     observe_features,
-    observe_inputs,
+    _observe_inputs,
     read_the_residual,
     restart_observers,
     warmup_expert_flags,
@@ -996,7 +996,7 @@ def step_features(
         ended, observers, observer_states, expert, expert_state, n_envs
     )
     raw_next = get_raw_obs(env_state, env_args.env, mode, env_args.env_params)
-    next_inputs = observe_inputs(
+    next_inputs = _observe_inputs(
         observers,
         raw_next.astype(jnp.float32),
         env_args.env,
@@ -1406,7 +1406,7 @@ def reset_features(
     n_envs = env_args.n_envs
     stateful = expert is not None and hasattr(expert, "init_state")
     raw = get_raw_obs(env_state, env_args.env, mode, env_args.env_params)
-    inputs = observe_inputs(
+    inputs = _observe_inputs(
         env_args.observers,
         raw.astype(jnp.float32),
         env_args.env,

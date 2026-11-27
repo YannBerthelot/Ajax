@@ -311,7 +311,7 @@ These put their rows in a ring of their own beside the one collection writes, so
 
 | Extension | What it does | Phases | Works with |
 | --- | --- | --- | --- |
-| `CriticDiagnostics` | Logs the critic's effective rank (`Cond/critic_srank`), its fraction of dormant units, its feature and weight norms. It finds the critic from the agent's networks: an ensemble critic, or a Q-network. | `eval_metrics` | replay agents given `buffer=` (SAC, TD3, REDQ, ASAC, DQN); PPO, APO, PQN and AVG, which keep their latest rollout for it (AVG's is one step per copy) |
+| `CriticDiagnostics` | Logs the critic's effective rank (`Cond/critic_srank`), its fraction of dormant units, its feature and weight norms. It finds the critic from the agent's networks: an ensemble critic, or a Q-network. | `eval_metrics` | replay agents (SAC, TD3, REDQ, ASAC, DQN), from their replay; PPO, APO, PQN and AVG, which keep their latest rollout for it (AVG's is one step per copy) |
 | `BiasVoreDecomposition` | Splits the critic's squared one-step error into squared bias and variance (`EVarEst/bias_sq`, `EVarEst/var_resid`, `EVarEst/mse`, `EVarEst/abs_bias`), against a one-step target on its current parameters, or your own `value_target_fn`. | `eval_metrics` | as `CriticDiagnostics` |
 | `BiasVorePenalty` | Adds `((1 − 2α)/α) · Var(residual)` to the critic loss; `alpha=0.5` adds nothing. Logs `bias_vore/penalty` and `bias_vore/residual_var`. | `critic_loss` | every agent with a `critic_loss` phase: SAC, TD3, REDQ, ASAC, AVG, PPO, APO, DQN, PQN |
 
@@ -334,21 +334,18 @@ developed with Ajax, with no external reference in the code.
 
 `CriticDiagnostics` and `BiasVoreDecomposition` need states the agent has
 visited. An on-policy or incremental agent keeps its latest rollout for them,
-as in the example at the top of this page. A replay agent keeps them in its replay buffer, and the extension must be given
-the buffer object. The extension is built before the agent, so take the
-buffer from an agent built with the same settings (`n_envs`, `buffer_size`,
-`batch_size`):
+as in the example at the top of this page; a replay agent's measurements
+sample its replay:
 
 ```python
 from ajax import SAC
 from ajax.extensions.instrumentation import BiasVoreDecomposition, CriticDiagnostics
 from ajax.logging import LoggingConfig
 
-buffer = SAC("Pendulum-v1", learning_starts=500).buffer  # same settings as below
 agent = SAC(
     "Pendulum-v1",
     learning_starts=500,
-    extensions=(CriticDiagnostics(buffer=buffer), BiasVoreDecomposition(buffer=buffer)),
+    extensions=(CriticDiagnostics(), BiasVoreDecomposition()),
 )
 logging = LoggingConfig(log_frequency=1_000, backends=())
 state, evaluations = agent.train(seed=0, n_timesteps=2_000, logging_config=logging)

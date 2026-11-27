@@ -24,7 +24,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from functools import partial
-from typing import Any, Callable, ClassVar, Optional, Tuple
+from typing import Any, Callable, ClassVar, Literal, Optional, Tuple
 
 import jax
 import jax.numpy as jnp
@@ -75,7 +75,7 @@ PRESETS = {
             "n_epochs": 4,
             "architecture": ("256", "relu", "256", "relu"),
             "learning_rate": 1e-4,
-            "lr_linear_decay": True,
+            "learning_rate_decay": "linear",
             "reward_scale": 0.1,
             "q_lambda": 0.95,
         },
@@ -90,7 +90,7 @@ PRESETS = {
             "num_minibatches": 32,
             "n_epochs": 2,
             "learning_rate": 2.5e-4,
-            "lr_linear_decay": False,
+            "learning_rate_decay": None,
             "reward_scale": 1.0,
             "q_lambda": 0.65,
         },
@@ -126,11 +126,11 @@ class PQN(
     n_envs: int = 128
     #: The one Q-network's learning rate and hidden layers.
     learning_rate: float = 5e-4
-    #: purejaxql's LR_LINEAR_DECAY: the rate falls linearly to 1e-20 over the
-    #: run's gradient steps (pqn_minatar.py:140-147), true in every PQN
-    #: config; False keeps it constant. A schedule given as learning_rate
-    #: runs as given.
-    lr_linear_decay: bool = True
+    #: purejaxql's LR_LINEAR_DECAY: "linear" makes the rate fall linearly to
+    #: 1e-20 over the run's gradient steps (pqn_minatar.py:140-147), as every
+    #: PQN config does; None keeps it constant. A schedule given as
+    #: learning_rate runs as given.
+    learning_rate_decay: Optional[Literal["linear"]] = "linear"
     architecture: Architecture = ("128", "relu", "128", "relu")
     gamma: float = 0.99
     #: Q(lambda) trace-decay coefficient (0 -> 1-step TD, 1 -> Monte-Carlo).
@@ -185,6 +185,13 @@ class PQN(
         # pqn_atari.py:194-197, MAX_GRAD_NORM 10 in every PQN config).
         return {"optimizer": "radam", "eps": 1e-8}
 
+    def check(self) -> None:
+        if self.learning_rate_decay not in (None, "linear"):
+            raise ValueError(
+                "PQN's learning_rate_decay is 'linear' or None, got"
+                f" {self.learning_rate_decay!r}."
+            )
+
     def setup(self) -> None:
         if self.n_steps * self.env_args.n_envs % self.num_minibatches != 0:
             raise ValueError(
@@ -232,12 +239,12 @@ class PQN(
     def decayed_optimizer_args(self, context: TrainContext) -> OptimizerConfig:
         """The Q-network's optimiser, its rate falling linearly from
         learning_rate to 1e-20 over the run's gradient steps when
-        lr_linear_decay: its updates (total_timesteps over a rollout's
-        n_steps * n_envs), each n_epochs of num_minibatches steps
+        learning_rate_decay is "linear": its updates (total_timesteps over a
+        rollout's n_steps * n_envs), each n_epochs of num_minibatches steps
         (pqn_minatar.py:140-147). The schedule counts the optimiser's steps,
         so a run split into calls passes its whole horizon to each."""
         optimizer_args = context.critic_optimizer_args
-        if not self.lr_linear_decay or callable(self.learning_rate):
+        if self.learning_rate_decay is None or callable(self.learning_rate):
             return optimizer_args
         rollout_size = self.n_steps * context.env_args.n_envs
         updates = context.total_timesteps // rollout_size

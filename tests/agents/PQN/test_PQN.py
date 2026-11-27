@@ -20,10 +20,11 @@ def test_PQN_rejects_indivisible_minibatches():
 
 
 def test_the_rate_falls_linearly_to_zero_over_the_runs_gradient_steps():
-    """lr_linear_decay (purejaxql's LR_LINEAR_DECAY, pqn_minatar.py:140-147):
-    a run of 8 updates, each 2 epochs of 2 minibatches, takes 32 gradient
-    steps; the rate is whole at the first, halved after 16 and gone after 32.
-    A decay counted in updates would be gone after 8."""
+    """learning_rate_decay="linear" (purejaxql's LR_LINEAR_DECAY,
+    pqn_minatar.py:140-147): a run of 8 updates, each 2 epochs of 2
+    minibatches, takes 32 gradient steps; the rate is whole at the first,
+    halved after 16 and gone after 32. A decay counted in updates would be
+    gone after 8."""
     agent = PQN(
         env_id="CartPole-v1",
         n_envs=2,

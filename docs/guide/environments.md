@@ -39,7 +39,7 @@ that are not installed; a `"mujoco:"` id without its package raises
 ```python
 import gymnax
 
-print(gymnax.registered_envs)  # ['Pendulum-v1', 'CartPole-v1', ...]
+print(gymnax.registered_envs)  # ['CartPole-v1', 'Pendulum-v1', ...]
 ```
 
 ```python

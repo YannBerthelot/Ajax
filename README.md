@@ -64,13 +64,13 @@ Parts combine in the constructor:
 
 ```python
 from ajax import PPO, SAC
-from ajax.extensions.instrumentation import ConditioningMetrics
+from ajax.extensions.instrumentation import CriticDiagnostics
 
 # A recurrent actor and critic, for when one observation is not enough.
 agent = SAC("Pendulum-v1", memory={"kind": "lstm", "hidden_size": 64})
 
 # A research feature as an extension: the critic's health at each evaluation.
-agent = PPO("CartPole-v1", extensions=(ConditioningMetrics(),))
+agent = PPO("CartPole-v1", extensions=(CriticDiagnostics(),))
 
 # Brax and MuJoCo Playground environments by id (their extras), here 8 copies in parallel.
 agent = PPO("ant", n_envs=8)

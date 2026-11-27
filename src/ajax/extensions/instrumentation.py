@@ -2,11 +2,11 @@
 
 The measurement code of EVAREST's ``evarest/rl/``, foldable into any Ajax
 agent (SAC, DQN, REDQ, TD3 off-policy; PPO, PQN, APO, AVG on-policy):
-``extensions=[ConditioningMetrics(), BiasVoreDecomposition(...), ...]``.
+``extensions=[CriticDiagnostics(), BiasVoreDecomposition(...), ...]``.
 
 Coverage
 --------
-* :class:`ConditioningMetrics`     — eval_metrics phase, plasticity
+* :class:`CriticDiagnostics`       — eval_metrics phase, plasticity
   diagnostics (srank, dormant fraction, feat / weight L2 norms).
   Reads the agent's replay buffer (off-policy) OR
   ``agent_state.last_rollout`` (on-policy and incremental agents keep it
@@ -37,6 +37,7 @@ from ajax.agents.recurrent import actor_dist
 from ajax.extensions.base import Extension, ExtensionContext
 from ajax.networks.networks import action_value_input, predict_value
 from ajax.state import network_variables
+from ajax.user_warnings import warn_user
 
 # Public metric keys — duplicated here so Ajax callers don't need to
 # import from EVAREST. The strings are identical so dashboards built on
@@ -134,7 +135,7 @@ def _sample_transitions(
         take = on_policy_take
     else:
         raise ValueError(
-            "ConditioningMetrics / BiasVoreDecomposition need either a replay "
+            "CriticDiagnostics / BiasVoreDecomposition need either a replay "
             "buffer (off-policy, buffer=agent.buffer) or agent_state.last_rollout "
             "(on-policy and incremental agents)."
         )
@@ -224,7 +225,7 @@ def _encoder_features_qnet(actor_state: Any, x: jax.Array) -> jax.Array:
     _, mv = actor_state.apply_fn(variables, x, mutable=["intermediates"])
     if "encoder_features" not in mv.get("intermediates", {}):
         raise ValueError(
-            "ConditioningMetrics found neither an ensemble critic on"
+            "CriticDiagnostics found neither an ensemble critic on"
             " critic_state nor a Q-network sowing encoder_features on"
             " actor_state."
         )
@@ -232,9 +233,13 @@ def _encoder_features_qnet(actor_state: Any, x: jax.Array) -> jax.Array:
 
 
 @dataclass(frozen=True)
-class ConditioningMetrics(Extension):
-    """Plasticity diagnostics on a state batch sampled from the agent's
-    visited-state distribution.
+class CriticDiagnostics(Extension):
+    """At each evaluation, logs whether the critic's features are degrading:
+    their effective rank, the fraction of dormant units, and the feature and
+    weight norms.
+
+    These plasticity diagnostics are measured on a state batch sampled from
+    the agent's visited-state distribution.
 
     Reads the critic's encoder features:
     * ``critic_loc='critic'`` + ``concat_action=True``  ⇒ Q(obs,act)
@@ -340,7 +345,7 @@ class BiasVoreDecomposition(Extension):
     Ports the math from EVAREST ``loss.py`` /
     ``mechanism.make_evarest_decomposition_metrics``. The residual is
     reconstructed from the agent's *current* critic on a measurement
-    batch sampled the same way :class:`ConditioningMetrics` samples
+    batch sampled the same way :class:`CriticDiagnostics` samples
     (replay buffer for off-policy, ``last_rollout`` for on-policy and
     incremental agents).
 
@@ -548,8 +553,23 @@ __all__ = [
     "EVAREST_DECOMP_KEYS",
     "BiasVoreDecomposition",
     "BiasVorePenalty",
-    "ConditioningMetrics",
+    "CriticDiagnostics",
     "dormant_fraction",
     "evarest_coeff",
     "srank",
 ]
+
+
+def __getattr__(name: str) -> Any:
+    """ConditioningMetrics, CriticDiagnostics's old name, still imports, with
+    a warning, until a later release removes it (CLAUDE.md, refactoring rule
+    10: expand, then contract). It is looked up when asked for, so the
+    module's members hold one class."""
+    if name == "ConditioningMetrics":
+        warn_user(
+            "ConditioningMetrics is now CriticDiagnostics; the old name still"
+            " works and goes in a later release.",
+            FutureWarning,
+        )
+        return CriticDiagnostics
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

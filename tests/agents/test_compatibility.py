@@ -109,7 +109,7 @@ WORLD_ROWS = "TDMPC2 DreamerV3 DreamerV3/discrete TDMPC2MultiTask"
 FORM_GAPS = {
     ("ImitationLoss", "continuous_actions"),
     ("CloningPretrain", "continuous_actions"),
-    ("ConditioningMetrics", "critic"),  # it could read a policy's encoder
+    ("CriticDiagnostics", "critic"),  # it could read a policy's encoder
 }
 
 #: The pinned gaps: reason -> module -> the rows (agents, and "/discrete"
@@ -137,7 +137,7 @@ GAPS: dict[str, dict[str, str]] = {
         " DreamerV3/discrete",
         "ImitationLoss": "PPO/discrete APO/discrete UDRL/discrete DAgger/discrete"
         " DreamerV3/discrete",
-        "ConditioningMetrics": "UDRL UDRL/discrete DAgger DAgger/discrete",
+        "CriticDiagnostics": "UDRL UDRL/discrete DAgger DAgger/discrete",
     },
     WORLD: {
         **dict.fromkeys(

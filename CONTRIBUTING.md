@@ -1,15 +1,44 @@
 # Contributing to Ajax
 
-This guide is for changing Ajax: where the code lives, how an agent trains,
-how to add an agent or an extension, and how the tests check them. To use
-Ajax, read the [README](README.md). [CLAUDE.md](CLAUDE.md) holds the checks a
-change must pass and the refactoring rules; this guide does not repeat them.
+This guide is for changing Ajax: setting up a checkout, where the code
+lives, how an agent trains, adding an agent or an extension, and the tests
+and checks a change goes through. To use Ajax, start with the
+[README](README.md). [CLAUDE.md](CLAUDE.md) holds the checks a change must
+pass and the refactoring rules; this guide does not repeat them. Bug reports
+and requests for an agent or a feature have a form each in the
+[issues](https://github.com/YannBerthelot/Ajax/issues/new/choose).
 
 ## Development setup
 
-Install as the [README](README.md#install) says, then run
-`uv run pre-commit install` once, so ruff and mypy check every commit. Prefix
-commands with `uv run`, or activate `.venv`.
+[uv](https://docs.astral.sh/uv/) installs a checkout with the versions in
+`uv.lock`, which CI tests, and pre-commit then runs ruff and mypy on every
+commit:
+
+```bash
+git clone https://github.com/YannBerthelot/Ajax.git
+cd Ajax
+uv sync
+uv run pre-commit install
+```
+
+Prefix commands with `uv run`, or activate `.venv`. `uv sync` installs the
+runtime and the `dev` group; the other groups are opt-in
+(`uv sync --group plane`), and `uv sync --no-default-groups` installs the
+runtime alone:
+
+| Group | Default | What it adds |
+| --- | --- | --- |
+| `dev` | yes | pytest, coverage, pre-commit, ruff, mypy, adastop, the probing environments the tests train on, and the `playground`, `gymnasium`, `gymnasium-mjx`, `render` and `manifolds` extras |
+| `wandb` | no | the `wandb` extra |
+| `plane` | no | [TargetGym](https://github.com/YannBerthelot/TargetGym), for the Plane3DCircle scenario of the speed benchmark (`benchmarks/perf_bench.py`) |
+| `docs` | no | MkDocs and its plugins, to build the documentation site |
+
+`make docs` builds the site as CI does (`uv run --group docs mkdocs build
+--strict`: a broken link, or a docstring naming a parameter the code does
+not have, fails it), and `make docs-serve` serves it at
+`http://127.0.0.1:8000`, rebuilt on save. The site needs only the `docs`
+group (`uv sync --only-group docs`): the API pages are read from the source,
+not imported.
 
 ## Where things live
 
@@ -32,33 +61,32 @@ src/ajax/
 ├── perf_utils.py        build_resumable_train: initialise or resume, then one jitted scan;
 │                        build_chunked_train: the same in chunks, evaluating between them
 ├── log.py, evaluate.py  when to evaluate and log; the evaluation episodes
-├── state.py             BaseAgentState, BaseAgentConfig, the configuration dataclasses
+├── state.py             BaseAgentState, Transition, the configuration dataclasses
 └── checkpoint.py        save_checkpoint, restore_into
 ```
 
-**Agent anatomy.** A declared agent (SAC, TQC, REDQ, ASAC, CrossQ, TD3, IQL,
-AVG, PPO, APO, PQN, DreamerV3, TDMPC2) is one file,
-`src/ajax/agents/<AGENT>/<AGENT>.py`: its hyperparameters as dataclass
-fields, its `init` and `update`, its equations, its state and metrics, on
-a family of `agents/families.py` that builds the rest (the constructor, the
-run config, the replay or the rollouts, the train function). The world
-models' folders also hold their maths by role. DreamerV3's: the networks,
-the world model, the actor-critic, the learner, the optimiser, the replay
-and the configuration. TD-MPC2's: the networks, one update (`core.py`), the
-optimisers, the planner, the replay and the configuration, which
-`TDMPC2MultiTask` imports instead of copying, under the lineage rule below;
-the multi-task agent, offline and off the families, keeps its own host loop
+**Agent anatomy.** Every agent but `TDMPC2MultiTask` is a *declared agent*:
+one file, `src/ajax/agents/<AGENT>/<AGENT>.py`, with its hyperparameters as
+dataclass fields, its `init` and `update`, its equations, and its state and
+metrics. A family of `agents/families.py` builds the rest: the constructor,
+the run config, the replay or the rollouts, the train function. The world
+models' folders also hold their maths by role: DreamerV3's networks, world
+model, actor-critic, learner, optimiser, replay and configuration;
+TD-MPC2's networks, one update (`core.py`), optimisers, planner, replay and
+configuration. `TDMPC2MultiTask` imports TD-MPC2's instead of copying them
+and, offline and off the families, keeps its own host loop
 (`TDMPC2MultiTask.py`) and train function (`train_TDMPC2MultiTask.py`). A
-declared parent's equations are in its one file: APO imports PPO's from
-`PPO/PPO.py`; TQC, REDQ, ASAC, CrossQ and AVG import SAC's from
-`SAC/SAC.py`.
+variant imports its parent's equations from the parent's file (the lineage
+rule, below): APO PPO's, and TQC, REDQ, ASAC, RVI-SAC, CrossQ and AVG
+SAC's.
 
 ## The shared training loop
 
 The agents share one loop, `TrainLoop`, so collecting experience, waiting for
 `learning_starts`, applying the extensions, evaluating, logging and resuming
-work the same way everywhere and are fixed in one place. An agent supplies
-only its algorithm:
+work the same way everywhere and are fixed in one place
+([Architecture](docs/developer/architecture.md#the-shared-training-loop)
+walks through it). An agent supplies only its algorithm:
 
 - `init(key) -> agent_state`: a fresh state. One-shot pretraining (behaviour
   cloning) is an extension's, on a key the loop splits off.
@@ -69,42 +97,41 @@ only its algorithm:
 
 and picks one of two iterations:
 
-- **`loop.off_policy(init, update, learning_starts, ...)`** (SAC,
-  TD3, REDQ, ASAC, AVG, DQN): each iteration collects one step per
-  environment, then, from `learning_starts`, runs `update(agent_state,
-  transition)` and folds the extensions' `post_update`. Before
-  `learning_starts` the actions are uniform and the metrics have the
-  update's structure, filled with NaN, which the logger drops.
-- **`loop.on_policy(init, update, n_steps, ...)`** (PPO, APO, REINFORCE, PQN): each
-  iteration collects an `n_steps` rollout per environment from the agent
-  state `agent_state_at_rollout_start`, then runs `update(agent_state,
-  rollout, agent_state_at_rollout_start)` and folds `post_update`. A
-  recurrent agent replays the rollout from that state's memory.
+- **`loop.off_policy(init, update, learning_starts, ...)`** (the replay
+  agents and AVG): each iteration collects one step per environment, then,
+  from `learning_starts`, runs `update(agent_state, transition)` and folds
+  the extensions' `post_update`. Before `learning_starts` the actions are
+  uniform and the metrics have the update's structure, filled with NaN,
+  which the logger drops.
+- **`loop.on_policy(init, update, n_steps, ...)`** (PPO, APO, REINFORCE,
+  PQN): each iteration collects an `n_steps` rollout per environment from
+  the agent state `agent_state_at_rollout_start`, then runs
+  `update(agent_state, rollout, agent_state_at_rollout_start)` and folds
+  `post_update`. A recurrent agent replays the rollout from that state's
+  memory.
 
 The loop does the rest: `init` and the extensions' initial state and
 pre-training (`ExtensionStack.apply_init`) on a fresh run, the given state on a
 resumed one, then the iterations in `build_resumable_train`'s jitted scan.
 With logging, `build_chunked_train` runs them in chunks and evaluates and
-logs between chunks, every `log_frequency` steps (with `eval_metrics`).
+logs between chunks, every `log_frequency` steps (with `eval_metrics`). The
+world models (DreamerV3 and TDMPC2) give `off_policy` their own `collect`,
+`n_updates` (a train ratio, a burst) and `Evaluation`; UDRL runs its own
+iteration on `TrainLoop.train`, and APG and the offline `TDMPC2MultiTask`
+call `build_resumable_train` themselves, with `fresh_state` and the
+`post_update` fold.
+
+`ActorCritic.train` runs the seeds at once (`jax.vmap`) and returns
+`(state, evaluations)`: each logged key's values per seed and evaluation,
+kept whether or not a backend records them (only a backend starts the
+logging worker). With `logging_config=None` it does not evaluate and
+returns `(state, None)`; APG returns every update's metrics instead.
+`initial_state=state` continues a run.
 
 Continuous agents act in `[-1, 1]`; never scale to the env's bounds yourself.
 Every Ajax env step maps the action onto them (`agent_action_to_env`), and
 `ActorCritic` reads an expert, written in env units, in the same `[-1, 1]`
 (`ExpertInAgentUnits`): replay, losses and extensions see one unit.
-
-The world models (DreamerV3 and TDMPC2, on the own-replay family) also give
-`off_policy` their own `collect(agent_state, tick)`, `n_updates(tick,
-agent_state)` (a train ratio, a burst) and `Evaluation`. UDRL runs its own
-iteration on `TrainLoop.train`; APG
-and the offline `TDMPC2MultiTask` call `build_resumable_train` themselves,
-with `fresh_state` and the `post_update` fold.
-
-`ActorCritic.train` runs the seeds at once (`jax.vmap`). With a
-`LoggingConfig` it returns `(state, evaluations)`, each logged key's values
-per seed and evaluation, kept whether or not a backend (`use_wandb`,
-`use_tensorboard`, the only case that starts the logging worker) records them.
-Without one it does not evaluate and returns `(state, None)`; APG returns
-every update's metrics instead. `initial_state=state` continues a run.
 
 ### Random keys
 
@@ -130,47 +157,34 @@ rule, an extra loss term, a measurement) that plugs into any agent without
 changing it, so an agent's surface stays its algorithm's hyperparameters plus
 `extensions=()` (see CLAUDE.md, "Extensions are self-contained"). The
 [extensions guide](docs/guide/extensions.md#catalogue) lists the ones Ajax
-ships.
+ships, and [Writing an extension](docs/developer/writing-an-extension.md)
+shows how to write one.
 
 An extension is a frozen dataclass subclassing `Extension`. It holds its own
-settings and overrides only the *phases* it touches; the other phases keep
-their defaults, which change nothing. An agent applies a phase of its
-`ExtensionStack` in list order with one helper per phase (`apply_reward`,
-`apply_on_target`, `compute_extensions_critic_loss`,
-`compute_extensions_actor_loss`, `apply_post_update`; the loop calls
-`apply_init` and `apply_eval_metrics`)
-that builds the `ExtensionContext` (`step`, `rng`, `total_steps`) and
+settings and overrides only the *phases* it touches
+([Extension phases](docs/developer/extension-phases.md) lists them, with
+what each receives); the other phases keep their defaults, which change
+nothing. An agent applies a phase of its `ExtensionStack` in list order with
+one helper per phase (`apply_reward`, `apply_on_target`,
+`compute_extensions_critic_loss`, `compute_extensions_actor_loss`,
+`apply_post_update`; the loop calls `apply_init` and `apply_eval_metrics`),
+which builds the `ExtensionContext` (`step`, `rng`, `total_steps`) and
 threads the extensions' state. On an empty stack a helper changes nothing
 (a loss term is `0.0`), so an agent without extensions traces nothing extra
 and never guards a call.
 
-| Phase | What it does | Folded today by |
-| --- | --- | --- |
-| `init_state(agent_state, rng)` | returns the extension's state (`()`: none) | every agent, fresh runs only |
-| `pretrain(agent_state, ext_state, context)` | one-shot step before training | every agent, fresh runs only |
-| `on_target(agent_state, ext_state, batch, target, context)` | transforms the TD or value target | SAC, TQC, REDQ, ASAC, CrossQ, IQL, AVG, TD3, DQN, PQN, PPO, APO |
-| `critic_loss(agent_state, ext_state, batch, context)` | adds a term to the critic loss | SAC, TQC, REDQ, ASAC, CrossQ, IQL, AVG, TD3, DQN, PQN, PPO, APO |
-| `actor_loss(agent_state, ext_state, batch, context)` | adds a term to the actor loss | SAC, TQC, REDQ, ASAC, CrossQ, IQL, AVG, TD3, PPO, APO, APG, UDRL |
-| `action(agent_state, ext_state, obs, rng, context)` | overrides the collection action (`None` defers) | every agent but APG and the world models, in the action stage (`action_slot`) |
-| `eval_action(agent_state, ext_state, obs, rng, context)` | overrides the evaluation action | every agent but APG, UDRL and the world models |
-| `post_update(agent_state, ext_state, context)` | runs after each update | every agent |
-| `eval_metrics(agent_state, ext_state, rng, context)` | adds metrics to each evaluation | every agent |
-
-`tests/probing/test_extensions.py` checks the phases on the agents with
-test-only extensions of known effect, and that an extension implementing a
-phase the agent does not fold is rejected.
-
 Every agent lists the phases it folds in `supported_extension_phases`: the
-shared loop's `LOOP_PHASES` (`pretrain`, `post_update`, `eval_metrics`,
-`observe`, `action`, in `ajax.agents.loop`) plus those its update folds; the base class's default is
-empty. An extension implementing any other phase is rejected when the agent
-is built instead of being silently ignored. It declares in
+shared loop's `LOOP_PHASES` (in `ajax.agents.loop`) plus those its update
+folds. An extension implementing any other phase is rejected when the agent
+is built instead of being silently ignored;
+`tests/probing/test_extensions.py` checks the phases on the agents with
+test-only extensions of known effect. An agent also declares in
 `phase_batch_keys` the keys its folds put in the extensions' batches beyond
-the common ones (`COMMON_BATCH_KEYS`): an agent on `critic_step` and
-`actor_step` declares their sets (`REPLAY_BATCH_KEYS`, or `TARGET_KEYS`,
-`CRITIC_LOSS_KEYS` and `ACTOR_STEP_KEYS` with its own rows'), plus any it
-adds. An extension reading an undeclared key is refused when the agent is
-built.
+the common ones (`COMMON_BATCH_KEYS`, in `ajax/extensions/base.py`): an
+agent on `critic_step` and `actor_step` declares their sets
+(`REPLAY_BATCH_KEYS`, or `TARGET_KEYS`, `CRITIC_LOSS_KEYS` and
+`ACTOR_STEP_KEYS` with its own rows'), plus any it adds. An extension
+reading an undeclared key is refused when the agent is built.
 
 What changes during training lives in `agent_state.ext_state` (one entry per
 extension), never on `self`: extensions are static arguments of the compiled
@@ -178,10 +192,7 @@ program, so they stay hashable and unchanged. An extension that needs what
 the agent builds (environment, network config, buffer, discount) overrides
 `bind_to_agent(**agent_context)` to return a new instance holding it, as
 `MCPretrain` does; a declared agent's family binds the stack to the keys of
-the agent's `extension_context` (`DeclaredAgent.make_context`). The batch a
-phase receives is a dictionary: the keys every agent puts in it are listed in
-`ajax/extensions/base.py`; read the agent's fold call before relying on any
-other.
+the agent's `extension_context` (`DeclaredAgent.make_context`).
 
 ## Adding an agent
 
@@ -201,16 +212,15 @@ optimiser step), `compute_gradients` (a loss's gradients) and
 `apply_gradients_clipped_together` (two networks stepped on one clip) from
 `agents/update_steps.py` rather than writing your own.
 
-A new agent `FOO` declares itself on a family of `agents/families.py`: a
-replay agent on `ReplayAgent`, as SAC, TQC, REDQ, ASAC, CrossQ, TD3, IQL,
-DQN and DAgger do (read `agents/IQL/IQL.py` first); an agent updating on
-each step as it comes, without a replay, on `IncrementalAgent`, as AVG
-does; an on-policy agent on `OnPolicyAgent`, as PPO, APO, REINFORCE and PQN do (read
-`agents/PPO/PPO.py` first, and the on-policy family below); an agent whose
-iteration is its own on `OwnIterationAgent`, as UDRL and APG do (the
-own-iteration family below); an agent storing rows in a replay of its own,
-sized for each call, on `OwnReplayAgent`, as DreamerV3 and TD-MPC2 do (the
-own-replay family below).
+A new agent `FOO` declares itself on a family of `agents/families.py`:
+
+| Family | For an agent that | As | Read first |
+| --- | --- | --- | --- |
+| `ReplayAgent` | learns from a replay | SAC, TD3, REDQ, ASAC, RVI-SAC, CrossQ, TQC, IQL, DQN, DAgger | `agents/IQL/IQL.py` |
+| `IncrementalAgent` | updates on each step as it comes, without a replay | AVG | `agents/AVG/AVG.py` |
+| `OnPolicyAgent` | learns from rollouts | PPO, APO, REINFORCE, PQN | `agents/PPO/PPO.py`, and the on-policy family below |
+| `OwnIterationAgent` | runs an iteration of its own | UDRL, APG | the own-iteration family below |
+| `OwnReplayAgent` | stores rows in a replay of its own, sized for each call | DreamerV3, TD-MPC2 | the own-replay family below |
 
 **Start with a tracer bullet.** Get the thinnest path working end to end first:
 rollout, update, logging, checkpoint and one passing probe, on the simplest
@@ -402,8 +412,12 @@ tick of the rows it counted. `train_offline` refuses it.
 Do **not** add a field for a feature (`use_critic_blend=True`, ...): it
 belongs on an extension.
 
-**2. Export and document.** Import it in `src/ajax/__init__.py`, add it to
-`__all__`, and add a row to the README's agent table.
+**2. Export and document.** Import it in `src/ajax/__init__.py` and add it
+to `__all__`. Give it a page under `docs/algorithms/` (and in `mkdocs.yml`'s
+nav), and name it where the documentation lists the agents: the README's
+Agents section, the algorithms index, the docs home and the memory table,
+which `tests/test_readme.py` holds to `__all__`, and the marked lists that
+`tests/test_docs_agent_sets.py` holds to the code.
 
 **3. Tests and benchmark.** `tests/agents/FOO/`: the maths on hand-computed
 values. `tests/agents/test_agent_contract.py`: a row, so FOO builds, refuses
@@ -420,9 +434,11 @@ Add an extension, never a flag or a keyword on an agent. Start with a tracer
 bullet: the smallest phase that does something visible, on one agent, with one
 probe cell. Then build out the rest one piece at a time.
 
-1. **Pick the phases** from the [table](#extensions) and check that the agents
-   you target fold them. If one does not, adding the fold to that agent is a
-   change of its own, and the agent still must not know about your extension.
+1. **Pick the phases** from [Extension phases](docs/developer/extension-phases.md)
+   and check that the agents you target fold them (their
+   `supported_extension_phases`). If one does not, adding the fold to that
+   agent is a change of its own, and the agent still must not know about
+   your extension.
 2. **Write the dataclass** in `src/ajax/extensions/<topic>.py`, its settings
    as fields. This one counts updates and logs the count; it runs as is:
 
@@ -433,7 +449,7 @@ import jax.numpy as jnp
 
 from ajax import PPO
 from ajax.extensions.base import Extension
-from ajax.logging.wandb_logging import LoggingConfig
+from ajax.logging import LoggingConfig
 
 
 @dataclass(frozen=True)
@@ -453,11 +469,11 @@ class UpdateCounter(Extension):
         return {"Counter/updates": ext_state.astype(jnp.float32)}
 
 
-agent = PPO("CartPole-v1", n_steps=128, extensions=(UpdateCounter(),))
-logging = LoggingConfig(config={}, log_frequency=1024, use_wandb=False)
-state, evaluations = agent.train(seed=[0, 1], n_timesteps=4096, logging_config=logging)
-print(state.ext_state[0])  # the updates each seed made: [9 9]
-print(evaluations["Counter/updates"])  # per seed, at each evaluation: [2. 4. 6. 8.]
+agent = PPO("CartPole-v1", n_envs=4, n_steps=128, extensions=(UpdateCounter(),))
+logging = LoggingConfig(log_frequency=1_024, backends=())
+state, evaluations = agent.train(seed=[0, 1], n_timesteps=4_096, logging_config=logging)
+print(state.ext_state[0])  # the updates each seed made, one per rollout of 512 steps: [8 8]
+print(evaluations["Counter/updates"])  # a row per seed: [[2. 4. 6. 8.] [2. 4. 6. 8.]]
 ```
 
 3. **Test it** in `tests/extensions/`: the feature fires and does what its
@@ -533,41 +549,18 @@ make ci-all   # the gate and the slow tier (ci-slow)
 The `make` targets hide the GPU (`CPU_ENV`) so tests never compete with a
 running experiment; elsewhere set `JAX_PLATFORMS=cpu` while a GPU is busy.
 
-**CI** ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs the fast
-tier on CPU for every pull request and push to `main`: *Pre-commit*; *Tests*
-(six shards: the tests not marked slow, the probing harness's checks among
-them, under coverage on Python 3.14, which measures branches through
-`sys.monitoring` at almost no cost, a pytest-xdist worker per vCPU, at XLA's optimisation
-level 0 since these programs are tiny; the shards split the test files by
-recorded time, `--shard I/6 --shard-by file`, `tests/.file_durations`,
-`make file-durations`, and a file without a time still lands in one);
-*Coverage* (the shards
-combined, at least 90%); *Conformance* (each agent's training step against
-its original implementation); *Docs* (the documentation site, `mkdocs build
---strict`). *Lint and Test*, the one check branch protection requires, passes
-only when all of them passed. They run on GitHub's arm64 runners, which all
-come on one CPU model, so a job finds main's compile cache (JAX keys it by
-the CPU).
-
-The *Slow tier* workflow ([slow.yml](.github/workflows/slow.yml)) runs
-everything that trains (`pytest -m slow`) on x86, the platform most users
-train on, in six shards by recorded duration (`--shard I/N --shard-by group`,
-`tests/.durations`, `make durations`), with a probe case's tests on one shard
-and one of its two xdist workers, since they read one cached training: daily on main when main changed, by
+**CI** ([ci.yml](.github/workflows/ci.yml)) runs on CPU for every pull
+request and push to `main`: pre-commit, the fast tier in six shards under
+coverage (at least 90%, combined), the conformance checks and the strict
+docs build. *Lint and Test*, the one check branch protection requires,
+passes only when all of them passed. The *Slow tier* workflow
+([slow.yml](.github/workflows/slow.yml)) runs everything that trains, on
+x86, the platform most users train on: daily on main when main changed, by
 hand, and on a pull request each time the label `run-slow-tier` is added. A
 pull request that changes how an agent trains gets the label before it
-merges. A red run on main opens an issue, and bisects the merges since the
-last green run when that is cheap.
-
-As the gate runs no probe, every planted fault
-(`tests/probing/faults/<family>.jsonl`) names in its `fast` field the fast
-tests that catch it, measured by planting the fault in a scratch copy and
-running the fast tests that execute its lines (`uv run python -m
-tests.fault_catches SCRATCH [FAMILY ...]`); `tests/probing/test_framework.py`
-checks that each names live tests outside `tests/probing`. A new fault comes
-with its fast catch, and `JAX_PLATFORMS=cpu uv run python -m
-tests.probing.faults SCRATCH ID` shows each node it lists failing on an
-assertion, not crashing ([Testing](docs/developer/testing.md#planted-faults)).
+merges. [How CI splits the suite](docs/developer/testing.md#how-ci-splits-the-suite)
+gives the jobs and their shards; `make file-durations` and `make durations`
+refresh the recorded times the shards are split by.
 
 ### The probing tests
 
@@ -575,28 +568,22 @@ A unit test checks a contract; it cannot show that an agent learns what it
 should. A probe trains an agent on a tiny problem whose answer is known
 exactly (a value, a best action, a count) and compares what it learned with
 the right answer and named wrong ones (a discount applied twice), so a failure
-names the mistake.
+names the mistake. [The probing framework](docs/developer/testing.md#the-probing-framework)
+describes the harness, its verdict over seeds, calibration and digests. A
+known bug stays visible as a strict xfail naming the defect, never as a
+looser tolerance.
 
-`envs.py` builds the tiny problems, `agents.py` holds each agent's presets
-(pinned by `DIGEST`), `runs.py` trains every seed in one compiled program,
-`readouts.py` reads values and actions off a trained agent and `oracles.py`
-computes the right and wrong answers. In `verdict.py`, a `Query` is a
-reading's right and named wrong answers and a `Case` adds the budget and
-tolerances; a check trains seeds 0-7: 7 or more within tolerance pass, 4 or
-fewer fail, otherwise seeds 8-15 run and 13 of 16 must pass. `faults.py` and
-`faults/<module>.jsonl` plant known bugs in a scratch copy of the source, each
-naming the tests that must catch it. The `test_*.py` modules group the cases
-by subject (value chains, episode ends, bookkeeping, extensions, memory, world
-models, resuming a split run); `test_framework.py` tests the harness.
-A planted fault quotes the source it edits, so any change under `src/ajax`
-can break one: such a change runs `tests/probing/test_framework.py` locally
-before the push (text and collection only, no training).
-
-A new case's budget and tolerances come from calibration on seeds no check
-uses (`uv run python -m tests.probing.verdict ladder|choose|certify ...`;
-`verdict.py` describes the procedure); then its module's `ANSWER_DIGEST` is
-re-pinned. A known bug stays visible as a strict xfail naming the defect,
-never as a looser tolerance. The directory is capped at 7,000 lines.
+A planted fault (`tests/probing/faults/<family>.jsonl`) quotes the source it
+edits, so any change under `src/ajax` can break one: such a change runs
+`tests/probing/test_framework.py` locally before the push (text and
+collection only, no training). As the gate runs no probe, every fault names
+in its `fast` field the fast tests that catch it, measured by planting it in
+a scratch copy and running the fast tests that execute its lines
+(`uv run python -m tests.fault_catches SCRATCH [FAMILY ...]`). A new fault
+comes with its fast catch, and `JAX_PLATFORMS=cpu uv run python -m
+tests.probing.faults SCRATCH ID` shows each node it lists failing on an
+assertion, not crashing
+([Planted faults](docs/developer/testing.md#planted-faults)).
 
 ## Performance
 
@@ -628,6 +615,8 @@ lock.
   Python, and with every direct dependency at its floor
   (`uv sync --resolution lowest-direct`), on the oldest. Each runs split
   across six runners by file, from the recorded times CI's test shards use.
+  A third job installs Ajax without extras or groups and trains a gymnax
+  agent (`tests/test_core_install.py`).
 - **The lock is refreshed monthly** by Dependabot
   ([dependabot.yml](.github/dependabot.yml)), the JAX stack in one pull
   request.

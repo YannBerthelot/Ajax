@@ -55,8 +55,8 @@ task. Without `memory`, the same agent cannot tell which way the pole moves.
 With memory, SAC, ASAC, RVI-SAC, REDQ, TD3, TQC and PPO take no expert
 policy yet, and of the extensions only those that act outside the update,
 such as observation features: the others raise an error when training
-starts rather than run untested combinations. APG takes memory and
-extensions together.
+starts rather than run untested combinations. APG alone takes memory with
+an expert and extensions, its rollout carrying the memory through both.
 
 ## The kinds
 

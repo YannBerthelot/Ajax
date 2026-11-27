@@ -173,10 +173,12 @@ as in training and multiplied by the agent's `reward_scale`. An episode cut
 by the time limit realises no return past it, so even an exact critic shows
 a positive bias over its last steps.
 
-SAC, TD3, REDQ and AVG report it with their action-value critic, DQN and
-PQN with their Q-network, PPO with its state-value critic. ASAC and APO,
-which learn average-reward values rather than discounted ones, report NaN,
-as does a critic with memory.
+SAC, TQC, CrossQ, TD3, REDQ, AVG and IQL report it with their action-value
+critic, DQN and PQN with their Q-network, PPO and REINFORCE with their
+state-value critic. ASAC, RVI-SAC and APO, which learn average-reward
+values rather than discounted ones, report NaN, as do APG, UDRL and DAgger,
+which have no discounted critic, and any critic with memory. The world
+models log their own sets.
 
 ## In memory
 

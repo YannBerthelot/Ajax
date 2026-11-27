@@ -793,6 +793,28 @@ class ActorCritic:
         del n_timesteps, train_options
         return state
 
+    def prepare_call(
+        self,
+        state: Optional[BaseAgentState],
+        n_timesteps: int,
+        start: int,
+        horizon: int,
+        train_options: dict,
+    ) -> tuple[Optional[BaseAgentState], dict]:
+        """What a train call of n_timesteps from timestep start starts from,
+        once train has checked it and set its precision: the state it
+        resumes (resumed_state), None for a fresh run, and the keywords the
+        agent adds to its train function's (none here). horizon is the
+        run's; train_options are train's other keywords."""
+        del start, horizon
+        if state is None:
+            return None, {}
+        return self.resumed_state(state, n_timesteps, train_options), {}
+
+    def check_trained(self, state: BaseAgentState) -> None:
+        """Check the state a train call ends with: nothing here."""
+        del state
+
     def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
         declared: set[str] = set()
@@ -963,10 +985,12 @@ class ActorCritic:
         start = int(counters.get("timestep", 0))
         end = start + n_timesteps
         horizon = run_horizon(start, n_timesteps, total_timesteps)
-        if initial_state is not None:
-            resumed = self.resumed_state(initial_state, n_timesteps, kwargs)
-            release_replaced(initial_state, resumed)
-            initial_state = resumed
+        given = initial_state
+        initial_state, call_arguments = self.prepare_call(
+            given, n_timesteps, start, horizon, kwargs
+        )
+        if given is not None:
+            release_replaced(given, initial_state)
         logging_config, printer = self._start_logging(
             logging_config, pairs, n_timesteps, end, in_python
         )
@@ -984,6 +1008,7 @@ class ActorCritic:
             call_options["start_timestep"] = start
         if end != horizon:
             call_options["end_timestep"] = end
+        call_options.update(call_arguments)
         run = self._make_member_runner(swept, call_options, kwargs)
 
         values = member_values([configuration for configuration, _ in pairs])
@@ -1032,7 +1057,9 @@ class ActorCritic:
         # worker before any log events were queued.
         jax.block_until_ready(result)
         stop_async_logging()
-        return finished(result, printer)
+        state, out = finished(result, printer)
+        self.check_trained(state)
+        return state, out
 
     def _check_call(
         self,

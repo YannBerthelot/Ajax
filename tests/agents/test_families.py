@@ -589,6 +589,7 @@ def test_an_own_replay_agent_runs_its_ticks_on_a_replay_sized_per_call() -> None
     refused before prepare_replay; a dataset is refused."""
     agent = ReplayToy("Pendulum-v1", n_envs=2)
     logging = LoggingConfig(log_frequency=8, backends=())
+    state: Any  # a RowsState: train is typed by ActorCritic's
     state, rows = agent.train(0, 12, logging_config=logging)
     assert agent.prepared == (0, 6) and agent.checked == 6
     # One row per multiple of 8 the call's 12 steps reach: tick 3.

@@ -84,13 +84,12 @@ def _counting_loop(train: Any) -> Any:
 
 def pytest_configure(config: pytest.Config) -> None:
     from ajax.agents.base import ActorCritic
-    from ajax.agents.families import OwnReplayAgent
     from ajax.agents.loop import TrainLoop
     from ajax.agents.TDMPC2.TDMPC2MultiTask import TDMPC2MultiTask
 
     if getattr(TrainLoop.train, "counted", False):
         return
-    for cls in (ActorCritic, OwnReplayAgent, TDMPC2MultiTask):
+    for cls in (ActorCritic, TDMPC2MultiTask):
         cls.train = _counting(vars(cls)["train"])  # type: ignore[method-assign]
     TrainLoop.train = _counting_loop(TrainLoop.train)  # type: ignore[method-assign]
 

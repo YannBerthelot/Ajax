@@ -18,6 +18,8 @@ What a user of 0.5.0 meets:
   argument names get Ajax's answer, a state from another agent or
   environment is refused saying so, a run that ends inside the warm-up says
   it does not train, and warnings name your line.
+- **The README and the docs it links to were rewritten** for a first-time
+  user.
 - **Defaults from each agent's reference code.** PPO's are ppo2's MuJoCo
   run (normalisation, value clipping, TensorFlow 1's Adam, one env, 64-64
   tanh layers), DQN's are CleanRL's, APO, PQN, IQL and DAgger follow their
@@ -62,6 +64,11 @@ to do for each change that can break code or results.
   took the replay of a second agent built with the same settings, is needed
   no more.
   Upgrade: rename the import; drop `buffer=` unless it names another replay.
+- **Docs:** the README was rewritten for a first-time user: install, a
+  first run that acts and saves, the Stable-Baselines3 page, and a sweep of
+  seeds and learning rates in a few lines. Every page it links to was
+  shortened and checked against the code (names, defaults, outputs), and
+  wide tables keep names on one line.
 - **Progress lines give the time left.** From a run's second evaluation, each
   line `train` prints ends with the call's time left, at the pace of the last
   interval between two evaluations.
@@ -875,20 +882,21 @@ to do for each change that can break code or results.
 
 ### Upgrading from 0.5.0
 
-The changes above that can break code or results each end with an
-"Upgrade:" line saying what to do, most often the arguments that restore the
-earlier behaviour: `train` without a `logging_config` (it now evaluates and
-prints), PPO (value clip, TensorFlow 1's Adam, normalisation, one env and
-64-64 layers, image PPO's shared encoder, recurrent PPO's heads), SAC's
-actor and temperature start, DQN and its Atari preset, PQN, APO, APG's
-controller, IQL's learning rate, REDQ's warm-up, DAgger's fit and
-`beta_schedule`, `normalize_rewards`, the recurrent SAC family's networks
-and windows, Adam's moments kept as one vector, the action range of
-`mujoco:InvertedPendulum-v5` and `mujoco:Pusher-v5`, the `mujoco:` tasks'
-extra, `LoggingConfig(sweep=...)`, `act` without a reward, and the JAX
-floor. Checkpoints of recurrent SAC-family agents and of DAgger saved before
-this version do not restore at the new defaults, and image and recurrent PPO
-checkpoints restore with the arguments their Upgrade lines give. The rest:
+The changes above that can break code or results each end with an "Upgrade:"
+line saying what to do, most often the arguments that restore the earlier
+behaviour: `train` without a `logging_config` (it now evaluates and prints),
+PPO (value clip, TensorFlow 1's Adam, normalisation, one env and 64-64
+layers, image PPO's shared encoder, recurrent PPO's heads), SAC's actor and
+temperature start, DQN and its Atari preset, PQN, APO, APG's controller,
+IQL's learning rate, REDQ's warm-up, DAgger's fit and `beta_schedule`,
+`normalize_rewards`, the recurrent SAC family's networks and windows, Adam's
+moments kept as one vector, the action range of `mujoco:InvertedPendulum-v5`
+and `mujoco:Pusher-v5`, the `mujoco:` tasks' extra, the renamed
+`LoggingConfig(sweep=...)` and `ConditioningMetrics`, `act` without a
+reward, and the JAX floor. Checkpoints of recurrent SAC-family agents and of
+DAgger saved before this version do not restore at the new defaults, and
+image and recurrent PPO checkpoints restore with the arguments their Upgrade
+lines give. The rest:
 
 - **An expert must keep its action's last axis**, as the expert guide has
   asked: `expert(obs)` returns `(..., action_dim)`, an index column `(..., 1)`

@@ -1893,10 +1893,16 @@ class OwnReplayAgent(DeclaredAgent):
         """The call's replay (prepare_replay), which continues the replay of
         the uninterrupted run when it resumes, and the state moved into it;
         make_train takes the replay and the tick the call starts at, and
-        check_run the tick it ends at (call_end_tick)."""
-        del train_options
+        check_run the tick it ends at (call_end_tick). A replay the caller
+        passes, as ActorCritic.train(agent, replay=...), is the call's: none
+        is prepared beside it."""
         start_tick = 0 if state is None else self.resume_iteration_offset(state)
         end_tick = start_tick + self.count_ticks(n_timesteps, start_tick)
+        self.call_end_tick = end_tick
+        if "replay" in train_options:
+            if "start_tick" in train_options:
+                return state, {}
+            return state, {"start_tick": start_tick}
         # A call that trains sizes its replay for the run's horizon, so that a
         # run in chunks allocates it in its first chunk and never grows it.
         # A grown replay's shorter one stays in XLA's pinned host pool,
@@ -1908,12 +1914,17 @@ class OwnReplayAgent(DeclaredAgent):
         if end_tick > start_tick:
             sized_to = start_tick + self.count_ticks(horizon - start, start_tick)
         replay, resumed = self.prepare_replay(start_tick, sized_to, state)
-        self.call_end_tick = end_tick
         return resumed, {"replay": replay, "start_tick": start_tick}
 
-    def _check_trained(self, state: Any) -> None:
-        """check_run, at the tick the call ends at."""
+    @wraps(ActorCritic.train)
+    def train(self, *args: Any, **kwargs: Any) -> Any:
+        # check_run refuses, once trained, a run this agent's mode cannot
+        # learn (T10). ActorCritic.train does not check, so a caller can
+        # still read what such a run learned, as the TD-MPC2 chain probe
+        # does.
+        state, out = super().train(*args, **kwargs)
         self.check_run(state, self.call_end_tick)
+        return state, out
 
     def make_train(
         self,

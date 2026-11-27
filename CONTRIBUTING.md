@@ -7,7 +7,7 @@ change must pass and the refactoring rules; this guide does not repeat them.
 
 ## Development setup
 
-Install as the [README](README.md#installation) says, then run
+Install as the [README](README.md#install) says, then run
 `uv run pre-commit install` once, so ruff and mypy check every commit. Prefix
 commands with `uv run`, or activate `.venv`.
 

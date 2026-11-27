@@ -53,7 +53,6 @@ the evaluations come on the ticks and states they would in one scan.
 from __future__ import annotations
 
 import dataclasses
-import warnings
 from collections.abc import Sequence
 from typing import Any, Callable, Optional
 
@@ -96,6 +95,7 @@ from ajax.networks.networks import mirror_shared_encoder
 from ajax.perf_utils import build_chunked_train, build_resumable_train
 from ajax.state import EnvironmentConfig
 from ajax.types import NormalizationInfo
+from ajax.user_warnings import warn_user
 from ajax.utils import online_normalize
 
 #: The extension phases the loop applies for every agent: a fresh run's
@@ -479,7 +479,7 @@ class TrainLoop:
                     " The one iteration that runs ends past the run's last"
                     " timestep, so no evaluation is recorded."
                 )
-            warnings.warn(message, UserWarning, stacklevel=2)
+            warn_user(message)
 
     def n_rollouts(self, n_steps: int, timesteps: Optional[int] = None) -> int:
         """The iterations of :meth:`on_policy` for ``n_steps`` rollouts over

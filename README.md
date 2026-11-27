@@ -79,8 +79,25 @@ Ajax has twenty agents, each from a published paper. Compared with
 [Stable-Baselines3](https://github.com/DLR-RM/stable-baselines3) and
 [SBX](https://github.com/araffin/sbx), it offers:
 
-- **[Faster](https://yannberthelot.github.io/Ajax/latest/guide/performance/)**: the environment steps beside the agent on a CPU or a GPU, with no Python in the loop. With 10 seeds, one NVIDIA L40S ran SAC about 7 times as fast as four CPU cores, and CrossQ and REDQ over 50 times ([speeds](https://yannberthelot.github.io/Ajax/latest/guide/performance/#cpu-or-gpu)).
-- **[More experiments per run](https://yannberthelot.github.io/Ajax/latest/guide/training/#hyperparameter-sweeps)**: several seeds and several values of a hyperparameter train in one compiled program. Here 30 runs, 10 seeds for each of 3 learning rates:
+- **[Faster](#speed)**: the environment steps beside the agent on a CPU or a GPU, with no Python in the loop, and every seed and environment copy trains in the same program.
+- **[More experiments per run](#research-in-a-few-lines)**: several seeds and several values of a hyperparameter train in one compiled program, so ten seeds of three learning rates are one call.
+- **[Variations in one argument, parts that compose](#research-in-a-few-lines)**: recurrent PPO is PPO with a memory, and memories, CNN encoders, a PID policy and forty-four extensions (cloning, an expert's transitions in the replay, diagnostics) add up in one constructor. The [compatibility table](https://yannberthelot.github.io/Ajax/latest/guide/compatibility/) shows which go together.
+- **[Trustworthy](https://yannberthelot.github.io/Ajax/latest/developer/testing/)**: each agent follows the code behind its paper's results, and its page lists where it departs. Unit tests check each update's maths, probes with known answers check that agents learn, and conformance tests compare updates with the original implementations. Comparisons of learning results with reference libraries are in progress ([Reproduction](https://yannberthelot.github.io/Ajax/latest/reproduction/results/)).
+- **Multi-paradigm**: discounted and average-reward agents ([ASAC](https://yannberthelot.github.io/Ajax/latest/algorithms/asac/), [RVI-SAC](https://yannberthelot.github.io/Ajax/latest/algorithms/rvisac/), [APO](https://yannberthelot.github.io/Ajax/latest/algorithms/apo/)), model-free and model-based, online and offline.
+- **[Expert-guided](https://yannberthelot.github.io/Ajax/latest/guide/expert-guidance/)**: cloning, imitation, prior data and offline training.
+- **[World models](https://yannberthelot.github.io/Ajax/latest/guide/world-models/)**: DreamerV3 and TD-MPC2, which their papers run on over a hundred tasks with one set of hyperparameters.
+
+[Why Ajax](https://yannberthelot.github.io/Ajax/latest/getting-started/why-ajax/) compares it with SB3, SBX,
+PureJaxRL, Brax, Stoix, Rejax, TorchRL and Tianshou, including when to use
+them instead.
+
+## Speed
+
+The environment, the agent and every seed compile into one program, so many seeds train at once on one device. With 10 seeds, one NVIDIA L40S ran SAC about 7 times as fast as four CPU cores, and CrossQ and REDQ over 50 times ([speeds](https://yannberthelot.github.io/Ajax/latest/guide/performance/#cpu-or-gpu)).
+
+## Research in a few lines
+
+Several seeds and several values of a hyperparameter train in one compiled program: here 30 runs, 10 seeds for each of 3 learning rates.
 
 ```python
 from ajax import PPO
@@ -95,7 +112,7 @@ for configuration, returns in agent.by_configuration(evaluations.returns):
     print(configuration, returns[:, -1].mean())  # mean final return over the 10 seeds
 ```
 
-- **[Variations in one argument, parts that compose](https://yannberthelot.github.io/Ajax/latest/guide/extensions/)**: GRU, LSTM, transformer and Mamba memories, CNN encoders, sequence replay with burn-in, a PID policy and forty-four extensions, combined in the agent's constructor. The [compatibility table](https://yannberthelot.github.io/Ajax/latest/guide/compatibility/) shows which parts go together.
+A variation is one argument, and parts add up in one constructor:
 
 ```python
 import jax.numpy as jnp
@@ -127,14 +144,6 @@ agent = SAC(
     ),
 )
 ```
-
-- **Multi-paradigm**: discounted and average-reward agents ([ASAC](https://yannberthelot.github.io/Ajax/latest/algorithms/asac/), [RVI-SAC](https://yannberthelot.github.io/Ajax/latest/algorithms/rvisac/), [APO](https://yannberthelot.github.io/Ajax/latest/algorithms/apo/)), model-free and model-based, online and offline.
-- **[Expert-guided](https://yannberthelot.github.io/Ajax/latest/guide/expert-guidance/)**: cloning, imitation, prior data and offline training.
-- **[World models](https://yannberthelot.github.io/Ajax/latest/guide/world-models/)**: DreamerV3 and TD-MPC2, which their papers run on over a hundred tasks with one set of hyperparameters.
-
-[Why Ajax](https://yannberthelot.github.io/Ajax/latest/getting-started/why-ajax/) compares it with SB3, SBX,
-PureJaxRL, Brax, Stoix, Rejax, TorchRL and Tianshou, including when to use
-them instead.
 
 ## Agents
 
@@ -176,7 +185,7 @@ each method's paper and the agents that take it.
 <tr>
 <td valign="top"><a href="https://yannberthelot.github.io/Ajax/latest/guide/comparing-agents/"><b>Comparing agents</b></a><br/>AdaStop, which adds seeds only while the answer is unclear</td>
 <td valign="top"><a href="https://yannberthelot.github.io/Ajax/latest/guide/checkpoints/"><b>Checkpoints</b></a><br/>Save a run and resume it in another process</td>
-<td valign="top"><a href="https://yannberthelot.github.io/Ajax/latest/developer/testing/"><b>Tests</b></a><br/>Unit tests and probes with known answers</td>
+<td valign="top"><a href="https://yannberthelot.github.io/Ajax/latest/developer/testing/"><b>Tests</b></a><br/>Unit tests, probes with known answers, conformance tests</td>
 </tr>
 </table>
 

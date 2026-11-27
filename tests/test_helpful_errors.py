@@ -242,10 +242,10 @@ def test_a_gymnasium_environment_outside_the_extra_is_not_answered_with_it():
     assert "pip install 'ajax-rl[gymnasium]'" not in str(refusal.value)
 
 
-def test_a_mujoco_id_without_mujoco_names_the_playground_extra(monkeypatch):
+def test_a_mujoco_id_without_its_package_names_the_gymnasium_mjx_extra(monkeypatch):
     # None in sys.modules makes the import fail as a missing package does.
-    monkeypatch.setitem(sys.modules, "ajax.environments.mujoco.tasks", None)
-    with pytest.raises(ImportError, match=r"ajax-rl\[playground\]"):
+    monkeypatch.setitem(sys.modules, "gymnasium_mjx", None)
+    with pytest.raises(ImportError, match=r"ajax-rl\[gymnasium-mjx\]"):
         build_env_from_id("mujoco:Reacher-v5")
 
 

@@ -19,10 +19,11 @@ The next release is 0.6.0: the first item changes results.
   in [-1, 1], and on `mujoco:` tasks that went to the motors unscaled.
   InvertedPendulum's motor takes ±3 and Pusher's take ±2, so agents
   reached a third and a half of the range, and Pusher's control cost a
-  quarter of Gymnasium's largest. A task now declares its motor ranges
-  (`action_bounds`) and Ajax maps [-1, 1] onto them, as it does for
-  `gymnasium:` tasks. The other six `mujoco:` tasks, whose motors take ±1,
-  are unchanged, as are Playground's own environments. Upgrade: results
+  quarter of Gymnasium's largest. gymnasium-mjx's adapter, which now
+  holds the `mujoco:` tasks, maps [-1, 1] onto each motor's range, as
+  Ajax does for `gymnasium:` tasks; the Humanoids' motors take ±0.4. The
+  other six tasks, whose motors take ±1, are unchanged, as are
+  Playground's own environments. Upgrade: results
   recorded on those two tasks before this change are not comparable.
 - **Ajax needs JAX 0.10.2 or newer** (was 0.10.0). Before 0.10.2, JAX's
   CPU backend kept a pinned_host placement in device memory, so DreamerV3's
@@ -574,9 +575,18 @@ The next release is 0.6.0: the first item changes results.
   `"mujoco:Hopper-v5"`, `"mujoco:Walker2d-v5"`, `"mujoco:Swimmer-v5"`,
   `"mujoco:Reacher-v5"`, `"mujoco:Pusher-v5"`,
   `"mujoco:InvertedPendulum-v5"` and `"mujoco:InvertedDoublePendulum-v5"`
-  run Gymnasium's own models and rules on MJX, inside the compiled program.
-  They need the `playground` extra. Ant, Humanoid and HumanoidStandup
-  follow.
+  run Gymnasium's own models and rules on MJX, inside the compiled program,
+  and so do `"mujoco:Ant-v5"`, `"mujoco:Humanoid-v5"` and
+  `"mujoco:HumanoidStandup-v5"`. The tasks come from the gymnasium-mjx
+  package, installed by the new `gymnasium-mjx` extra; without it, a
+  `"mujoco:"` id raises an ImportError naming the extra.
+  *Upgrade,* for code written against main since 0.5 (no release held
+  these tasks): install `ajax-rl[gymnasium-mjx]`, as the `playground` extra
+  alone no longer brings them, and import `gymnasium_mjx` where you imported
+  `ajax.environments.mujoco`, which is gone. The ids are unchanged.
+  A mujoco_playground env object, such as gymnasium-mjx's
+  `PlaygroundTask(gymnasium_mjx.make("Hopper-v5"))`, can be given to an
+  agent in place of an id; it trains and evaluates the same way.
 - **Agent benchmark filled in.** SAC, TD3, RVI-SAC and ASAC now have scores
   on all fifteen DeepMind Control tasks, APO's HumanoidWalk run finished, and
   REDQ, TQC, CrossQ, TD-MPC2 and DreamerV3 have CheetahRun scores, from runs

@@ -98,10 +98,9 @@ jobs:
       # exact-output pins are left out: they detect change against the
       # locked versions, and other versions move them by rounding.
       # XLA's optimisation level 0, as in CI's test shards: in one process
-      # at the default level this step took about 2 h 30 min. Pusher's MJX
-      # check compiles at level 2 itself (tests/environments/
-      # test_mujoco_tasks.py): jaxlib before 0.11.2 takes minutes per step
-      # there at level 0.
+      # at the default level this step took about 2 h 30 min. No test here
+      # steps Pusher's MJX model: jaxlib before 0.11.2 takes minutes per
+      # step there at level 0 (gymnasium-mjx's own tests check the tasks).
       - env:
           XLA_FLAGS: --xla_backend_optimization_level=0 --xla_llvm_disable_expensive_passes=true
         run: >-

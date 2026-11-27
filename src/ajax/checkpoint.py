@@ -645,14 +645,16 @@ def _behind_a_clip(new: Any, old: Any, params: Any = None) -> bool:
     return empty and _same_keys(new, old["1"], params)
 
 
-def _same_keys(a: Any, b: Any, params: Any = None) -> bool:
-    """Whether two state dicts nest the same keys, a leaf of ``a`` matching
-    a dict of ``b`` nesting the keys of ``params``, when given."""
-    if params is not None and not isinstance(a, dict) and isinstance(b, dict):
-        return _same_keys(params, b)
-    if not isinstance(a, dict) or not isinstance(b, dict):
-        return not isinstance(a, dict) and not isinstance(b, dict)
-    return a.keys() == b.keys() and all(_same_keys(a[k], b[k], params) for k in a)
+def _same_keys(new: Any, old: Any, params: Any = None) -> bool:
+    """Whether two state dicts nest the same keys, a leaf of ``new``
+    matching a dict of ``old`` nesting the keys of ``params``, when given."""
+    if params is not None and not isinstance(new, dict) and isinstance(old, dict):
+        return _same_keys(params, old)
+    if not isinstance(new, dict) or not isinstance(old, dict):
+        return not isinstance(new, dict) and not isinstance(old, dict)
+    return new.keys() == old.keys() and all(
+        _same_keys(new[key], old[key], params) for key in new
+    )
 
 
 def _check_memory_final_norm(skeleton: Any, saved: Any) -> None:

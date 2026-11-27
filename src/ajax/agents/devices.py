@@ -84,6 +84,8 @@ def train_on_devices(
     # Leaf by leaf, into the first result's structure: each call builds its
     # own networks and optimisers, which a state carries as static fields
     # that do not compare equal between calls.
-    gathered = [jax.tree.leaves(jax.device_put(r, devices[0])) for r in results]
+    gathered = [
+        jax.tree.leaves(jax.device_put(result, devices[0])) for result in results
+    ]
     members = [jnp.concatenate(leaves) for leaves in zip(*gathered, strict=True)]
     return jax.tree.unflatten(jax.tree.structure(results[0]), members)

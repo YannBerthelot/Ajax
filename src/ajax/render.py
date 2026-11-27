@@ -8,7 +8,10 @@ one is missing."""
 
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import os
+from collections.abc import Iterator
 from types import SimpleNamespace
 from typing import Any, Callable, Optional
 
@@ -91,6 +94,35 @@ def render_episode(
     ``draw(env_state)``, given, draws each state, one env's, as a
     ``(height, width, 3)`` picture; else a Gymnasium env draws its own, and
     the others are drawn as :func:`save_episode` does."""
+    with _without_sound():
+        _render_episode(env_args, parts, key, path, max_steps, draw)
+
+
+@contextlib.contextmanager
+def _without_sound() -> Iterator[None]:
+    """Gymnasium's classic-control drawings start pygame, whose SDL opens an
+    audio device every time (once a frame under gymnax's drawing): on a
+    machine without one, such as a CI runner or a server, ALSA prints eight
+    error lines each time. Drawing needs no sound, so SDL gets its dummy
+    driver while the episode is drawn, unless the caller chose one."""
+    if "SDL_AUDIODRIVER" in os.environ:
+        yield
+        return
+    os.environ["SDL_AUDIODRIVER"] = "dummy"
+    try:
+        yield
+    finally:
+        del os.environ["SDL_AUDIODRIVER"]
+
+
+def _render_episode(
+    env_args: Any,
+    parts: Any,
+    key: jax.Array,
+    path: str,
+    max_steps: Optional[int],
+    draw: Optional[Callable],
+) -> None:
     if draw is not None:
         _, states, _ = policy_episode(env_args, parts, key, max_steps)
         frames = [np.asarray(draw(_one_env(state))) for state in states]

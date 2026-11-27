@@ -46,7 +46,9 @@ the CHANGELOG's "Clearer errors and checks"):
     Gymnasium environment object, a Gymnasium id without its prefix, and
     SB3's own argument names (verbose, net_arch, tensorboard_log) with where
     Ajax takes each, or the SB3 page where no Ajax argument resembles them;
-  - a warning about a call names the caller's line, not Ajax's.
+  - a warning about a call names the caller's line, not Ajax's;
+  - (docs/guide/training.md, "The budget") a call that ends before the
+    agent's first update, at learning_starts, warns that it does not train.
 """
 
 import importlib.util
@@ -63,7 +65,7 @@ import numpy as np
 import pytest
 
 import ajax
-from ajax import PPO, PQN, SAC
+from ajax import DQN, PPO, PQN, SAC
 from ajax.agents.base import SB3_PAGE
 from ajax.buffers.dataset import TransitionDataset, record
 from ajax.environments.create import build_env_from_id
@@ -588,3 +590,20 @@ def test_a_warning_about_a_call_names_the_callers_line(call, category, text):
     for warning in about_the_call:
         assert not warning.filename.startswith("<"), warning.filename
         assert not pathlib.Path(warning.filename).resolve().is_relative_to(package)
+
+
+def test_a_call_ending_before_the_first_update_warns_that_it_does_not_train():
+    """DQN's first update waits for learning_starts=10,000 steps collected."""
+    with pytest.warns(
+        UserWarning, match="before the first update at learning_starts=10000"
+    ):
+        DQN("CartPole-v1").train(seed=0, n_timesteps=64, logging_config=None)
+
+
+def test_a_call_reaching_the_first_update_does_not_warn_of_it():
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        DQN("CartPole-v1", learning_starts=32).train(
+            seed=0, n_timesteps=64, logging_config=None
+        )
+    assert not [w for w in caught if "first update" in str(w.message)]

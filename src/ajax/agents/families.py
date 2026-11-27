@@ -1882,7 +1882,7 @@ class OwnReplayAgent(DeclaredAgent):
         continues instead of restarting."""
         return resume_tick(initial_state.collector_state, self.env_args.n_envs)
 
-    def prepare_call(
+    def _prepare_call(
         self,
         state: Any,
         n_timesteps: int,
@@ -1911,7 +1911,7 @@ class OwnReplayAgent(DeclaredAgent):
         self.call_end_tick = end_tick
         return resumed, {"replay": replay, "start_tick": start_tick}
 
-    def check_trained(self, state: Any) -> None:
+    def _check_trained(self, state: Any) -> None:
         """check_run, at the tick the call ends at."""
         self.check_run(state, self.call_end_tick)
 

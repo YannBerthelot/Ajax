@@ -381,12 +381,12 @@ Each agent's own output rule applies to `u`. SAC, TD3, REDQ, TQC, ASAC,
 RVI-SAC and AVG squash it with `tanh`, and APO and IQL take `tanh(u)` as
 their mean, so the deployed controller is a saturated PID; APO and IQL
 sample unsquashed around `tanh(u)`, PPO around `u` (unless `squash=True`),
-and their samples are clipped to `[-1, 1]`. Like every action, `u` is then mapped onto the environment's
-bounds ([Actions](environments.md#actions)): the deployed controller is
-`c + h · sat(u)`, with `c` the centre of the action box, `h` its half-width
-and `sat` the agent's `tanh` or clip. So a PID written in the environment's
-units has gains `h · K` (for small signals, where `tanh` is close to
-linear) and the offset `c`. Observation normalisation leaves the error
+and their samples are clipped to `[-1, 1]`. Like every action, `u` is then
+mapped onto the environment's bounds ([Actions](environments.md#actions)):
+the deployed controller is `c + h · sat(u)`, with `c` the centre of the
+action box, `h` its half-width and `sat` the agent's `tanh` or clip. So a
+PID written in the environment's units has gains `h · K` (for small
+signals, where `tanh` is close to linear) and the offset `c`. Observation normalisation leaves the error
 terms raw, so the gains act on errors in the environment's units; the gain
 network of `gains="observation"` reads the rest of the observation
 normalised.

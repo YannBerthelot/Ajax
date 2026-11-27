@@ -230,10 +230,11 @@ def readme_block(runs: list[Run]) -> str:
                 + " |"
             )
         lines.append("\n".join([head, "|---" * (len(tasks) + 1) + "|", *body]))
+    # An absolute link: PyPI shows the README, where relative links break.
     lines.append(
-        "[Agent benchmark](docs/reproduction/benchmark.md) has every task, the"
-        " spread over seeds, learning curves and what to keep in mind when"
-        " reading them."
+        "[Agent benchmark](https://yannberthelot.github.io/Ajax/latest/reproduction/benchmark/)"
+        " has every task, the spread over seeds, learning curves and what to"
+        " keep in mind when reading them."
     )
     return "\n\n".join(lines)
 

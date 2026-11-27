@@ -4,7 +4,7 @@ It is the first page a reader sees and its examples are the first code they
 run, so each ``python`` block is executed; a block whose first line is
 ``# doc: skip`` (one that would train for minutes, say) is left out. A block
 that trains (calls ``.train(``) runs in the slow tier, word for word. The agent list and the
-relative links are checked too: both go stale quietly when an agent or a
+links are checked too: both go stale quietly when an agent or a
 documentation page is added, renamed or removed. So are the totals the
 documentation states (agents, extensions), the algorithms index, the
 extensions catalogue and the memory table, against the code.
@@ -24,11 +24,21 @@ from tests.doc_examples import ROOT, readme_blocks, run_readme_block
 README = ROOT / "README.md"
 DOCS = ROOT / "docs"
 
-# A Markdown link target or an HTML href, up to an anchor, a quote or a space.
-LINK = re.compile(r'\]\(([^)\s#]+)|href="([^"#]+)"')
-# The README's "## Agents" section, and each agent's link in it: "[SAC](docs/algorithms/sac.md)".
+# A Markdown link or image target, or an HTML href or src, up to an anchor, a
+# quote or a space.
+LINK = re.compile(r'\]\(([^)\s#]+)|(?:href|src)="([^"#]+)"')
+# PyPI shows the README as the project page, where relative links and images
+# break: a link into the repository takes one of these absolute forms.
+REPOSITORY_FILES = (
+    "https://raw.githubusercontent.com/YannBerthelot/Ajax/main/",  # an image
+    "https://github.com/YannBerthelot/Ajax/blob/main/",  # a file
+    "https://github.com/YannBerthelot/Ajax/tree/main/",  # a folder
+)
+DOCS_SITE = "https://yannberthelot.github.io/Ajax/latest/"  # a documentation page
+# The README's "## Agents" section, and each agent's link in it:
+# "[SAC](https://yannberthelot.github.io/Ajax/latest/algorithms/sac/)".
 AGENTS_SECTION = re.compile(r"^## Agents\n(.*?)^## ", re.MULTILINE | re.DOTALL)
-AGENT_LINK = re.compile(r"\[(\w+)\]\(docs/algorithms/")
+AGENT_LINK = re.compile(r"\[(\w+)\]\(" + re.escape(DOCS_SITE) + "algorithms/")
 NUMBER_WORDS = (
     "zero one two three four five six seven eight nine ten eleven twelve"
     " thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty"
@@ -73,16 +83,31 @@ def test_readme_agent_list_is_complete():
     assert f"{NUMBER_WORDS[len(listed)]} agents" in readme
 
 
-def test_readme_relative_links_resolve():
-    """Each link into the repository (a docs page, LICENSE, ...) names a file
-    that exists."""
-    targets = {
-        a or b
-        for a, b in LINK.findall(README.read_text())
-        if not re.match(r"[a-z]+:", a or b)
-    }
-    assert targets, "no relative links found: has the link pattern drifted?"
-    missing = sorted(t for t in targets if not (ROOT / t).exists())
+def local_file(url: str) -> pathlib.Path | None:
+    """The checkout's file or folder that an absolute link names; None for a
+    link elsewhere. A documentation page is docs/<path>.md, or
+    docs/<path>/index.md for a folder's page (the site's directory URLs)."""
+    for prefix in REPOSITORY_FILES:
+        if url.startswith(prefix):
+            return ROOT / url.removeprefix(prefix)
+    if not url.startswith(DOCS_SITE):
+        return None
+    page = url.removeprefix(DOCS_SITE).strip("/")
+    markdown = DOCS / f"{page}.md"
+    return markdown if markdown.exists() else DOCS / page / "index.md"
+
+
+def test_readme_links_are_absolute_and_name_files_that_exist():
+    """No link or image is relative, which PyPI's project page would break,
+    and each into the repository (a docs page, an image, LICENSE, ...) names
+    a file of the checkout that exists."""
+    targets = {a or b for a, b in LINK.findall(README.read_text())}
+    relative = sorted(t for t in targets if not re.match(r"[a-z]+:", t))
+    assert not relative, f"README links relatively, which breaks on PyPI: {relative}"
+    files = {t: local_file(t) for t in targets}
+    repository = {t: f for t, f in files.items() if f is not None}
+    assert repository, "no link into the repository found: has a pattern drifted?"
+    missing = sorted(t for t, f in repository.items() if not f.exists())
     assert not missing, f"README links to missing files: {missing}"
 
 

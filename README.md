@@ -9,13 +9,13 @@
   <a href="https://yannberthelot.github.io/Ajax/"><img alt="Documentation" src="https://img.shields.io/badge/docs-yannberthelot.github.io%2FAjax-blue"></a>
   <a href="https://github.com/YannBerthelot/Ajax/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/YannBerthelot/Ajax/ci.yml?branch=main&label=CI"></a>
   <a href="https://pypi.org/project/ajax-rl/"><img alt="PyPI" src="https://img.shields.io/pypi/v/ajax-rl"></a>
-  <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-green"></a>
+  <a href="https://github.com/YannBerthelot/Ajax/blob/main/LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-green"></a>
 </p>
 
 <p align="center">
   <a href="#install">Install</a> ·
   <a href="#quickstart">Quickstart</a> ·
-  <a href="docs/getting-started/coming-from-sb3.md">Coming from SB3</a> ·
+  <a href="https://yannberthelot.github.io/Ajax/latest/getting-started/coming-from-sb3/">Coming from SB3</a> ·
   <a href="#why-ajax">Why Ajax</a> ·
   <a href="#beside-reference-implementations">Reproduction</a> ·
   <a href="#agents">Agents</a> ·
@@ -33,7 +33,7 @@ pip install "ajax-rl[gymnasium-mjx]"   # adds Gymnasium's MuJoCo tasks (HalfChee
 pip install "ajax-rl[cuda]"            # adds CUDA, on Linux with an NVIDIA GPU
 ```
 
-`ajax-rl[brax]` adds Brax alone; [Installation](docs/getting-started/installation.md)
+`ajax-rl[brax]` adds Brax alone; [Installation](https://yannberthelot.github.io/Ajax/latest/getting-started/installation/)
 covers the other extras and `uv sync` from a clone.
 
 ## Quickstart
@@ -55,9 +55,9 @@ compilation included.
 
 `agent.predict(state, obs)` returns the trained policy's action for an
 observation, and `agent.save(state, path)` and `ajax.load(path)` keep it
-for later ([Train, evaluate, deploy](docs/guide/deploy.md)).
+for later ([Train, evaluate, deploy](https://yannberthelot.github.io/Ajax/latest/guide/deploy/)).
 
-Coming from Stable-Baselines3? [The calls side by side](docs/getting-started/coming-from-sb3.md).
+Coming from Stable-Baselines3? [The calls side by side](https://yannberthelot.github.io/Ajax/latest/getting-started/coming-from-sb3/).
 
 `"CartPole-v1"` here is [gymnax](https://github.com/RobertTLange/gymnax)'s
 CartPole, written in JAX. That is the intended use: with a JAX environment
@@ -66,7 +66,7 @@ compile into one program that stays on the CPU or the GPU from start to
 end. [Gymnasium](https://gymnasium.farama.org) environments are supported
 too, with `PPO("gymnasium:CartPole-v1")`; they step in Python, so training
 is slower and a GPU does not help
-([Environments](docs/guide/environments.md#gymnasium-environments)).
+([Environments](https://yannberthelot.github.io/Ajax/latest/guide/environments/#gymnasium-environments)).
 
 Parts combine in the constructor:
 
@@ -88,9 +88,9 @@ agent = SAC("mujoco:HalfCheetah-v5")
 agent = PPO("ant", n_envs=8)
 ```
 
-A notebook trains, acts and saves step by step: [`notebooks/quickstart.ipynb`](notebooks/quickstart.ipynb)
+A notebook trains, acts and saves step by step: [`notebooks/quickstart.ipynb`](https://github.com/YannBerthelot/Ajax/blob/main/notebooks/quickstart.ipynb)
 ([open in Colab](https://colab.research.google.com/github/YannBerthelot/Ajax/blob/main/notebooks/quickstart.ipynb)).
-Complete scripts are in [`examples/`](examples/).
+Complete scripts are in [`examples/`](https://github.com/YannBerthelot/Ajax/tree/main/examples).
 
 ## Why Ajax
 
@@ -98,13 +98,13 @@ Ajax has twenty agents, each from a published paper. Compared with
 [Stable-Baselines3](https://github.com/DLR-RM/stable-baselines3) and
 [SBX](https://github.com/araffin/sbx), it offers:
 
-- **[Fast and parallel](docs/guide/performance.md)**: the environment steps beside the agent on a CPU or a GPU, with no Python in the loop, so many seeds and environment copies train at once on one device. With 10 seeds, one NVIDIA L40S ran SAC about 7 times as fast as four CPU cores, and CrossQ and REDQ over 50 times ([speeds](docs/guide/performance.md#cpu-or-gpu)).
-- **[Modular](docs/guide/extensions.md)**: GRU, LSTM, transformer and Mamba memories, CNN encoders, sequence replay with burn-in, a PID policy and forty-four extensions, combined in the agent's constructor. The [compatibility table](docs/guide/compatibility.md) shows which parts go together.
-- **Multi-paradigm**: discounted and average-reward agents ([ASAC](docs/algorithms/asac.md), [RVI-SAC](docs/algorithms/rvisac.md), [APO](docs/algorithms/apo.md)), model-free and model-based, online and offline, all behind one interface.
-- **[Expert-guided](docs/guide/expert-guidance.md)**: cloning, imitation, prior data and offline training.
-- **[World models, ready to use](docs/guide/world-models.md)**: DreamerV3 and TD-MPC2 are among the hardest agents to get right, and their papers run them on over a hundred tasks with one set of hyperparameters. Ajax checks them against the official code, update by update.
+- **[Fast and parallel](https://yannberthelot.github.io/Ajax/latest/guide/performance/)**: the environment steps beside the agent on a CPU or a GPU, with no Python in the loop, so many seeds and environment copies train at once on one device. With 10 seeds, one NVIDIA L40S ran SAC about 7 times as fast as four CPU cores, and CrossQ and REDQ over 50 times ([speeds](https://yannberthelot.github.io/Ajax/latest/guide/performance/#cpu-or-gpu)).
+- **[Modular](https://yannberthelot.github.io/Ajax/latest/guide/extensions/)**: GRU, LSTM, transformer and Mamba memories, CNN encoders, sequence replay with burn-in, a PID policy and forty-four extensions, combined in the agent's constructor. The [compatibility table](https://yannberthelot.github.io/Ajax/latest/guide/compatibility/) shows which parts go together.
+- **Multi-paradigm**: discounted and average-reward agents ([ASAC](https://yannberthelot.github.io/Ajax/latest/algorithms/asac/), [RVI-SAC](https://yannberthelot.github.io/Ajax/latest/algorithms/rvisac/), [APO](https://yannberthelot.github.io/Ajax/latest/algorithms/apo/)), model-free and model-based, online and offline, all behind one interface.
+- **[Expert-guided](https://yannberthelot.github.io/Ajax/latest/guide/expert-guidance/)**: cloning, imitation, prior data and offline training.
+- **[World models, ready to use](https://yannberthelot.github.io/Ajax/latest/guide/world-models/)**: DreamerV3 and TD-MPC2 are among the hardest agents to get right, and their papers run them on over a hundred tasks with one set of hyperparameters. Ajax checks them against the official code, update by update.
 
-[Why Ajax](docs/getting-started/why-ajax.md) compares it with SB3, SBX,
+[Why Ajax](https://yannberthelot.github.io/Ajax/latest/getting-started/why-ajax/) compares it with SB3, SBX,
 PureJaxRL, Brax, Stoix, Rejax, TorchRL and Tianshou, including when to use
 them instead.
 
@@ -137,28 +137,28 @@ CPU seconds are for one run, both sides of a row on the same machine: a
 for the others.
 
 <p align="center">
-  <img src="docs/reproduction/PPO.svg" width="45%" alt="PPO on CartPole-v1, Ajax and Stable-Baselines3, 96 seeds each">
-  <img src="docs/reproduction/SAC.svg" width="45%" alt="SAC on Pendulum-v1, Ajax and Stable-Baselines3, 96 seeds each">
+  <img src="https://raw.githubusercontent.com/YannBerthelot/Ajax/main/docs/reproduction/PPO.svg" width="45%" alt="PPO on CartPole-v1, Ajax and Stable-Baselines3, 96 seeds each">
+  <img src="https://raw.githubusercontent.com/YannBerthelot/Ajax/main/docs/reproduction/SAC.svg" width="45%" alt="SAC on Pendulum-v1, Ajax and Stable-Baselines3, 96 seeds each">
 </p>
 
-[Results](docs/reproduction/results.md) has every learning curve, the
+[Results](https://yannberthelot.github.io/Ajax/latest/reproduction/results/) has every learning curve, the
 differences with their intervals and the machines; the
-[protocol](docs/reproduction/protocol.md) says how the comparisons are run,
-and each one reproduces with one command ([specifications](docs/reproduction/specs.md)).
+[protocol](https://yannberthelot.github.io/Ajax/latest/reproduction/protocol/) says how the comparisons are run,
+and each one reproduces with one command ([specifications](https://yannberthelot.github.io/Ajax/latest/reproduction/specs/)).
 
 ## Agents
 
-- **Off-policy actor-critic**: [SAC](docs/algorithms/sac.md), [TD3](docs/algorithms/td3.md), [REDQ](docs/algorithms/redq.md), [CrossQ](docs/algorithms/crossq.md) (batch-renormalised, no target networks), [TQC](docs/algorithms/tqc.md) (truncated quantile critics), [AVG](docs/algorithms/avg.md) (no replay), [ASAC](docs/algorithms/asac.md) and [RVISAC](docs/algorithms/rvisac.md) (RVI-SAC; average reward), [IQL](docs/algorithms/iql.md) (offline)
-- **On-policy**: [PPO](docs/algorithms/ppo.md), [APO](docs/algorithms/apo.md) (average reward), [REINFORCE](docs/algorithms/reinforce.md) (the plain policy gradient)
-- **Value-based**: [DQN](docs/algorithms/dqn.md), [PQN](docs/algorithms/pqn.md)
-- **World models**: [DreamerV3](docs/algorithms/dreamerv3.md), [TDMPC2](docs/algorithms/tdmpc2.md), [TDMPC2MultiTask](docs/algorithms/tdmpc2.md) (multi-task, offline)
-- **Supervised**: [DAgger](docs/algorithms/dagger.md) (imitation of an expert), [UDRL](docs/algorithms/udrl.md) (command-conditioned)
-- **Differentiable simulation**: [APG](docs/algorithms/apg.md)
+- **Off-policy actor-critic**: [SAC](https://yannberthelot.github.io/Ajax/latest/algorithms/sac/), [TD3](https://yannberthelot.github.io/Ajax/latest/algorithms/td3/), [REDQ](https://yannberthelot.github.io/Ajax/latest/algorithms/redq/), [CrossQ](https://yannberthelot.github.io/Ajax/latest/algorithms/crossq/) (batch-renormalised, no target networks), [TQC](https://yannberthelot.github.io/Ajax/latest/algorithms/tqc/) (truncated quantile critics), [AVG](https://yannberthelot.github.io/Ajax/latest/algorithms/avg/) (no replay), [ASAC](https://yannberthelot.github.io/Ajax/latest/algorithms/asac/) and [RVISAC](https://yannberthelot.github.io/Ajax/latest/algorithms/rvisac/) (RVI-SAC; average reward), [IQL](https://yannberthelot.github.io/Ajax/latest/algorithms/iql/) (offline)
+- **On-policy**: [PPO](https://yannberthelot.github.io/Ajax/latest/algorithms/ppo/), [APO](https://yannberthelot.github.io/Ajax/latest/algorithms/apo/) (average reward), [REINFORCE](https://yannberthelot.github.io/Ajax/latest/algorithms/reinforce/) (the plain policy gradient)
+- **Value-based**: [DQN](https://yannberthelot.github.io/Ajax/latest/algorithms/dqn/), [PQN](https://yannberthelot.github.io/Ajax/latest/algorithms/pqn/)
+- **World models**: [DreamerV3](https://yannberthelot.github.io/Ajax/latest/algorithms/dreamerv3/), [TDMPC2](https://yannberthelot.github.io/Ajax/latest/algorithms/tdmpc2/), [TDMPC2MultiTask](https://yannberthelot.github.io/Ajax/latest/algorithms/tdmpc2/) (multi-task, offline)
+- **Supervised**: [DAgger](https://yannberthelot.github.io/Ajax/latest/algorithms/dagger/) (imitation of an expert), [UDRL](https://yannberthelot.github.io/Ajax/latest/algorithms/udrl/) (command-conditioned)
+- **Differentiable simulation**: [APG](https://yannberthelot.github.io/Ajax/latest/algorithms/apg/)
 
 DQN and PQN take discrete actions; PPO, APO, REINFORCE, DAgger, UDRL and
 DreamerV3 take both; the others continuous ones. <!-- agents: offline -->SAC, TD3, REDQ, TQC, CrossQ, ASAC, RVI-SAC,
 DQN, IQL and DAgger<!-- /agents --> also train offline (`train_offline`). Each name opens the agent's page, with its paper;
-the [compatibility table](docs/guide/compatibility.md) lists every extension
+the [compatibility table](https://yannberthelot.github.io/Ajax/latest/guide/compatibility/) lists every extension
 per agent.
 
 ## Learning from an expert or from data
@@ -167,7 +167,7 @@ per agent.
 - **During training**: TD3+BC's actor term, kickstarting and Q-filtered cloning (`ImitationLoss`), IBRL (`IBRL`), residual RL (`ResidualPolicy`), JSRL hand-over (`JSRLCurriculum`), GAIL (`AdversarialReward`), and the `DAgger` agent.
 - **Instead of online data**: `agent.train_offline(dataset, n_updates)`, then online fine-tuning if wanted: IQL, CQL and Cal-QL (`ConservativeQ`, `CalQL`), ReBRAC (`TargetBC`), TD3+BC; TD-MPC2's multi-task agent (`TDMPC2MultiTask`) on pooled datasets.
 
-[Choosing the pieces](docs/guide/expert-guidance.md#choosing-the-pieces) gives
+[Choosing the pieces](https://yannberthelot.github.io/Ajax/latest/guide/expert-guidance/#choosing-the-pieces) gives
 each method's paper and the agents that take it.
 
 ## Benchmark
@@ -197,32 +197,32 @@ each method's paper and the agents that take it.
 | PPO | 29 | 141 |
 | UDRL | 4 | 9 |
 
-[Agent benchmark](docs/reproduction/benchmark.md) has every task, the spread over seeds, learning curves and what to keep in mind when reading them.
+[Agent benchmark](https://yannberthelot.github.io/Ajax/latest/reproduction/benchmark/) has every task, the spread over seeds, learning curves and what to keep in mind when reading them.
 <!-- benchmark-summary:end -->
 
 ## Also in the box
 
 <table>
 <tr>
-<td width="33%" valign="top"><a href="docs/guide/extensions.md"><b>Extensions</b></a><br/>Forty-four research features, passed as <code>extensions=(...)</code></td>
-<td width="33%" valign="top"><a href="docs/guide/memory.md"><b>Recurrent memory</b></a><br/>GRU, LSTM, transformer or Mamba, with sequence replay</td>
-<td width="33%" valign="top"><a href="docs/guide/differentiable-simulation.md"><b>Differentiable simulation</b></a><br/>APG back-propagates the return through gymnax dynamics</td>
+<td width="33%" valign="top"><a href="https://yannberthelot.github.io/Ajax/latest/guide/extensions/"><b>Extensions</b></a><br/>Forty-four research features, passed as <code>extensions=(...)</code></td>
+<td width="33%" valign="top"><a href="https://yannberthelot.github.io/Ajax/latest/guide/memory/"><b>Recurrent memory</b></a><br/>GRU, LSTM, transformer or Mamba, with sequence replay</td>
+<td width="33%" valign="top"><a href="https://yannberthelot.github.io/Ajax/latest/guide/differentiable-simulation/"><b>Differentiable simulation</b></a><br/>APG back-propagates the return through gymnax dynamics</td>
 </tr>
 <tr>
-<td valign="top"><a href="docs/guide/environments.md"><b>Environments</b></a><br/>gymnax, Brax and MuJoCo Playground by id, many copies at once</td>
-<td valign="top"><a href="docs/guide/networks.md"><b>Networks and the PID policy</b></a><br/>A CNN encoder; a PID controller as the actor</td>
-<td valign="top"><a href="docs/guide/logging.md"><b>Logging</b></a><br/>Every evaluation as arrays; Weights &amp; Biases or TensorBoard</td>
+<td valign="top"><a href="https://yannberthelot.github.io/Ajax/latest/guide/environments/"><b>Environments</b></a><br/>gymnax, Brax and MuJoCo Playground by id, many copies at once</td>
+<td valign="top"><a href="https://yannberthelot.github.io/Ajax/latest/guide/networks/"><b>Networks and the PID policy</b></a><br/>A CNN encoder; a PID controller as the actor</td>
+<td valign="top"><a href="https://yannberthelot.github.io/Ajax/latest/guide/logging/"><b>Logging</b></a><br/>Every evaluation as arrays; Weights &amp; Biases or TensorBoard</td>
 </tr>
 <tr>
-<td valign="top"><a href="docs/guide/comparing-agents.md"><b>Comparing agents</b></a><br/>AdaStop, which adds seeds only while the answer is unclear</td>
-<td valign="top"><a href="docs/guide/checkpoints.md"><b>Checkpoints</b></a><br/>Save a run and resume it in another process</td>
-<td valign="top"><a href="docs/developer/testing.md"><b>Tests</b></a><br/>Unit tests, probes with known answers, conformance checks</td>
+<td valign="top"><a href="https://yannberthelot.github.io/Ajax/latest/guide/comparing-agents/"><b>Comparing agents</b></a><br/>AdaStop, which adds seeds only while the answer is unclear</td>
+<td valign="top"><a href="https://yannberthelot.github.io/Ajax/latest/guide/checkpoints/"><b>Checkpoints</b></a><br/>Save a run and resume it in another process</td>
+<td valign="top"><a href="https://yannberthelot.github.io/Ajax/latest/developer/testing/"><b>Tests</b></a><br/>Unit tests, probes with known answers, conformance checks</td>
 </tr>
 </table>
 
 The [documentation site](https://yannberthelot.github.io/Ajax/) has the user
 guide, one page per agent, the [API reference](https://yannberthelot.github.io/Ajax/api/agents/)
-and the [developer guide](docs/developer/architecture.md).
+and the [developer guide](https://yannberthelot.github.io/Ajax/latest/developer/architecture/).
 
 ## Related projects
 
@@ -238,7 +238,7 @@ small environments with known answers that Ajax's probes train on.
 ## Contributing, citing, license
 
 Bug reports, new agents and new extensions are welcome; see
-[CONTRIBUTING.md](CONTRIBUTING.md). Ajax is MIT-licensed ([LICENSE](LICENSE)).
+[CONTRIBUTING.md](https://github.com/YannBerthelot/Ajax/blob/main/CONTRIBUTING.md). Ajax is MIT-licensed ([LICENSE](https://github.com/YannBerthelot/Ajax/blob/main/LICENSE)).
 
 ```bibtex
 @misc{ajax2025,

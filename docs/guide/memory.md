@@ -81,10 +81,10 @@ lstm = {"kind": "lstm", "hidden_size": 64}  # a dictionary works too
 | Setting | Default | Used by |
 | --- | --- | --- |
 | `hidden_size` | `None` | every kind: the memory's width; `None` is the agent's reference width (128, Ni et al.'s, for the off-policy agents), else 64; a multiple of `num_heads` for the transformer |
-| `num_layers` | 1 | every kind |
+| `num_layers` | `1` | every kind |
 | `gradient_checkpoint` | `False` | every kind: recompute activations in the backward pass, trading time for memory on long sequences |
-| `window`, `num_heads` | 32, 4 | transformer: a step attends to itself and the `window - 1` steps before it in the same episode |
-| `d_state`, `d_conv`, `expand` | 16, 4, 2 | mamba: state size, causal-convolution width, inner-width multiplier |
+| `window`, `num_heads` | `32`, `4` | transformer: a step attends to itself and the `window - 1` steps before it in the same episode |
+| `d_state`, `d_conv`, `expand` | `16`, `4`, `2` | mamba: state size, causal-convolution width, inner-width multiplier |
 | `final_norm` | `True` | transformer, mamba: end with a LayerNorm, as GPT-2 and Mamba do; `False` only restores a checkpoint saved before Ajax added it |
 | `bias` | `True` | transformer: biases in the attention and MLP layers and the LayerNorms (nanoGPT's `bias`); the input embedding keeps one either way. `APG.contextual_controller` sets `False`, as its reference does |
 | `layer_norm_epsilon` | `1e-6` | transformer, mamba: the LayerNorms' epsilon; flax's by default, where GPT-2, nanoGPT and Mamba use 1e-5 |

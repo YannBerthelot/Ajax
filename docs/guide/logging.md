@@ -21,7 +21,7 @@ logging = LoggingConfig(
 
 | Field | Default | Meaning |
 | --- | --- | --- |
-| `log_frequency` | 10,000 | environment steps between evaluations |
+| `log_frequency` | `10_000` | environment steps between evaluations |
 | `backends` | `(TensorBoardBackend(folder),)` | where each run logs ([below](#backends)); `()` logs nowhere, and `train` still returns the evaluations |
 | `config` | `{}` | a dictionary stored with each run, with the agent's run configuration added ([below](#the-run-configuration)) |
 | `run_name` | `None` | each run's name prefix: a run is named `<run_name>_<run id>` |

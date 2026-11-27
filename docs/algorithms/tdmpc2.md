@@ -71,23 +71,23 @@ Every default is the paper's (`config.yaml` at `5f6fade`).
 
 | Argument | Default | What it does |
 | --- | --- | --- |
-| `model_size` | 5 | preset of 1, 5, 19, 48 or 317 M parameters; fills `enc_dim`, `mlp_dim`, `latent_dim`, `num_enc_layers`, `num_q` |
-| `n_envs` | 1 | environments stepped in lockstep, one update per environment step |
-| `horizon` | 3 | length of the training sub-trajectories and of the plans |
-| `batch_size` | 256 | sub-trajectories per update |
-| `buffer_size` | 1,000,000 | environment steps kept in replay |
-| `seed_steps` | None | random steps before training; `None` is `max(1000, 5 T)`, `T` the episode length |
-| `updates_per_step` | 1.0 | updates per environment step after the seed phase |
-| `learning_rate` | 3e-4 | a float or a schedule; the encoder trains at `learning_rate * enc_lr_scale` (0.3) |
-| `gamma` | None | `None` derives it from the episode length `T`: `(T/5 - 1) / (T/5)`, clipped to [0.95, 0.995] |
-| `iterations`, `num_samples`, `num_elites` | 6, 512, 64 | MPPI iterations, sampled plans and kept plans |
-| `num_pi_trajs` | 24 | plans proposed by the policy prior |
-| `consistency_coef`, `reward_coef`, `value_coef` | 20, 0.1, 0.1 | world-model loss weights |
-| `rho` | 0.5 | per-step decay of the loss weights along the horizon |
-| `entropy_coef` | 1e-4 | policy prior's entropy weight |
-| `tau` | 0.01 | target Q update rate |
-| `episodic` | False | accept terminating tasks (the latest code's episodic mode) |
-| `action_repeat`, `episode_length` | 1, 1000 | simulator steps per agent step, and per episode (Brax, Playground) |
+| `model_size` | `5` | preset of 1, 5, 19, 48 or 317 M parameters; fills `enc_dim`, `mlp_dim`, `latent_dim`, `num_enc_layers`, `num_q` |
+| `n_envs` | `1` | environments stepped in lockstep, one update per environment step |
+| `horizon` | `3` | length of the training sub-trajectories and of the plans |
+| `batch_size` | `256` | sub-trajectories per update |
+| `buffer_size` | `1_000_000` | environment steps kept in replay |
+| `seed_steps` | `None` | random steps before training; `None` is `max(1000, 5 T)`, `T` the episode length |
+| `updates_per_step` | `1.0` | updates per environment step after the seed phase |
+| `learning_rate` | `3e-4` | a float or a schedule; the encoder trains at `learning_rate * enc_lr_scale` (0.3) |
+| `gamma` | `None` | `None` derives it from the episode length `T`: `(T/5 - 1) / (T/5)`, clipped to [0.95, 0.995] |
+| `iterations`, `num_samples`, `num_elites` | `6`, `512`, `64` | MPPI iterations, sampled plans and kept plans |
+| `num_pi_trajs` | `24` | plans proposed by the policy prior |
+| `consistency_coef`, `reward_coef`, `value_coef` | `20`, `0.1`, `0.1` | world-model loss weights |
+| `rho` | `0.5` | per-step decay of the loss weights along the horizon |
+| `entropy_coef` | `1e-4` | policy prior's entropy weight |
+| `tau` | `0.01` | target Q update rate |
+| `episodic` | `False` | accept terminating tasks (the latest code's episodic mode) |
+| `action_repeat`, `episode_length` | `1`, `1000` | simulator steps per agent step, and per episode (Brax, Playground) |
 
 ## Presets
 

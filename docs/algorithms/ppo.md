@@ -60,37 +60,37 @@ The defaults are ppo2's MuJoCo configuration.
 
 | Argument | Default | What it does |
 | --- | --- | --- |
-| `n_envs` | 1 | environments stepped in parallel |
-| `n_steps` | 2048 | steps per environment in each rollout |
-| `batch_size` | 64 | sets the number of minibatches, not their size (see the notes) |
-| `num_minibatches` | 0 | when positive, the number of minibatches, as in Brax |
-| `n_epochs` | 10 | passes over the rollout per update, each reshuffled |
-| `actor_learning_rate`, `critic_learning_rate` | 3e-4 | Adam step sizes, each a float or a schedule |
-| `adam_eps` | 1e-5 | Adam's epsilon |
-| `gamma` | 0.99 | discount |
-| `gae_lambda` | 0.95 | GAE's lambda |
-| `clip_range` | 0.2 | the ratio clip; a float or a schedule of the timestep |
-| `ent_coef` | 0 | entropy bonus weight |
-| `vf_coef` | 0.5 | critic loss weight, on half the squared error |
-| `clip_value_loss` | None | clip the value loss (see the notes); `None` clips except with `unroll_length` |
-| `max_grad_norm` | 0.5 | one gradient clip by global norm over both networks; `None` turns it off |
-| `normalize_advantage` | True | standardise the advantages in each minibatch |
+| `n_envs` | `1` | environments stepped in parallel |
+| `n_steps` | `2048` | steps per environment in each rollout |
+| `batch_size` | `64` | sets the number of minibatches, not their size (see the notes) |
+| `num_minibatches` | `0` | when positive, the number of minibatches, as in Brax |
+| `n_epochs` | `10` | passes over the rollout per update, each reshuffled |
+| `actor_learning_rate`, `critic_learning_rate` | `3e-4` | Adam step sizes, each a float or a schedule |
+| `adam_eps` | `1e-5` | Adam's epsilon |
+| `gamma` | `0.99` | discount |
+| `gae_lambda` | `0.95` | GAE's lambda |
+| `clip_range` | `0.2` | the ratio clip; a float or a schedule of the timestep |
+| `ent_coef` | `0` | entropy bonus weight |
+| `vf_coef` | `0.5` | critic loss weight, on half the squared error |
+| `clip_value_loss` | `None` | clip the value loss (see the notes); `None` clips except with `unroll_length` |
+| `max_grad_norm` | `0.5` | one gradient clip by global norm over both networks; `None` turns it off |
+| `normalize_advantage` | `True` | standardise the advantages in each minibatch |
 | `actor_architecture`, `critic_architecture` | `("64", "tanh", "64", "tanh")` | hidden layers, as width and activation strings |
-| `share_encoder` | None | one encoder for the actor and the critic; `None` shares it with images only |
-| `normalize_observations`, `normalize_rewards` | True | running normalisation, as ppo2's `VecNormalize` wrapper |
-| `observation_clip` | 10.0 | bound of the normalised observations (rewards are clipped at 10 too) |
-| `reward_normalization_gamma` | None | with `normalize_rewards`, the discount of the return whose spread divides the rewards: `gamma` if None, 0 for the single reward's |
-| `memory`, `bptt_length` | None | memory block, and the length of the replayed chunks (see the notes) |
-| `unroll_length` | None | Brax's minibatching: fragments of this length, advantages per minibatch (feedforward only) |
-| `log_std_state_independent`, `log_std_init` | True, 0.0 | one learned log standard deviation per action dimension, and its initial value |
-| `log_std_bounds` | None | the `(low, high)` clip of that log standard deviation; `None` leaves it unclipped |
-| `squash` | False | bound the Gaussian with `tanh` |
-| `actor_bias_init`, `critic_bias_init` | None | initialisers by name ([Networks](../guide/networks.md)) |
+| `share_encoder` | `None` | one encoder for the actor and the critic; `None` shares it with images only |
+| `normalize_observations`, `normalize_rewards` | `True` | running normalisation, as ppo2's `VecNormalize` wrapper |
+| `observation_clip` | `10.0` | bound of the normalised observations (rewards are clipped at 10 too) |
+| `reward_normalization_gamma` | `None` | with `normalize_rewards`, the discount of the return whose spread divides the rewards: `gamma` if None, 0 for the single reward's |
+| `memory`, `bptt_length` | `None` | memory block, and the length of the replayed chunks (see the notes) |
+| `unroll_length` | `None` | Brax's minibatching: fragments of this length, advantages per minibatch (feedforward only) |
+| `log_std_state_independent`, `log_std_init` | `True`, `0.0` | one learned log standard deviation per action dimension, and its initial value |
+| `log_std_bounds` | `None` | the `(low, high)` clip of that log standard deviation; `None` leaves it unclipped |
+| `squash` | `False` | bound the Gaussian with `tanh` |
+| `actor_bias_init`, `critic_bias_init` | `None` | initialisers by name ([Networks](../guide/networks.md)) |
 | `encoder_kernel_init` | `"orthogonal(np.sqrt(2))"` | the hidden layers' initialiser; None is the same one |
-| `cnn_image_shape`, `cnn_extra_obs_dim`, `cnn_spec` | None, 0, None | convolutional encoder for flat image observations |
-| `episode_length`, `action_repeat` | None, 1 | simulator steps per episode (1,000 when `None`) and per agent step, on Brax and Playground |
-| `expose_recent_rollout` | False | keep the last rollout on the state even when no extension reads it |
-| `expert_policy` | None | an expert the collector tracks: its actions feed the observation features and a residual policy (`ResidualPolicy`), and the evaluation reports its return next to the agent's |
+| `cnn_image_shape`, `cnn_extra_obs_dim`, `cnn_spec` | `None`, `0`, `None` | convolutional encoder for flat image observations |
+| `episode_length`, `action_repeat` | `None`, `1` | simulator steps per episode (1,000 when `None`) and per agent step, on Brax and Playground |
+| `expose_recent_rollout` | `False` | keep the last rollout on the state even when no extension reads it |
+| `expert_policy` | `None` | an expert the collector tracks: its actions feed the observation features and a residual policy (`ResidualPolicy`), and the evaluation reports its return next to the agent's |
 | `extensions` | `()` | research features (see [Extensions](../guide/extensions.md)) |
 
 `squash`, `mean_kernel_init`, `num_resets_per_eval` and `num_evals`

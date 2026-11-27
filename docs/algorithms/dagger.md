@@ -65,18 +65,18 @@ at the last step (`dagger/expert_frac`).
 | Argument | Default | What it does |
 | --- | --- | --- |
 | `expert_policy` | required | the expert to imitate, as in [Expert guidance](../guide/expert-guidance.md#the-expert) |
-| `eval_expert_policy` | None | another expert whose return each evaluation logs in place of `expert_policy`'s |
+| `eval_expert_policy` | `None` | another expert whose return each evaluation logs in place of `expert_policy`'s |
 | `beta_schedule` | `LinearBetaSchedule(15)` | the expert's probability of acting in iteration `i`, falling linearly from 1 to 0 over 15 iterations; `ExponentialBetaSchedule(decay)` gives `beta_i = decay ** (i - 1)` |
-| `iteration_steps` | 500 | timesteps (over all environments) per iteration |
+| `iteration_steps` | `500` | timesteps (over all environments) per iteration |
 | `fit` | `IterationFit(epochs=4, entropy_weight=1e-3)` | how the policy fits the labels: 4 epochs over the whole replay at each iteration's end; `OnlineFit()`, one gradient step per environment step (see below) |
-| `n_envs` | 1 | environments stepped in parallel |
-| `buffer_size` | 1,000,000 | labelled states kept |
-| `batch_size` | 32 | labelled states per gradient step (a minibatch of an epoch, for `IterationFit`) |
-| `actor_learning_rate` | 1e-3 | Adam step size (eps 1e-8, torch's) |
+| `n_envs` | `1` | environments stepped in parallel |
+| `buffer_size` | `1_000_000` | labelled states kept |
+| `batch_size` | `32` | labelled states per gradient step (a minibatch of an epoch, for `IterationFit`) |
+| `actor_learning_rate` | `1e-3` | Adam step size (eps 1e-8, torch's) |
 | `actor_architecture` | `("32", "tanh", "32", "tanh")` | hidden layers |
-| `max_grad_norm` | None | gradient clipping by global norm |
-| `normalize_observations` | False | running observation normalisation |
-| `episode_length`, `action_repeat` | None, 1 | simulator steps per episode and per agent step, on Brax and Playground |
+| `max_grad_norm` | `None` | gradient clipping by global norm |
+| `normalize_observations` | `False` | running observation normalisation |
+| `episode_length`, `action_repeat` | `None`, `1` | simulator steps per episode and per agent step, on Brax and Playground |
 | `extensions` | `()` | research features (see [Extensions](../guide/extensions.md)) |
 
 ## How it works

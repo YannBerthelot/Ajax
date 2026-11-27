@@ -54,19 +54,19 @@ The defaults are those of Spinning Up's `vpg()`.
 
 | Argument | Default | What it does |
 | --- | --- | --- |
-| `n_envs` | 1 | environments stepped in parallel |
-| `n_steps` | 4000 | steps per environment in each rollout |
-| `baseline` | True | subtract a learned value V(s) (GAE); False weights each step by its reward-to-go alone |
-| `gamma` | 0.99 | discount |
-| `gae_lambda` | 0.97 | GAE's lambda, with a baseline |
-| `actor_learning_rate` | 3e-4 | the policy's Adam step size |
-| `critic_learning_rate` | 1e-3 | the critic's Adam step size |
-| `value_steps` | 80 | full-batch Adam steps of the critic per rollout |
-| `normalize_advantage` | True | standardise the advantages over the rollout |
+| `n_envs` | `1` | environments stepped in parallel |
+| `n_steps` | `4000` | steps per environment in each rollout |
+| `baseline` | `True` | subtract a learned value V(s) (GAE); False weights each step by its reward-to-go alone |
+| `gamma` | `0.99` | discount |
+| `gae_lambda` | `0.97` | GAE's lambda, with a baseline |
+| `actor_learning_rate` | `3e-4` | the policy's Adam step size |
+| `critic_learning_rate` | `1e-3` | the critic's Adam step size |
+| `value_steps` | `80` | full-batch Adam steps of the critic per rollout |
+| `normalize_advantage` | `True` | standardise the advantages over the rollout |
 | `actor_architecture`, `critic_architecture` | `("64", "tanh", "64", "tanh")` | hidden layers |
-| `max_grad_norm` | None | clips each network's gradient to this global norm |
-| `normalize_observations`, `normalize_rewards` | False | running normalisation |
-| `episode_length`, `action_repeat` | None, 1 | simulator steps per episode (1,000 when `None`) and per agent step, on Brax and Playground |
+| `max_grad_norm` | `None` | clips each network's gradient to this global norm |
+| `normalize_observations`, `normalize_rewards` | `False` | running normalisation |
+| `episode_length`, `action_repeat` | `None`, `1` | simulator steps per episode (1,000 when `None`) and per agent step, on Brax and Playground |
 | `extensions` | `()` | research features (see [Extensions](../guide/extensions.md)) |
 
 There is no `n_epochs` or `num_minibatches` argument: a second pass over a

@@ -707,7 +707,7 @@ def combined_policy_return(
     has envs of its own, which it steps once per episode."""
     env, params = env_args.env, env_args.env_params
     env, mode, _ = setup_environment(
-        env, params, n_episodes, None, 0.99, env_args.action_repeat
+        env, params, n_episodes, None, action_repeat=env_args.action_repeat
     )
     length = agent_episode_length(env, params, env_args.action_repeat)
     parts = evaluation_policy(

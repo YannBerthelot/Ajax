@@ -50,7 +50,7 @@ def test_evaluation_wraps_the_same_object_again():
     env, env_params, *_ = prepare_env(raw, n_envs=2)
 
     evaluation_env, _, _ = setup_environment(
-        env, env_params, num_episodes=3, norm_info=None, gamma=0.99
+        env, env_params, num_episodes=3, norm_info=None
     )
 
     assert get_raw_env(evaluation_env) is raw

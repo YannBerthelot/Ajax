@@ -18,7 +18,7 @@ import numpy as np
 import pytest
 from flax import struct
 
-from ajax.environments.create import build_env_from_id, build_of
+from ajax.environments.create import build_env_from_id, _build_of
 from ajax.wrappers import FreshAutoResetWrapper, _call_if_any
 
 N_ENVS, EPISODE_LENGTH, N_STEPS, N_SEEDS = 2, 3, 9, 2  # 4 episode starts each
@@ -155,7 +155,7 @@ def test_eval_rebuild_keeps_the_reset_semantics():
         eval_env, _, _ = setup_environment(
             env, None, num_episodes=2, norm_info=None, gamma=0.99
         )
-        assert build_of(eval_env).fresh_reset is fresh_reset
+        assert _build_of(eval_env).fresh_reset is fresh_reset
 
 
 @struct.dataclass

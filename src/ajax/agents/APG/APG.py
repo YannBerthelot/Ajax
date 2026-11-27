@@ -69,7 +69,7 @@ from ajax.controller import (
     reads_previous_reward,
     restart_observers,
 )
-from ajax.environments.create import build_of
+from ajax.environments.create import _build_of
 from ajax.environments.differentiable import (
     Rollout,
     closed_loop_rollout,
@@ -225,7 +225,7 @@ class APG(GradientClipping, ExpertGuided, OwnIterationAgent):
         return {"beta_1": self.beta_1, "beta_2": self.beta_2, "eps": 1e-8}
 
     def setup(self) -> None:
-        if build_of(self.env_args.env).physics == "warp":
+        if _build_of(self.env_args.env).physics == "warp":
             raise ValueError(
                 "APG back-propagates the return through the simulator, and"
                 " MuJoCo Warp physics cannot be differentiated through. APG"

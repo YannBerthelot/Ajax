@@ -246,8 +246,8 @@ def _patch_playground_reacher(reacher: Any) -> bool:
 
 
 @dataclasses.dataclass(frozen=True)
-class EnvBuild:
-    """How Ajax built an env's stack, which rebuild_for_evaluation repeats: its
+class _EnvBuild:
+    """How Ajax built an env's stack, which _rebuild_for_evaluation repeats: its
     id, the MuJoCo physics, the auto-reset (fresh_reset, episode_keys) and a
     bare env object given in place of an id. The builders record it on the
     stack's outermost layer; the defaults describe an env none built."""
@@ -259,25 +259,25 @@ class EnvBuild:
     prebuilt: Any = None
 
 
-def _record_build(env: Any, build: EnvBuild) -> Any:
+def _record_build(env: Any, build: _EnvBuild) -> Any:
     env._ajax_build = build
     return env
 
 
-def build_of(env: Any) -> EnvBuild:
-    """How env's stack was built (EnvBuild), read through the wrappers over
+def _build_of(env: Any) -> _EnvBuild:
+    """How env's stack was built (_EnvBuild), read through the wrappers over
     it. A registered builder's stack names its id in an _ajax_env_id
     attribute of its own (register_brax_builder), which comes first."""
     build = getattr(env, "_ajax_build", None)
     if build is None:
-        build = EnvBuild()
+        build = _EnvBuild()
     env_id = getattr(env, "_ajax_env_id", None)
     if env_id is None:
         return build
     return dataclasses.replace(build, env_id=env_id)
 
 
-def native_episode_length(env: Any) -> int:
+def _native_episode_length(env: Any) -> int:
     """The episode length (simulator steps) env's task sets itself: the
     outermost _config.episode_length (the playground convention), else 1000."""
     for layer in wrapper_chain(env):
@@ -360,7 +360,7 @@ def _build_playground_env(
         differentiable_reset=differentiable_reset,
         episode_keys=episode_keys,
     )
-    build = EnvBuild(env_id, physics, fresh_reset, episode_keys)
+    build = _EnvBuild(env_id, physics, fresh_reset, episode_keys)
     return _record_build(env, build)
 
 
@@ -391,7 +391,7 @@ def wrap_playground_env(
     env = BatchRngWrapper(env, n_envs=n_envs)
     # The evaluation's rebuild keeps training's auto-reset.
     return _record_build(
-        env, EnvBuild(fresh_reset=fresh_reset, episode_keys=episode_keys)
+        env, _EnvBuild(fresh_reset=fresh_reset, episode_keys=episode_keys)
     )
 
 
@@ -401,12 +401,12 @@ def wrap_prebuilt_playground_env(
     """A bare mujoco_playground env object, such as gymnasium-mjx's
     ``PlaygroundTask``, wrapped as one built from an id. It has no id to be
     rebuilt from, so the stack keeps the object, and evaluation wraps it
-    again (rebuild_for_evaluation). The episode length defaults to the
-    env's own (native_episode_length)."""
+    again (_rebuild_for_evaluation). The episode length defaults to the
+    env's own (_native_episode_length)."""
     if episode_length is None:
-        episode_length = native_episode_length(raw)
+        episode_length = _native_episode_length(raw)
     env = wrap_playground_env(raw, n_envs, int(episode_length), action_repeat)
-    return _record_build(env, EnvBuild(env_id=type(raw).__name__, prebuilt=raw))
+    return _record_build(env, _EnvBuild(env_id=type(raw).__name__, prebuilt=raw))
 
 
 def _build_brax_env(
@@ -465,7 +465,7 @@ def _build_brax_env(
         env = brax_training.VmapWrapper(env, batch_size=n_envs)
         env = FinalObsWrapper(env)
         env = AutoResetWrapper(env, differentiable_reset=differentiable_reset)
-    return _record_build(env, EnvBuild(env_id=env_id, episode_keys=episode_keys))
+    return _record_build(env, _EnvBuild(env_id=env_id, episode_keys=episode_keys))
 
 
 #: The first MuJoCo whose Warp exports the flag for dropped convex collisions
@@ -675,7 +675,7 @@ def with_episode_keys(env: EnvType, on: bool = True) -> EnvType:
             " episode_keys=...)"
         )
     if not on:
-        return _record_build(copy.copy(env), EnvBuild(episode_keys=False))
+        return _record_build(copy.copy(env), _EnvBuild(episode_keys=False))
     if any(
         isinstance(layer, EpisodeKeyedAutoResetWrapper) for layer in wrapper_chain(env)
     ):
@@ -748,7 +748,7 @@ def strip_ajax_wrappers(env: EnvType) -> tuple[EnvType, dict]:
     raise ValueError(f"No task env under the Ajax wrappers of {env!r}")
 
 
-def rebuild_for_evaluation(
+def _rebuild_for_evaluation(
     env: Any,
     n_envs: int,
     episode_length: Optional[int],
@@ -756,19 +756,19 @@ def rebuild_for_evaluation(
     physics: str,
 ) -> Any:
     """A brax or playground task env (Ajax's own layers off) built again
-    with n_envs envs, as its build record says (build_of): from its id, a
+    with n_envs envs, as its build record says (_build_of): from its id, a
     playground task on physics, or a bare env object wrapped again, with
     training's auto-reset; the wrappers over the stack its builder returned
     go back over it. episode_length counts simulator steps; None is the
-    task's own (native_episode_length), not 1000, which would run past a
+    task's own (_native_episode_length), not 1000, which would run past a
     shorter time limit (150 on Playground's manipulation tasks)."""
     users = _over_the_built_stack(env)
-    build = build_of(env)
+    build = _build_of(env)
     env_id = build.env_id
     if env_id is None:
         env_id = type(get_raw_env(env)).__name__.lower()
     if episode_length is None:
-        episode_length = native_episode_length(env)
+        episode_length = _native_episode_length(env)
     shared: dict[str, Any] = {
         "n_envs": n_envs,
         "episode_length": int(episode_length),
@@ -858,7 +858,7 @@ def prepare_env(
                 " (register_brax_builder / register_playground_builder) and pass"
                 " its id."
             )
-    if get_env_type(env) == "gymnax" and build_of(env).episode_keys:
+    if get_env_type(env) == "gymnax" and _build_of(env).episode_keys:
         env = with_episode_keys(env)
     continuous = check_if_environment_has_continuous_actions(env)
     env = add_ajax_wrappers(

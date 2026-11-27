@@ -444,7 +444,6 @@
 "ajax.agents.families:measure_replay",
 "ajax.agents.families:reads_last_rollout",
 "ajax.agents.families:reads_step_in_episode",
-"ajax.agents.families:with_ni_features",
 "ajax.agents.loop:Collect",
 "ajax.agents.loop:Evaluation",
 "ajax.agents.loop:Init",

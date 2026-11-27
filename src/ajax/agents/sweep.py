@@ -107,7 +107,9 @@ def by_configuration(
         )
     grouped: list[tuple[dict[str, float], list]] = []
     for member, row in zip(members, rows, strict=True):
-        configuration = {k: v for k, v in member.items() if k != "seed"}
+        configuration = {
+            name: value for name, value in member.items() if name != "seed"
+        }
         if not grouped or grouped[-1][0] != configuration:
             grouped.append((configuration, []))
         grouped[-1][1].append(row)

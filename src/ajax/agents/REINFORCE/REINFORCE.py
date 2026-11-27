@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import dataclasses
 from dataclasses import dataclass
-from typing import Any, ClassVar, Optional, Union
+from typing import Any, ClassVar
 
 import jax
 import jax.numpy as jnp
@@ -56,7 +56,7 @@ from ajax.networks.networks import predict_value
 from ajax.networks.utils import TORCH_LINEAR
 from ajax.random_keys import derive_key
 from ajax.state import BaseAgentState, LoadedTrainState, Transition
-from ajax.types import Architecture, FloatOrCallable, InitializationFunction
+from ajax.types import Architecture, FloatOrCallable
 
 #: Spinning Up's plain reward-to-go policy gradient (spinningup @038665d,
 #: spinup/examples/pytorch/pg_math/2_rtg_pg.py:24-25, :38, :55): one 32-unit
@@ -114,16 +114,23 @@ class REINFORCE(
     #: The critic's full-batch Adam steps per rollout (vpg's train_v_iters).
     value_steps: int = 80
     normalize_advantage: bool = True
-    encoder_kernel_init: Optional[Union[str, InitializationFunction]] = TORCH_LINEAR
-    mean_kernel_init: Optional[Union[str, InitializationFunction]] = TORCH_LINEAR
-    logits_kernel_init: Optional[Union[str, InitializationFunction]] = TORCH_LINEAR
-    value_kernel_init: Optional[Union[str, InitializationFunction]] = TORCH_LINEAR
-    log_std_state_independent: bool = True
-    log_std_init: float = -0.5
 
     sweepable: ClassVar[frozenset[str]] = frozenset(
         {"actor_learning_rate", "critic_learning_rate", "gamma", "gae_lambda"}
     )
+
+    def actor_critic_args(self) -> dict[str, Any]:
+        # Spinning Up's networks: torch's nn.Linear initialisation in every
+        # layer, and the Gaussian's log-std one learned parameter per action
+        # dimension, starting at -0.5 (core.py:84).
+        return {
+            "encoder_kernel_init": TORCH_LINEAR,
+            "mean_kernel_init": TORCH_LINEAR,
+            "logits_kernel_init": TORCH_LINEAR,
+            "value_kernel_init": TORCH_LINEAR,
+            "log_std_state_independent": True,
+            "log_std_init": -0.5,
+        }
 
     def optimizer_settings(self) -> dict[str, Any]:
         return {"eps": 1e-8}  # torch.optim.Adam's default eps (vpg.py:231-232)

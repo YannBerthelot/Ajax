@@ -46,7 +46,7 @@ rewards scaled by 0.1.
 | --- | --- | --- |
 | `n_envs` | `128` | parallel environments |
 | `learning_rate` | `5e-4` | RAdam step size (the authors' optimiser, `optax.radam`) |
-| `lr_linear_decay` | `True` | decay the rate linearly to ~0 over the run's gradient steps, as every purejaxql config does |
+| `learning_rate_decay` | `"linear"` | decay the rate linearly to ~0 over the run's gradient steps, as every purejaxql config does; `None` keeps it constant |
 | `architecture` | `("128", "relu", "128", "relu")` | hidden layers; each Dense is followed by a LayerNorm |
 | `gamma` | `0.99` | discount |
 | `q_lambda` | `0.65` | the lambda of the Q(lambda) returns |
@@ -78,7 +78,7 @@ its MinAtar config is the defaults.
 | --- | --- | --- |
 | `n_envs`, `n_steps` | 32, 64 | 128, 32 |
 | `num_minibatches`, `n_epochs` | 16, 4 | 32, 2 |
-| `learning_rate`, `lr_linear_decay` | `1e-4`, `True` | `2.5e-4`, `False` |
+| `learning_rate`, `learning_rate_decay` | `1e-4`, `"linear"` | `2.5e-4`, `None` |
 | `epsilon_end`, `epsilon_decay_frac` | 0.2, 0.2 | 0.001, 0.1 |
 | `q_lambda`, `reward_scale` | 0.95, 0.1 | 0.65, 1.0 |
 | `architecture` | 256-256 ReLU | the default |

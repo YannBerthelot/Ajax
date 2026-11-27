@@ -52,9 +52,9 @@ EQUATIONS = {
 }
 #: (importer, agent, name) -> the batch that ends the import. An importer is
 #: an agent, or a shared module's path under src/ajax.
-BORROWED = {
-    # B4 declared the SAC family: no agent borrows from another any more.
-    ("checkpoint.py", "UDRL", "SegmentBuffer"): "2026-11-17 (the shim's removal)",
+BORROWED: dict[tuple[str, str, str], str] = {
+    # B4 declared the SAC family, and checkpoint.py's UDRL shim is gone:
+    # nothing borrows from an agent any more.
 }
 
 

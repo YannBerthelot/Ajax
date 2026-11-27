@@ -98,7 +98,7 @@ def test_the_defaults_are_the_reference_codes() -> None:
     value = agent.value_optimizer_args
     assert (value.eps, value.learning_rate) == (1e-8, 3e-4)
     assert (agent.expectile, agent.temperature, agent.tau) == (0.7, 3.0, 0.005)
-    assert agent.actor_lr_decay == "cosine"
+    assert agent.actor_learning_rate_decay == "cosine"
 
 
 @pytest.mark.parametrize("offline, updates", [(False, 50), (True, 100)])
@@ -109,14 +109,14 @@ def test_the_actor_rate_falls_to_zero_by_a_cosine_over_the_runs_updates(
     over the run's max_steps: 3e-4 (1 + cos(pi k / N)) / 2 at update k of N,
     so 3e-4, then 1.5e-4 halfway, then 0. A run of 100 timesteps on 2 envs
     makes N = 50 updates online (one per tick), N = 100 offline (one per
-    timestep). With actor_lr_decay=None the rate stays the float."""
+    timestep). With actor_learning_rate_decay=None the rate stays the float."""
     agent = IQL("Pendulum-v1", n_envs=2)
     context = dataclasses.replace(agent.make_context(100)[1], offline=offline)
     rate = agent.with_decayed_actor_rate(context).actor_optimizer_args.learning_rate
     assert callable(rate)
     got = [float(rate(k)) for k in (0, updates // 2, updates)]
     np.testing.assert_allclose(got, [3e-4, 1.5e-4, 0.0], atol=1e-12)
-    constant = IQL("Pendulum-v1", n_envs=2, actor_lr_decay=None)
+    constant = IQL("Pendulum-v1", n_envs=2, actor_learning_rate_decay=None)
     kept = constant.with_decayed_actor_rate(constant.make_context(100)[1])
     assert kept.actor_optimizer_args.learning_rate == 3e-4
     given = IQL("Pendulum-v1", actor_learning_rate=optax.constant_schedule(1e-3))

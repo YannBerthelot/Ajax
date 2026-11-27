@@ -92,7 +92,7 @@ from ajax.log import (
     unevaluated,
 )
 from ajax.logging.wandb_logging import LoggingConfig, start_async_logging, vmap_log
-from ajax.networks.networks import mirror_shared_encoder
+from ajax.networks.sharing import mirror_shared_encoder
 from ajax.perf_utils import build_chunked_train, build_resumable_train
 from ajax.state import EnvironmentConfig
 from ajax.types import NormalizationInfo

@@ -92,9 +92,9 @@ class IQL(
     [-5, 2], whose samples act clipped to [-1, 1] and are stored clipped
     (learner.py sample_actions, train_finetune.py); batch 256, gamma 0.99, tau
     0.005. The actor's learning rate decays to 0 by a cosine over the run's
-    updates, as the reference Learner's does by default (actor_lr_decay).
-    Its locomotion rewards are scaled by 1000 over the dataset's
-    range of returns: reward_scale. normalize_rewards, off by default, is
+    updates, as the reference Learner's does by default
+    (actor_learning_rate_decay). Its locomotion rewards are scaled by 1000
+    over the dataset's range of returns: reward_scale. normalize_rewards, off by default, is
     Ajax's, not the reference's: it divides them by a running standard
     deviation that counts a dataset's rows and each step collected, as on the
     other agents.
@@ -121,7 +121,7 @@ class IQL(
     #: whole horizon to each. An offline run's decayed rate carries into a
     #: train(initial_state=...) that fine-tunes it: train both with None. A
     #: schedule given as actor_learning_rate runs as given.
-    actor_lr_decay: Optional[Literal["cosine"]] = "cosine"
+    actor_learning_rate_decay: Optional[Literal["cosine"]] = "cosine"
 
     #: The numbers a sweep may vary in one program (ActorCritic.sweepable),
     #: each checked against separate runs by tests/agents/test_sweep_every_agent.py.
@@ -139,9 +139,10 @@ class IQL(
     def check(self) -> None:
         if not 0.0 < self.expectile < 1.0:
             raise ValueError(f"IQL's expectile is in (0, 1), got {self.expectile}.")
-        if self.actor_lr_decay not in (None, "cosine"):
+        if self.actor_learning_rate_decay not in (None, "cosine"):
             raise ValueError(
-                f"IQL's actor_lr_decay is 'cosine' or None, got {self.actor_lr_decay!r}."
+                "IQL's actor_learning_rate_decay is 'cosine' or None, got"
+                f" {self.actor_learning_rate_decay!r}."
             )
 
     def actor_critic_args(self) -> dict[str, Any]:
@@ -217,14 +218,14 @@ class IQL(
         )
 
     def with_decayed_actor_rate(self, context: TrainContext) -> TrainContext:
-        """The context whose actor optimiser follows actor_lr_decay: a
-        cosine from actor_learning_rate to 0 over the run's updates: those
+        """The context whose actor optimiser follows actor_learning_rate_decay:
+        a cosine from actor_learning_rate to 0 over the run's updates: those
         its extensions' pretrain runs before any env step, then one per
         timestep offline, one per tick of n_envs online from update_start.
         The schedule counts the optimiser's steps, so a resumed call of the
         same run continues it."""
         peak = context.actor_optimizer_args.learning_rate
-        if self.actor_lr_decay is None or callable(peak):
+        if self.actor_learning_rate_decay is None or callable(peak):
             return context
         if context.offline:
             updates = context.total_timesteps

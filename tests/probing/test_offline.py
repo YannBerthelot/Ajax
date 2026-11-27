@@ -101,7 +101,7 @@ def iql_readings() -> Any:
     def build() -> Any:
         env = envs.package(envs.SignedActionEnv)
         kw: dict[str, Any] = {"expectile": TAU, "temperature": BETA}
-        kw |= {"actor_lr_decay": None}
+        kw["actor_learning_rate_decay"] = None
         return agents.make("IQL", *env, preset=None, **kw)  # calibrated constant
 
     def read(run: runs.Run) -> dict:

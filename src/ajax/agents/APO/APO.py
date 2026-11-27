@@ -60,7 +60,8 @@ from ajax.environments.interaction import get_pi
 from ajax.environments.utils import check_if_environment_has_continuous_actions
 from ajax.extensions.base import merge_metrics
 from ajax.networks.distributions import policy_entropy, recompute_log_prob
-from ajax.networks.networks import predict_value, with_critic_encoder
+from ajax.networks.networks import predict_value
+from ajax.networks.sharing import with_critic_encoder
 from ajax.networks.utils import TORCH_LINEAR
 from ajax.random_keys import derive_key, split_by_index
 from ajax.schedule import Schedule, at
@@ -589,7 +590,7 @@ def compute_value_loss(
 TORCH_CLIP_EPS = 1e-6
 
 
-# -- State, logged metrics and the legacy view --------------------------------
+# -- State and logged metrics -------------------------------------------------
 @struct.dataclass(kw_only=True)
 class APOState(BaseAgentState):
     """APO's state: the base state's, the reward rate and the value bias."""

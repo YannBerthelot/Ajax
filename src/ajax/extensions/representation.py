@@ -31,8 +31,9 @@ from ajax.extensions.instrumentation import (
     critic_takes_action,
 )
 from ajax.log import gated_log_callback, unevaluated
-from ajax.networks.networks import action_value_input, critic_input
+from ajax.networks.networks import action_value_input
 from ajax.networks.utils import Activation
+from ajax.networks.values import critic_input
 from ajax.representation.metrics import (
     dead_unit_fraction,
     effective_rank,

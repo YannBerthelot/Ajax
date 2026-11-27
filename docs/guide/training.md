@@ -164,8 +164,7 @@ the agent never trains; a call that ends before it warns.
 `jax.random.PRNGKey(seed)`, and `train` runs all of them at once with
 `jax.vmap`: one compilation, one program, every seed in step. More seeds
 cost little extra time until the device is full
-([Performance](performance.md) has the measurements), so run the seeds you
-need in one call rather than one call per seed.
+([Performance](performance.md)), so run the seeds you need in one call.
 
 Everything `train` returns has the seed axis first, whatever the number of
 seeds: with `seed=0`, `evaluations.returns` has shape `(1, evaluations)`,

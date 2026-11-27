@@ -253,8 +253,8 @@ agent = SAC(env, env_params=params, learning_starts=500)
 state, _ = agent.train(seed=0, n_timesteps=1_000)
 ```
 
-`SAC("Pendulum-v1", env_params=params)` does the same with an id. Brax and
-Playground ids take no `env_params`: passing some raises.
+`SAC("Pendulum-v1", env_params=params)` does the same with an id; Brax and
+Playground ids refuse `env_params`.
 
 ### Writing one
 
@@ -468,8 +468,8 @@ Playground stack; since evaluation rebuilds those from their id, add it in a
 ## Gymnasium environments
 
 A [Gymnasium](https://gymnasium.farama.org) environment steps in Python, so
-Ajax cannot compile it with the agent. You can still train on one, MuJoCo's
-tasks included, by asking for it with the `gymnasium:` prefix:
+Ajax cannot compile it with the agent, but you can still train on one,
+MuJoCo's tasks included, with the `gymnasium:` prefix:
 
 ```python
 from ajax import SAC
@@ -541,11 +541,11 @@ what differs from the closest JAX task:
 | `MountainCarContinuous-v0` | gymnax, same id | The car is not stopped at the left wall, and the goal also counts when reached moving left |
 
 Brax's physics is its own solver, not MuJoCo's: Euler steps, fewer solver
-iterations, and fewer bodies that collide (usually only the feet). MuJoCo
-Playground has DeepMind Control tasks close to several of them
-(`"CheetahRun"`, `"HopperHop"`, `"WalkerWalk"`, `"HumanoidRun"`,
-`"ReacherEasy"`, ...): other tasks, with another model, a reward between 0
-and 1 and no early termination. The warning names them too.
+iterations, and fewer bodies that collide (usually only the feet). The
+warning also names MuJoCo Playground's DeepMind Control tasks close to
+several of them (`"CheetahRun"`, `"HopperHop"`, `"WalkerWalk"`,
+`"HumanoidRun"`, `"ReacherEasy"`, ...): other tasks, with another model, a
+reward between 0 and 1 and no early termination.
 
 ## Normalisation
 
@@ -554,7 +554,7 @@ agent learns from:
 
 | Argument | What it does | Default |
 | --- | --- | --- |
-| `normalize_observations` | each observation dimension to mean 0 and variance 1 | `False`; `True` for PPO, as ppo2's MuJoCo run; AVG always normalises its observations, as its paper does |
+| `normalize_observations` | each observation dimension to mean 0 and variance 1 | `False`; `True` for PPO, as ppo2's MuJoCo run; always on for AVG, as in its paper |
 | `normalize_rewards` | divides the rewards by the running standard deviation of the discounted return, then clips them to ±10, as Stable-Baselines3's `VecNormalize` does | `False`; `True` for PPO |
 | `reward_normalization_gamma` | that return's discount; `0` divides by the standard deviation of the single-step reward (which is 0 for a constant reward, such as CartPole's) | the agent's `gamma`, or 0.99 for an agent without one (APO, ASAC, RVI-SAC) |
 | `observation_clip` | clips the normalised observations an on-policy agent stores to ± this value; a replay agent, whose networks normalise without clipping, refuses it | `None`; 10 for PPO, as ppo2's `VecNormalize` |

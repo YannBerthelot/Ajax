@@ -144,9 +144,9 @@ print(action)
 ```
 
 It acts for the first seed; `seed_index` picks another. The action is a JAX
-array: a Gymnasium environment's `step` wants `np.asarray(action)`. With it,
-an episode in one environment is a plain loop, each step on a fresh key
-split from the last, since JAX has no hidden random state:
+array: a Gymnasium environment's `step` wants `np.asarray(action)`. An
+episode in one environment is then a plain loop, each step on a fresh key
+split from the last, as JAX has no hidden random state:
 
 ```python
 single_reset_key, single_key = jax.random.split(jax.random.PRNGKey(1))

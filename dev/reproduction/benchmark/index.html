@@ -1910,6 +1910,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#at-a-glance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        At a glance
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#setup" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2924,6 +2935,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#at-a-glance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        At a glance
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#setup" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3011,6 +3033,37 @@ memory. PPO, APO, DQN, PQN and REDQ were rerun from 2026-11-14 at the defaults
 they have had since 2026-11-13; the other agents' rows
 are from the earlier commits named below. How Ajax's agents
 compare with other implementations is in the <a href="../results/">results</a>.</p>
+<h2 id="at-a-glance">At a glance<a class="headerlink" href="#at-a-glance" title="Permanent link">&para;</a></h2>
+<p>These figures put each suite on one scale, as
+<a href="https://github.com/google-research/rliable">rliable</a> does (Agarwal et al.,
+<a href="https://arxiv.org/abs/2108.13264">Deep RL at the Edge of the Statistical Precipice</a>,
+NeurIPS 2021): DeepMind Control returns are divided by 1000, their maximum,
+and MinAtar returns by the game's best mean in the tables below. A run is one
+task and one seed; a suite's aggregates hold the agents that ran all its
+tasks. <code>benchmarks/suite/publish.py</code> draws them from the records.</p>
+<div class="tabbed-set tabbed-alternate" data-tabs="1:2"><input checked="checked" id="__tabbed_1_1" name="__tabbed_1" type="radio" /><input id="__tabbed_1_2" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="__tabbed_1_1">DeepMind Control</label><label for="__tabbed_1_2">MinAtar</label></div>
+<div class="tabbed-content">
+<div class="tabbed-block">
+<p><img alt="DeepMind Control: interquartile mean and performance profile of the normalised final returns" src="../benchmark-figures/control-scores.svg" /></p>
+<p><img alt="DeepMind Control: interquartile mean of the normalised returns against hours on four CPU cores" src="../benchmark-figures/control-time.svg" /></p>
+</div>
+<div class="tabbed-block">
+<p><img alt="MinAtar: interquartile mean and performance profile of the normalised final returns" src="../benchmark-figures/minatar-scores.svg" /></p>
+<p><img alt="MinAtar: interquartile mean of the normalised returns against hours on four CPU cores" src="../benchmark-figures/minatar-time.svg" /></p>
+</div>
+</div>
+</div>
+<p>In the first figure, the dot is the interquartile mean of an agent's final
+returns, the mean of the middle half of its runs, which a few outlying runs
+move little, and the bar is its 95% interval, from resampling the seeds of
+each task. On the right, each line gives the fraction of runs that ended
+above each score: a line that stays high further to the right did well on
+more of its runs.</p>
+<p>The second figure follows the interquartile mean through training against the
+hours four CPU cores take to reach each evaluation, at the speed the
+<a href="../../guide/performance/#cpu-or-gpu">timing pass</a> measured rather than each
+run's own wall clock, since the runs used several machines. Its CheetahRun
+panel adds the five agents that ran that task only.</p>
 <h2 id="setup">Setup<a class="headerlink" href="#setup" title="Permanent link">&para;</a></h2>
 <ul>
 <li><strong>Tasks.</strong> Fifteen DeepMind Control tasks on MuJoCo Playground, trained for
@@ -3044,7 +3097,7 @@ task to its best mean, then the learning curves: the mean over seeds with a
 band of one standard deviation. <code>benchmarks/suite/publish.py</code> writes them
 from the records.</p>
 <!-- benchmark-tables:start -->
-<div class="tabbed-set tabbed-alternate" data-tabs="1:2"><input checked="checked" id="__tabbed_1_1" name="__tabbed_1" type="radio" /><input id="__tabbed_1_2" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="__tabbed_1_1">DeepMind Control</label><label for="__tabbed_1_2">MinAtar</label></div>
+<div class="tabbed-set tabbed-alternate" data-tabs="2:2"><input checked="checked" id="__tabbed_2_1" name="__tabbed_2" type="radio" /><input id="__tabbed_2_2" name="__tabbed_2" type="radio" /><div class="tabbed-labels"><label for="__tabbed_2_1">DeepMind Control</label><label for="__tabbed_2_2">MinAtar</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
 <table>

@@ -3248,9 +3248,131 @@ off-policy agent makes one update per iteration, so more copies at a fixed
 budget mean fewer updates (<a href="../training/">Training</a>). Pick <code>n_envs</code> for the
 learning you want, then use seeds to fill the device.</p>
 <h2 id="cpu-or-gpu">CPU or GPU<a class="headerlink" href="#cpu-or-gpu" title="Permanent link">&para;</a></h2>
+<p>On four CPU cores, on CheetahRun (top) and Breakout-MinAtar (below):</p>
+<!-- agent-timing:start -->
+<table>
+<thead>
+<tr>
+<th>Agent</th>
+<th>Task</th>
+<th style="text-align: right;">Four CPU cores</th>
+<th style="text-align: right;">Compile s</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>SAC</td>
+<td>CheetahRun</td>
+<td style="text-align: right;">41</td>
+<td style="text-align: right;">19</td>
+</tr>
+<tr>
+<td>TD3</td>
+<td>CheetahRun</td>
+<td style="text-align: right;">51</td>
+<td style="text-align: right;">17</td>
+</tr>
+<tr>
+<td>ASAC</td>
+<td>CheetahRun</td>
+<td style="text-align: right;">34</td>
+<td style="text-align: right;">28</td>
+</tr>
+<tr>
+<td>RVI-SAC</td>
+<td>CheetahRun</td>
+<td style="text-align: right;">42</td>
+<td style="text-align: right;">21</td>
+</tr>
+<tr>
+<td>AVG</td>
+<td>CheetahRun</td>
+<td style="text-align: right;">171</td>
+<td style="text-align: right;">20</td>
+</tr>
+<tr>
+<td>APO</td>
+<td>CheetahRun</td>
+<td style="text-align: right;">1,066</td>
+<td style="text-align: right;">29</td>
+</tr>
+<tr>
+<td>PPO</td>
+<td>CheetahRun</td>
+<td style="text-align: right;">1,269</td>
+<td style="text-align: right;">29</td>
+</tr>
+<tr>
+<td>REDQ</td>
+<td>CheetahRun</td>
+<td style="text-align: right;">0.71</td>
+<td style="text-align: right;">26</td>
+</tr>
+<tr>
+<td>TQC</td>
+<td>CheetahRun</td>
+<td style="text-align: right;">3.1</td>
+<td style="text-align: right;">20</td>
+</tr>
+<tr>
+<td>CrossQ</td>
+<td>CheetahRun</td>
+<td style="text-align: right;">0.98</td>
+<td style="text-align: right;">21</td>
+</tr>
+<tr>
+<td>DreamerV3</td>
+<td>CheetahRun</td>
+<td style="text-align: right;">0.064</td>
+<td style="text-align: right;">51</td>
+</tr>
+<tr>
+<td>TD-MPC2</td>
+<td>CheetahRun</td>
+<td style="text-align: right;">0.3</td>
+<td style="text-align: right;">34</td>
+</tr>
+<tr>
+<td>DQN</td>
+<td>Breakout</td>
+<td style="text-align: right;">2,926</td>
+<td style="text-align: right;">4</td>
+</tr>
+<tr>
+<td>PQN</td>
+<td>Breakout</td>
+<td style="text-align: right;">14,045</td>
+<td style="text-align: right;">3</td>
+</tr>
+<tr>
+<td>PPO</td>
+<td>Breakout</td>
+<td style="text-align: right;">4,622</td>
+<td style="text-align: right;">5</td>
+</tr>
+<tr>
+<td>UDRL</td>
+<td>Breakout</td>
+<td style="text-align: right;">545</td>
+<td style="text-align: right;">5</td>
+</tr>
+</tbody>
+</table>
+<p>Environment steps per second per seed, higher is faster, with 10 seeds trained together: the run makes 10 times as many in all. Each is timed on a segment of training once the agent's updates run, without evaluations; the compile seconds are those of the run's first call. The CPU column ran on four cores of an AMD EPYC 9454 48-Core Processor, at commits <code>7687a4d</code> and <code>7bc8b3c</code> (<a href="https://github.com/YannBerthelot/Ajax/tree/main/benchmarks/suite/results/timing-0.6">records</a>).</p>
+<!-- agent-timing:end -->
+
+<p>Each agent has the <a href="../../reproduction/benchmark/">benchmark's</a> settings, with
+MJX's pure-JAX physics on CheetahRun, except that the off-policy agents
+started their updates by step 256 in these runs, so that the timed segment
+trains throughout. The benchmark's
+<a href="../../reproduction/benchmark/#at-a-glance">score against time</a> turns these
+speeds into hours.</p>
 <p>A GPU gains most where updates take the time: many critics, wide networks,
-world models. It gains little on one simulator step per seed. With 10 seeds,
-steps per second per seed, on CheetahRun (top) and Breakout-MinAtar (below):</p>
+world models. It gains little on one simulator step per seed. This comparison
+is from earlier code, with 10 seeds, in steps per second per seed on
+CheetahRun (top) and Breakout-MinAtar (below): the CPU column on four cores of
+a cloud machine's Intel Xeon on 2 and 3 November 2026, the GPU column on one
+NVIDIA L40S on 6 November.</p>
 <table>
 <thead>
 <tr>
@@ -3336,10 +3458,12 @@ steps per second per seed, on CheetahRun (top) and Breakout-MinAtar (below):</p>
 </tbody>
 </table>
 <p>The GPU column and the plain CPU figures are short timing runs without
-evaluations (<code>benchmarks/suite/results/timing-gpu</code> and <code>PHASE0.md</code>). Starred
-figures are full runs with evaluations. At one seed, DreamerV3 went from 0.78
-to 60 steps per second and TD-MPC2 from 2.98 to 143. DreamerV3 gained nothing
-from sharing seeds: 3 seeds gave 73 steps per second in all and 5 gave 60.</p>
+evaluations (<a href="https://github.com/YannBerthelot/Ajax/tree/main/benchmarks/suite/results/timing-gpu">GPU records</a>,
+<a href="https://github.com/YannBerthelot/Ajax/blob/main/benchmarks/suite/results/PHASE0.md">CPU records</a>).
+Starred figures are full runs with evaluations. At one seed, DreamerV3 went
+from 0.78 to 60 steps per second and TD-MPC2 from 2.98 to 143. DreamerV3
+gained nothing from sharing seeds: 3 seeds gave 73 steps per second in all and
+5 gave 60.</p>
 <p>More seeds help until the card is full. SAC's total levelled off near 8,000
 steps per second from 64 seeds, while PPO reached 42,000 at 256. Three SAC jobs
 at once on an otherwise idle card gave 1.9 times the throughput of one.

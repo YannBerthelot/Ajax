@@ -192,10 +192,10 @@ print(aux.m_rmse[0, 0], aux.m_rmse[0, -1])  # (seeds, updates): falls from about
 evaluates on freshly drawn systems every `log_frequency` steps. The
 [APG page](../algorithms/apg.md) lists every hyperparameter.
 
-Two defaults depart from a plain implementation, both for stability on this
-test bed: gradients are clipped to a global norm of 1 (`max_grad_norm`;
-without it, training across a system class diverged), and actions are
-`tanh`-bounded.
+Two of `APG`'s defaults depart from a plain implementation, both for
+stability on this test bed: gradients are clipped to a global norm of 1
+(`max_grad_norm`; without it, training across a system class diverged), and
+actions are `tanh`-bounded.
 
 The observation features (`ExpertActionInput`, `ExpertStateInput`,
 `TrainingProgressInput`, `PIDTermsInput`) join each observation the
@@ -221,13 +221,15 @@ configuration:
 - one system per update (`n_envs=1`) and a horizon of 100;
 - Adam with betas (0.9, 0.95) (AdamW once `weight_decay` is above its
   default of 0), a 5,000-update linear warm-up, then cosine decay to a
-  tenth of the learning rate.
+  tenth of the learning rate;
+- no gradient clipping (`max_grad_norm=None`, where `APG` clips by default).
 
-The transformer's layers, the optimiser and the absence of gradient clipping
-are the reference code's (buswayne/in-context-controller at 7eb094ce17).
-Ajax departs from it in two places, each backed by runs on the pendulum
-tracking test bed: actions are `tanh`-bounded, and the PID layer starts as
-the identity (gains 1, 0, 0) rather than all ones.
+The transformer's layers (no biases, LayerNorm epsilon 1e-5), the optimiser
+and the unclipped gradients are the reference code's
+(buswayne/in-context-controller at 7eb094ce17). Ajax departs from it in two
+places, each backed by runs on the pendulum tracking test bed: actions are
+`tanh`-bounded, and the PID layer starts as the identity (gains 1, 0, 0)
+rather than all ones.
 
 The paper trains in stages of growing diversity (its Algorithm 2): one system
 first, then the class. `train_curriculum` chains `CurriculumStage(agent,

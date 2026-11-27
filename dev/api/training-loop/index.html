@@ -6005,7 +6005,7 @@ value puts it in aux.</p>
 at their parameters, then what each loss returns beside its value.</p>
 <p>value_loss takes the critic's parameters; policy_loss the actor's, then
 the critic's, from which an actor sharing the critic's encoder reads it
-(networks.with_critic_encoder). Without a shared encoder the networks
+(sharing.with_critic_encoder). Without a shared encoder the networks
 share no parameter, so each network's gradient is that of its own loss.
 With one, the encoder is the critic's: its gradient is the value loss's
 plus the policy loss's, as in ppo2's one network (ppo2/model.py:75-107).</p>

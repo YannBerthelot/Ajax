@@ -3272,9 +3272,9 @@ rewards scaled by 0.1.</p>
 <td>RAdam step size (the authors' optimiser, <code>optax.radam</code>)</td>
 </tr>
 <tr>
-<td><code>lr_linear_decay</code></td>
-<td><code>True</code></td>
-<td>decay the rate linearly to ~0 over the run's gradient steps, as every purejaxql config does</td>
+<td><code>learning_rate_decay</code></td>
+<td><code>"linear"</code></td>
+<td>decay the rate linearly to ~0 over the run's gradient steps, as every purejaxql config does; <code>None</code> keeps it constant</td>
 </tr>
 <tr>
 <td><code>architecture</code></td>
@@ -3389,9 +3389,9 @@ its MinAtar config is the defaults.</p>
 <td>32, 2</td>
 </tr>
 <tr>
-<td><code>learning_rate</code>, <code>lr_linear_decay</code></td>
-<td><code>1e-4</code>, <code>True</code></td>
-<td><code>2.5e-4</code>, <code>False</code></td>
+<td><code>learning_rate</code>, <code>learning_rate_decay</code></td>
+<td><code>1e-4</code>, <code>"linear"</code></td>
+<td><code>2.5e-4</code>, <code>None</code></td>
 </tr>
 <tr>
 <td><code>epsilon_end</code>, <code>epsilon_decay_frac</code></td>
@@ -3511,7 +3511,7 @@ checkpoint matching the run left whole. On the CPU speed benchmark
 <a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a>    <span class="n">observation_clip</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a>    <span class="n">max_grad_norm</span><span class="o">=</span><span class="mf">10.0</span><span class="p">,</span>
 <a id="__codelineno-0-24" name="__codelineno-0-24" href="#__codelineno-0-24"></a>    <span class="n">learning_rate</span><span class="o">=</span><span class="mf">0.0005</span><span class="p">,</span>
-<a id="__codelineno-0-25" name="__codelineno-0-25" href="#__codelineno-0-25"></a>    <span class="n">lr_linear_decay</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+<a id="__codelineno-0-25" name="__codelineno-0-25" href="#__codelineno-0-25"></a>    <span class="n">learning_rate_decay</span><span class="o">=</span><span class="s2">&quot;linear&quot;</span><span class="p">,</span>
 <a id="__codelineno-0-26" name="__codelineno-0-26" href="#__codelineno-0-26"></a>    <span class="n">architecture</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;128&quot;</span><span class="p">,</span> <span class="s2">&quot;relu&quot;</span><span class="p">,</span> <span class="s2">&quot;128&quot;</span><span class="p">,</span> <span class="s2">&quot;relu&quot;</span><span class="p">),</span>
 <a id="__codelineno-0-27" name="__codelineno-0-27" href="#__codelineno-0-27"></a>    <span class="n">gamma</span><span class="o">=</span><span class="mf">0.99</span><span class="p">,</span>
 <a id="__codelineno-0-28" name="__codelineno-0-28" href="#__codelineno-0-28"></a>    <span class="n">q_lambda</span><span class="o">=</span><span class="mf">0.65</span><span class="p">,</span>
@@ -3648,8 +3648,8 @@ epsilon_decay_frac of the horizon, then flat.</p>
 
         <p>The Q-network's optimiser, its rate falling linearly from
 learning_rate to 1e-20 over the run's gradient steps when
-lr_linear_decay: its updates (total_timesteps over a rollout's
-n_steps * n_envs), each n_epochs of num_minibatches steps
+learning_rate_decay is "linear": its updates (total_timesteps over a
+rollout's n_steps * n_envs), each n_epochs of num_minibatches steps
 (pqn_minatar.py:140-147). The schedule counts the optimiser's steps,
 so a run split into calls passes its whole horizon to each.</p>
 

@@ -3578,17 +3578,18 @@ PyPI as <code>ajax-rl</code>.</p>
     defaults keep every other memory unchanged. Upgrade: a controller saved
     before restores with <code>bias=True, layer_norm_epsilon=1e-6, mlp_ratio=2</code>.</li>
 <li>IQL's actor learning rate decays to 0 by a cosine over the run's
-    updates, its reference Learner's default (<code>actor_lr_decay="cosine"</code>).
-    A run split into calls passes its whole horizon (<code>total_timesteps</code>) to
-    each. Upgrade: <code>actor_lr_decay=None</code> keeps the rate constant, as the
+    updates, its reference Learner's default
+    (<code>actor_learning_rate_decay="cosine"</code>). A run split into calls passes its
+    whole horizon (<code>total_timesteps</code>) to each. Upgrade:
+    <code>actor_learning_rate_decay=None</code> keeps the rate constant, as the
     reference's fine-tuning config does; pass it to fine-tune a state
     trained offline.</li>
 <li>
 <p>PQN's defaults are purejaxql's MinAtar config: 128 envs of 32 steps, 2
     epochs of 32 minibatches, RAdam at 5e-4 decayed linearly over the run
-    (<code>lr_linear_decay</code>), epsilon decaying over the first 10% of the run.
-    Upgrade: <code>n_envs=8, n_steps=128, n_epochs=4, num_minibatches=4,
-    learning_rate=2.5e-4, lr_linear_decay=False, epsilon_decay_frac=0.5</code>.</p>
+    (<code>learning_rate_decay="linear"</code>), epsilon decaying over the first 10% of
+    the run. Upgrade: <code>n_envs=8, n_steps=128, n_epochs=4, num_minibatches=4,
+    learning_rate=2.5e-4, learning_rate_decay=None, epsilon_decay_frac=0.5</code>.</p>
 </li>
 <li>
 <p><strong>DQN's defaults are CleanRL's <code>dqn.py</code></strong> (cleanrl <code>fe8d8a0</code>), its
@@ -4002,6 +4003,9 @@ before this version do not restore at the new defaults. The rest:</p>
   are removed.</strong> Nothing has read them since 0.4.0: <code>expose_recent_rollout</code>,
   <code>burn_in</code>, <code>sequence_length</code> and <code>stored_state</code> are each agent's own fields.
   <em>What to do:</em> drop any import of them.</li>
+<li><strong><code>ajax.state.with_batch_stats</code> is now <code>network_variables</code>.</strong> It returns the
+  same variables, and also the encoder a network shares with another
+  (<code>share_encoder</code>). <em>What to do:</em> rename the call; no result changes.</li>
 <li>
 <p><strong>The SAC family's update functions.</strong> <code>critic_value_readers</code> moved from
   <code>ajax.agents.critics</code> to <code>ajax.agents.update_steps</code>, and <code>critic_step</code>

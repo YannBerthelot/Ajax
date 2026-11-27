@@ -3234,11 +3234,6 @@ the version without a baseline. The returns are the shared on-policy code
 <td>hidden layers</td>
 </tr>
 <tr>
-<td><code>log_std_init</code></td>
-<td>-0.5</td>
-<td>the continuous policy's initial log-std, one learned value per action dimension</td>
-</tr>
-<tr>
 <td><code>max_grad_norm</code></td>
 <td>None</td>
 <td>clips each network's gradient to this global norm</td>
@@ -3293,7 +3288,9 @@ Ajax skips the steps of the episode each rollout cuts (see the notes).</p>
   as Spinning Up's VPG does at its <code>max_ep_len</code>. Without one, it ends the
   return, as in Spinning Up's example.</li>
 <li><strong>Initialisation.</strong> Every layer starts as torch's <code>nn.Linear</code>, kernel and
-  bias uniform in <code>±1/sqrt(fan_in)</code>, as in the reference.</li>
+  bias uniform in <code>±1/sqrt(fan_in)</code>, and the continuous policy's log-std,
+  one learned value per action dimension, starts at -0.5, as in the
+  reference.</li>
 <li><strong>Optimiser.</strong> Two Adams with torch's epsilon <code>1e-8</code>, no gradient clipping,
   as in the reference.</li>
 <li><strong>Differences from the reference.</strong> The advantages are divided by their
@@ -3350,13 +3347,7 @@ Ajax skips the steps of the episode each rollout cuts (see the notes).</p>
 <a id="__codelineno-0-25" name="__codelineno-0-25" href="#__codelineno-0-25"></a>    <span class="n">baseline</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
 <a id="__codelineno-0-26" name="__codelineno-0-26" href="#__codelineno-0-26"></a>    <span class="n">value_steps</span><span class="o">=</span><span class="mi">80</span><span class="p">,</span>
 <a id="__codelineno-0-27" name="__codelineno-0-27" href="#__codelineno-0-27"></a>    <span class="n">normalize_advantage</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
-<a id="__codelineno-0-28" name="__codelineno-0-28" href="#__codelineno-0-28"></a>    <span class="n">encoder_kernel_init</span><span class="o">=</span><span class="n">TORCH_LINEAR</span><span class="p">,</span>
-<a id="__codelineno-0-29" name="__codelineno-0-29" href="#__codelineno-0-29"></a>    <span class="n">mean_kernel_init</span><span class="o">=</span><span class="n">TORCH_LINEAR</span><span class="p">,</span>
-<a id="__codelineno-0-30" name="__codelineno-0-30" href="#__codelineno-0-30"></a>    <span class="n">logits_kernel_init</span><span class="o">=</span><span class="n">TORCH_LINEAR</span><span class="p">,</span>
-<a id="__codelineno-0-31" name="__codelineno-0-31" href="#__codelineno-0-31"></a>    <span class="n">value_kernel_init</span><span class="o">=</span><span class="n">TORCH_LINEAR</span><span class="p">,</span>
-<a id="__codelineno-0-32" name="__codelineno-0-32" href="#__codelineno-0-32"></a>    <span class="n">log_std_state_independent</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
-<a id="__codelineno-0-33" name="__codelineno-0-33" href="#__codelineno-0-33"></a>    <span class="n">log_std_init</span><span class="o">=-</span><span class="mf">0.5</span><span class="p">,</span>
-<a id="__codelineno-0-34" name="__codelineno-0-34" href="#__codelineno-0-34"></a><span class="p">)</span>
+<a id="__codelineno-0-28" name="__codelineno-0-28" href="#__codelineno-0-28"></a><span class="p">)</span>
 </code></pre></div>
 
     <div class="doc doc-contents first">

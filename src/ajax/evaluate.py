@@ -1,4 +1,3 @@
-import copy
 import dataclasses
 from typing import Any, Callable, NamedTuple, Optional, TypeVar
 
@@ -16,6 +15,12 @@ from ajax.controller import (
     previous_action_input,
     previous_reward_input,
 )
+from ajax.environments.create import (
+    add_ajax_wrappers,
+    build_of,
+    rebuild_for_evaluation,
+    strip_ajax_wrappers,
+)
 from ajax.environments.interaction import (
     APPLIED_ACTION_KEY,
     applied_action,
@@ -29,15 +34,12 @@ from ajax.environments.utils import (
     ExpertInAgentUnits,
     agent_action_to_env,
     agent_episode_length,
-    check_env_is_playground,
     check_if_environment_has_continuous_actions,
     env_action_repeat,
     env_keys,
     flatten_action_column,
     get_env_type,
-    get_raw_env,
     steps_in_python,
-    wrapper_chain,
 )
 from ajax.networks.memory import tree_where_reset
 from ajax.policy import frozen_progress, make_act, normalised_reward
@@ -115,7 +117,7 @@ def evaluation_physics(env: Any) -> str:
     that is not a GPU (an asynchronous evaluator on the CPU,
     ``LoggingConfig.evaluation_device``), where Warp cannot run. Both step
     the same model; tasks with contacts drift apart over an episode."""
-    physics = getattr(env, "_ajax_physics", "jax")
+    physics = build_of(env).physics
     device = jax.config.jax_default_device  # set by the evaluator's thread
     platform = getattr(device, "platform", device)
     if physics == "warp" and platform not in (None, "gpu", "cuda"):
@@ -145,86 +147,20 @@ def setup_environment(
 
     brax / playground tasks are rebuilt from their id with ``num_episodes``
     parallel envs, and the wrappers over the stack the builder returned go
-    back over the rebuilt one. ``episode_length`` (simulator steps) and
+    back over the rebuilt one (rebuild_for_evaluation, on the physics of
+    evaluation_physics). ``episode_length`` (simulator steps) and
     ``action_repeat`` are the training env's; the defaults are ``None`` ->
     the env's native episode length, falling back to 1000, and repeat 1.
     gymnax envs do not support ``action_repeat > 1``.
     """
-    from ajax.environments.create import (
-        _build_brax_env,
-        _build_playground_env,
-        add_ajax_wrappers,
-        strip_ajax_wrappers,
-        wrap_playground_env,
-    )
-
     env, layers = strip_ajax_wrappers(env)
     mode = get_env_type(env)
     continuous = check_if_environment_has_continuous_actions(env, env_params)
 
     if mode == "brax":
-        # The user's wrappers over the built stack come back over the rebuilt one.
-        users = _over_the_built_stack(env)
-        ajax_env_id = getattr(env, "_ajax_env_id", None)
-        if ajax_env_id is None:
-            raw = get_raw_env(env)
-            ajax_env_id = type(raw).__name__.lower()
-        # The env's native episode length (``_config.episode_length``, the
-        # playground convention, found by peeling our wrappers), else 1000.
-        # A fixed 1000 would run eval episodes past the env's own
-        # truncation (150 on mujoco_playground manip), a silent eval/train
-        # mismatch in episode budget.
-        _native_ep = getattr(
-            getattr(env, "_config", None),
-            "episode_length",
-            None,
+        env = rebuild_for_evaluation(
+            env, num_episodes, episode_length, action_repeat, evaluation_physics(env)
         )
-        _inner = env
-        while _native_ep is None and _inner is not None:
-            _inner = getattr(_inner, "env", None)
-            _native_ep = getattr(
-                getattr(_inner, "_config", None),
-                "episode_length",
-                None,
-            )
-        eval_ep_len = int(_native_ep) if _native_ep is not None else 1000
-        if episode_length is not None:
-            eval_ep_len = int(episode_length)
-        episode_keys = getattr(env, "_ajax_episode_keys", True)
-        prebuilt = getattr(env, "_ajax_prebuilt", None)
-        if prebuilt is not None:
-            # A bare env object given to the agent: no id, so the same
-            # object is wrapped again.
-            env = wrap_playground_env(
-                prebuilt,
-                n_envs=num_episodes,
-                episode_length=eval_ep_len,
-                action_repeat=action_repeat,
-                fresh_reset=getattr(env, "_ajax_fresh_reset", True),
-                episode_keys=episode_keys,
-            )
-        elif check_env_is_playground(env):
-            env = _build_playground_env(
-                ajax_env_id,
-                n_envs=num_episodes,
-                episode_length=eval_ep_len,
-                action_repeat=action_repeat,
-                fresh_reset=getattr(env, "_ajax_fresh_reset", True),
-                episode_keys=episode_keys,
-                physics=evaluation_physics(env),
-            )
-        else:
-            env = _build_brax_env(
-                ajax_env_id,
-                n_envs=num_episodes,
-                episode_length=eval_ep_len,
-                action_repeat=action_repeat,
-                episode_keys=episode_keys,
-            )
-        for layer in reversed(users):
-            layer = copy.copy(layer)
-            layer.env = env
-            env = layer
     elif action_repeat > 1:
         raise NotImplementedError(
             "action_repeat > 1 is not supported on gymnax envs (see"
@@ -245,18 +181,6 @@ def setup_environment(
             "norm_info": repeat_first_entry(norm_info, num_repeats=num_episodes),
         }
     return add_ajax_wrappers(env, **normaliser), mode, continuous
-
-
-def _over_the_built_stack(env: Any) -> list:
-    """The wrappers over the brax / playground stack an Ajax builder returned
-    (the layer it tagged with ``_ajax_env_id``), outermost first; none when
-    no layer carries the tag (the whole env is rebuilt from its id)."""
-    over: list = []
-    for layer in wrapper_chain(env):
-        if "_ajax_env_id" in getattr(layer, "__dict__", {}):
-            return over
-        over.append(layer)
-    return []
 
 
 def _expert_obs(state, env, mode, env_params) -> jax.Array:

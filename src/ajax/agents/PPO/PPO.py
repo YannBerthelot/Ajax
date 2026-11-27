@@ -822,7 +822,7 @@ def _make_extensions_actor_loss(
     return compute_extensions_actor_loss
 
 
-# -- State, logged metrics and the legacy view --------------------------------
+# -- State and logged metrics -------------------------------------------------
 @struct.dataclass
 class PPOState(BaseAgentState):
     """PPO's state: the base state's fields."""

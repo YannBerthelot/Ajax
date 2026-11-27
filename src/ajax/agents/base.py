@@ -254,7 +254,7 @@ def release_replaced(given: Any, resumed: Any) -> None:
 
     kept = set().union(*(buffers(leaf) for leaf in arrays(resumed)))
     for leaf in arrays(given):
-        if not buffers(leaf) & kept:
+        if not buffers(leaf).intersection(kept):
             leaf.delete()
 
 

@@ -286,7 +286,7 @@ class DreamerV3(OwnReplayAgent):
 
     def set_compute_dtype(self, dtype: str) -> None:
         """The model's layers, recurrent state and stored latents compute in
-        ``dtype`` (:attr:`DreamerV3Config.compute_dtype`)."""
+        dtype (DreamerV3Config.compute_dtype)."""
         self.model_config = dataclasses.replace(self.model_config, compute_dtype=dtype)
 
     def _record_replay_rows(self, rows: int) -> None:

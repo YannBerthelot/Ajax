@@ -60,7 +60,7 @@ from ajax.environments.interaction import Explore, explore_pipeline
 from ajax.extensions.base import merge_metrics
 from ajax.extensions.expert import ImitationLoss
 from ajax.networks.deterministic import get_initialized_td3_actor_critic
-from ajax.networks.networks import with_critic_encoder
+from ajax.networks.sharing import with_critic_encoder
 from ajax.networks.utils import TORCH_LINEAR
 from ajax.schedule import Schedule, at
 from ajax.state import BaseAgentState, LoadedTrainState, Transition

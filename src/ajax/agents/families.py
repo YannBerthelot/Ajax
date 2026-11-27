@@ -1407,13 +1407,6 @@ class RecurrentReplayAgent(ReplayAgent):
         return self.stored_state
 
 
-def with_ni_features(extensions: Sequence[Extension]) -> tuple[Extension, ...]:
-    """Deprecated: with_features(extensions, NI_FEATURES)
-    (ajax.agents.recurrent). Kept while the name is on the agents' recorded
-    surface (CLAUDE.md, refactoring rule 10: expand, then contract)."""
-    return with_features(extensions, NI_FEATURES)
-
-
 @dataclass(kw_only=True, eq=False, repr=False)
 class IncrementalAgent(DeclaredAgent):
     """An agent learning from each step as it comes, without a replay

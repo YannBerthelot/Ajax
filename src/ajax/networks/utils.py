@@ -337,22 +337,32 @@ def trunc_normal_fan_in(scale: float = 1.0) -> InitializationFunction:
     return flax_initializers.variance_scaling(scale**2, "fan_in", "truncated_normal")
 
 
+def uniform_init(bound: float) -> InitializationFunction:
+    """Uniform in ``+-bound`` (flax's ``uniform(scale)`` draws in ``[0,
+    scale)``), named ``"symmetric_uniform"`` below: rlkit's last layers,
+    ``uniform_(-init_w, init_w)`` on the weight and the bias
+    (pomdp-baselines e7c19c3, torchkit/networks.py:66-68)."""
+
+    def _init(key: jax.Array, shape: tuple, dtype: jnp.dtype) -> jax.Array:
+        return jax.random.uniform(
+            key,
+            shape=shape,
+            minval=-bound,
+            maxval=bound,
+            dtype=dtype,
+        )
+
+    return _init
+
+
 # Initializers selectable by name besides the factories of
 # ``flax.linen.initializers``. Each value is a factory: called with no
 # argument for ``"name"``, with the parsed number for ``"name(number)"``.
-def symmetric_uniform(bound: float) -> InitializationFunction:
-    """Uniform in ``+-bound`` (flax's ``uniform(scale)`` draws in ``[0,
-    scale)``): rlkit's last layers, ``uniform_(-init_w, init_w)`` on the
-    weight and the bias (pomdp-baselines e7c19c3, torchkit/networks.py:66-
-    68)."""
-    return uniform_init(bound)
-
-
 _AJAX_INITIALIZERS: dict[str, Callable[..., InitializationFunction]] = {
     # flax's ``zeros`` is an initializer, not a factory (``zeros_init`` is).
     "zeros": lambda: flax_initializers.zeros,
     "trunc_normal_fan_in": trunc_normal_fan_in,
-    "symmetric_uniform": symmetric_uniform,
+    "symmetric_uniform": uniform_init,
 }
 
 
@@ -547,19 +557,6 @@ def parse_architecture(
     """Parse a list of string/module architecture into a list of jax modules,
     computing in ``dtype`` (None: float32; :func:`parse_layer`)."""
     return [parse_layer(layer, kernel_init, bias_init, dtype) for layer in architecture]
-
-
-def uniform_init(bound: float) -> InitializationFunction:
-    def _init(key: jax.Array, shape: tuple, dtype: jnp.dtype) -> jax.Array:
-        return jax.random.uniform(
-            key,
-            shape=shape,
-            minval=-bound,
-            maxval=bound,
-            dtype=dtype,
-        )
-
-    return _init
 
 
 #: The kernel-initializer name that builds :class:`TorchLinear` layers.

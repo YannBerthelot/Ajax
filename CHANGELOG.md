@@ -8,6 +8,10 @@ PyPI as `ajax-rl`.
 
 The next release is 0.6.0: the first item changes results.
 
+- `agent.render` no longer floods the output with ALSA errors on a machine
+  without a sound card: Gymnasium's classic-control drawings start pygame,
+  which opened an audio device every frame. SDL now gets its dummy audio
+  driver while an episode is drawn, unless `SDL_AUDIODRIVER` is set.
 - Ajax ships a `py.typed` marker (PEP 561), so mypy and pyright check calls
   into Ajax against its annotations.
 - **Changes results: an agent's actions on `mujoco:InvertedPendulum-v5`

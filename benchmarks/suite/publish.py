@@ -318,10 +318,6 @@ def readme_block(runs: list[Run]) -> str:
     return "\n\n".join(lines)
 
 
-def speed_text(steps_per_s: float) -> str:
-    return f"{steps_per_s:,.0f}" if steps_per_s >= 10 else f"{steps_per_s:.2g}"
-
-
 def timing_block(runs: list[Run], timings: dict) -> str:
     """The performance page's table: each agent's steps per second on four
     CPU cores and on one GPU, in the benchmark tables' order, with its
@@ -346,21 +342,18 @@ def timing_block(runs: list[Run], timings: dict) -> str:
             cpu, gpu = (timings.get((agent, suite, kind)) for kind in ("cpu", "gpu"))
             if cpu is None and gpu is None:
                 continue
-            speeds = [
-                "pending" if record is None else speed_text(record["run_steps_per_s"])
-                for record in (cpu, gpu)
-            ]
-            gain = DASH
+            speeds, compiles, gain = ["pending"] * 2, ["pending"] * 2, DASH
+            for column, record in enumerate((cpu, gpu)):
+                if record is not None:
+                    speed = record["run_steps_per_s"]
+                    speeds[column] = f"{speed:,.0f}" if speed >= 10 else f"{speed:.2g}"
+                    compiles[column] = f"{record['compile_s']:.0f}"
             if cpu is not None and gpu is not None:
                 gain = f"{gpu['run_steps_per_s'] / cpu['run_steps_per_s']:.2g} times"
-            compiles = " / ".join(
-                "pending" if record is None else f"{record['compile_s']:.0f}"
-                for record in (cpu, gpu)
-            )
             task = suite_and_task((cpu or gpu)["env"])[1]
             lines.append(
                 f"| {name(agent)} | {task} | {speeds[0]} | {speeds[1]} | {gain}"
-                f" | {compiles} |"
+                f" | {compiles[0]} / {compiles[1]} |"
             )
     if not records:
         return "\n".join(lines)
@@ -414,6 +407,13 @@ def agent_styles(runs: list[Run]) -> dict[str, tuple[str, str]]:
         agent: (HUES[i % len(HUES)], "-" if i < len(HUES) else "--")
         for i, agent in enumerate(agents)
     }
+
+
+def plot_with_band(axis: Any, style: dict, agent: str, x, y, band) -> None:
+    """An agent's line in its colour and dashes, over a light band."""
+    colour, line = style[agent]
+    axis.plot(x, y, color=colour, linestyle=line, linewidth=1.5, label=name(agent))
+    axis.fill_between(x, band[0], band[1], color=colour, alpha=0.12, linewidth=0)
 
 
 def write_figures(runs: list[Run], directory: pathlib.Path = FIGURES) -> None:
@@ -477,24 +477,9 @@ def write_figures(runs: list[Run], directory: pathlib.Path = FIGURES) -> None:
                 run = cell.get((task, agent))
                 if run is None:
                     continue
-                colour, line = style[agent]
                 mean, spread = run.returns.mean(0), run.returns.std(0, ddof=1)
-                axis.plot(
-                    run.steps,
-                    mean,
-                    color=colour,
-                    linestyle=line,
-                    linewidth=1.5,
-                    label=name(agent),
-                )
-                axis.fill_between(
-                    run.steps,
-                    mean - spread,
-                    mean + spread,
-                    color=colour,
-                    alpha=0.12,
-                    linewidth=0,
-                )
+                band = (mean - spread, mean + spread)
+                plot_with_band(axis, style, agent, run.steps, mean, band)
             axis.set_title(task, loc="left")
             axis.grid(alpha=0.25)
             axis.ticklabel_format(axis="x", style="sci", scilimits=(0, 0))
@@ -526,33 +511,22 @@ def draw_scores(plt: Any, style: dict, scores: dict, path: pathlib.Path) -> None
     highest = max(float(np.concatenate(final).max()) for final in finals.values())
     top = max(1.0, highest)
     thresholds = np.linspace(0, top, 101)
-    counts = ordered(len(np.concatenate(final)) for final in finals.values())
     figure, (means, profiles) = plt.subplots(
         1, 2, figsize=(10.5, 1.5 + 0.3 * len(finals)), width_ratios=(1, 1.3)
     )
     for row, (agent, final) in enumerate(finals.items()):
-        colour, line = style[agent]
+        colour, _ = style[agent]
         pooled, resampled = np.concatenate(final), stratified_resamples(final)
         low, high = interval(interquartile_mean(resampled))
         means.plot([low, high], [row, row], color=colour, linewidth=4, alpha=0.4)
         means.plot(interquartile_mean(pooled), row, "o", color=colour)
         band = interval(performance_profile(resampled, thresholds))
-        profiles.plot(
-            thresholds,
-            performance_profile(pooled, thresholds),
-            color=colour,
-            linestyle=line,
-            linewidth=1.5,
-            label=name(agent),
-        )
-        profiles.fill_between(
-            thresholds, band[0], band[1], color=colour, alpha=0.12, linewidth=0
-        )
+        profile = performance_profile(pooled, thresholds)
+        plot_with_band(profiles, style, agent, thresholds, profile, band)
     means.set_yticks(range(len(finals)), [name(agent) for agent in finals])
     means.set_ylim(len(finals) - 0.5, -0.5)
     means.set_xlim(0, top)
-    runs = f" of {counts[0]} runs" if len(counts) == 1 else ""
-    means.set_title(f"Interquartile mean{runs}, 95% interval", loc="left")
+    means.set_title("Interquartile mean, 95% interval", loc="left")
     profiles.set_title("Performance profile", loc="left")
     profiles.set_ylabel("Fraction of runs above")
     profiles.legend(loc="center left", bbox_to_anchor=(1, 0.5), frameon=False)
@@ -577,43 +551,18 @@ def draw_time(
     handles = {}
     for axis, (title, scores) in zip(axes[0], panels, strict=True):
         pending = [name(agent) for agent in scores if agent not in hours]
+        if pending:
+            names = "" if len(pending) == len(scores) else ": " + ", ".join(pending)
+            note = f"GPU timing pending{names}"
+            axis.text(0.98, 0.04, note, transform=axis.transAxes, ha="right")
         if len(pending) == len(scores):
-            axis.text(
-                0.5,
-                0.5,
-                "GPU timing pending",
-                transform=axis.transAxes,
-                ha="center",
-                color="#7a7974",
-            )
             axis.set_xlim(0.01, 100)  # no curve sets the log axis's range
-        elif pending:
-            axis.text(
-                0.98,
-                0.04,
-                "GPU timing pending: " + ", ".join(pending),
-                transform=axis.transAxes,
-                ha="right",
-                fontsize=8,
-                color="#7a7974",
-            )
         for agent, per_task in scores.items():
-            if agent not in hours:
-                continue
-            colour, line = style[agent]
-            resampled = np.swapaxes(stratified_resamples(per_task), 1, 2)
-            band = interval(interquartile_mean(resampled))
-            axis.plot(
-                hours[agent],
-                interquartile_mean(np.concatenate(per_task).T),
-                color=colour,
-                linestyle=line,
-                linewidth=1.5,
-                label=name(agent),
-            )
-            axis.fill_between(
-                hours[agent], band[0], band[1], color=colour, alpha=0.12, linewidth=0
-            )
+            if agent in hours:
+                resampled = np.swapaxes(stratified_resamples(per_task), 1, 2)
+                band = interval(interquartile_mean(resampled))
+                curve = interquartile_mean(np.concatenate(per_task).T)
+                plot_with_band(axis, style, agent, hours[agent], curve, band)
         axis.set_xscale("log")
         axis.set_title(title, loc="left")
         axis.grid(alpha=0.25)

@@ -72,10 +72,9 @@ receives. There are fifteen: `pretrain`, `reward`, `observe`, `on_target`,
 `post_update` and `eval_metrics`.
 
 The phases an agent runs are those its code declares, in
-`supported_extension_phases`; this table and each agent's page list them.
-Every agent runs `pretrain`, `post_update` and `eval_metrics`, which belong to
-the shared training loop. The others depend on what the agent's update and
-collection have:
+`supported_extension_phases`, which this table and each agent's page list.
+All run the shared loop's `pretrain`, `post_update` and `eval_metrics`; the
+others depend on what the agent's update and collection have:
 
 | Agent | Other phases it runs |
 | --- | --- |
@@ -93,10 +92,9 @@ collection have:
 | DreamerV3, TDMPC2 | `observe` |
 | TDMPC2MultiTask | none |
 
-The shared collector runs an `action` extension in one of two places, before
-or after the warm-up's choice, which the extension names in its
-`action_slot` (`"pre_warmup"` or `"post_warmup"`);
-[Expert guidance](expert-guidance.md#collection) describes both.
+An `action` extension runs before or after the warm-up's choice, as its
+`action_slot` says (`"pre_warmup"` or `"post_warmup"`;
+[Expert guidance](expert-guidance.md#collection) describes both).
 
 Running a phase is not enough: the agent must also have what the extension
 needs, as the next section explains: PPO, APO and REINFORCE run `action` but

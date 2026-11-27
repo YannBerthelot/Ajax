@@ -53,7 +53,10 @@ depends on the environment:
 | Any other, with `draw=` | `.gif` | nothing more |
 
 The gymnax drawings are gymnax's own, and the MuJoCo frames are 320 by 240
-pixels from the task's default camera. A Gymnasium environment is drawn by
+pixels from the task's default camera. Drawing takes time on its own: gymnax's
+classic-control drawings take about a tenth of a second a frame on a CPU, so
+a 500-step CartPole episode takes about a minute, and `max_steps` shortens
+it. A Gymnasium environment is drawn by
 copies built with `render_mode="rgb_array"`, at the speed it names.
 
 Another gymnax task, or an environment of your own, has no drawing Ajax
@@ -146,8 +149,9 @@ action = agent.predict(state, obs[0])  # one observation; a batch works too
 print(action)
 ```
 
-It acts for the first seed; `seed_index` picks another. With it, an episode
-in one environment is a plain loop:
+It acts for the first seed; `seed_index` picks another. The action is a JAX
+array: a Gymnasium environment's `step` wants `np.asarray(action)`. With it,
+an episode in one environment is a plain loop:
 
 ```python
 single_reset_key, single_key = jax.random.split(jax.random.PRNGKey(1))

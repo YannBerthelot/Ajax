@@ -90,7 +90,7 @@ thing here: `train(n_timesteps=...)` is SB3's `learn(total_timesteps=...)`.
 | `learning_rate=3e-4` | `actor_learning_rate=3e-4, critic_learning_rate=3e-4`: one per network, and `alpha_learning_rate` for SAC's temperature | [Algorithms](../algorithms/index.md) |
 | `EvalCallback(eval_env, eval_freq=...)` | nothing: `train` evaluates and returns the evaluations; `LoggingConfig(log_frequency=...)` sets how often | [Logging](../guide/logging.md) |
 | `evaluate_policy(model, env, n_eval_episodes=10)` | `agent.evaluate(state, episodes=10)`, one row of returns per seed | [Quickstart](quickstart.md#use-the-trained-policy) |
-| `tensorboard_log="runs"` | `LoggingConfig(backends=(TensorBoardBackend("runs"),))` | [Logging](../guide/logging.md#backends) |
+| `tensorboard_log="runs"` | `LoggingConfig(backends=(TensorBoardBackend("runs"),))`, in a script under `if __name__ == "__main__":`; the viewer is `pip install tensorboard` | [Logging](../guide/logging.md#backends) |
 | `model.predict(obs, deterministic=True)` | `agent.predict(state, obs)`, or `agent.policy(state)` for a policy with memory | [Train, evaluate, deploy](../guide/deploy.md) |
 | `model.save(path)`, `PPO.load(path)` | `agent.save(state, path)`, `agent, state = PPO.load(path)` | [Checkpoints](../guide/checkpoints.md#save-and-load-an-agent) |
 | `model.learn(..., reset_num_timesteps=False)` | `agent.train(initial_state=state, ...)` | [Training an agent](../guide/training.md#continuing-a-run) |
@@ -113,6 +113,20 @@ obs, _ = env.reset(jax.random.PRNGKey(0), params)
 
 action = agent.predict(state, obs)  # the first seed's policy
 print(action)
+```
+
+`predict` returns the action alone, where SB3's returns an `(action,
+state)` pair, and as a JAX array. A Gymnasium environment wants a NumPy
+value, so pass it through `np.asarray`:
+
+```python
+import gymnasium
+import numpy as np
+
+gym_env = gymnasium.make("CartPole-v1")
+gym_obs, _ = gym_env.reset(seed=0)
+action = np.asarray(agent.predict(state, gym_obs))
+gym_obs, reward, terminated, truncated, _ = gym_env.step(action)
 ```
 
 `predict` acts as the evaluation does: the most likely action of a discrete
@@ -143,7 +157,8 @@ agent, state = PPO.load(path)
 print(agent.predict(state, obs))
 ```
 
-The file records the agent's plain arguments. Objects (a prebuilt
+`load` returns two values, the agent and its state, where SB3's returns the
+model alone. The file records the agent's plain arguments. Objects (a prebuilt
 environment, extensions) are passed to `load` again
 ([Checkpoints](../guide/checkpoints.md#save-and-load-an-agent)).
 

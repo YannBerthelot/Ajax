@@ -14,20 +14,20 @@ no noise to average out, so each update is precise. It works poorly through
 contacts and other discontinuities, and over long horizons, where gradients
 can explode or vanish.
 
-Ajax supports it at three levels: environments whose transitions keep their
-gradients, families of systems and tracking tasks to train on, and the
-[APG](../algorithms/apg.md) agent, which includes the in-context controller
-of Busetto et al., 2024.
+This page is for training a controller that way. Ajax supports it at three
+levels: environments whose transitions keep their gradients, families of
+systems and tracking tasks to train on, and the [APG](../algorithms/apg.md)
+agent, which includes the in-context controller of Busetto et al., 2024.
 
 ## Differentiable environments
 
 Ajax's collectors cut gradients at every environment step, as reinforcement
 learning expects. gymnax (from version 1.0) also detaches its transitions by
-default; a few environments let you switch that back on.
+default; a few environments let you switch that back on:
+Pendulum, MountainCarContinuous, PointRobot, Reacher and Swimmer.
 `with_transition_gradients(env)` does so, through any Ajax wrappers around
 the environment, and raises for an environment that cannot, instead of
-silently returning zero gradients. Today these are Pendulum,
-MountainCarContinuous, PointRobot, Reacher and Swimmer.
+silently returning zero gradients.
 
 `closed_loop_rollout` runs a policy against such an environment for a fixed
 number of steps with no gradient cut anywhere. The policy is any function
@@ -75,7 +75,8 @@ maps its controller's `[-1, 1]` actions onto the bounds itself (below).
 This path is gymnax only: Brax and MuJoCo Playground environments take no
 per-step parameters and have their own gradient machinery. For those,
 `differentiable_reset=True` in `build_env_from_id` lets gradients flow
-through the automatic reset as well (see [Environments](environments.md)).
+through the automatic reset as well
+([Environments](environments.md#episode-keys)).
 
 ## Families of systems
 
@@ -118,13 +119,14 @@ gymnax environment into such a task:
   previous action, `[e, u_prev]` (optionally followed by the plant's own
   observation), and the reward is `−‖y_d − y‖²`. The undiscounted return is
   minus the matching cost, and `sqrt(−return / horizon)` is the paper's
-  M-RMSE. The error is computed from the observation the plant returns, so
-  sensor noise on the plant (an
-  [`ObservationNoiseWrapper`](environments.md#sensor-noise) under the task)
-  reaches the controller and the reward alike. On the step a plant episode
-  ends, the reward scores the plant's last output before its reset, and the
-  final observation a time limit bootstraps on is in the controller's view
-  too, so any agent can train on the task.
+  M-RMSE (the root mean square of the matching error).
+
+The error is computed from the observation the plant returns, so sensor
+noise on the plant (an [`ObservationNoiseWrapper`](environments.md#sensor-noise)
+under the task) reaches the controller and the reward alike. On the step a
+plant episode ends, the reward scores the plant's last output before its
+reset, and the final observation a time limit bootstraps on is in the
+controller's view too, so any agent can train on the task.
 
 All three are plain `jnp`, so the task stays differentiable when the plant
 is. `ajax.wrappers.InitialStateWrapper(env, fn)` sets each episode's initial
@@ -182,7 +184,7 @@ agent = APG(
     pid=PIDHeadConfig(),  # close the controller with a learnable PID layer
 )
 state, aux = agent.train(seed=0, n_timesteps=8 * 100 * 200)  # 200 updates
-print(aux.m_rmse[0, 0], aux.m_rmse[0, -1])  # (seeds, updates): falls from about 1.7 to 0.45
+print(aux.m_rmse[0, 0], aux.m_rmse[0, -1])  # (seeds, updates): falls from about 1.7 to 0.3
 ```
 
 `train` always returns every update's `loss`, `matching_loss`, `m_rmse`,
@@ -190,10 +192,10 @@ print(aux.m_rmse[0, 0], aux.m_rmse[0, -1])  # (seeds, updates): falls from about
 evaluates on freshly drawn systems every `log_frequency` steps. The
 [APG page](../algorithms/apg.md) lists every hyperparameter.
 
-Two defaults depart from a plain implementation, both for stability on this
-test bed: gradients are clipped to a global norm of 1 (`max_grad_norm`;
-without it, training across a system class diverged), and actions are
-`tanh`-bounded.
+Two of `APG`'s defaults depart from a plain implementation, both for
+stability on this test bed: gradients are clipped to a global norm of 1
+(`max_grad_norm`; without it, training across a system class diverged), and
+actions are `tanh`-bounded.
 
 The observation features (`ExpertActionInput`, `ExpertStateInput`,
 `TrainingProgressInput`, `PIDTermsInput`) join each observation the
@@ -219,17 +221,15 @@ configuration:
 - one system per update (`n_envs=1`) and a horizon of 100;
 - Adam with betas (0.9, 0.95) (AdamW once `weight_decay` is above its
   default of 0), a 5,000-update linear warm-up, then cosine decay to a
-  tenth of the learning rate.
+  tenth of the learning rate;
+- no gradient clipping (`max_grad_norm=None`, where `APG` clips by default).
 
-Ajax departs from the reference code in three places, each backed by runs on
-the pendulum tracking test bed: actions are `tanh`-bounded, gradients are
-clipped, and the PID layer starts as the identity (gains 1, 0, 0) rather than
-all ones. Those runs predate the map of actions onto the environment's
-bounds, when the pendulum's torque was capped at 1 of its 2. A fourth
-difference is not backed by runs: the transformer's LayerNorms keep a bias
-and an epsilon of 1e-6, where the reference's have no bias and 1e-5
-(buswayne/in-context-controller at 7eb094ce17: `transformer_onestep.py:33`
-and `:156`, `train_onestep_lin_CL.py:103`).
+The transformer's layers (no biases, LayerNorm epsilon 1e-5), the optimiser
+and the unclipped gradients are the reference code's
+(buswayne/in-context-controller at 7eb094ce17). Ajax departs from it in two
+places, each backed by runs on the pendulum tracking test bed: actions are
+`tanh`-bounded, and the PID layer starts as the identity (gains 1, 0, 0)
+rather than all ones.
 
 The paper trains in stages of growing diversity (its Algorithm 2): one system
 first, then the class. `train_curriculum` chains `CurriculumStage(agent,
@@ -294,10 +294,11 @@ stateful, and a call that returns a deterministic `distrax` distribution
 (plus the new carry when stateful). This lets downstream projects train
 their own architectures with the same trainer.
 
-APG also takes extensions in the `actor_loss` phase, whose dictionary holds
-the `rollout`, the controller's `actor_params` and the per-system
-`returns`, plus the phases every agent runs (`pretrain`, `post_update`,
-`eval_metrics`). See [Extensions](extensions.md).
+APG takes extensions in the `actor_loss` phase, whose dictionary holds the
+`rollout`, the controller's `actor_params` and the per-system `returns`; in
+`observe`, `transform_action` and `actuate` (the observation features, a
+residual policy, gain mode); and in the phases every agent runs
+(`pretrain`, `post_update`, `eval_metrics`). See [Extensions](extensions.md).
 
 ## See also
 

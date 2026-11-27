@@ -1,14 +1,16 @@
-"""The README's and the documentation's Python examples, run as a reader
-runs them: the one place that says which blocks run, and how.
+"""The README's, the documentation's and the notebooks' Python examples,
+run as a reader runs them: the one place that says which blocks run, and how.
 
 A ``python`` block runs unless its first line is ``# doc: skip``. Each README
-block runs on its own; a docs page's blocks run in order in one namespace.
-docs/world_models/ quotes the reference implementations' code: not examples.
-tests/test_readme.py and tests/test_docs_examples.py take their cases from
+block runs on its own; a docs page's blocks run in order in one namespace,
+and so do a notebook's code cells, without their shell and ``%`` lines (they
+install the package). docs/world_models/ quotes the reference
+implementations' code: not examples. tests/test_readme.py,
+tests/test_docs_examples.py and tests/test_examples.py take their cases from
 here. As a script, the Release workflow's installed-package gate runs it
 against the built wheel; it imports only the standard library:
 
-    python tests/doc_examples.py [README.md] [docs]
+    python tests/doc_examples.py [README.md] [docs] [notebooks]
 
 Each example runs in a temporary directory; a failure makes the exit status
 non-zero, and the failing pages and blocks are named.
@@ -18,6 +20,7 @@ from __future__ import annotations
 
 import functools
 import importlib.util
+import json
 import os
 import pathlib
 import re
@@ -72,16 +75,54 @@ def run_page(page: pathlib.Path) -> None:
         sys.modules.pop(module.__name__, None)
 
 
+def code_cells(notebook: pathlib.Path) -> list[str]:
+    """The notebook's code cells, without their shell and magic lines."""
+    cells = json.loads(notebook.read_text())["cells"]
+    sources = ["".join(cell["source"]) for cell in cells if cell["cell_type"] == "code"]
+    return [
+        "\n".join(
+            line
+            for line in source.splitlines()
+            if not line.lstrip().startswith(("!", "%"))
+        )
+        for source in sources
+    ]
+
+
+def run_notebook(notebook: pathlib.Path) -> None:
+    """The notebook's code cells in order, in one namespace, as a reader runs
+    them; plt.show() draws to no window, which would wait to be closed."""
+    try:
+        import matplotlib
+    except ImportError:
+        pass
+    else:
+        # Forced: something run before may have chosen a backend already.
+        matplotlib.use("Agg", force=True)
+    namespace: dict = {"__name__": "__notebook__"}
+    for index, code in enumerate(code_cells(notebook)):
+        exec(compile(code, f"{notebook.name}, cell {index}", "exec"), namespace)
+
+
 def examples(source: pathlib.Path) -> list[tuple[str, Callable[[], None]]]:
-    """A docs directory's pages, or a README's blocks, each named."""
+    """A docs directory's pages and notebooks, or a README's blocks, each
+    named."""
     if source.is_dir():
-        return [
+        pages = [
             (
                 page.relative_to(source.parent).as_posix(),
                 functools.partial(run_page, page),
             )
             for page in example_pages(source)
         ]
+        notebooks = [
+            (
+                notebook.relative_to(source.parent).as_posix(),
+                functools.partial(run_notebook, notebook),
+            )
+            for notebook in sorted(source.glob("*.ipynb"))
+        ]
+        return pages + notebooks
     return [
         (
             f"{source.name} block{place}",
@@ -121,4 +162,4 @@ if __name__ == "__main__":
     here = pathlib.Path(__file__).resolve().parent
     sys.path = [entry for entry in sys.path if pathlib.Path(entry).resolve() != here]
     arguments = [pathlib.Path(argument) for argument in sys.argv[1:]]
-    sys.exit(main(arguments or [ROOT / "README.md", ROOT / "docs"]))
+    sys.exit(main(arguments or [ROOT / "README.md", ROOT / "docs", ROOT / "notebooks"]))

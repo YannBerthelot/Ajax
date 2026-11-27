@@ -13,9 +13,9 @@ from jax.tree_util import Partial as partial
 from ajax.buffers.utils import init_buffer
 from ajax.controller import (
     ActingState,
-    ObserveInputs,
     TransformInputs,
     WarmupInputs,
+    _observe_inputs,
     acting_state,
     choose_warmup_actions,
     feature_columns,
@@ -24,8 +24,6 @@ from ajax.controller import (
     init_observers,
     memory_tracker_of,
     observe_features,
-    previous_action_input,
-    previous_reward_input,
     read_the_residual,
     restart_observers,
     warmup_expert_flags,
@@ -998,14 +996,20 @@ def step_features(
         ended, observers, observer_states, expert, expert_state, n_envs
     )
     raw_next = get_raw_obs(env_state, env_args.env, mode, env_args.env_params)
-    raw_next = raw_next.astype(jnp.float32)
-    previous_action = previous_action_input(
-        observers, executed_action, n_envs, env_args.env, env_args.env_params
+    next_inputs = _observe_inputs(
+        observers,
+        raw_next.astype(jnp.float32),
+        env_args.env,
+        env_args.env_params,
+        executed_action,
+        paid_reward,
+        expert=expert,
+        expert_state=expert_start,
+        **at,
     )
-    previous_reward = previous_reward_input(observers, paid_reward, n_envs)
-    at = {**at, "previous_action": previous_action, "previous_reward": previous_reward}
-    next_inputs = ObserveInputs(raw_next, expert, expert_start, **at)
-    final_inputs = ObserveInputs(raw_final_obs, expert, expert_state, **at)
+    final_inputs = next_inputs._replace(
+        raw_obs=raw_final_obs, expert_state=expert_state
+    )
     next_columns, states = feature_columns(next_inputs, observers, start)
     final_columns, _ = feature_columns(final_inputs, observers, observer_states)
     return next_columns, final_columns, states
@@ -1402,15 +1406,14 @@ def reset_features(
     n_envs = env_args.n_envs
     stateful = expert is not None and hasattr(expert, "init_state")
     raw = get_raw_obs(env_state, env_args.env, mode, env_args.env_params)
-    inputs = ObserveInputs(
+    inputs = _observe_inputs(
+        env_args.observers,
         raw.astype(jnp.float32),
+        env_args.env,
+        env_args.env_params,
         expert=expert,
         expert_state=expert.init_state(n_envs) if stateful else None,
         progress=progress,
-        previous_action=previous_action_input(
-            env_args.observers, None, n_envs, env_args.env, env_args.env_params
-        ),
-        previous_reward=previous_reward_input(env_args.observers, None, n_envs),
     )
     fresh = init_observers(env_args.observers, n_envs)
     return observe_features(obs, inputs, env_args.observers, fresh)

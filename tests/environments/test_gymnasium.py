@@ -159,7 +159,7 @@ def test_evaluation_steps_copies_of_its_own():
     keys = jax.random.split(jax.random.PRNGKey(1), len(ACTIONS))
     state, before = _ajax_rollout(env, keys, steps=4)
 
-    eval_env, mode, _ = setup_environment(env, env.default_params, 3, None, 0.99)
+    eval_env, mode, _ = setup_environment(env, env.default_params, 3, None)
     eval_keys = jax.random.split(jax.random.PRNGKey(2), 3)
     _ajax_rollout(eval_env, eval_keys, steps=6)
     _, after = _ajax_rollout(env, keys, steps=20, first=4, state=state)

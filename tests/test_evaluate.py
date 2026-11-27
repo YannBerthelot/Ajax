@@ -199,7 +199,7 @@ def test_setup_environment_accepts_prebuilt_gymnax_env_without_params():
 
     from ajax.evaluate import setup_environment
 
-    env, mode, continuous = setup_environment(CartPole(), None, 2, None, 0.99)
+    env, mode, continuous = setup_environment(CartPole(), None, 2, None)
     assert mode == "gymnax" and not continuous
     assert env.observation_space(env.default_params).shape == (4,)
 

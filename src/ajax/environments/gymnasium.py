@@ -35,6 +35,7 @@ from gymnax.environments import environment, spaces
 from jax.custom_batching import custom_vmap
 from jax.experimental import io_callback
 
+from ajax.environments.create import _EnvBuild
 from ajax.user_warnings import warn_user
 
 
@@ -263,7 +264,7 @@ class GymnasiumEnv(environment.Environment):
 
     steps_in_python = True
     # Its resets happen in Python: Ajax's episode keys cannot key them.
-    _ajax_episode_keys = False
+    _ajax_build = _EnvBuild(episode_keys=False)
 
     def __init__(self, env_id: str, **make_kwargs: Any):
         super().__init__()

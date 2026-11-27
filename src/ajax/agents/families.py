@@ -47,9 +47,6 @@ from ajax.agents.base import (
     ActorCritic,
     extra_positional_arguments,
     named_arguments,
-    release_replaced,
-    run_horizon,
-    shared_counters,
     unknown_argument,
     warn_widths_without_activation,
 )
@@ -70,9 +67,6 @@ from ajax.agents.recurrent import (
 
 # Imported under another name: ReplayAgent's own hook is make_replay_buffer.
 from ajax.agents.recurrent import make_replay_buffer as make_recurrent_replay_buffer
-from ajax.agents.sweep import Sweep
-from ajax.agents.sweep import check as check_sweep
-from ajax.agents.sweep import configurations as sweep_configurations
 from ajax.agents.update_steps import REPLAY_BATCH_KEYS, reached
 from ajax.buffers.ring import count_ring_rows, size_ring
 from ajax.buffers.utils import (
@@ -1888,43 +1882,19 @@ class OwnReplayAgent(DeclaredAgent):
         continues instead of restarting."""
         return resume_tick(initial_state.collector_state, self.env_args.n_envs)
 
-    def train(
+    def _prepare_call(
         self,
-        seed: Union[int, Sequence[int]] = 42,
-        n_timesteps: int = int(1e6),
-        num_episode_test: int = 10,
-        logging_config: Any = "default",
-        on_ids_ready: Optional[Callable] = None,
-        initial_state: Any = None,
-        total_timesteps: Optional[int] = None,
-        sweep: Optional[Sweep] = None,
-        devices: Optional[Sequence[Any]] = None,
-        precision: Optional[str] = None,
-        **kwargs: Any,
-    ) -> tuple[Any, Any]:
-        """ActorCritic.train on the call's replay (prepare_replay), which
-        continues the replay of the uninterrupted run when it resumes. The
-        precision is set first: the replay may store what the networks
-        compute in."""
-        state = initial_state
-        if isinstance(state, tuple) and len(state) == 2:
-            state = state[0]
-        # Refused before prepare_replay records the replay's sizes on the
-        # agent: a refused call leaves the agent as it was.
-        found = sweep_configurations(sweep)
-        if found:
-            check_sweep(
-                type(self).__name__,
-                self.sweepable_fields(),
-                list(found[0]),
-                self.unsweepable,
-            )
-        self.use_precision(precision, devices)
-        start = 0
-        if state is not None:
-            counters = shared_counters(state, self.per_seed_update_counts)
-            start = int(counters.get("timestep", 0))
-        horizon = run_horizon(start, n_timesteps, total_timesteps)
+        state: Any,
+        n_timesteps: int,
+        start: int,
+        horizon: int,
+        train_options: dict,
+    ) -> tuple[Any, dict]:
+        """The call's replay (prepare_replay), which continues the replay of
+        the uninterrupted run when it resumes, and the state moved into it;
+        make_train takes the replay and the tick the call starts at, and
+        check_run the tick it ends at (call_end_tick)."""
+        del train_options
         start_tick = 0 if state is None else self.resume_iteration_offset(state)
         end_tick = start_tick + self.count_ticks(n_timesteps, start_tick)
         # A call that trains sizes its replay for the run's horizon, so that a
@@ -1938,25 +1908,12 @@ class OwnReplayAgent(DeclaredAgent):
         if end_tick > start_tick:
             sized_to = start_tick + self.count_ticks(horizon - start, start_tick)
         replay, resumed = self.prepare_replay(start_tick, sized_to, state)
-        if state is not None:
-            release_replaced(state, resumed)
-        agent_state, out = super().train(
-            seed=seed,
-            n_timesteps=n_timesteps,
-            num_episode_test=num_episode_test,
-            logging_config=logging_config,
-            on_ids_ready=on_ids_ready,
-            initial_state=resumed,
-            total_timesteps=total_timesteps,
-            sweep=sweep,
-            devices=devices,
-            precision=precision,
-            replay=replay,
-            start_tick=start_tick,
-            **kwargs,
-        )
-        self.check_run(agent_state, end_tick)
-        return agent_state, out
+        self.call_end_tick = end_tick
+        return resumed, {"replay": replay, "start_tick": start_tick}
+
+    def _check_trained(self, state: Any) -> None:
+        """check_run, at the tick the call ends at."""
+        self.check_run(state, self.call_end_tick)
 
     def make_train(
         self,

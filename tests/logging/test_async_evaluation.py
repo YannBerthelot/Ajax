@@ -24,6 +24,7 @@ import numpy as np
 import pytest
 
 from ajax.async_evaluation import AsyncEvaluator
+from ajax.environments.create import _EnvBuild
 from ajax.evaluate import evaluation_physics
 from ajax.logging import LoggingConfig
 from tests import exact_pins
@@ -128,6 +129,6 @@ def test_a_warp_task_is_evaluated_on_jax_physics_off_the_gpu(
 ) -> None:
     """Catches a CPU evaluator of a Warp run rebuilding its task on Warp,
     which has no CPU implementation, or a GPU evaluation leaving Warp."""
-    env = SimpleNamespace(_ajax_physics=physics)
+    env = SimpleNamespace(_ajax_build=_EnvBuild(physics=physics))
     with jax.default_device(device):
         assert evaluation_physics(env) == expected

@@ -52,7 +52,7 @@ def test_the_evaluation_rebuild_keeps_the_task_and_its_time_limit():
     env, env_params = build_env_from_id("mujoco:Reacher-v5")
 
     evaluation_env, _, _ = setup_environment(
-        env, env_params, num_episodes=2, norm_info=None, gamma=0.99
+        env, env_params, num_episodes=2, norm_info=None
     )
 
     assert type(evaluation_env.unwrapped.task).__name__ == "Reacher"

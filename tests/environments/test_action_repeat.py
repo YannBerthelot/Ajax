@@ -38,7 +38,7 @@ def test_gymnax_envs_reject_action_repeat():
         prepare_env("Pendulum-v1", action_repeat=2)
     env, params = gymnax.make("Pendulum-v1")
     with pytest.raises(NotImplementedError, match="gymnax"):
-        setup_environment(env, params, 2, None, 0.99, action_repeat=2)
+        setup_environment(env, params, 2, None, action_repeat=2)
 
 
 def test_prebuilt_envs_reject_action_repeat():
@@ -216,7 +216,6 @@ def check_repeat_and_rebuild(env_id, n_envs, episode_length, action):
         None,
         n_envs,
         None,
-        0.99,
         action_repeat=2,
         episode_length=repeated.episode_length,
     )
@@ -233,7 +232,7 @@ def test_brax_action_repeat_and_eval_rebuild():
     check_repeat_and_rebuild("fast", 2, 10, jnp.ones((2, 1)))
     # the defaults keep the historical rebuild: 1000 steps, no repeat
     env, _ = build_env_from_id("fast", episode_length=10, action_repeat=2)
-    legacy, _, _ = setup_environment(env, None, 2, None, 0.99)
+    legacy, _, _ = setup_environment(env, None, 2, None)
     assert legacy.action_repeat == 1 and legacy.episode_length == 1000
 
 
@@ -250,8 +249,8 @@ def test_the_eval_rebuild_keeps_the_users_wrappers(env_id):
     """Evaluation rebuilds a brax / playground stack for its own env count;
     the wrappers a user put over the built stack come back over the new one."""
     built, _ = build_env_from_id(env_id, n_envs=2, episode_length=10)
-    eval_env, _, _ = setup_environment(_DoubleReward(built), None, 3, None, 0.99)
-    rebuilt, _, _ = setup_environment(built, None, 3, None, 0.99)
+    eval_env, _, _ = setup_environment(_DoubleReward(built), None, 3, None)
+    rebuilt, _, _ = setup_environment(built, None, 3, None)
     action = jnp.full((3, 1), 0.3)
     _, doubled, _ = rollout(eval_env, 4, action)
     _, plain, _ = rollout(rebuilt, 4, action)
@@ -261,7 +260,7 @@ def test_the_eval_rebuild_keeps_the_users_wrappers(env_id):
 def test_playground_action_repeat_and_eval_rebuild():
     check_repeat_and_rebuild("CartpoleBalance", 3, 10, jnp.full((3, 1), 0.3))
     env, _ = build_env_from_id("CartpoleBalance", episode_length=10, action_repeat=2)
-    legacy, _, _ = setup_environment(env, None, 3, None, 0.99)
+    legacy, _, _ = setup_environment(env, None, 3, None)
     # native length from the env's config, no repeat
     assert legacy.action_repeat == 1 and legacy.episode_length == 1000
 

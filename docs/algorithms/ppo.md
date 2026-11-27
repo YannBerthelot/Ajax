@@ -174,10 +174,11 @@ Three things stay yours to set, or cannot be matched:
 - **Optimiser.** As ppo2's one optimiser, the two networks' gradients are
   clipped together to one global norm, then each takes an Adam step; Adam
   acts on each coordinate, so this is one Adam over the whole model. It is
-  TensorFlow 1's Adam (`optimizer="tf1_adam"`), whose epsilon is added
-  before the bias correction: at the first step it is 32 times smaller than
-  optax's, and about the same after a few thousand steps. With memory or
-  `unroll_length`, PPO steps optax's Adam, as PureJaxRL and Brax do.
+  TensorFlow 1's Adam (`optimizer="tf1_adam"`), which adds its epsilon
+  before the bias correction: at the first step that epsilon weighs 32
+  times more than optax's, and about the same after a few thousand steps.
+  With memory or `unroll_length`, PPO steps optax's Adam, as PureJaxRL and
+  Brax do.
 - **Value loss.** As in ppo2, each squared error is the larger of its own
   and that of the value clipped to `clip_range` around the value that
   collected the rollout, so the loss stops pulling a value once it has
@@ -246,8 +247,8 @@ rollout, where the reference draws `demo_batch_size` rows.
 ## Results
 
 The [reproduction results](../reproduction/results.md) set PPO beside
-Stable-Baselines3's on CartPole and Brax's on inverted_pendulum, with
-learning curves. The probes (`tests/probing`) train it briefly on tiny
+Stable-Baselines3's and SBX's on CartPole, and Brax's on inverted_pendulum,
+with learning curves; all three are similar. The probes (`tests/probing`) train it briefly on tiny
 environments with known answers: exact values of small problems, episode
 ends, memory, extension phases, and a run split by a checkpoint matching
 the run left whole. [Performance](../guide/performance.md) compares its

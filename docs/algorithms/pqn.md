@@ -21,6 +21,7 @@ cheap, as in JAX simulators. With few environments, or costly steps,
 | Discrete actions | yes |
 | Continuous actions | no |
 | Memory (`memory=`) | no |
+| Environments | gymnax (Brax and Playground tasks have continuous actions) |
 | Image observations | yes, a CNN encoder (`cnn_image_shape`) |
 | Several seeds in one call | yes, `train(seed=[...])` |
 | Extension phases | `pretrain`, `post_update`, `eval_metrics`, `observe`, `on_target`, `critic_loss`, `action`, `eval_action`, `track_memory` ([which extensions run](../guide/compatibility.md)) |
@@ -138,7 +139,9 @@ Atari's frame skip, life loss and reward clipping are the environment's.
 ## Results
 
 The [reproduction results](../reproduction/results.md) set PQN beside its
-authors' code on CartPole and Asterix-MinAtar, with learning curves. A
+authors' code on CartPole and Asterix-MinAtar, with learning curves: they
+are similar on CartPole, and the Asterix comparison is inconclusive so far.
+A
 conformance check (`tests/conformance/test_pqn_purejaxql.py`) runs one
 training iteration of each from the same state with the same random
 numbers and compares them step by step. The probes (`tests/probing`) train

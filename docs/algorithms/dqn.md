@@ -6,7 +6,7 @@ Q-network on temporal-difference targets computed with a separate target
 network, refreshed every few hundred environment steps. It explores with an
 epsilon-greedy rule whose epsilon decays linearly during training.
 
-**Papers.** Mnih et al., *Human-level control through deep reinforcement
+**Papers:** Mnih et al., *Human-level control through deep reinforcement
 learning*, Nature 2015. Options: van Hasselt et al., *Deep Reinforcement
 Learning with Double Q-learning*, 2016 (Double DQN); Wang et al., *Dueling
 Network Architectures for Deep Reinforcement Learning*, 2016 (dueling
@@ -26,6 +26,7 @@ without a replay buffer; for continuous actions, see [SAC](sac.md).
 | Discrete actions | yes |
 | Continuous actions | no |
 | Memory (`memory=`) | no |
+| Environments | gymnax (Brax and Playground tasks have continuous actions) |
 | Image observations | yes, a CNN encoder (`cnn_image_shape`) |
 | Several seeds in one call | yes, `train(seed=[...])` |
 | Offline training | yes, `train_offline` ([Training](../guide/training.md#training-offline)) |

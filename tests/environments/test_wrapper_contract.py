@@ -17,6 +17,7 @@ VmapWrapper, FinalObsWrapper and an auto-reset).
 
 import copy
 import importlib
+import importlib.metadata
 import pickle
 import pkgutil
 from typing import Any
@@ -34,7 +35,7 @@ from mujoco_playground._src.mjx_env import State as PlaygroundState
 import ajax.environments
 import ajax.wrappers as W
 from ajax.environments import interaction
-from ajax.environments.create import add_ajax_wrappers
+from ajax.environments.create import WARP_MIN_MUJOCO, add_ajax_wrappers, warp_supported
 from ajax.environments.model_reference import (
     LinearReferenceModel,
     ModelReferenceWrapper,
@@ -140,6 +141,12 @@ def playground_stack(raw=None):
 
 
 def warp_stack():
+    installed = importlib.metadata.version("mujoco-mjx")
+    if not warp_supported(installed):
+        # Ajax refuses physics="warp" there (_check_warp_physics); the
+        # wrapper's check imports OverflowType, which MuJoCo 3.13 added.
+        wanted = ".".join(str(part) for part in WARP_MIN_MUJOCO)
+        pytest.skip(f"Warp needs MuJoCo {wanted}; mujoco-mjx {installed} is here")
     return playground_stack(W.WarpCapacityWrapper(WarpIdentity()))
 
 

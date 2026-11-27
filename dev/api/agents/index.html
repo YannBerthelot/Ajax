@@ -3808,17 +3808,6 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#ajax.agents.families.OwnReplayAgent.train" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        train
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
   <a href="#ajax.agents.families.OwnReplayAgent.make_train" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -6387,17 +6376,6 @@
     <span class="md-ellipsis">
       
         resume_iteration_offset
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#ajax.agents.families.OwnReplayAgent.train" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        train
       
     </span>
   </a>
@@ -12068,41 +12046,6 @@ passes.</p>
         <p>The absolute tick of a resumed run, equal across seeds
 (row_collector.resume_tick), so that every schedule of the tick
 continues instead of restarting.</p>
-
-
-    </div>
-
-</div>
-
-<div class="doc doc-object doc-function">
-
-
-<h4 id="ajax.agents.families.OwnReplayAgent.train" class="doc doc-heading">
-            <span class="doc doc-object-name doc-function-name">train</span>
-
-
-<a href="#ajax.agents.families.OwnReplayAgent.train" class="headerlink" title="Permanent link">&para;</a></h4>
-<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">train</span><span class="p">(</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">seed</span><span class="o">=</span><span class="mi">42</span><span class="p">,</span>
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="n">n_timesteps</span><span class="o">=</span><span class="nb">int</span><span class="p">(</span><span class="mf">1000000.0</span><span class="p">),</span>
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    <span class="n">num_episode_test</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span>
-<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="n">logging_config</span><span class="o">=</span><span class="s2">&quot;default&quot;</span><span class="p">,</span>
-<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="n">on_ids_ready</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    <span class="n">initial_state</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>    <span class="n">total_timesteps</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>    <span class="n">sweep</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>    <span class="n">devices</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>    <span class="n">precision</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>    <span class="o">**</span><span class="n">kwargs</span><span class="p">,</span>
-<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a><span class="p">)</span>
-</code></pre></div>
-
-    <div class="doc doc-contents ">
-
-        <p>ActorCritic.train on the call's replay (prepare_replay), which
-continues the replay of the uninterrupted run when it resumes. The
-precision is set first: the replay may store what the networks
-compute in.</p>
 
 
     </div>

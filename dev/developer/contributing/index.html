@@ -3574,10 +3574,11 @@ transformed (APG's schedule and optimiser rebuild); an agent returning
 every iteration's output (<code>returns_iterations</code>, APG's per-update metrics)
 says what it is in <code>iteration_output</code>. <code>train_offline</code> refuses it.</p>
 <p><strong>The own-replay family.</strong> <code>OwnReplayAgent</code> runs <code>loop.off_policy</code> on the
-agent's own tick. Its <code>train</code> refuses a horizon that ends before the call,
-then asks <code>prepare_replay(start_tick, end_tick, agent_state)</code> for the
-call's replay (sized for the call, a resumed state's replay moved into it),
-which <code>make_train</code> puts in <code>context.buffer</code>. Each tick,
+agent's own tick. Once <code>train</code> has checked the call (a horizon that ends
+before it is refused), its <code>prepare_call</code> asks <code>prepare_replay(start_tick,
+end_tick, agent_state)</code> for the call's replay (sized for the call, a
+resumed state's replay moved into it), which <code>make_train</code> puts in
+<code>context.buffer</code>. Each tick,
 <code>collect(agent_state, tick, context)</code> stores one row per env,
 <code>count_updates(agent_state, tick, context)</code> gives the updates of the
 absolute tick (DreamerV3's train ratio, TD-MPC2's seed-phase burst) and

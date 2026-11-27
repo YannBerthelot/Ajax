@@ -5205,8 +5205,8 @@ mujoco_playground env object.</p>
         <p>A bare mujoco_playground env object, such as gymnasium-mjx's
 <code>PlaygroundTask</code>, wrapped as one built from an id. It has no id to be
 rebuilt from, so the stack keeps the object, and evaluation wraps it
-again (<code>evaluate.setup_environment</code>). The episode length defaults to
-the env's own (<code>_config.episode_length</code>), else 1000.</p>
+again (_rebuild_for_evaluation). The episode length defaults to the
+env's own (_native_episode_length).</p>
 
 
     </div>

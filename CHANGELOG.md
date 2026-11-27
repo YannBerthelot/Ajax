@@ -8,6 +8,31 @@ PyPI as `ajax-rl`.
 
 The next release is 0.6.0: the first item changes results.
 
+- **Progress lines give the time left.** From a run's second evaluation, each
+  line `train` prints ends with the call's time left, at the pace of the last
+  interval between two evaluations.
+- **A run with a `LoggingConfig` of yours prints one line when it starts**:
+  how often it evaluates and where it logs. It printed nothing until `train`
+  returned.
+- **A call that ends before the first update warns.** An off-policy call
+  ending before `learning_starts` steps collected trains nothing; it now
+  says so.
+- **Stable-Baselines3's call shapes get Ajax's answer.**
+  `PPO("MlpPolicy", env)` says Ajax takes the environment alone;
+  `agent.predict(obs)` and `agent.save(path)` say the trained state comes
+  first; a Gymnasium environment object, or an id without its prefix, names
+  the `gymnasium:` form; SB3's own argument names (`verbose`, `net_arch`,
+  `policy_kwargs`, `tensorboard_log`, `seed`, `device`, `progress_bar`) say
+  where Ajax takes each, and the others point to the SB3 page instead of a
+  misleading spelling match.
+- **Warnings name your line**, not Ajax's (the Gymnasium and whole-rollouts
+  warnings did), and a script that logs without a main guard is told so
+  without a traceback before the message.
+- **Docs:** the SB3 page says `predict` returns the action alone, as a JAX
+  array (a Gymnasium environment takes it through `np.asarray`), and that
+  `load` returns the agent and its state; the quickstart renders 100 steps
+  and prints where the GIF went; installing the TensorBoard viewer; the
+  warm-up defaults in the training guide.
 - `agent.render` no longer floods the output with ALSA errors on a machine
   without a sound card: Gymnasium's classic-control drawings start pygame,
   which opened an audio device every frame. SDL now gets its dummy audio

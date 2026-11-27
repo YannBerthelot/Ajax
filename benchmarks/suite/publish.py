@@ -3,11 +3,11 @@
     uv run python benchmarks/suite/publish.py          # tables and figures
     uv run python benchmarks/suite/publish.py --tables # tables only
 
-The tables go between markers in docs/reproduction/benchmark.md and in
-README.md; the figures go to docs/reproduction/benchmark-figures/. A cell appears
-once every seed of its run reached the step budget, so a suite's tab shows
-up with its first finished run. tests/benchmarks/test_publish.py checks the
-tables still match the records.
+The tables go between markers in docs/reproduction/benchmark.md; the figures
+go to docs/reproduction/benchmark-figures/. A cell appears once every seed of
+its run reached the step budget, so a suite's tab shows up with its first
+finished run. tests/benchmarks/test_publish.py checks the tables still match
+the records.
 """
 
 import argparse
@@ -24,7 +24,6 @@ from agent_suite import BENCHMARKS
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 RESULTS = ROOT / "benchmarks" / "suite" / "results"
 PAGE = ROOT / "docs" / "reproduction" / "benchmark.md"
-README = ROOT / "README.md"
 FIGURES = ROOT / "docs" / "reproduction" / "benchmark-figures"
 
 #: Suite name -> short name for its figure files, in tab order.
@@ -32,12 +31,6 @@ SUITES = {
     "DeepMind Control": "control",
     "Gymnasium MuJoCo": "mujoco",
     "MinAtar": "minatar",
-}
-#: The README's columns, each shown once a run on it has finished.
-HEADLINE_TASKS = {
-    "DeepMind Control": ("CheetahRun", "WalkerWalk"),
-    "Gymnasium MuJoCo": ("HalfCheetah-v5", "Hopper-v5"),
-    "MinAtar": ("Breakout", "SpaceInvaders"),
 }
 #: A missing cell.
 DASH = "\u2013"
@@ -193,52 +186,6 @@ def page_block(runs: list[Run]) -> str:
     return "\n\n".join(tabs)
 
 
-def readme_block(runs: list[Run]) -> str:
-    """The README's summary: agents down, a few headline tasks across, means
-    rounded to whole numbers."""
-    agents = ordered(run.agent for run in runs)
-    seeds = sorted({len(run.final) for run in runs})
-    suites = [suite for suite in SUITES if any(run.suite == suite for run in runs)]
-    lines = [
-        f"{len(agents)} agents on {len(ordered((r.suite, r.task) for r in runs))}"
-        f" {', '.join(suites[:-1])} and {suites[-1]} tasks, with"
-        f" {'/'.join(map(str, seeds))} seeds each and default settings apart"
-        " from the number of environments. These are mean returns at the end"
-        " of training: about a million steps on control tasks, and about five"
-        " million on MinAtar. DeepMind Control tasks score up to 1000."
-    ]
-    cell = {(name(run.agent), run.task): run for run in runs}
-    for group in (("DeepMind Control", "Gymnasium MuJoCo"), ("MinAtar",)):
-        tasks = [
-            task
-            for suite in group
-            for task in HEADLINE_TASKS[suite]
-            if any(run.task == task and run.suite == suite for run in runs)
-        ]
-        rows = ordered(name(run.agent) for run in runs if run.task in tasks)
-        if not tasks:
-            continue
-        head = "| Agent | " + " | ".join(tasks) + " |"
-        body = []
-        for row in rows:
-            values = [cell.get((row, task)) for task in tasks]
-            body.append(
-                f"| {row} | "
-                + " | ".join(
-                    DASH if run is None else f"{run.final.mean():.0f}" for run in values
-                )
-                + " |"
-            )
-        lines.append("\n".join([head, "|---" * (len(tasks) + 1) + "|", *body]))
-    # An absolute link: PyPI shows the README, where relative links break.
-    lines.append(
-        "[Agent benchmark](https://yannberthelot.github.io/Ajax/latest/reproduction/benchmark/)"
-        " has every task, the spread over seeds, learning curves and what to"
-        " keep in mind when reading them."
-    )
-    return "\n\n".join(lines)
-
-
 def replace_block(text: str, marker: str, block: str) -> str:
     pattern = re.compile(
         rf"(<!-- {marker}:start -->\n).*?(<!-- {marker}:end -->)", re.DOTALL
@@ -386,9 +333,6 @@ def main(argv: Optional[list[str]] = None) -> int:
     runs = read_runs()
     PAGE.write_text(
         replace_block(PAGE.read_text(), "benchmark-tables", page_block(runs))
-    )
-    README.write_text(
-        replace_block(README.read_text(), "benchmark-summary", readme_block(runs))
     )
     if not args.tables:
         write_figures(runs)

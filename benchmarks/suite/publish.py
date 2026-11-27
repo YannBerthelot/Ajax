@@ -6,8 +6,11 @@
 The tables go between markers in docs/reproduction/benchmark.md and in
 README.md; the figures go to docs/reproduction/benchmark-figures/. A cell appears
 once every seed of its run reached the step budget, so a suite's tab shows
-up with its first finished run. tests/benchmarks/test_publish.py checks the
-tables still match the records.
+up with its first finished run. The timing pass's records
+(results/timing-0.6) give the speed table between markers in
+docs/guide/performance.md and the time axis of the score-against-time
+figures. tests/benchmarks/test_publish.py checks the tables still match the
+records.
 """
 
 import argparse
@@ -16,7 +19,7 @@ import json
 import pathlib
 import re
 import sys
-from typing import Optional
+from typing import Any, Optional
 
 import numpy as np
 from agent_suite import BENCHMARKS
@@ -26,6 +29,22 @@ RESULTS = ROOT / "benchmarks" / "suite" / "results"
 PAGE = ROOT / "docs" / "reproduction" / "benchmark.md"
 README = ROOT / "README.md"
 FIGURES = ROOT / "docs" / "reproduction" / "benchmark-figures"
+TIMING = RESULTS / "timing-0.6"
+PERFORMANCE_PAGE = ROOT / "docs" / "guide" / "performance.md"
+RECORDS_URL = "https://github.com/YannBerthelot/Ajax/tree/main/benchmarks/suite/results"
+#: The figures' eight hues; agents past the eighth reuse one, dashed.
+HUES = (
+    "#2a78d6",
+    "#eb6834",
+    "#1baf7a",
+    "#eda100",
+    "#e87ba4",
+    "#008300",
+    "#6250d6",
+    "#e34948",
+)
+#: Bootstrap resamples per interval, rliable's default for its profiles.
+RESAMPLES = 2000
 
 #: Suite name -> short name for its figure files, in tab order.
 SUITES = {
@@ -108,6 +127,67 @@ def read_runs(results: pathlib.Path = RESULTS) -> list[Run]:
         read_run(label, results) for label in BENCHMARKS if (results / label).is_dir()
     ]
     return [run for run in runs if run is not None]
+
+
+def read_timings(directory: pathlib.Path = TIMING) -> dict[tuple, dict]:
+    """The timing pass's latest record of each agent on each machine, keyed
+    by (agent, suite, machine)."""
+    timings = {}
+    for machine in ("cpu", "gpu"):
+        path = directory / f"{machine}.jsonl"
+        lines = path.read_text().splitlines() if path.exists() else []
+        for record in [json.loads(line) for line in lines if line]:
+            suite, _ = suite_and_task(record["env"])
+            timings[(record["agent"].split("-")[0], suite, machine)] = record
+    return timings
+
+
+def score_scales(runs: list[Run]) -> dict[tuple[str, str], float]:
+    """What each (suite, task)'s returns are divided by to share one scale:
+    1000 on DeepMind Control, its tasks' highest return; elsewhere the
+    task's best mean final return in the benchmark, as the heatmap scales
+    it."""
+    scales: dict[tuple[str, str], float] = {}
+    for run in runs:
+        key = (run.suite, run.task)
+        if run.suite == "DeepMind Control":
+            scales[key] = 1000.0
+        else:
+            scales[key] = max(scales.get(key, 0.0), float(run.final.mean()))
+    return {key: scale if scale > 0 else 1.0 for key, scale in scales.items()}
+
+
+def interquartile_mean(scores: np.ndarray) -> np.ndarray:
+    """The mean of the middle half of scores along the last axis, a quarter
+    of them (rounded down) dropped at each end: scipy's trim_mean(0.25),
+    which rliable's IQM is (Agarwal et al., NeurIPS 2021)."""
+    ordered_scores = np.sort(scores, axis=-1)
+    count = ordered_scores.shape[-1]
+    return ordered_scores[..., count // 4 : count - count // 4].mean(axis=-1)
+
+
+def stratified_resamples(per_task: list[np.ndarray]) -> np.ndarray:
+    """Bootstrap draws of the runs, (RESAMPLES, runs, ...): each task's runs
+    (its seeds, the first axis) are drawn with replacement among
+    themselves, as rliable's stratified bootstrap. The generator is fixed,
+    so a rerun draws the same figures."""
+    generator = np.random.default_rng(0)
+    draws = [
+        scores[generator.integers(0, len(scores), (RESAMPLES, len(scores)))]
+        for scores in per_task
+    ]
+    return np.concatenate(draws, axis=1)
+
+
+def interval(estimates: np.ndarray) -> np.ndarray:
+    """The 95% percentile interval of bootstrap estimates (the first axis)."""
+    return np.percentile(estimates, [2.5, 97.5], axis=0)
+
+
+def performance_profile(scores: np.ndarray, thresholds: np.ndarray) -> np.ndarray:
+    """The fraction of runs (the last axis) that score above each
+    threshold: rliable's performance profile."""
+    return (scores[..., None] > thresholds).mean(axis=-2)
 
 
 def ordered(values) -> list:
@@ -238,6 +318,64 @@ def readme_block(runs: list[Run]) -> str:
     return "\n\n".join(lines)
 
 
+def speed_text(steps_per_s: float) -> str:
+    return f"{steps_per_s:,.0f}" if steps_per_s >= 10 else f"{steps_per_s:.2g}"
+
+
+def timing_block(runs: list[Run], timings: dict) -> str:
+    """The performance page's table: each agent's steps per second on four
+    CPU cores and on one GPU, in the benchmark tables' order, with its
+    compile seconds; then the machines and the commit."""
+    records = list(timings.values())
+    counts = ordered(record["n_seeds"] for record in records)
+    seeds = "/".join(str(count) for count in counts)
+    cpus = ordered(record["manifest"]["machine"]["cpu"] for record in records)
+    gpus = ordered(
+        record["manifest"]["device"] for record in records if record["machine"] == "gpu"
+    )
+    commits = ordered(f"`{record['manifest']['commit'][:7]}`" for record in records)
+    lines = [
+        f"| Agent | Task | Four CPU cores | One {' or '.join(gpus) or 'GPU'} | Gain"
+        " | Compile s, CPU / GPU |",
+        "|---|---|---:|---:|---:|---:|",
+    ]
+    for suite in SUITES:
+        members = [run for run in runs if run.suite == suite]
+        for agent in [agent for group in split_agents(members) for agent in group]:
+            cpu, gpu = (timings.get((agent, suite, kind)) for kind in ("cpu", "gpu"))
+            if cpu is None and gpu is None:
+                continue
+            speeds = [
+                DASH if record is None else speed_text(record["run_steps_per_s"])
+                for record in (cpu, gpu)
+            ]
+            gain = DASH
+            if cpu is not None and gpu is not None:
+                gain = f"{gpu['run_steps_per_s'] / cpu['run_steps_per_s']:.2g} times"
+            compiles = " / ".join(
+                DASH if record is None else f"{record['compile_s']:.0f}"
+                for record in (cpu, gpu)
+            )
+            task = suite_and_task((cpu or gpu)["env"])[1]
+            lines.append(
+                f"| {name(agent)} | {task} | {speeds[0]} | {speeds[1]} | {gain}"
+                f" | {compiles} |"
+            )
+    if not records:
+        return "\n".join(lines)
+    lines.append(
+        f"\nEnvironment steps per second per seed, higher is faster, with {seeds}"
+        f" seeds trained together: the run makes {seeds} times as many in all."
+        " Each is timed"
+        " on a segment of training once the agent's updates run, without"
+        " evaluations; the compile seconds are those of the run's first call."
+        f" The CPU column ran on four cores of an {' and '.join(cpus)}, the GPU"
+        " column on that machine's GPU, at commit"
+        f" {' and '.join(commits)} ([records]({RECORDS_URL}/timing-0.6))."
+    )
+    return "\n".join(lines)
+
+
 def replace_block(text: str, marker: str, block: str) -> str:
     pattern = re.compile(
         rf"(<!-- {marker}:start -->\n).*?(<!-- {marker}:end -->)", re.DOTALL
@@ -247,30 +385,14 @@ def replace_block(text: str, marker: str, block: str) -> str:
     return pattern.sub(lambda match: match[1] + block + "\n" + match[2], text)
 
 
-def write_figures(runs: list[Run], directory: pathlib.Path = FIGURES) -> None:
-    """Each suite's heatmap and learning curves, as SVG. Colours are a fixed
-    eight-hue palette; agents past the eighth reuse a hue with a dashed line,
-    so each agent keeps its look on every panel."""
+def pyplot() -> Any:
+    """matplotlib's pyplot, drawing SVG whose text stays text and whose ids
+    stay the same from one rerun to the next."""
     import matplotlib
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    hues = [
-        "#2a78d6",
-        "#eb6834",
-        "#1baf7a",
-        "#eda100",
-        "#e87ba4",
-        "#008300",
-        "#6250d6",
-        "#e34948",
-    ]
-    agents = ordered(run.agent for run in runs)
-    style = {
-        agent: (hues[i % len(hues)], "-" if i < len(hues) else "--")
-        for i, agent in enumerate(agents)
-    }
     plt.rcParams.update(
         {
             "font.size": 9,
@@ -280,6 +402,22 @@ def write_figures(runs: list[Run], directory: pathlib.Path = FIGURES) -> None:
             "axes.spines.right": False,
         }
     )
+    return plt
+
+
+def agent_styles(runs: list[Run]) -> dict[str, tuple[str, str]]:
+    """Each agent's colour and line, the same on every figure."""
+    agents = ordered(run.agent for run in runs)
+    return {
+        agent: (HUES[i % len(HUES)], "-" if i < len(HUES) else "--")
+        for i, agent in enumerate(agents)
+    }
+
+
+def write_figures(runs: list[Run], directory: pathlib.Path = FIGURES) -> None:
+    """Each suite's heatmap and learning curves, as SVG."""
+    plt = pyplot()
+    style = agent_styles(runs)
     directory.mkdir(parents=True, exist_ok=True)
     for suite, short in SUITES.items():
         members = [run for run in runs if run.suite == suite]
@@ -378,19 +516,169 @@ def write_figures(runs: list[Run], directory: pathlib.Path = FIGURES) -> None:
         plt.close(figure)
 
 
+def draw_scores(plt: Any, style: dict, scores: dict, path: pathlib.Path) -> None:
+    """The interquartile mean of each agent's normalised final returns over
+    its runs, with its 95% interval, beside the performance profile;
+    scores[agent] holds each task's normalised returns, (seeds, evaluations)."""
+    finals = {agent: [returns[:, -1] for returns in scores[agent]] for agent in scores}
+    highest = max(float(np.concatenate(final).max()) for final in finals.values())
+    top = max(1.0, highest)
+    thresholds = np.linspace(0, top, 101)
+    counts = ordered(len(np.concatenate(final)) for final in finals.values())
+    figure, (means, profiles) = plt.subplots(
+        1, 2, figsize=(9.5, 1.5 + 0.3 * len(finals)), width_ratios=(1, 1.3)
+    )
+    for row, (agent, final) in enumerate(finals.items()):
+        colour, line = style[agent]
+        pooled, resampled = np.concatenate(final), stratified_resamples(final)
+        low, high = interval(interquartile_mean(resampled))
+        means.plot([low, high], [row, row], color=colour, linewidth=4, alpha=0.4)
+        means.plot(interquartile_mean(pooled), row, "o", color=colour)
+        band = interval(performance_profile(resampled, thresholds))
+        profiles.plot(
+            thresholds,
+            performance_profile(pooled, thresholds),
+            color=colour,
+            linestyle=line,
+            linewidth=1.5,
+            label=name(agent),
+        )
+        profiles.fill_between(
+            thresholds, band[0], band[1], color=colour, alpha=0.12, linewidth=0
+        )
+    means.set_yticks(range(len(finals)), [name(agent) for agent in finals])
+    means.set_ylim(len(finals) - 0.5, -0.5)
+    means.set_xlim(0, top)
+    runs = f" of {counts[0]} runs" if len(counts) == 1 else ""
+    means.set_title(f"Interquartile mean{runs}, 95% interval", loc="left")
+    profiles.set_title("Performance profile", loc="left")
+    profiles.set_ylabel("Fraction of runs above")
+    profiles.legend(loc="lower left", frameon=False)
+    for axis in (means, profiles):
+        axis.set_xlabel("Normalised final return")
+        axis.grid(alpha=0.25)
+    figure.tight_layout()
+    figure.savefig(path, metadata={"Date": None})
+    plt.close(figure)
+
+
+def draw_time(
+    plt: Any, style: dict, panels: list, hours: dict, label: str, path: pathlib.Path
+) -> None:
+    """The interquartile mean through training against the hours each
+    evaluation's step takes; panels: (title, {agent: each task's normalised
+    returns}), hours: each agent's evaluations, in hours."""
+    figure, axes = plt.subplots(
+        1, len(panels), figsize=(4.7 * len(panels), 3.9), squeeze=False
+    )
+    handles = {}
+    for axis, (title, scores) in zip(axes[0], panels, strict=True):
+        for agent, per_task in scores.items():
+            colour, line = style[agent]
+            resampled = np.swapaxes(stratified_resamples(per_task), 1, 2)
+            band = interval(interquartile_mean(resampled))
+            axis.plot(
+                hours[agent],
+                interquartile_mean(np.concatenate(per_task).T),
+                color=colour,
+                linestyle=line,
+                linewidth=1.5,
+                label=name(agent),
+            )
+            axis.fill_between(
+                hours[agent], band[0], band[1], color=colour, alpha=0.12, linewidth=0
+            )
+        axis.set_xscale("log")
+        axis.set_title(title, loc="left")
+        axis.grid(alpha=0.25)
+        handles.update(zip(*reversed(axis.get_legend_handles_labels()), strict=True))
+    axes[0][0].set_ylabel("Interquartile mean, normalised return")
+    figure.legend(
+        handles.values(), handles.keys(), loc="lower center", ncol=6, frameon=False
+    )
+    figure.supxlabel(label, y=0.125)
+    figure.tight_layout(rect=(0, 0.17, 1, 1))
+    figure.savefig(path, metadata={"Date": None})
+    plt.close(figure)
+
+
+def write_aggregate_figures(
+    runs: list[Run], timings: dict, directory: pathlib.Path = FIGURES
+) -> None:
+    """Each suite's scores over its tasks as rliable draws them (Agarwal et
+    al., "Deep RL at the Edge of the Statistical Precipice", NeurIPS 2021),
+    for the agents that ran every task: the interquartile mean of the
+    normalised final returns over the runs (a task and a seed each) with a
+    95% stratified bootstrap interval, beside the performance profile. Then
+    that mean through training, against the hours one GPU takes to reach
+    each evaluation at the timing pass's speed on the suite's first task;
+    agents that ran only that task get a panel of it."""
+    plt = pyplot()
+    style, scales = agent_styles(runs), score_scales(runs)
+    directory.mkdir(parents=True, exist_ok=True)
+    for suite, short in SUITES.items():
+        members = [run for run in runs if run.suite == suite]
+        if not members:
+            continue
+        tasks = ordered(run.task for run in members)
+        agents = [agent for group in split_agents(members) for agent in group]
+        returns: dict = {agent: {} for agent in agents}
+        hours = {}
+        for run in members:
+            returns[run.agent][run.task] = run.returns / scales[(suite, run.task)]
+            timing = timings.get((run.agent, suite, "gpu"))
+            if timing is not None:
+                hours[run.agent] = run.steps / timing["run_steps_per_s"] / 3600
+        complete = {
+            agent: list(returns[agent].values())
+            for agent in agents
+            if len(returns[agent]) == len(tasks)
+        }
+        if not complete:
+            continue
+        draw_scores(plt, style, complete, directory / f"{short}-scores.svg")
+        noun = "games" if suite == "MinAtar" else "tasks"
+        panels = [(f"{len(tasks)} {noun}", complete)]
+        if len(complete) < len(agents):
+            first_task = {
+                agent: [returns[agent][tasks[0]]]
+                for agent in agents
+                if tasks[0] in returns[agent]
+            }
+            panels.append((tasks[0], first_task))
+        panels = [
+            (title, {agent: scores[agent] for agent in scores if agent in hours})
+            for title, scores in panels
+        ]
+        if hours:
+            timed = timings[(next(iter(hours)), suite, "gpu")]
+            task = suite_and_task(timed["env"])[1]
+            label = (
+                f"Hours on one {timed['manifest']['device']}, at the timing pass's"
+                f" speed on {task}"
+            )
+            draw_time(plt, style, panels, hours, label, directory / f"{short}-time.svg")
+
+
 def main(argv: Optional[list[str]] = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--tables", action="store_true", help="skip the figures")
     args = parser.parse_args(argv)
-    runs = read_runs()
+    runs, timings = read_runs(), read_timings()
     PAGE.write_text(
         replace_block(PAGE.read_text(), "benchmark-tables", page_block(runs))
     )
     README.write_text(
         replace_block(README.read_text(), "benchmark-summary", readme_block(runs))
     )
+    PERFORMANCE_PAGE.write_text(
+        replace_block(
+            PERFORMANCE_PAGE.read_text(), "agent-timing", timing_block(runs, timings)
+        )
+    )
     if not args.tables:
         write_figures(runs)
+        write_aggregate_figures(runs, timings)
     return 0
 
 

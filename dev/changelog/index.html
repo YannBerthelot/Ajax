@@ -3154,6 +3154,31 @@ PyPI as <code>ajax-rl</code>.</p>
 <h2 id="unreleased">Unreleased<a class="headerlink" href="#unreleased" title="Permanent link">&para;</a></h2>
 <p>The next release is 0.6.0: the first item changes results.</p>
 <ul>
+<li><strong>Progress lines give the time left.</strong> From a run's second evaluation, each
+  line <code>train</code> prints ends with the call's time left, at the pace of the last
+  interval between two evaluations.</li>
+<li><strong>A run with a <code>LoggingConfig</code> of yours prints one line when it starts</strong>:
+  how often it evaluates and where it logs. It printed nothing until <code>train</code>
+  returned.</li>
+<li><strong>A call that ends before the first update warns.</strong> An off-policy call
+  ending before <code>learning_starts</code> steps collected trains nothing; it now
+  says so.</li>
+<li><strong>Stable-Baselines3's call shapes get Ajax's answer.</strong>
+  <code>PPO("MlpPolicy", env)</code> says Ajax takes the environment alone;
+  <code>agent.predict(obs)</code> and <code>agent.save(path)</code> say the trained state comes
+  first; a Gymnasium environment object, or an id without its prefix, names
+  the <code>gymnasium:</code> form; SB3's own argument names (<code>verbose</code>, <code>net_arch</code>,
+  <code>policy_kwargs</code>, <code>tensorboard_log</code>, <code>seed</code>, <code>device</code>, <code>progress_bar</code>) say
+  where Ajax takes each, and the others point to the SB3 page instead of a
+  misleading spelling match.</li>
+<li><strong>Warnings name your line</strong>, not Ajax's (the Gymnasium and whole-rollouts
+  warnings did), and a script that logs without a main guard is told so
+  without a traceback before the message.</li>
+<li><strong>Docs:</strong> the SB3 page says <code>predict</code> returns the action alone, as a JAX
+  array (a Gymnasium environment takes it through <code>np.asarray</code>), and that
+  <code>load</code> returns the agent and its state; the quickstart renders 100 steps
+  and prints where the GIF went; installing the TensorBoard viewer; the
+  warm-up defaults in the training guide.</li>
 <li><code>agent.render</code> no longer floods the output with ALSA errors on a machine
   without a sound card: Gymnasium's classic-control drawings start pygame,
   which opened an audio device every frame. SDL now gets its dummy audio

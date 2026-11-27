@@ -3256,8 +3256,9 @@ memory: the quickest way to get learning curves. A <code>LoggingConfig</code> bu
 without the <code>backends</code> argument writes each run's TensorBoard event files
 under <code>./tensorboard/&lt;run id&gt;/</code>; the folder is named by the run id alone,
 without <code>run_name</code>. A <code>train</code> call given no <code>logging_config</code> writes no
-file: it prints a line per evaluation, which a <code>LoggingConfig</code> of yours
-does not. Setting
+file: it prints a line per evaluation. With a <code>LoggingConfig</code> of yours, it
+prints one line when the run starts, saying how often it evaluates and where
+it logs, and nothing more until <code>train</code> returns. Setting
 a deprecated flag together with <code>backends</code> is refused.</p>
 <h3 id="the-run-configuration">The run configuration<a class="headerlink" href="#the-run-configuration" title="Permanent link">&para;</a></h3>
 <p>Each run stores <code>config</code> merged with the agent's <code>agent.config</code>: every
@@ -3650,7 +3651,9 @@ lists them, and <code>train(..., on_ids_ready=callback)</code> hands them to
 <ul>
 <li><code>TensorBoardBackend(folder=".")</code> writes each run to
   <code>&lt;folder&gt;/tensorboard/&lt;run id&gt;/</code>, with its <code>config.json</code>. Metrics that are
-  not one number are left out.</li>
+  not one number are left out. Ajax writes the files; the viewer is
+  TensorBoard itself, installed apart: <code>pip install tensorboard</code>, then
+  <code>tensorboard --logdir &lt;folder&gt;</code>.</li>
 <li><code>WandbBackend(project=None, group=None)</code> logs to Weights &amp; Biases: install
   the <code>wandb</code> extra and log in once with <code>wandb login</code>. Each run is created
   in your process before training, so a missing login fails at once.

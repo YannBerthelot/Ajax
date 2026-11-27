@@ -3076,7 +3076,10 @@ depends on the environment:</p>
 </tbody>
 </table>
 <p>The gymnax drawings are gymnax's own, and the MuJoCo frames are 320 by 240
-pixels from the task's default camera. A Gymnasium environment is drawn by
+pixels from the task's default camera. Drawing takes time on its own: gymnax's
+classic-control drawings take about a tenth of a second a frame on a CPU, so
+a 500-step CartPole episode takes about a minute, and <code>max_steps</code> shortens
+it. A Gymnasium environment is drawn by
 copies built with <code>render_mode="rgb_array"</code>, at the speed it names.</p>
 <p>Another gymnax task, or an environment of your own, has no drawing Ajax
 knows, and <code>render</code> says so before running anything. Pass it a function
@@ -3154,8 +3157,9 @@ It acts as the policy acts at the start of an episode:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="n">action</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="n">obs</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>  <span class="c1"># one observation; a batch works too</span>
 <a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="nb">print</span><span class="p">(</span><span class="n">action</span><span class="p">)</span>
 </code></pre></div>
-<p>It acts for the first seed; <code>seed_index</code> picks another. With it, an episode
-in one environment is a plain loop:</p>
+<p>It acts for the first seed; <code>seed_index</code> picks another. The action is a JAX
+array: a Gymnasium environment's <code>step</code> wants <code>np.asarray(action)</code>. With it,
+an episode in one environment is a plain loop:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="n">single_reset_key</span><span class="p">,</span> <span class="n">single_key</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="n">jax</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">PRNGKey</span><span class="p">(</span><span class="mi">1</span><span class="p">))</span>
 <a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="n">single_obs</span><span class="p">,</span> <span class="n">single_state</span> <span class="o">=</span> <span class="n">env</span><span class="o">.</span><span class="n">reset</span><span class="p">(</span><span class="n">single_reset_key</span><span class="p">,</span> <span class="n">params</span><span class="p">)</span>
 <a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="n">episode_return</span><span class="p">,</span> <span class="n">episode_over</span> <span class="o">=</span> <span class="mf">0.0</span><span class="p">,</span> <span class="kc">False</span>

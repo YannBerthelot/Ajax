@@ -1218,6 +1218,54 @@ def _raw_evaluation_env(env_args: EnvironmentConfig, num_episodes: int) -> tuple
     return env, mode, env_params, horizon
 
 
+class _PartsRollout(NamedTuple):
+    """Where a rollout of a policy's parts stands, per env: the observation
+    they act on next, the env's state, their carry, whether an episode
+    starts at the next step, and the reward the env paid for the last
+    action."""
+
+    obs: jax.Array
+    env_state: Any
+    policy_carry: Any
+    starts: jax.Array
+    reward: jax.Array
+
+
+def _step_policy_parts(
+    parts: Any,
+    env: Any,
+    mode: str,
+    env_params: Optional[EnvParams],
+    key: jax.Array,
+    index: int | jax.Array,
+    at: _PartsRollout,
+) -> tuple[_PartsRollout, jax.Array]:
+    """Step index of a rollout of a policy's parts, from at: the parts act,
+    then the envs step on their action, each on keys named from key folded
+    with index. Returns where the rollout then stands, and whether the step
+    ended each env's episode."""
+    n_envs = at.starts.shape[0]
+    step_key = fold_index(key, index)
+    policy_key = derive_key(step_key, "rollout_action")
+    action, policy_carry = parts.step(
+        at.obs, at.policy_carry, at.starts, at.reward, policy_key
+    )
+    obs, env_state, reward, terminated, truncated, _ = step(
+        env_keys(derive_key(step_key, "rollout_env_step"), mode, n_envs),
+        at.env_state,
+        action,
+        env,
+        mode,
+        env_params,
+    )
+    ended = (terminated.reshape(n_envs) > 0) | (truncated.reshape(n_envs) > 0)
+    reward = reward.reshape(n_envs).astype(jnp.float32)
+    stepped = _PartsRollout(
+        obs, env_state, policy_carry, jnp.zeros_like(at.starts), reward
+    )
+    return stepped, ended
+
+
 def policy_episode(
     env_args: EnvironmentConfig,
     parts: Any,
@@ -1240,24 +1288,12 @@ def policy_episode(
     key, obs, env_state = _reset_envs(env, mode, env_params, 1, key)
 
     @jax.jit
-    def advance(obs, env_state, policy_carry, starts, reward, index):
-        step_key = fold_index(key, index)
-        policy_key = derive_key(step_key, "rollout_action")
-        action, policy_carry = parts.step(obs, policy_carry, starts, reward, policy_key)
-        obs, env_state, reward, terminated, truncated, _ = step(
-            env_keys(derive_key(step_key, "rollout_env_step"), mode, 1),
-            env_state,
-            action,
-            env,
-            mode,
-            env_params,
-        )
-        ended = (terminated.reshape(1) > 0) | (truncated.reshape(1) > 0)
-        reward = reward.reshape(1).astype(jnp.float32)
-        return obs, env_state, policy_carry, reward, ended[0]
+    def advance(at: _PartsRollout, index: int) -> tuple[_PartsRollout, jax.Array]:
+        return _step_policy_parts(parts, env, mode, env_params, key, index, at)
 
-    policy_carry, starts = parts.initial(1), jnp.ones(1, bool)
-    reward = jnp.zeros(1, jnp.float32)
+    at = _PartsRollout(
+        obs, env_state, parts.initial(1), jnp.ones(1, bool), jnp.zeros(1, jnp.float32)
+    )
 
     def kept(env_state: Any) -> Any:
         if snapshot is None:
@@ -1268,15 +1304,22 @@ def policy_episode(
 
     states, rewards = [kept(env_state)], []
     for index in range(horizon if max_steps is None else min(horizon, max_steps)):
-        obs, env_state, policy_carry, reward, ended = advance(
-            obs, env_state, policy_carry, starts, reward, index
-        )
-        starts = jnp.zeros(1, bool)
-        rewards.append(float(reward[0]))
-        if bool(ended):
+        at, ended = advance(at, index)
+        rewards.append(float(at.reward[0]))
+        if bool(ended[0]):
             break
-        states.append(kept(env_state))
+        states.append(kept(at.env_state))
     return env, states, rewards
+
+
+class _ReturnsCarry(NamedTuple):
+    """policy_returns' scan carry: where the rollout stands, and each env's
+    end, return and length, counted to its episode's first end."""
+
+    rollout: _PartsRollout
+    done: jax.Array
+    episode_return: jax.Array
+    length: jax.Array
 
 
 def policy_returns(
@@ -1296,48 +1339,22 @@ def policy_returns(
     env, mode, env_params, horizon = _raw_evaluation_env(env_args, num_episodes)
     key, obs, env_state = _reset_envs(env, mode, env_params, num_episodes, key)
 
-    def body(carry: tuple, index: jax.Array) -> tuple[tuple, None]:
-        obs, env_state, policy_carry, starts, reward, done, ret, length = carry
-        step_key = fold_index(key, index)
-        policy_key = derive_key(step_key, "rollout_action")
-        action, policy_carry = parts.step(obs, policy_carry, starts, reward, policy_key)
-        obs, env_state, reward, terminated, truncated, _ = step(
-            env_keys(derive_key(step_key, "rollout_env_step"), mode, num_episodes),
-            env_state,
-            action,
-            env,
-            mode,
-            env_params,
+    def body(carry: _ReturnsCarry, index: jax.Array) -> tuple[_ReturnsCarry, None]:
+        rollout, ended = _step_policy_parts(
+            parts, env, mode, env_params, key, index, carry.rollout
         )
-        reward = reward.reshape(num_episodes).astype(jnp.float32)
-        running = jnp.logical_not(done)
-        ret = ret + jnp.where(running, reward, 0.0)
-        length = length + running.astype(jnp.float32)
-        ended = (terminated.reshape(num_episodes) > 0) | (
-            truncated.reshape(num_episodes) > 0
-        )
+        running = jnp.logical_not(carry.done)
         # One episode per env, counted until its first end: no restart.
-        return (
-            obs,
-            env_state,
-            policy_carry,
-            jnp.zeros_like(starts),
-            reward,
-            done | ended,
-            ret,
-            length,
+        return _ReturnsCarry(
+            rollout,
+            carry.done | ended,
+            carry.episode_return + jnp.where(running, rollout.reward, 0.0),
+            carry.length + running.astype(jnp.float32),
         ), None
 
     zeros = jnp.zeros(num_episodes, jnp.float32)
-    init = (
-        obs,
-        env_state,
-        parts.initial(num_episodes),
-        jnp.ones(num_episodes, bool),
-        zeros,
-        jnp.zeros(num_episodes, bool),
-        zeros,
-        zeros,
-    )
-    final, _ = jax.lax.scan(body, init, jnp.arange(horizon))
-    return final[6], final[7]
+    starts = jnp.ones(num_episodes, bool)
+    first = _PartsRollout(obs, env_state, parts.initial(num_episodes), starts, zeros)
+    carry = _ReturnsCarry(first, jnp.zeros(num_episodes, bool), zeros, zeros)
+    final, _ = jax.lax.scan(body, carry, jnp.arange(horizon))
+    return final.episode_return, final.length

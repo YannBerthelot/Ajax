@@ -384,10 +384,11 @@ every iteration's output (`returns_iterations`, APG's per-update metrics)
 says what it is in `iteration_output`. `train_offline` refuses it.
 
 **The own-replay family.** `OwnReplayAgent` runs `loop.off_policy` on the
-agent's own tick. Its `train` refuses a horizon that ends before the call,
-then asks `prepare_replay(start_tick, end_tick, agent_state)` for the
-call's replay (sized for the call, a resumed state's replay moved into it),
-which `make_train` puts in `context.buffer`. Each tick,
+agent's own tick. Once `train` has checked the call (a horizon that ends
+before it is refused), its `prepare_call` asks `prepare_replay(start_tick,
+end_tick, agent_state)` for the call's replay (sized for the call, a
+resumed state's replay moved into it), which `make_train` puts in
+`context.buffer`. Each tick,
 `collect(agent_state, tick, context)` stores one row per env,
 `count_updates(agent_state, tick, context)` gives the updates of the
 absolute tick (DreamerV3's train ratio, TD-MPC2's seed-phase burst) and

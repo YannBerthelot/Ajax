@@ -560,11 +560,12 @@ __all__ = [
 ]
 
 
+# ConditioningMetrics, CriticDiagnostics's old name, still imports, with a
+# warning, until a later release removes it (CLAUDE.md, refactoring rule 10:
+# expand, then contract). It is looked up when asked for, so the module's
+# members hold one class. A comment, not a docstring: the API reference
+# renders this module's documented functions, and this hook is none of them.
 def __getattr__(name: str) -> Any:
-    """ConditioningMetrics, CriticDiagnostics's old name, still imports, with
-    a warning, until a later release removes it (CLAUDE.md, refactoring rule
-    10: expand, then contract). It is looked up when asked for, so the
-    module's members hold one class."""
     if name == "ConditioningMetrics":
         warn_user(
             "ConditioningMetrics is now CriticDiagnostics; the old name still"

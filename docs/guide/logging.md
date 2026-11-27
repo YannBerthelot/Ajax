@@ -250,7 +250,9 @@ lists them, and `train(..., on_ids_ready=callback)` hands them to
 
 - `TensorBoardBackend(folder=".")` writes each run to
   `<folder>/tensorboard/<run id>/`, with its `config.json`. Metrics that are
-  not one number are left out.
+  not one number are left out. Ajax writes the files; the viewer is
+  TensorBoard itself, installed apart: `pip install tensorboard`, then
+  `tensorboard --logdir <folder>`.
 - `WandbBackend(project=None, group=None)` logs to Weights & Biases: install
   the `wandb` extra and log in once with `wandb login`. Each run is created
   in your process before training, so a missing login fails at once.

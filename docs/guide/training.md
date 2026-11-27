@@ -135,10 +135,10 @@ with a warning; a budget below one rollout runs that one rollout and
 records no evaluation.
 
 The off-policy agents act uniformly at random and do not update until
-`learning_starts` steps are collected: 10,000 by default for SAC, TD3, REDQ
-and ASAC, 5,000 for CrossQ, 1,000 for DQN, 257 for TQC (whose policy acts
-from the first step), 0 for AVG. A short test run must lower it, or the
-agent never trains.
+`learning_starts` steps are collected: 10,000 by default for SAC, ASAC,
+RVI-SAC and DQN, 25,000 for TD3, 5,000 for REDQ and CrossQ, 257 for TQC
+(whose policy acts from the first step), 0 for AVG. A short test run must
+lower it, or the agent never trains; a call that ends before it warns.
 
 ### Seeds
 

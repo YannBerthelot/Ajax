@@ -115,7 +115,7 @@ yourself.
 
 ## Using Ajax from another project
 
-Ajax and every runtime dependency, gymnax 1.0.1 included, come from PyPI:
+Ajax and every runtime dependency, gymnax 1.0.1 or newer included, come from PyPI:
 
 ```toml
 [project]

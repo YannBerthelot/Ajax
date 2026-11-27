@@ -147,15 +147,16 @@ To watch it, `render` saves one episode of a seed's policy as an animation.
 It needs the `render` extra (`pip install "ajax-rl[render]"`):
 
 ```python
-import os
-import tempfile
-
 from ajax import PPO
 
 agent = PPO("CartPole-v1", n_envs=8, n_steps=128)
 state, _ = agent.train(seed=[0, 1], n_timesteps=16_384, logging_config=None)
-agent.render(state, os.path.join(tempfile.mkdtemp(), "cartpole.gif"))
+print(agent.render(state, "cartpole.gif", max_steps=100))  # where the GIF went
 ```
+
+Drawing takes about a tenth of a second a frame, so `max_steps=100` keeps
+this to about ten seconds; without it the episode plays to its end, 500
+steps for a policy that balances the pole.
 
 [Watch the policy](../guide/deploy.md#watch-the-policy) covers Brax and
 MuJoCo tasks.

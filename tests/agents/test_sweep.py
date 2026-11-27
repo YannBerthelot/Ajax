@@ -37,11 +37,6 @@ TANH = ("16", "tanh", "16", "tanh")
 #: these networks) stay well under 1e-6, while the configurations below move
 #: the parameters by 1e-3 to 1e-2.
 ROUNDING = 1e-6
-#: Rounding is relative: Adam's moments reach about 8, where one float32 step
-#: is already 1e-6, and at JAX 0.11 a sweep and a separate run differ there by
-#: 7e-7 relative (about five steps) after 49 updates. 1e-5 stays a hundred
-#: times under what the configurations change.
-RELATIVE_ROUNDING = 1e-5
 #: The logged evaluations: returns summed over up to 200 steps of rewards
 #: computed from those parameters, so the same rounding, a few hundred times
 #: over (Pendulum's episode returns are of order 1e3).
@@ -97,11 +92,7 @@ def assert_rows_match(swept: Any, rows: slice, separate: Any) -> None:
     assert set(theirs).issubset(ours)
     for path, leaf in theirs.items():
         np.testing.assert_allclose(
-            ours[path][rows],
-            leaf,
-            atol=ROUNDING,
-            rtol=RELATIVE_ROUNDING,
-            err_msg=path,
+            ours[path][rows], leaf, atol=ROUNDING, rtol=0, err_msg=path
         )
 
 

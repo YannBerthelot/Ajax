@@ -12,7 +12,7 @@ from ajax.controller import (
     call_expert,
     init_observers,
     observe_features,
-    observe_inputs,
+    _observe_inputs,
 )
 from ajax.environments.interaction import (
     APPLIED_ACTION_KEY,
@@ -515,7 +515,7 @@ def step_environment(
         if controller.observers:
             fresh = init_observers(controller.observers, obs.shape[0])
             observer_states = tree_where_reset(new_done, fresh, observer_states)
-            inputs = observe_inputs(
+            inputs = _observe_inputs(
                 controller.observers,
                 _expert_obs(new_state, env, mode, env_params),
                 env,
@@ -726,7 +726,7 @@ def _start_rollout(
     observer_states = None
     if controller.observers:
         stateful = expert_policy is not None and hasattr(expert_policy, "init_state")
-        inputs = observe_inputs(
+        inputs = _observe_inputs(
             controller.observers,
             _expert_obs(state, env, mode, env_params),
             env,
@@ -1113,7 +1113,7 @@ def evaluate_policy(
     ) -> tuple[jax.Array, Any]:
         """obs with the features, after action and the reward it earned
         (None: a reset)."""
-        inputs = observe_inputs(
+        inputs = _observe_inputs(
             observers,
             obs.astype(jnp.float32),
             env,

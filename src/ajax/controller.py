@@ -424,7 +424,7 @@ def previous_reward_input(
     return reward.reshape(n_envs, 1).astype(jnp.float32)
 
 
-def observe_inputs(
+def _observe_inputs(
     observers: Any,
     raw_obs: jax.Array,
     env: Any,

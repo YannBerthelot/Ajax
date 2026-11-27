@@ -1,4 +1,23 @@
 repos:
+  # Cheap file checks. No whitespace fixers: test fixtures and records are
+  # compared as written.
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-yaml
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        # The largest tracked fixture is about 1.2 MB; this blocks the
+        # accidental checkpoint or run output.
+        args: [--maxkb=2048]
+
+  # Workflow security: unpinned actions, token permissions, script injection.
+  - repo: https://github.com/zizmorcore/zizmor-pre-commit
+    rev: v1.33.1
+    hooks:
+      - id: zizmor
+
   - repo: https://github.com/charliermarsh/ruff-pre-commit
     rev: v0.11.6
     hooks:

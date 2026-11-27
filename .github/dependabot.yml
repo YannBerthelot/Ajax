@@ -2,10 +2,24 @@
 # and releases). pyproject.toml's ranges stay as written: they change by hand.
 version: 2
 updates:
+  # The actions are pinned by commit; this keeps the pins current.
+  - package-ecosystem: github-actions
+    directories: ["/", "/.github/actions/*"]
+    schedule:
+      interval: monthly
+    # Wait a week after a release: most bad releases are pulled within days.
+    cooldown:
+      default-days: 7
+    groups:
+      actions:
+        patterns: ["*"]
   - package-ecosystem: uv
     directory: /
     schedule:
       interval: monthly
+    # Wait a week after a release: most bad releases are pulled within days.
+    cooldown:
+      default-days: 7
     versioning-strategy: lockfile-only
     groups:
       # Released together and often coupled: one pull request.

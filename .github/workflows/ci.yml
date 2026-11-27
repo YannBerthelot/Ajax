@@ -9,6 +9,10 @@ on:
 # A new push to a pull request cancels the run it supersedes (one group per
 # pull request number). Every push to main gets its own group (run_id), so no
 # main run is cancelled or queued.
+# Read-only by default; a job that needs more says so.
+permissions:
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: true
@@ -34,39 +38,58 @@ jobs:
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/setup
       - name: Restore the pre-commit environments
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/pre-commit
           key: pre-commit-${{ runner.os }}-${{ hashFiles('.pre-commit-config.yaml') }}
       - run: uv run pre-commit run --all-files
 
-  # The tests not marked slow, under coverage, split across four runners by
-  # file from the recorded times (tests/.file_durations, `pytest --shard I/4
+  # The tests not marked slow, under coverage, split across six runners by
+  # file from the recorded times (tests/.file_durations, `pytest --shard I/6
   # --shard-by file`): a file's tests stay on one runner, so its shared runs
   # are built once, and a file without a recorded time still lands in a
-  # shard. Before, shards 1 and 2 named directories and shard 3 ran the
-  # rest, which had grown to half of the work (15.7 min against 6.6 and
-  # 9.2 at 3e0cbbec). tests/conftest.py marks tests/probing slow but for the
+  # shard. Six, not four, since 2026-11-26: the four shards took 9-10 min
+  # with a warm cache and 12-16 min when a change missed it (PR #400); six
+  # are modelled at about 6.5 and 10 min for 3 more runner-minutes a run. tests/conftest.py marks tests/probing slow but for the
   # harness's checks, which run here; conformance (tests/conformance) has
   # its own job.
   tests:
     name: Tests (shard ${{ matrix.shard }})
     runs-on: ubuntu-24.04-arm
+    # actions: write lets compile-cache-save delete this job's older caches.
+    permissions:
+      contents: read
+      actions: write
     timeout-minutes: 60
+    # uv takes the interpreter from .python-version (3.12) over the one
+    # setup-python installs; UV_PYTHON holds every uv command to 3.14.
+    env:
+      UV_PYTHON: "3.14"
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2, 3, 4, 5, 6]
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Python 3.14, where coverage measures branches through
+      # sys.monitoring (COVERAGE_CORE below): about free, where 3.12's
+      # tracer, running on every Python call, JAX's own included, added
+      # 44% to the tests (bob, 2026-11-26). Pre-commit's mypy and the
+      # compatibility job (lowest) keep checking 3.12.
       - uses: ./.github/actions/setup
+        with:
+          python-version: "3.14"
       - id: jax-cache
         uses: ./.github/actions/compile-cache
         with:
-          job: tests-${{ matrix.shard }}of4
+          job: tests-${{ matrix.shard }}of6
       # XLA's optimisation level 0 (the Makefile's FAST_XLA): these tests
       # check logic on tiny programs, so compiling fast matters more than
       # the code it makes (about 30% off a cold shard, measured by the
@@ -74,21 +97,23 @@ jobs:
       - name: Run the shard under coverage
         env:
           XLA_FLAGS: --xla_backend_optimization_level=0 --xla_llvm_disable_expensive_passes=true
+          COVERAGE_CORE: sysmon
         run: |
           # One xdist worker per vCPU (Compile preview, arm64: 4 workers cut
-          # a cold compile-heavy subset by 44-47%, with level 0 more).
+          # a cold compile-heavy subset by 44-47%, with level 0 more); tests
+          # sharing a run go to one worker (loadgroup, tests/conftest.py).
           # pytest-cov merges the workers' data into .coverage; the
           # Coverage job combines the shards' and checks the floor (a shard
           # alone covers less, so pytest-cov must not check it).
-          uv run pytest -m "not slow" --shard ${{ matrix.shard }}/4 \
-            --shard-by file -n auto --cov --cov-report= \
+          uv run pytest -m "not slow" --shard ${{ matrix.shard }}/6 \
+            --shard-by file -n auto --dist loadgroup --cov --cov-report= \
             --cov-fail-under=0 --ignore=tests/conformance \
             --durations=30 --junitxml=junit-fast-${{ matrix.shard }}.xml
           mv .coverage ".coverage.shard-${{ matrix.shard }}"
       # The per-test times `make file-durations` reads to rebalance the
       # shards.
       - if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: junit-fast-${{ matrix.shard }}
           path: junit-fast-${{ matrix.shard }}.xml
@@ -100,7 +125,7 @@ jobs:
         uses: ./.github/actions/compile-cache-save
         with:
           key: ${{ steps.jax-cache.outputs.key }}
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: coverage-${{ matrix.shard }}
           path: .coverage.*
@@ -112,10 +137,18 @@ jobs:
     needs: tests
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 15
+    # uv takes the interpreter from .python-version (3.12) over the one
+    # setup-python installs; UV_PYTHON holds every uv command to 3.14.
+    env:
+      UV_PYTHON: "3.14"
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/setup
-      - uses: actions/download-artifact@v8
+        with:
+          python-version: "3.14"
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: coverage-*
           merge-multiple: true
@@ -129,9 +162,15 @@ jobs:
   conformance:
     name: Conformance
     runs-on: ubuntu-24.04-arm
+    # actions: write lets compile-cache-save delete this job's older caches.
+    permissions:
+      contents: read
+      actions: write
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/setup
       - id: jax-cache
         uses: ./.github/actions/compile-cache
@@ -140,20 +179,23 @@ jobs:
       # The records of the originals that run in their own envs (PyTorch;
       # CrossQ's authors' jax, flax and SB3; ASAC's SB3 2.4; ReBRAC's flax), kept while the vendored
       # originals, their recorders and their envs' locks stay the same. On a
-      # miss the tests build those envs and record them (CPU-only torch
-      # wheels), and a push to main saves them, as for the compile cache.
+      # miss the last records are restored and only the originals whose own
+      # inputs changed record again (tests/conformance/originals.py,
+      # inputs_hash), building their envs (CPU-only torch wheels); a push to
+      # main saves them, as for the compile cache.
       - id: records
-        uses: actions/cache/restore@v6
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .cache/conformance
           key: conformance-records-${{ hashFiles('benchmarks/reference/vendor/**', 'benchmarks/reference/conformance_*.py', 'benchmarks/reference/envs/torch/uv.lock', 'benchmarks/reference/envs/crossq/uv.lock', 'benchmarks/reference/envs/asac/uv.lock', 'benchmarks/reference/envs/jax_offline/uv.lock') }}
+          restore-keys: conformance-records-
       - run: uv run pytest tests/conformance -v --durations=30
         env:
           AJAX_CONFORMANCE_RECORDS: .cache/conformance
       - name: Save the originals' records
         if: github.event_name == 'push' && steps.records.outputs.cache-hit != 'true'
         continue-on-error: true
-        uses: actions/cache/save@v6
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .cache/conformance
           key: ${{ steps.records.outputs.cache-primary-key }}
@@ -173,11 +215,13 @@ jobs:
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
-      - uses: astral-sh/setup-uv@v10.3.0
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           version: "0.11.28"
           enable-cache: true

@@ -20,6 +20,12 @@ import tempfile
 def core() -> None:
     import numpy as np
 
+    import ajax
+
+    # Type checkers read the annotations of a package only if it ships this
+    # marker (PEP 561); the projects that use Ajax check their calls with it.
+    assert (pathlib.Path(ajax.__file__).parent / "py.typed").is_file()
+
     from ajax import PPO
     from ajax.checkpoint import load_checkpoint, save_checkpoint
     from ajax.compare import AdaStop

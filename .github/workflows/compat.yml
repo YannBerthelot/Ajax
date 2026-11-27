@@ -25,6 +25,10 @@ on:
       - .github/workflows/compat.yml
       - .github/actions/setup/action.yml
 
+# Read-only by default; a job that needs more says so.
+permissions:
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: true
@@ -35,41 +39,59 @@ env:
   JAX_PLATFORM_NAME: cpu
 
 jobs:
-  # Split across four runners by file, as CI's test shards are (from the
+  # Split across six runners by file, as CI's test shards are (from the
   # recorded times, tests/.file_durations). In one job per version set, the
   # newest took 1 h 10-1 h 17 and the lowest's runner died at 1.5-2 h every
   # week from 2026-11-16 ("lost communication with the server", then a
   # shutdown signal at 81% on 2026-11-26): four JAX workers running ~1,200
-  # tests each starved a 16 GB runner. A shard's workers run a quarter of
-  # that, and the lowest runs three workers, not one per vCPU.
+  # tests each starved a 16 GB runner. A shard's workers run a sixth of
+  # that, and the lowest runs three workers, not one per vCPU. On GitHub's
+  # arm64 runners, as CI's test shards: moving those from x86 took their cold
+  # shards from 21-38 to 8-13 min (PR #226), and these jobs are always cold
+  # (the versions differ from the lock's, so no compile cache is kept).
+  # Six shards, not four: on arm64 the lowest's four took 16-19 min and two
+  # of their runners still died of memory, at 64% and 93% (2026-11-26), as a
+  # worker grows with every test it runs. A shard that passes 40 min hangs.
   compat:
     name: Compatibility (${{ matrix.name }}, shard ${{ matrix.shard }})
-    runs-on: ubuntu-latest
-    timeout-minutes: 90
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
         name: [newest, lowest]
-        shard: [1, 2, 3, 4]
+        shard: [1, 2, 3, 4, 5, 6]
         include:
           - name: newest
             python: "3.14"
             resolution: highest
             sync: uv sync --upgrade
             workers: auto
+            xla_flags: --xla_backend_optimization_level=0 --xla_llvm_disable_expensive_passes=true
           - name: lowest
             python: "3.12"
             resolution: lowest-direct
             sync: uv sync
             workers: 3
+            # Not level 0: jaxlib 0.10's and 0.11.0's CPU code at level 0
+            # recomputes shared subexpressions inside a fusion, 4x more work
+            # per link of a chain of quaternion products, so MJX's kinematics
+            # on Pusher's 10-link arm took about 150 s a call (0.06 s without
+            # the flag; jaxlib 0.11.2 at level 0: 0.01 s). Bob, 2026-11-26.
+            xla_flags: --xla_llvm_disable_expensive_passes=true
     # Every uv command of the job resolves in the same mode, the tests' own
     # `uv run --locked` included: uv.lock records the mode it was resolved
     # in, and a lock from another mode is out of date to `--locked`.
     env:
       UV_RESOLUTION: ${{ matrix.resolution }}
+      # And on the matrix's Python: uv takes the interpreter from
+      # .python-version (3.12) over the one setup-python installs, so until
+      # 2026-11-26 the newest versions ran on 3.12 ("Using CPython 3.12.13").
+      UV_PYTHON: ${{ matrix.python }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           ref: ${{ inputs.ref }}
       - uses: ./.github/actions/setup
         with:
@@ -82,13 +104,15 @@ jobs:
       # put out of date to `--locked`; CI's Conformance job runs it. The
       # exact-output pins are left out: they detect change against the
       # locked versions, and other versions move them by rounding.
-      # XLA's optimisation level 0, as in CI's test shards: in one process
-      # at the default level this step took about 2 h 30 min.
+      # XLA's flags per version set (matrix xla_flags): the newest at
+      # optimisation level 0, as in CI's test shards (in one process at the
+      # default level this step took about 2 h 30 min); the lowest without
+      # it, as jaxlib up to 0.11.0 miscompiles MJX's kinematics there.
       - env:
-          XLA_FLAGS: --xla_backend_optimization_level=0 --xla_llvm_disable_expensive_passes=true
+          XLA_FLAGS: ${{ matrix.xla_flags }}
         run: >-
           uv run --no-sync pytest tests -m "not slow"
-          --shard ${{ matrix.shard }}/4 --shard-by file -n ${{ matrix.workers }}
+          --shard ${{ matrix.shard }}/6 --shard-by file -n ${{ matrix.workers }} --dist loadgroup
           --ignore=tests/probing
           --ignore=tests/conformance
           --ignore=tests/agents/test_agent_pins.py
@@ -104,8 +128,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           ref: ${{ inputs.ref }}
       - uses: ./.github/actions/setup
         with:

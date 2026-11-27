@@ -412,1441 +412,226 @@ _CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
     "APG-pid-nudge": (APG, {**_APG, "pid": PIDHeadConfig()}, 80),
 }
 _TOL = 1e-3
-# AVG (final observation normalised) and PPO-env-split (PPO trains on
-# observations as normalised at collection, on the plain-MLP default)
-# re-recorded once batch/env-eval-logging met main: -0.6%/+0.7%, +0.3%/+0.5%.
-# Recorded on macOS ARM CPU at the parent of the step-16 lineage commit.
+# Each case's recorded fingerprint. A re-recording replaces its case's entry
+# and says why in its commit message (git log -p keeps the earlier values
+# and their reasons).
 _GOLDEN: dict[str, dict[str, float]] = {
+    "APG-nudge": {
+        "actor": 35.84657669067383,
+        "n_updates": 5.0,
+        "nudge": 0.8785082697868347,
+    },
+    "APG-pid-nudge": {
+        "actor": 36.84217834472656,
+        "n_updates": 5.0,
+        "nudge": 0.8785082697868347,
+    },
+    "APO-nudge": {
+        "actor": 9.22077751159668,
+        "critic": 8.006710052490234,
+        "target": 9.211957931518555,
+        "n_updates": 4.0,
+        "nudge": 0.8760150671005249,
+    },
+    "ASAC": {
+        "actor": 17.27933692932129,
+        "critic": 27.503591537475586,
+        "target": 17.321802139282227,
+        "n_updates": 0.0,
+        "alpha": 0.19999998807907104,
+    },
     "AVG": {
-        "actor": 5.839523792266846,
-        "critic": 19.103961944580078,
+        "actor": 5.643533706665039,
+        "critic": 17.76322364807129,
+        "target": 5.000000476837158,
+        "n_updates": 0.0,
         "alpha": 0.07000000029802322,
     },
+    "CrossQ": {
+        "actor": 132.8204803466797,
+        "critic": 271.1706237792969,
+        "target": 133.31524658203125,
+        "n_updates": 91.0,
+        "alpha": 0.9723634719848633,
+    },
+    "DAgger-nudge": {
+        "actor": 4.547504901885986,
+        "n_updates": 2.0,
+        "nudge": 0.8891514539718628,
+    },
+    "DQN": {
+        "actor": 8.627391815185547,
+        "critic": 8.621588706970215,
+        "target": 8.624855041503906,
+        "n_updates": 11.0,
+    },
+    "DQN-dueling-nudge": {
+        "actor": 9.089839935302734,
+        "critic": 9.092710494995117,
+        "target": 9.089208602905273,
+        "n_updates": 11.0,
+        "nudge": 0.8379592299461365,
+    },
+    "DreamerV3-drift": {
+        "actor": 92.456298828125,
+        "critic": 95.05998229980469,
+        "world_model": 548.9129638671875,
+        "n_updates": 61.0,
+        "drift": 0.5100106000900269,
+    },
+    "IQL-nudge": {
+        "actor": 7.999928951263428,
+        "critic": 19.837133407592773,
+        "value": 7.922294616699219,
+        "target": 8.0,
+        "n_updates": 91.0,
+        "nudge": 1.0078387260437012,
+    },
+    "PPO-discrete-nudge": {
+        "actor": 7.548346996307373,
+        "critic": 8.936015129089355,
+        "target": 8.000201225280762,
+        "n_updates": 4.0,
+        "nudge": 0.8760150671005249,
+    },
+    "PPO-env-split": {
+        "actor": 6.042834758758545,
+        "critic": 7.037717819213867,
+        "target": 6.0001020431518555,
+        "n_updates": 4.0,
+    },
+    "PPO-env-split-nudge": {
+        "actor": 5.540170669555664,
+        "critic": 6.926347732543945,
+        "target": 6.0001020431518555,
+        "n_updates": 4.0,
+        "nudge": 0.8760150671005249,
+    },
+    "PPO-flat": {
+        "actor": 6.084283828735352,
+        "critic": 7.008105754852295,
+        "target": 6.0001020431518555,
+        "n_updates": 2.0,
+    },
+    "PPO-gru": {
+        "actor": 89.6171875,
+        "critic": 86.63198852539062,
+        "target": 88.98634338378906,
+        "n_updates": 4.0,
+    },
+    "PPO-mcc": {
+        "actor": 3.9840002059936523,
+        "critic": 4.984694957733154,
+        "target": 4.000099182128906,
+        "n_updates": 2.0,
+    },
+    "PPO-unroll": {
+        "actor": 6.055914878845215,
+        "critic": 6.934496879577637,
+        "target": 6.0001020431518555,
+        "n_updates": 2.0,
+    },
+    "PQN": {
+        "actor": 34.021881103515625,
+        "critic": 34.03536605834961,
+        "target": 34.03536605834961,
+        "n_updates": 8.0,
+    },
+    "PQN-nudge": {
+        "actor": 34.021873474121094,
+        "critic": 34.03536605834961,
+        "target": 34.03536605834961,
+        "n_updates": 8.0,
+        "nudge": 0.8321770429611206,
+    },
+    "REDQ": {
+        "actor": 10.62346363067627,
+        "critic": 36.932762145996094,
+        "target": 10.68629264831543,
+        "n_updates": 0.0,
+        "alpha": 0.9872119426727295,
+    },
+    "REINFORCE": {
+        "actor": 7.6761860847473145,
+        "critic": 8.163204193115234,
+        "target": 7.68051815032959,
+        "n_updates": 2.0,
+    },
+    "SAC": {
+        "actor": 10.58867359161377,
+        "critic": 17.932748794555664,
+        "target": 10.68629264831543,
+        "n_updates": 0.0,
+        "alpha": 0.9744771122932434,
+    },
+    "SAC-expert": {
+        "actor": 10.587984085083008,
+        "critic": 17.91284942626953,
+        "target": 10.68629264831543,
+        "n_updates": 0.0,
+        "alpha": 0.9746769666671753,
+    },
+    "SAC-gru": {
+        "actor": 91.2584457397461,
+        "critic": 150.99508666992188,
+        "target": 90.58779907226562,
+        "n_updates": 0.0,
+        "alpha": 0.9761014580726624,
+    },
+    "SAC-mcc": {
+        "actor": 8.320406913757324,
+        "critic": 15.497808456420898,
+        "target": 8.329099655151367,
+        "n_updates": 0.0,
+        "alpha": 0.9759957194328308,
+    },
+    "TD3": {
+        "actor": 15.418506622314453,
+        "critic": 27.09539031982422,
+        "target": 15.265251159667969,
+        "n_updates": 91.0,
+    },
+    "TD3-mcc": {
+        "actor": 17.516809463500977,
+        "critic": 28.63946533203125,
+        "target": 17.338119506835938,
+        "n_updates": 91.0,
+    },
+    "TDMPC2-drift": {
+        "actor": 32.238319396972656,
+        "world_model": 162.49891662597656,
+        "n_updates": 39.0,
+        "drift": 0.5062060952186584,
+    },
+    "TDMPC2MultiTask-drift": {
+        "actor": 32.23353576660156,
+        "world_model": 161.12286376953125,
+        "n_updates": 12.0,
+        "drift": 0.4896028935909271,
+    },
+    "TQC": {
+        "actor": 17.295066833496094,
+        "critic": 45.290157318115234,
+        "target": 17.321802139282227,
+        "n_updates": 0.0,
+        "alpha": 0.972418487071991,
+    },
+    "TQC-nudge": {
+        "actor": 17.15433692932129,
+        "critic": 43.00996398925781,
+        "target": 17.321802139282227,
+        "n_updates": 0.0,
+        "alpha": 0.9724184274673462,
+        "nudge": 0.8450943231582642,
+    },
+    "UDRL-nudge": {
+        "actor": 21.741743087768555,
+        "critic": 23.000001907348633,
+        "target": 22.000200271606445,
+        "n_updates": 4.0,
+        "nudge": 0.8760150671005249,
+    },
 }
-# Recorded on macOS ARM CPU once TD3's critic dropped its encoder LayerNorm:
-# the critic tree lost the norm's scales (64 of the old 79.6) and the actor
-# moved 3.6%.
-_GOLDEN.update({"TD3": {"actor": 3.94071626663208, "critic": 11.506895065307617}})
-# Recorded on macOS ARM CPU once a recurrent Q-critic embedded the
-# observation and the previous action before its memory and read the
-# current one at a head after it: new critic parameters (against the
-# head-only critic before it: +42.9% critic, +0.17% actor, -0.045% alpha).
-_GOLDEN.update({})
-# Recorded on macOS ARM CPU once PPO and APO drew a fresh minibatch
-# partition every epoch (0.1-0.5% on the actors, under 0.3% on the critics).
-_GOLDEN.update(
-    {
-        "PPO-flat": {"actor": 20.36318016052246, "critic": 21.18039321899414},
-        "PPO-env-split": {"actor": 19.09400177001953, "critic": 20.218984603881836},
-        "PPO-unroll": {"actor": 20.432720184326172, "critic": 21.03376007080078},
-        "PPO-gru": {"actor": 69.55516052246094, "critic": 68.83757019042969},
-        "PPO-discrete-nudge": {
-            "actor": 21.77309799194336,
-            "critic": 21.17990493774414,
-            "nudge": 0.29222556948661804,
-        },
-        "PPO-env-split-nudge": {
-            "actor": 19.13752555847168,
-            "critic": 20.32254409790039,
-            "nudge": 0.3099551498889923,
-        },
-        "APO-nudge": {
-            "actor": 3.8527090549468994,
-            "critic": 4.158751964569092,
-            "nudge": 0.33622848987579346,
-        },
-    }
-)
-# Recorded on macOS ARM CPU once PQN took TrainLoop's init keys, before
-# step 17 restructured it. DQN's and PQN's critic state is a never-updated
-# copy of the initial Q-network: not pinned.
-_GOLDEN.update(
-    {
-        "PQN": {"actor": 25.90884017944336},
-        "PQN-nudge": {"actor": 25.898910522460938, "nudge": 0.33566388487815857},
-    }
-)
-# Recorded on macOS ARM CPU once the shared encoder's output LayerNorm became
-# opt-in (SAC, REDQ, ASAC, PPO and DQN build plain MLPs, as in their papers):
-# each tree lost the norm's scales, one per hidden unit (16 or 32 per encoder).
-# PPO's entries re-recorded once this met the per-epoch reshuffle (#81):
-# 0.05-2.6% on the actors, under 0.4% on the critics.
-_GOLDEN.update(
-    {
-        "ASAC": {
-            "actor": 4.500450611114502,
-            "critic": 9.956274032592773,
-            "alpha": 0.972590446472168,
-        },
-        "SAC-gru": {
-            "actor": 57.405818939208984,
-            "critic": 134.20553588867188,
-            "alpha": 0.9515719413757324,
-        },
-        "PPO-flat": {"actor": 4.138375282287598, "critic": 4.506361961364746},
-        "PPO-env-split": {"actor": 3.0352354049682617, "critic": 4.100451469421387},
-        "PPO-unroll": {"actor": 4.224678993225098, "critic": 4.548887729644775},
-        "PPO-gru": {"actor": 53.321449279785156, "critic": 52.78514099121094},
-        "PPO-discrete-nudge": {
-            "actor": 5.820460796356201,
-            "critic": 5.029939651489258,
-            "nudge": 0.29222556948661804,
-        },
-        "PPO-env-split-nudge": {
-            "actor": 3.742928981781006,
-            "critic": 4.225018501281738,
-            "nudge": 0.3099551498889923,
-        },
-        "DQN": {"actor": 9.462096214294434, "target": 9.303977966308594},
-        "DQN-dueling-nudge": {
-            "actor": 10.129926681518555,
-            "target": 9.98266887664795,
-            "nudge": 0.22634370625019073,
-        },
-    }
-)
-# Recorded on macOS ARM CPU once ASAC's temperature and theta steps read one
-# sample of the updated policy (one actor pass fewer, one key fewer per
-# update): actor +0.034%, critic -0.015%, alpha +0.037%.
-_GOLDEN.update(
-    {
-        "ASAC": {
-            "actor": 4.501960754394531,
-            "critic": 9.954827308654785,
-            "alpha": 0.9729517102241516,
-        },
-    }
-)
-# Recorded on macOS ARM CPU once REDQ's critic loss summed each critic's
-# error and its actor read the critics from before their last update, both
-# as REDQ's official code. The second moved the actor -7.1e-6, the critic
-# -4.0e-7 and alpha +6.1e-8 (relative).
-_GOLDEN.update(
-    {
-        "REDQ": {
-            "actor": 4.491237640380859,
-            "critic": 23.677995681762695,
-            "alpha": 0.9729598164558411,
-        },
-    }
-)
-# Recorded on macOS ARM CPU before step 17 moved the world models onto
-# TrainLoop and tidied APG and UDRL (the world models once they took
-# TrainLoop's init and post_update keys).
-_GOLDEN.update(
-    {
-        "DreamerV3-drift": {
-            "actor": 92.46167755126953,
-            "critic": 95.06945037841797,
-            "world_model": 548.8908081054688,
-            "drift": 0.23474201560020447,
-        },
-        "TDMPC2MultiTask-drift": {
-            "actor": 32.23477554321289,
-            "world_model": 161.12486267089844,
-            "drift": 0.2877737283706665,
-        },
-    }
-)
-# Recorded on macOS ARM CPU once UDRL's sampler drew intervals across
-# segment boundaries (actor -1.3e-4; the nudge unchanged). UDRL's critic
-# and its actor's target are never-updated copies: not pinned.
-_GOLDEN.update(
-    {"UDRL-nudge": {"actor": 23.968936920166016, "nudge": 0.3160724639892578}}
-)
-# Recorded on macOS ARM CPU once prepare_env kept the env_params given with
-# an env id: TDMPC2-drift had run on Pendulum's default T = 200, so its 40
-# steps ended before the seed tick and it pinned no update (actor +0.11 %,
-# world model +1.0 %, drift -27 % on re-recording). With T = 10 it runs the
-# burst of 20 and 19 single updates.
-_GOLDEN.update(
-    {
-        "TDMPC2-drift": {
-            "actor": 32.20726776123047,
-            "world_model": 162.42007446289062,
-            "drift": 0.2332032173871994,
-            "n_updates": 39,
-        },
-    }
-)
-# Recorded on macOS ARM CPU once APG took TrainLoop's init and post_update
-# keys, before step 17 moved it onto the shared evaluation.
-_GOLDEN.update(
-    {
-        "APG-nudge": {"actor": 35.82789611816406, "nudge": 0.27262088656425476},
-        "APG-pid-nudge": {"actor": 36.82305145263672, "nudge": 0.27262088656425476},
-    }
-)
-
-# Recorded on macOS ARM CPU once the action map took its centre/half-range
-# form, exact on a [-1, 1] box: on MountainCarContinuous's, mapping the
-# agents' actions onto the env's bounds must leave these unchanged.
-_GOLDEN.update(
-    {
-        "SAC-mcc": {
-            "actor": 3.1000170707702637,
-            "critic": 8.203842163085938,
-            "alpha": 0.9754154682159424,
-        },
-        "TD3-mcc": {"actor": 2.397678852081299, "critic": 7.9359588623046875},
-        "PPO-mcc": {"actor": 3.6173574924468994, "critic": 3.1998236179351807},
-    }
-)
-# Re-recorded on macOS ARM CPU once get_action_and_log_probs lost its dead
-# uniform draw (0 * u + 1 * a): XLA compiles the GRU collector without it,
-# and the actor moved by float rounding alone (-1.4e-7; 53.321449279785156
-# before). Every other pin is bitwise unchanged.
-_GOLDEN.update({"PPO-gru": {"actor": 53.321441650390625, "critic": 52.78514099121094}})
-# Re-recorded on macOS ARM CPU once every continuous agent's [-1, 1] action
-# was mapped onto the env's box: on Pendulum's [-2, 2] the torque, the
-# uniform warm-up and TD3's noise double, PPO's Gaussian is read in
-# normalised units and APG's gradients scale by 2. Relative shifts (actor,
-# critic): AVG -2.63%, -2.39%; TD3 -0.61%, -0.36%; PPO-flat -0.52%,
-# -0.15%; PPO-env-split -0.52%, +0.08%; PPO-unroll -0.42%, -0.31%;
-# PPO-env-split-nudge +0.29%, +0.12%; PPO-gru +0.08%, -0.11%; ASAC -0.13%,
-# -0.04%; REDQ -0.10%, -0.15%; SAC-gru -0.05%, +0.13%; APO-nudge +0.003%,
-# +0.18%; APG-nudge and APG-pid-nudge actor +0.03%. Alphas and nudges move
-# under 1e-5. Every [-1, 1]-box and discrete pin (the -mcc ones, CartPole's,
-# the world models') is bitwise unchanged.
-_GOLDEN.update(
-    {
-        "AVG": {
-            "actor": 5.686222076416016,
-            "critic": 18.646684646606445,
-            "alpha": 0.07000000029802322,
-        },
-        "TD3": {"actor": 3.9167749881744385, "critic": 11.465590476989746},
-        "PPO-flat": {"actor": 4.116726398468018, "critic": 4.499772548675537},
-        "PPO-env-split": {"actor": 3.0195863246917725, "critic": 4.1037750244140625},
-        "PPO-unroll": {"actor": 4.207005023956299, "critic": 4.5349884033203125},
-        "PPO-env-split-nudge": {
-            "actor": 3.753653049468994,
-            "critic": 4.229918479919434,
-            "nudge": 0.3099551498889923,
-        },
-        "PPO-gru": {"actor": 53.36158752441406, "critic": 52.72870635986328},
-        "ASAC": {
-            "actor": 4.495896339416504,
-            "critic": 9.951025009155273,
-            "alpha": 0.972956120967865,
-        },
-        "REDQ": {
-            "actor": 4.486619472503662,
-            "critic": 23.64264488220215,
-            "alpha": 0.9729592204093933,
-        },
-        "SAC-gru": {
-            "actor": 57.37752151489258,
-            "critic": 134.38070678710938,
-            "alpha": 0.95156329870224,
-        },
-        "APO-nudge": {
-            "actor": 3.852809429168701,
-            "critic": 4.166390419006348,
-            "nudge": 0.33622848987579346,
-        },
-        "APG-nudge": {"actor": 35.83795928955078, "nudge": 0.27262088656425476},
-        "APG-pid-nudge": {"actor": 36.834327697753906, "nudge": 0.27262088656425476},
-    }
-)
-# Re-recorded on macOS ARM CPU once APG's Adam eps became torch's 1e-8 (was
-# 1e-5). Relative shifts (actor): APG -2.4e-5, APG-pid -2.4e-5.
-_GOLDEN.update(
-    {
-        "APG-nudge": {"actor": 35.83708953857422, "nudge": 0.27262088656425476},
-        "APG-pid-nudge": {"actor": 36.83342742919922, "nudge": 0.27262088656425476},
-    }
-)
-# Re-recorded on macOS ARM CPU once PPO's default log-std became its
-# reference code's: one unclipped parameter per action dimension at 0, not
-# a Dense head at -1. The actor loses the head's kernel; relative shifts
-# (actor, critic): PPO-mcc -44.1%, +3.9%; PPO-flat -27.0%, -0.55%;
-# PPO-unroll -25.4%, -0.72%; PPO-env-split-nudge -29.8%, -0.05%; PPO-gru
-# -2.0%, -0.12%. PPO-env-split (the head set explicitly) is bitwise
-# unchanged, PPO-discrete-nudge within 1e-5.
-_GOLDEN.update(
-    {
-        "PPO-mcc": {"actor": 2.020819902420044, "critic": 3.3231139183044434},
-        "PPO-flat": {"actor": 3.0036025047302246, "critic": 4.475032806396484},
-        "PPO-unroll": {"actor": 3.136448621749878, "critic": 4.502480506896973},
-        "PPO-env-split-nudge": {
-            "actor": 2.6335089206695557,
-            "critic": 4.227860450744629,
-            "nudge": 0.3099551498889923,
-        },
-        "PPO-gru": {"actor": 52.301292419433594, "critic": 52.665245056152344},
-    }
-)
-# Re-recorded on macOS ARM CPU once feedforward PPO shuffled its rollout flat
-# by default (GAE once, as in the paper): with 2 envs and 2 minibatches this
-# run took brax's time geometry before. Actor +0.52%, critic +0.98%, nudge
-# +6.6%. Every other PPO pin is unchanged.
-_GOLDEN.update(
-    {
-        "PPO-discrete-nudge": {
-            "actor": 5.850821495056152,
-            "critic": 5.0791544914245605,
-            "nudge": 0.31162577867507935,
-        },
-    }
-)
-# Re-recorded on macOS ARM CPU once APO seeded its reward rate and value
-# bias with the first rollout's means, as xtma/apo does, instead of an EMA
-# from 0: actor -0.67%, critic +1.64%, nudge unchanged.
-_GOLDEN.update(
-    {
-        "APO-nudge": {
-            "actor": 3.8270583152770996,
-            "critic": 4.234889984130859,
-            "nudge": 0.33622848987579346,
-        },
-    }
-)
-# Re-recorded on macOS ARM CPU once AVG scaled its TD error as the authors'
-# TDErrorScaler does (a 1e-4 floor, scaled from the reward's variance before
-# any return, each return counted once): actor +0.41%, critic +6.4%.
-_GOLDEN.update(
-    {
-        "AVG": {
-            "actor": 5.7092366218566895,
-            "critic": 19.835189819335938,
-            "alpha": 0.07000000029802322,
-        },
-    }
-)
-# Re-recorded on macOS ARM CPU once the discrete logits head started at
-# orthogonal(0.01), not 1.0: the head's kernel loses most of its initial
-# squared norm (2.0 at gain 1 for 16 x 2). Relative shifts: PPO-discrete-nudge
-# (from the flat-geometry pin above) actor -39.9%, critic +0.78%; UDRL-nudge
-# actor -9.3%; both nudges unchanged.
-_GOLDEN.update(
-    {
-        "PPO-discrete-nudge": {
-            "actor": 3.514505386352539,
-            "critic": 5.118714809417725,
-            "nudge": 0.31162577867507935,
-        },
-        "UDRL-nudge": {"actor": 21.728490829467773, "nudge": 0.3160724639892578},
-    }
-)
-
-# Re-recorded on macOS ARM CPU once PPO's hidden layers became Baselines' ppo2's:
-# orthogonal with gain sqrt(2) (were orthogonal(1.0)); PPO-gru, recurrent,
-# keeps its. Relative shifts (actor, critic): PPO-mcc +99.2%, +58.9%;
-# PPO-flat +99.9%, +66.2%; PPO-env-split +99.3%, +74.2%; PPO-unroll +96.8%,
-# +66.7%; PPO-discrete-nudge +105.4%, +76.8%; PPO-env-split-nudge +103.5%,
-# +71.4%. The nudges are bitwise unchanged.
-_GOLDEN.update(
-    {
-        "PPO-mcc": {"actor": 4.02446985244751, "critic": 5.281169891357422},
-        "PPO-flat": {"actor": 6.003925800323486, "critic": 7.437717914581299},
-        "PPO-env-split": {"actor": 6.0180745124816895, "critic": 7.147911071777344},
-        "PPO-unroll": {"actor": 6.1724958419799805, "critic": 7.504622459411621},
-        "PPO-discrete-nudge": {
-            "actor": 7.218266487121582,
-            "critic": 9.050727844238281,
-            "nudge": 0.31162577867507935,
-        },
-        "PPO-env-split-nudge": {
-            "actor": 5.358870983123779,
-            "critic": 7.248394966125488,
-            "nudge": 0.3099551498889923,
-        },
-    }
-)
-
-# Re-recorded on macOS ARM CPU once recurrent PPO's hidden layers became
-# PureJaxRL's recurrent PPO's: orthogonal with gain sqrt(2) (were
-# orthogonal(1.0)). PPO-gru moved +5.6% (actor), +5.6% (critic).
-_GOLDEN.update({"PPO-gru": {"actor": 55.2531852722168, "critic": 55.617679595947266}})
-# Re-recorded on macOS ARM CPU once PPO's optimiser became ppo2's: Adam eps
-# 1e-5 (was 1e-8), one clip at 0.5 over both networks (was each its own;
-# PPO-unroll's fused_grad_clip, which added a joint clip at 1.0, is gone)
-# and vf_coef 0.5 (was 1.0). Relative shifts (actor, critic): PPO-mcc -0.19%,
-# -0.34%; PPO-flat -0.21%, -0.02%; PPO-env-split -0.23%, -0.003%; PPO-unroll
-# -1.9%, -0.03%; PPO-gru -0.04%, +0.001%; PPO-discrete-nudge +1.2%, -0.19%;
-# PPO-env-split-nudge +5.9%, -0.02%; the nudges are unchanged.
-_GOLDEN.update(
-    {
-        "PPO-mcc": {"actor": 4.016942501068115, "critic": 5.263054847717285},
-        "PPO-flat": {"actor": 5.99110221862793, "critic": 7.436330318450928},
-        "PPO-env-split": {"actor": 6.004455089569092, "critic": 7.147724151611328},
-        "PPO-unroll": {"actor": 6.052582740783691, "critic": 7.502388000488281},
-        "PPO-gru": {"actor": 55.23348617553711, "critic": 55.618282318115234},
-        "PPO-discrete-nudge": {
-            "actor": 7.301796913146973,
-            "critic": 9.033950805664062,
-            "nudge": 0.31162577867507935,
-        },
-        "PPO-env-split-nudge": {
-            "actor": 5.6761155128479,
-            "critic": 7.247241973876953,
-            "nudge": 0.3099551498889923,
-        },
-    }
-)
-# Re-recorded on macOS ARM CPU once APO's continuous actor became its
-# reference code's: an unsquashed Gaussian around tanh of the mean layer,
-# its log-std unclipped (the same parameters). Relative shifts (actor,
-# critic): APO-nudge +0.042%, +0.0066%; its nudge is bitwise unchanged.
-_GOLDEN.update(
-    {
-        "APO-nudge": {
-            "actor": 3.8544418811798096,
-            "critic": 4.166664123535156,
-            "nudge": 0.33622848987579346,
-        },
-    }
-)
-# Re-recorded on macOS ARM CPU once APO's hidden layers became its reference
-# code's: two of 64 tanh units (were 128), starting as torch's nn.Linear
-# (kernel and bias uniform in +-1/sqrt(fan_in); were orthogonal, zero bias).
-# Relative shifts (actor, critic): APO-nudge +137%, +91%; its nudge is
-# bitwise unchanged.
-_GOLDEN.update(
-    {
-        "APO-nudge": {
-            "actor": 9.124271392822266,
-            "critic": 7.960622310638428,
-            "nudge": 0.33622848987579346,
-        },
-    }
-)
-# Re-recorded on macOS ARM CPU once APO's optimiser became its reference
-# code's: one step of both networks on their summed loss, the gradient
-# clipped to norm 10 over both at once (was each network's own Adam step,
-# clipped to 0.5 on its own). Relative shifts (actor, critic): APO-nudge
-# -0.087%, +0.0016%; its nudge is bitwise unchanged.
-_GOLDEN.update(
-    {
-        "APO-nudge": {
-            "actor": 9.116347312927246,
-            "critic": 7.960748672485352,
-            "nudge": 0.33622848987579346,
-        },
-    }
-)
-# Re-recorded on macOS ARM CPU once APO's entropy bonus became its reference
-# code's, ent_coef 0.01 (was 0). Relative shifts (actor, critic): APO-nudge
-# -3.0e-6, +1.1e-6; its nudge is bitwise unchanged.
-_GOLDEN.update(
-    {
-        "APO-nudge": {
-            "actor": 9.11631965637207,
-            "critic": 7.960757732391357,
-            "nudge": 0.33622848987579346,
-        },
-    }
-)
-# Re-recorded on macOS ARM CPU on the batch that brought APO's reference stack
-# onto main (batch/apo-reference). The stack's pins above were recorded on
-# its base, 04e2249; of main's commits since, only b35fa54 (APO seeds its
-# reward rate and value bias with the first rollout's means) re-recorded
-# APO-nudge on main. On the merged tree APO-nudge moves +0.97% (actor) and
-# +1.21% (critic) from the entropy-bonus pin, its nudge bitwise unchanged. PPO-mcc's critic moves
-# -1.8e-7 (relative), float32 rounding, as PPO's joint clip took the shared
-# formula g * (max_norm / norm) for optax's (g / norm) * max_norm.
-_GOLDEN.update(
-    {
-        "APO-nudge": {
-            "actor": 9.204462051391602,
-            "critic": 8.057476043701172,
-            "nudge": 0.33622848987579346,
-        },
-        "PPO-mcc": {"actor": 4.016942501068115, "critic": 5.263053894042969},
-    }
-)
-
-# Re-recorded on macOS ARM CPU once AVG's layers became its reference code's:
-# every kernel orthogonal with gain 1 and every bias zero, the mean (was
-# orthogonal(0.01)) and log-std head (was a zero kernel, bias -1) included.
-# Relative shifts (actor, critic), from the golden with the authors' TD-error
-# scaling: AVG -2.64%, -6.00%; alpha unchanged.
-_GOLDEN.update(
-    {
-        "AVG": {
-            "actor": 5.558319091796875,
-            "critic": 18.645687103271484,
-            "alpha": 0.07000000029802322,
-        },
-    }
-)
-# Re-recorded on macOS ARM CPU once AVG's Adam eps became torch's 1e-8 (was
-# 1e-5), on the merged code (the authors' TD-error scaling and the reference
-# init). Relative shifts (actor, critic): +0.013%, +0.25%; alpha unchanged.
-_GOLDEN.update(
-    {
-        "AVG": {
-            "actor": 5.559042930603027,
-            "critic": 18.692731857299805,
-            "alpha": 0.07000000029802322,
-        },
-    }
-)
-
-# Re-recorded on macOS ARM CPU once ASAC's layers became its reference code's:
-# torch's nn.Linear default, every kernel and bias uniform in +-1/sqrt(fan_in)
-# (were orthogonal(1.0) hidden and Q layers, an orthogonal(0.01) mean and a
-# zero-kernel log-std head with bias -1, zero biases). Relative shifts
-# (actor, critic, alpha): ASAC +283.9%, +171.6%, -0.021%.
-_GOLDEN.update(
-    {
-        "ASAC": {
-            "actor": 17.258983612060547,
-            "critic": 27.022438049316406,
-            "alpha": 0.9727535247802734,
-        },
-    }
-)
-# Re-recorded on macOS ARM CPU once ASAC fixed its temperature at 0.2 by
-# default (was learned from 1.0). Relative shifts (actor, critic, alpha):
-# ASAC -0.1%, +0.0%, -79.4%.
-_GOLDEN.update(
-    {
-        "ASAC": {
-            "actor": 17.239709854125977,
-            "critic": 27.024330139160156,
-            "alpha": 0.19999998807907104,
-        },
-    }
-)
-# Re-recorded on macOS ARM CPU once ASAC's learning rates (actor 1e-4,
-# critics 5e-4) and gradient clip (10, each critic alone) became its
-# authors'. Relative shifts (actor, critic, alpha): +0.24%, +1.27%, 0.
-_GOLDEN.update(
-    {
-        "ASAC": {
-            "actor": 17.280670166015625,
-            "critic": 27.36642837524414,
-            "alpha": 0.19999998807907104,
-        },
-    }
-)
-# Re-recorded on macOS ARM CPU once ASAC's Adam eps became torch's 1e-8
-# (was 1e-5). Relative shifts (actor, critic, alpha): -2.0e-6, +2.6e-5, 0.
-_GOLDEN.update(
-    {
-        "ASAC": {
-            "actor": 17.280635833740234,
-            "critic": 27.367149353027344,
-            "alpha": 0.19999998807907104,
-        },
-    }
-)
-
-# Re-recorded on macOS ARM CPU once PQN's layers became its reference code's:
-# flax's lecun_normal kernels (were orthogonal(sqrt(2)) hidden layers and an
-# orthogonal(1.0) head), zero biases. Relative shifts (actor): PQN +30.9%,
-# PQN-nudge +30.9%; its nudge is bitwise unchanged.
-_GOLDEN.update(
-    {
-        "PQN": {"actor": 33.92633056640625},
-        "PQN-nudge": {"actor": 33.91205596923828, "nudge": 0.33566388487815857},
-    }
-)
-# Re-recorded on macOS ARM CPU once PQN stepped as its authors' code: RAdam
-# (eps 1e-8) after a global clip of 10, on half the squared error (were Adam,
-# eps 1e-5, unclipped, on the squared error). Relative shifts (actor): PQN
-# +0.28%, PQN-nudge +0.32%; the nudge is unchanged.
-_GOLDEN.update(
-    {
-        "PQN": {"actor": 34.02167510986328},
-        "PQN-nudge": {"actor": 34.01959228515625, "nudge": 0.33566388487815857},
-    }
-)
-
-# Re-recorded on macOS ARM CPU once TD3's layers became its reference code's:
-# torch's nn.Linear default, every kernel and bias uniform in +-1/sqrt(fan_in)
-# (were orthogonal(1.0) hidden and Q layers and a uniform(+-3e-3) actor head,
-# zero biases). Relative shifts (actor, critic): TD3 +299.6%, +153.4%;
-# TD3-mcc +640.8%, +258.6%.
-_GOLDEN.update(
-    {
-        "TD3": {"actor": 15.652060508728027, "critic": 29.05111312866211},
-        "TD3-mcc": {"actor": 17.76249885559082, "critic": 28.460254669189453},
-    }
-)
-# Re-recorded on macOS ARM CPU once TD3's defaults became its authors' 2019
-# code: the run takes the default learning rate, now 3e-4 (was 1e-3).
-# Relative shifts (actor, critic): TD3 -1.4%, -6.8%; TD3-mcc -1.5%, +0.4%.
-_GOLDEN.update(
-    {
-        "TD3": {"actor": 15.433494567871094, "critic": 27.067062377929688},
-        "TD3-mcc": {"actor": 17.501985549926758, "critic": 28.56537628173828},
-    }
-)
-# Re-recorded on macOS ARM CPU once TD3's Adam eps became torch's 1e-8 (was
-# 1e-5). Relative shifts (actor, critic): TD3 -9.9e-5, +5.3e-6; TD3-mcc
-# +9.0e-5, -6.9e-4.
-_GOLDEN.update(
-    {
-        "TD3": {"actor": 15.431966781616211, "critic": 27.06720542907715},
-        "TD3-mcc": {"actor": 17.503564834594727, "critic": 28.545764923095703},
-    }
-)
-
-# Re-recorded on macOS ARM CPU once REDQ's layers became its reference code's:
-# xavier_uniform kernels and zero biases, the mean and log-std layers included
-# (were orthogonal(1.0) hidden and Q layers, an orthogonal(0.01) mean and a
-# zero-kernel log-std head with bias -1). Relative shifts (actor, critic,
-# alpha): REDQ +135.4%, +66.0%, -0.079%.
-_GOLDEN.update(
-    {
-        "REDQ": {
-            "actor": 10.559710502624512,
-            "critic": 39.23777389526367,
-            "alpha": 0.9721929430961609,
-        },
-    }
-)
-# Re-recorded on macOS ARM CPU once REDQ's Adam eps became torch's 1e-8
-# (was 1e-5). Relative shifts (actor, critic, alpha): -3.0e-6, +8.5e-6,
-# -6e-8.
-_GOLDEN.update(
-    {
-        "REDQ": {
-            "actor": 10.55967903137207,
-            "critic": 39.23810577392578,
-            "alpha": 0.9721928834915161,
-        },
-    }
-)
-
-# Re-recorded on macOS ARM CPU once SAC's layers became its reference code's:
-# xavier_uniform kernels and zero biases, the mean and log-std heads included
-# (were orthogonal(1.0) hidden and Q layers, an orthogonal(0.01) mean and a
-# zero-kernel log-std head with bias -1). Relative shifts (actor, critic,
-# alpha): SAC-mcc +168.1%, +90.5%, +0.059%. SAC-gru (recurrent) keeps its.
-_GOLDEN.update(
-    {
-        "SAC-mcc": {
-            "actor": 8.31135368347168,
-            "critic": 15.628474235534668,
-            "alpha": 0.9759861826896667,
-        },
-    }
-)
-# Re-recorded on macOS ARM CPU once SAC's Adam eps became TensorFlow's and
-# torch's 1e-8 (was 1e-5). Relative shifts (actor, critic, alpha): SAC-mcc
-# -3.3e-5, -4.0e-4, 0; SAC-gru +1.9%, +7.6e-4, -3.8e-5.
-_GOLDEN.update(
-    {
-        "SAC-mcc": {
-            "actor": 8.311077117919922,
-            "critic": 15.622236251831055,
-            "alpha": 0.9759861826896667,
-        },
-        "SAC-gru": {
-            "actor": 58.47077941894531,
-            "critic": 134.4833221435547,
-            "alpha": 0.9515250325202942,
-        },
-    }
-)
-
-# Re-recorded on macOS ARM CPU once DQN's layers became its reference code's:
-# Torch7's nn.Linear default, kernel and bias uniform in +-1/sqrt(fan_in)
-# (were orthogonal(1.0), zero biases), the dueling heads too. Relative shifts
-# (actor, target): DQN +27.3%, +28.2%; DQN-dueling-nudge +29.4%, +29.2%; its
-# nudge is bitwise unchanged.
-_GOLDEN.update(
-    {
-        "DQN": {"actor": 12.04747200012207, "target": 11.927078247070312},
-        "DQN-dueling-nudge": {
-            "actor": 13.111983299255371,
-            "target": 12.902071952819824,
-            "nudge": 0.22634370625019073,
-        },
-    }
-)
-# Re-recorded on macOS ARM CPU once DQN stepped as its authors' code:
-# centered RMSProp (decay 0.95, eps 0.01 / batch_size**2) at lr 2.5e-4 on
-# the Huber loss (were Adam at 1e-3 on the squared error). Relative shifts
-# (actor, target): DQN -17.6%, -17.3%; DQN-dueling-nudge -17.0%, -16.4%; its
-# nudge is unchanged.
-_GOLDEN.update(
-    {
-        "DQN": {"actor": 9.924060821533203, "target": 9.860681533813477},
-        "DQN-dueling-nudge": {
-            "actor": 10.886780738830566,
-            "target": 10.790019989013672,
-            "nudge": 0.22634370625019073,
-        },
-    }
-)
-# Re-recorded on macOS ARM CPU once the flat replay drew rows alone instead
-# of a row with its successor, so each env's newest row is sampled too:
-# every replay agent draws other indices. Relative shifts (actor, critic or
-# target):
-# ASAC -1e-6, +0.05%; DQN +0.06%, +0.06%; DQN-dueling-nudge -2.60%, -2.57%;
-# REDQ +0.01%, -0.21%; SAC-mcc +0.06%, +0.11%; TD3 +0.03%, -0.13%; TD3-mcc
-# -0.05%, -0.04%. Alphas and nudges move under 3e-4; SAC-gru (sequence
-# replay) is bitwise unchanged.
-_GOLDEN.update(
-    {
-        "ASAC": {
-            "actor": 17.28061866760254,
-            "critic": 27.380563735961914,
-            "alpha": 0.19999998807907104,
-        },
-        "DQN": {"actor": 9.929774284362793, "target": 9.866254806518555},
-        "DQN-dueling-nudge": {
-            "actor": 10.603666305541992,
-            "target": 10.512863159179688,
-            "nudge": 0.22634370625019073,
-        },
-        "REDQ": {
-            "actor": 10.560783386230469,
-            "critic": 39.15713882446289,
-            "alpha": 0.9724487662315369,
-        },
-        "SAC-mcc": {
-            "actor": 8.316039085388184,
-            "critic": 15.639910697937012,
-            "alpha": 0.9759904146194458,
-        },
-        "TD3": {"actor": 15.43655776977539, "critic": 27.031620025634766},
-        "TD3-mcc": {"actor": 17.494739532470703, "critic": 28.534778594970703},
-    }
-)
-
-# Re-recorded on macOS ARM CPU once TD3's update became sfujim/TD3's (summed
-# critic losses, the first actor step on the policy_delay-th update, critics
-# reading the env's units). Relative shifts (actor, critic): TD3 -1.0e-04, +5.0e-04;
-# TD3-mcc -2.5e-04, +4.6e-05.
-_GOLDEN.update(
-    {
-        "TD3": {"actor": 15.435005187988281, "critic": 27.045055389404297},
-        "TD3-mcc": {"actor": 17.490346908569336, "critic": 28.536087036132812},
-    }
-)
-
-# Re-recorded on macOS ARM CPU once REDQ's critics read the env's units, as
-# its authors' code's (Pendulum's torque in [-2, 2]). Relative shifts (actor,
-# critic, alpha): -2.4e-04, +1.0e-02, -2.1e-06.
-_GOLDEN.update(
-    {
-        "REDQ": {
-            "actor": 10.5582275390625,
-            "critic": 39.56052017211914,
-            "alpha": 0.9724466800689697,
-        },
-    }
-)
-# Re-recorded on macOS ARM CPU once the fast tier's line of 128 gradient
-# steps (owner, 2026-10-21) halved these runs: REDQ 200 -> 100 steps, SAC-gru
-# 200 -> 120, PPO-mcc, -flat, -unroll and -gru 256 -> 128, DQN and
-# DQN-dueling-nudge 200 -> 128. The configurations are unchanged.
-_GOLDEN.update(
-    {
-        "REDQ": {
-            "actor": 10.615706443786621,
-            "critic": 36.891143798828125,
-            "alpha": 0.9880983829498291,
-        },
-        "SAC-gru": {
-            "actor": 54.373619079589844,
-            "critic": 126.53144836425781,
-            "alpha": 0.9759777784347534,
-        },
-        "PPO-mcc": {"actor": 3.9937541484832764, "critic": 5.057005882263184},
-        "PPO-flat": {"actor": 6.014824390411377, "critic": 7.199977397918701},
-        "PPO-unroll": {"actor": 6.074291229248047, "critic": 7.268352508544922},
-        "PPO-gru": {"actor": 55.264984130859375, "critic": 54.78524398803711},
-        "DQN": {"actor": 9.144020080566406, "target": 9.120902061462402},
-        "DQN-dueling-nudge": {
-            "actor": 9.619275093078613,
-            "target": 9.586074829101562,
-            "nudge": 0.2874566912651062,
-        },
-    }
-)
-# Re-recorded on macOS ARM CPU once ASAC followed its authors' code at episode
-# ends, for theta's and the temperature's sample, the penalty, log(1/nA) and
-# the tanh log-det's 1e-6 (Pendulum: no termination, one action dimension):
-# actor +0.025%, critic -0.024%, alpha unchanged.
-_GOLDEN.update(
-    {
-        "ASAC": {
-            "actor": 17.28484535217285,
-            "critic": 27.374101638793945,
-            "alpha": 0.19999998807907104,
-        },
-    }
-)
-# Re-recorded on macOS ARM CPU once REDQ read 0.2 until its first temperature
-# step and the tanh log-det's 1e-6, as its authors' code: actor -0.005%,
-# critic -0.008%, alpha +0.0003%.
-_GOLDEN.update(
-    {
-        "REDQ": {
-            "actor": 10.615142822265625,
-            "critic": 36.88837432861328,
-            "alpha": 0.9881011843681335,
-        },
-    }
-)
-# Re-recorded on macOS ARM CPU once AVG read its log-std head as a
-# log-variance, as its authors' code: actor +0.97%, critic -2.7%.
-_GOLDEN.update(
-    {
-        "AVG": {
-            "actor": 5.612788677215576,
-            "critic": 18.186851501464844,
-            "alpha": 0.07000000029802322,
-        },
-    }
-)
-# Re-recorded on macOS ARM CPU once PQN computed purejaxql's returns (time
-# limits as ends, its off-by-one) and read epsilon once per update: actor
-# +0.0015% (PQN), +0.0018% (PQN-nudge), the nudge unchanged.
-_GOLDEN.update(
-    {
-        "PQN": {"actor": 34.022178649902344},
-        "PQN-nudge": {"actor": 34.02018737792969, "nudge": 0.33566388487815857},
-    }
-)
-# Re-recorded on macOS ARM CPU once APO ended an episode at a time limit and
-# left its row out of the loss, as xtma/apo: actor -0.0096%, critic
-# +0.00001%, the nudge unchanged.
-_GOLDEN.update(
-    {
-        "APO-nudge": {
-            "actor": 9.203577041625977,
-            "critic": 8.057476997375488,
-            "nudge": 0.33622848987579346,
-        },
-    }
-)
-
-# Recorded on macOS ARM CPU before loop.actor_step took over DAgger's and
-# IQL's actor steps. DAgger's critic and both agents' actor targets are
-# never-updated copies: not pinned.
-_GOLDEN.update(
-    {
-        "DAgger-nudge": {
-            "actor": 2.6231772899627686,
-            "n_updates": 93.0,
-            "nudge": 0.3833875358104706,
-        },
-        "IQL-nudge": {
-            "actor": 7.997806549072266,
-            "critic": 19.84935760498047,
-            "value": 7.8957977294921875,
-            "n_updates": 91.0,
-            "nudge": 0.34812238812446594,
-        },
-    }
-)
-
-# Re-recorded on macOS ARM CPU once DQN's warm-up drew its uniform actions on
-# the collector's mix key, as every other agent's warm-up (was a split of the
-# action key): the same distribution, other actions in the first 20 steps.
-# Relative shifts (actor, target): DQN -0.58%, -0.63%; DQN-dueling-nudge
-# +0.17%, +0.27%; the nudge is unchanged.
-_GOLDEN.update(
-    {
-        "DQN": {"actor": 9.091397285461426, "target": 9.063859939575195},
-        "DQN-dueling-nudge": {
-            "actor": 9.635614395141602,
-            "target": 9.612397193908691,
-            "nudge": 0.2874566912651062,
-        },
-    }
-)
-
-# Re-recorded on macOS ARM CPU once each step took its key from the state
-# (BaseAgentState.get_keys_and_new_state) and critic_step, actor_step and soft_actor_step
-# derived the extensions' keys from it (update_steps.derive_extensions_key):
-# TD3's and AVG's actor steps now draw a key of their own, ASAC's and REDQ's
-# actor key is split first, and DQN with extensions no longer splits a key for
-# them.
-# Relative shifts (actor, critic): TD3 +4.8e-4, +1.4e-4; TD3-mcc +3.9e-4,
-# +8.5e-4; AVG -2.4%, -6.2%; ASAC -5.5e-4, +1.0e-3; REDQ +4.9e-4, +2.7e-4
-# (alpha -2.0e-4); DQN-dueling-nudge actor -0.54%, target -0.41%, nudge
-# +14.7%. Plain DQN, DAgger, IQL, PQN and SAC are unchanged.
-_GOLDEN.update(
-    {
-        "TD3": {"actor": 15.442390441894531, "critic": 27.048847198486328},
-        "TD3-mcc": {"actor": 17.49720001220703, "critic": 28.56031608581543},
-        "AVG": {
-            "actor": 5.481132984161377,
-            "critic": 17.05487060546875,
-            "alpha": 0.07000000029802322,
-        },
-        "ASAC": {
-            "actor": 17.27532958984375,
-            "critic": 27.402420043945312,
-            "alpha": 0.19999998807907104,
-        },
-        "REDQ": {
-            "actor": 10.620380401611328,
-            "critic": 36.89820861816406,
-            "alpha": 0.9879003763198853,
-        },
-        "DQN-dueling-nudge": {
-            "actor": 9.583549499511719,
-            "target": 9.572633743286133,
-            "nudge": 0.43414005637168884,
-        },
-    }
-)
-
-# Re-recorded on macOS ARM CPU once SAC's actor step took its keys from the
-# state (get_keys_and_new_state) and its extensions' key from its policy key: relative
-# shifts (actor, critic, alpha) SAC-mcc +2.2e-3, +1.1e-3, -1.3e-5; SAC-gru
-# -8.7e-5, -5.6e-4, -5.7e-5.
-_GOLDEN.update(
-    {
-        "SAC-mcc": {
-            "actor": 8.334127426147461,
-            "critic": 15.657291412353516,
-            "alpha": 0.9759774804115295,
-        },
-        "SAC-gru": {
-            "actor": 54.36890411376953,
-            "critic": 126.46063995361328,
-            "alpha": 0.9759207367897034,
-        },
-    }
-)
-
-# Re-recorded on macOS ARM CPU once SAC stopped splitting a discarded third
-# key off its replay key: relative shifts (actor, critic, alpha) SAC-mcc
-# -1.2e-4, +4.5e-3, +9.0e-5; SAC-gru -5.7e-4, +5.3e-4, -5.5e-5.
-_GOLDEN.update(
-    {
-        "SAC-mcc": {
-            "actor": 8.333091735839844,
-            "critic": 15.72756576538086,
-            "alpha": 0.9760676622390747,
-        },
-        "SAC-gru": {
-            "actor": 54.338035583496094,
-            "critic": 126.52761840820312,
-            "alpha": 0.9758655428886414,
-        },
-    }
-)
-# Re-recorded on macOS ARM CPU on 2026-10-22 once PPO, APO and PQN derived
-# their extensions' keys from keys their steps hold
-# (update_steps.derive_extensions_key) instead of splitting them off the
-# state's rng: with extensions, the agent's own stream is now the one it draws
-# without. Relative shifts: PPO-discrete-
-# nudge actor +0.88%, critic -2.3e-5, nudge -6.2%; APO-nudge actor -0.27%,
-# critic +0.23%, nudge -13.1%; PQN-nudge actor +1.0e-4, nudge -0.87%. Plain
-# PPO, APO and PQN runs and PPO-env-split-nudge (time geometry: no key split
-# off for its extensions) are bitwise unchanged.
-_GOLDEN.update(
-    {
-        "PPO-discrete-nudge": {
-            "actor": 7.366045951843262,
-            "critic": 9.033742904663086,
-            "nudge": 0.29222556948661804,
-        },
-        "APO-nudge": {
-            "actor": 9.178837776184082,
-            "critic": 8.076091766357422,
-            "nudge": 0.2922629714012146,
-        },
-        "PQN-nudge": {"actor": 34.02363586425781, "nudge": 0.3327599763870239},
-    }
-)
-# Re-recorded on macOS ARM CPU on 2026-10-22 once PPO's minibatch step drew
-# one key from the state, not three (the extensions' key, unused since they
-# derive theirs from the entropy key, is gone): the state's rng, which
-# collection and the next update's shuffle draw on, moves for every PPO run.
-# Relative shifts (actor, critic): PPO-mcc +0.31%, +0.067%; PPO-flat -0.25%,
-# +0.27%; PPO-env-split -0.026%, -1.4%; PPO-unroll -1.0%, -0.16%; PPO-gru
-# +0.22%, +0.022%; PPO-discrete-nudge -2.1%, -0.71%, nudge +4.8%;
-# PPO-env-split-nudge -0.17%, +0.012%, nudge +6.7%. APO and PQN are
-# bitwise unchanged.
-_GOLDEN.update(
-    {
-        "PPO-mcc": {"actor": 4.0060930252075195, "critic": 5.060414791107178},
-        "PPO-flat": {"actor": 5.9997878074646, "critic": 7.219112396240234},
-        "PPO-env-split": {"actor": 6.002913951873779, "critic": 7.049428939819336},
-        "PPO-unroll": {"actor": 6.012901306152344, "critic": 7.256919860839844},
-        "PPO-gru": {"actor": 55.387298583984375, "critic": 54.797359466552734},
-        "PPO-discrete-nudge": {
-            "actor": 7.213113307952881,
-            "critic": 8.969327926635742,
-            "nudge": 0.3061334490776062,
-        },
-        "PPO-env-split-nudge": {
-            "actor": 5.666478157043457,
-            "critic": 7.248126029968262,
-            "nudge": 0.33081668615341187,
-        },
-    }
-)
-
-# Recorded on macOS ARM CPU when TQC joined (its actor's target is a
-# never-updated copy: not pinned).
-_GOLDEN.update(
-    {
-        "TQC-nudge": {
-            "actor": 17.04564666748047,
-            "critic": 42.50415802001953,
-            "alpha": 0.9729037284851074,
-            "nudge": 0.41105806827545166,
-        },
-    }
-)
-
-# Re-recorded on macOS ARM CPU once the on-policy agents normalised their
-# observations in the collector with one shared set of statistics, updated
-# by every copy's observation (2026-10-23), instead of per-copy statistics
-# averaged after each step: AVG (two copies) -0.35% actor, -1.88% critic;
-# PPO-env-split +0.10%, -0.24%. Every other pin holds.
-_GOLDEN.update(
-    {
-        "AVG": {
-            "actor": 5.461740970611572,
-            "critic": 16.733787536621094,
-            "alpha": 0.07000000029802322,
-        },
-        "PPO-env-split": {"actor": 6.008933067321777, "critic": 7.032352447509766},
-    }
-)
-
-
-# Recorded on macOS ARM CPU on 2026-10-24, before the agent files are
-# restructured (the actors' targets are never-updated copies: not pinned).
-_GOLDEN.update(
-    {
-        "TQC": {
-            "actor": 17.27611541748047,
-            "critic": 45.251319885253906,
-            "alpha": 0.9727481007575989,
-        },
-        "CrossQ": {
-            "actor": 132.80531311035156,
-            "critic": 271.5867919921875,
-            "alpha": 0.981685996055603,
-        },
-        "SAC": {
-            "actor": 10.55981731414795,
-            "critic": 17.899744033813477,
-            "alpha": 0.9750370979309082,
-        },
-        "SAC-expert": {
-            "actor": 10.559991836547852,
-            "critic": 17.84046173095703,
-            "alpha": 0.9768109321594238,
-        },
-    }
-)
-
-# Re-recorded on macOS ARM CPU once IQL summed its two critics' squared
-# errors, as the reference does (it averaged them): critic +0.062%, actor
-# +0.0001%, value +0.00002%, the nudge unchanged. Adam's step ignores the
-# gradient's scale but for eps, so the shift stays inside the tolerance.
-_GOLDEN.update(
-    {
-        "IQL-nudge": {
-            "actor": 7.997811794281006,
-            "critic": 19.86161994934082,
-            "value": 7.89579963684082,
-            "n_updates": 91.0,
-            "nudge": 0.34812238812446594,
-        },
-    }
-)
-
-# Re-recorded on macOS ARM CPU once SAC's expert prefill
-# (expert_buffer_n_steps) became the ExpertPrefill extension, run in the
-# pretraining: it draws the extension's key, and the run, its learner stack
-# no longer empty, draws one more key per update. The same algorithm on
-# other random numbers: actor +0.13%, critic +0.28%, alpha -0.18%.
-_GOLDEN.update(
-    {
-        "SAC-expert": {
-            "actor": 10.573466300964355,
-            "critic": 17.890953063964844,
-            "alpha": 0.9749777317047119,
-        },
-    }
-)
-
-# Re-recorded on macOS ARM CPU once an agent without a replay (AVG) learned
-# from each step collected from learning_starts on, never from a warm-up
-# step: one update fewer, the first on the policy's step. Actor +4.2%,
-# critic +19.5%; a one-tick shift of learning_starts moves this tiny run's
-# critic by 10-20%.
-_GOLDEN.update(
-    {
-        "AVG": {
-            "actor": 5.692246913909912,
-            "critic": 20.000789642333984,
-            "alpha": 0.07000000029802322,
-        },
-    }
-)
-
-
-# Re-recorded on macOS ARM CPU once collection drew on its own stream of
-# keys, apart from the updates' (RNG stability, two streams): every agent
-# but APG and the world models collects on other keys from its first step.
-_GOLDEN.update(
-    {
-        "APO-nudge": {
-            "actor": 9.208744049072266,
-            "critic": 8.00665283203125,
-            "nudge": 0.27262088656425476,
-        },
-        "ASAC": {
-            "actor": 17.279373168945312,
-            "critic": 27.431352615356445,
-            "alpha": 0.19999998807907104,
-        },
-        "AVG": {
-            "actor": 5.699617862701416,
-            "critic": 16.358848571777344,
-            "alpha": 0.07000000029802322,
-        },
-        "CrossQ": {
-            "actor": 132.81370544433594,
-            "critic": 272.3625793457031,
-            "alpha": 0.991431474685669,
-        },
-        "DAgger-nudge": {
-            "actor": 2.6644744873046875,
-            "n_updates": 93.0,
-            "nudge": 0.24705980718135834,
-        },
-        "DQN": {
-            "actor": 9.234021186828613,
-            "target": 9.199348449707031,
-        },
-        "DQN-dueling-nudge": {
-            "actor": 9.526229858398438,
-            "target": 9.497961044311523,
-            "nudge": 0.24489787220954895,
-        },
-        "IQL-nudge": {
-            "actor": 7.979248523712158,
-            "critic": 19.814210891723633,
-            "value": 7.837644577026367,
-            "n_updates": 91.0,
-            "nudge": 0.26969558000564575,
-        },
-        "PPO-discrete-nudge": {
-            "actor": 7.15655517578125,
-            "critic": 8.98699951171875,
-            "nudge": 0.32986703515052795,
-        },
-        "PPO-env-split": {
-            "actor": 5.999892234802246,
-            "critic": 7.155003070831299,
-        },
-        "PPO-env-split-nudge": {
-            "actor": 5.724305629730225,
-            "critic": 7.2285380363464355,
-            "nudge": 0.32986703515052795,
-        },
-        "PPO-flat": {
-            "actor": 6.060274600982666,
-            "critic": 7.253013610839844,
-        },
-        "PPO-unroll": {
-            "actor": 6.0275068283081055,
-            "critic": 7.287555694580078,
-        },
-        "PQN-nudge": {
-            "actor": 34.01963424682617,
-            "nudge": 0.2308862805366516,
-        },
-        "REDQ": {
-            "actor": 10.606958389282227,
-            "critic": 36.87134552001953,
-            "alpha": 0.9880779981613159,
-        },
-        "SAC-mcc": {
-            "actor": 8.32678508758545,
-            "critic": 15.669421195983887,
-            "alpha": 0.975998044013977,
-        },
-        "TD3": {
-            "actor": 15.428991317749023,
-            "critic": 27.092100143432617,
-        },
-        "TQC": {
-            "actor": 17.25847625732422,
-            "critic": 45.27690124511719,
-            "alpha": 0.9727964997291565,
-        },
-        "TQC-nudge": {
-            "actor": 17.08976936340332,
-            "critic": 42.52906036376953,
-            "alpha": 0.972938060760498,
-            "nudge": -0.03677361458539963,
-        },
-        "UDRL-nudge": {
-            "actor": 21.72692108154297,
-            "nudge": 0.27258771657943726,
-        },
-    }
-)
-
-# Re-recorded on macOS ARM CPU once a key that exists only under an option,
-# a count or an extension was derived from the updates' stream instead of
-# drawn from it (RNG stability, options derived): post_update, the actors
-# stepping on some updates only, the critic and gradient steps of an
-# update, PPO's minibatches and a recurrent network's initialisation.
-_GOLDEN.update(
-    {
-        "TD3": {
-            "actor": 15.434488296508789,
-            "critic": 27.076087951660156,
-        },
-        "PPO-flat": {
-            "actor": 6.064049243927002,
-            "critic": 7.255941867828369,
-        },
-        "PQN": {
-            "actor": 34.01955795288086,
-        },
-        "REDQ": {
-            "actor": 10.601743698120117,
-            "critic": 36.88267517089844,
-            "alpha": 0.9881779551506042,
-        },
-        "TD3-mcc": {
-            "actor": 17.50005340576172,
-            "critic": 28.541522979736328,
-        },
-        "APG-nudge": {
-            "actor": 35.83683395385742,
-            "nudge": 0.2893992066383362,
-        },
-        "APG-pid-nudge": {
-            "actor": 36.83320999145508,
-            "nudge": 0.2893992066383362,
-        },
-        "APO-nudge": {
-            "actor": 9.211648941040039,
-            "critic": 8.004209518432617,
-            "nudge": 0.2893992066383362,
-        },
-        "ASAC": {
-            "actor": 17.286836624145508,
-            "critic": 27.400625228881836,
-            "alpha": 0.19999998807907104,
-        },
-        "AVG": {
-            "actor": 5.708703994750977,
-            "critic": 16.378173828125,
-            "alpha": 0.07000000029802322,
-        },
-        "CrossQ": {
-            "actor": 132.7928009033203,
-            "critic": 271.0707702636719,
-            "alpha": 0.9945012927055359,
-        },
-        "DAgger-nudge": {
-            "actor": 2.6691598892211914,
-            "n_updates": 93.0,
-            "nudge": 0.2295195609331131,
-        },
-        "DQN": {
-            "actor": 9.219489097595215,
-            "target": 9.188282012939453,
-        },
-        "DQN-dueling-nudge": {
-            "actor": 9.528470039367676,
-            "target": 9.50475788116455,
-            "nudge": 0.1878361850976944,
-        },
-        "DreamerV3-drift": {
-            "actor": 92.45883178710938,
-            "critic": 95.06118774414062,
-            "world_model": 548.8960571289062,
-            "drift": 0.42779606580734253,
-        },
-        "IQL-nudge": {
-            "actor": 7.987946510314941,
-            "critic": 19.81747055053711,
-            "value": 7.8533034324646,
-            "n_updates": 91.0,
-            "nudge": 0.23643162846565247,
-        },
-        "PPO-discrete-nudge": {
-            "actor": 7.167176723480225,
-            "critic": 8.987273216247559,
-            "nudge": 0.2893992066383362,
-        },
-        "PPO-env-split": {
-            "actor": 6.005931854248047,
-            "critic": 7.144556522369385,
-        },
-        "PPO-env-split-nudge": {
-            "actor": 5.698896884918213,
-            "critic": 7.228152275085449,
-            "nudge": 0.2893992066383362,
-        },
-        "PPO-gru": {
-            "actor": 56.976600646972656,
-            "critic": 54.06492614746094,
-        },
-        "PPO-mcc": {
-            "actor": 4.014926433563232,
-            "critic": 5.063150882720947,
-        },
-        "PPO-unroll": {
-            "actor": 6.0429229736328125,
-            "critic": 7.287036418914795,
-        },
-        "PQN-nudge": {
-            "actor": 34.01955795288086,
-            "nudge": 0.2564679682254791,
-        },
-        "SAC": {
-            "actor": 10.553373336791992,
-            "critic": 17.92226219177246,
-            "alpha": 0.975172758102417,
-        },
-        "SAC-expert": {
-            "actor": 10.564706802368164,
-            "critic": 17.913509368896484,
-            "alpha": 0.9744182229042053,
-        },
-        "SAC-gru": {
-            "actor": 53.93084716796875,
-            "critic": 124.7246322631836,
-            "alpha": 0.9758566617965698,
-        },
-        "SAC-mcc": {
-            "actor": 8.314657211303711,
-            "critic": 15.659331321716309,
-            "alpha": 0.9759971499443054,
-        },
-        "TDMPC2-drift": {
-            "actor": 32.21207046508789,
-            "world_model": 162.46780395507812,
-            "n_updates": 39.0,
-            "drift": 0.3034195303916931,
-        },
-        "TDMPC2MultiTask-drift": {
-            "actor": 32.235618591308594,
-            "world_model": 161.13490295410156,
-            "drift": 0.32355231046676636,
-        },
-        "TQC": {
-            "actor": 17.284345626831055,
-            "critic": 45.293575286865234,
-            "alpha": 0.9728698134422302,
-        },
-        "TQC-nudge": {
-            "actor": 17.08138084411621,
-            "critic": 42.586246490478516,
-            "alpha": 0.9728695154190063,
-            "nudge": 0.1506771594285965,
-        },
-        "UDRL-nudge": {
-            "actor": 21.729793548583984,
-            "nudge": 0.29911208152770996,
-        },
-    }
-)
-
-# Re-recorded on macOS ARM CPU once each extension drew on keys of its own,
-# derived from its name (RNG stability, extensions by name): the stubs'
-# initial states and post_update draws (Nudge, Drift), and SAC-expert's
-# ExpertPrefill rollout.
-_GOLDEN.update(
-    {
-        "APG-nudge": {
-            "actor": 35.83683395385742,
-            "nudge": 0.8785082697868347,
-        },
-        "APG-pid-nudge": {
-            "actor": 36.83320999145508,
-            "nudge": 0.8785082697868347,
-        },
-        "APO-nudge": {
-            "actor": 9.211639404296875,
-            "critic": 8.004192352294922,
-            "nudge": 0.8785082697868347,
-        },
-        "DAgger-nudge": {
-            "actor": 2.6691598892211914,
-            "n_updates": 93.0,
-            "nudge": 0.9774792790412903,
-        },
-        "DQN-dueling-nudge": {
-            "actor": 9.529121398925781,
-            "target": 9.505367279052734,
-            "nudge": 0.9068649411201477,
-        },
-        "DreamerV3-drift": {
-            "actor": 92.45883178710938,
-            "critic": 95.06118774414062,
-            "world_model": 548.8960571289062,
-            "drift": 0.5100106000900269,
-        },
-        "IQL-nudge": {
-            "actor": 7.987946510314941,
-            "critic": 19.817363739013672,
-            "value": 7.853305339813232,
-            "n_updates": 91.0,
-            "nudge": 1.0078387260437012,
-        },
-        "PPO-discrete-nudge": {
-            "actor": 7.167261123657227,
-            "critic": 8.987314224243164,
-            "nudge": 0.8785082697868347,
-        },
-        "PPO-env-split-nudge": {
-            "actor": 5.698873043060303,
-            "critic": 7.228157043457031,
-            "nudge": 0.8785082697868347,
-        },
-        "PQN-nudge": {
-            "actor": 34.019554138183594,
-            "nudge": 0.8256397247314453,
-        },
-        "SAC-expert": {
-            "actor": 10.56264591217041,
-            "critic": 17.889917373657227,
-            "alpha": 0.9843722581863403,
-        },
-        "TDMPC2-drift": {
-            "actor": 32.21207046508789,
-            "world_model": 162.46780395507812,
-            "n_updates": 39.0,
-            "drift": 0.5062060952186584,
-        },
-        "TDMPC2MultiTask-drift": {
-            "actor": 32.235618591308594,
-            "world_model": 161.13490295410156,
-            "drift": 0.4896028935909271,
-        },
-        "TQC-nudge": {
-            "actor": 17.08138084411621,
-            "critic": 42.586246490478516,
-            "alpha": 0.9728695154190063,
-            "nudge": 0.8450943231582642,
-        },
-        "UDRL-nudge": {
-            "actor": 21.729793548583984,
-            "nudge": 0.8760150671005249,
-        },
-    }
-)
-
-# Re-recorded on macOS ARM CPU once TD-MPC2's task embeddings drew on a key
-# of their own instead of the policy's initialisation key (RNG stability,
-# no key drawn twice); it had moved within the tolerance.
-_GOLDEN.update(
-    {
-        "TDMPC2MultiTask-drift": {
-            "actor": 32.23353576660156,
-            "world_model": 161.12286376953125,
-            "drift": 0.4896028935909271,
-        },
-    }
-)
 
 
 def fingerprint(name: str) -> dict[str, float]:
@@ -1884,527 +669,3 @@ def test_a_tiny_run_reproduces_its_recorded_fingerprint(name: str) -> None:
     for key, golden in _GOLDEN[name].items():
         rel = abs(got[key] - golden) / max(abs(golden), 1.0)
         assert rel < _TOL, f"{name} {key}: got {got[key]!r}, golden {golden!r}"
-
-
-# Re-recorded on macOS ARM CPU once every env's resets were keyed by episode
-# (RNG stability, episode keys): each run starts and steps its episodes on
-# other keys.
-_GOLDEN.update(
-    {
-        "APG-nudge": {
-            "actor": 35.84657669067383,
-            "n_updates": 5.0,
-            "nudge": 0.8785082697868347,
-        },
-        "APG-pid-nudge": {
-            "actor": 36.84217834472656,
-            "n_updates": 5.0,
-            "nudge": 0.8785082697868347,
-        },
-        "APO-nudge": {
-            "actor": 9.13095474243164,
-            "critic": 8.05007553100586,
-            "target": 9.211957931518555,
-            "n_updates": 5.0,
-            "nudge": 0.8785082697868347,
-        },
-        "ASAC": {
-            "actor": 17.27933692932129,
-            "critic": 27.503591537475586,
-            "target": 17.321802139282227,
-            "n_updates": 0.0,
-            "alpha": 0.19999998807907104,
-        },
-        "AVG": {
-            "actor": 5.643533706665039,
-            "critic": 17.76322364807129,
-            "target": 5.000000476837158,
-            "n_updates": 0.0,
-            "alpha": 0.07000000029802322,
-        },
-        "CrossQ": {
-            "actor": 132.8204803466797,
-            "critic": 271.1706237792969,
-            "target": 133.31524658203125,
-            "n_updates": 91.0,
-            "alpha": 0.9723634719848633,
-        },
-        "DAgger-nudge": {
-            "actor": 2.7699289321899414,
-            "critic": 4.999999523162842,
-            "target": 3.0001308917999268,
-            "n_updates": 93.0,
-            "nudge": 0.9774792790412903,
-        },
-        "DQN": {
-            "actor": 9.106924057006836,
-            "critic": 8.621588706970215,
-            "target": 9.078692436218262,
-            "n_updates": 109.0,
-        },
-        "DQN-dueling-nudge": {
-            "actor": 9.507379531860352,
-            "critic": 9.092710494995117,
-            "target": 9.482611656188965,
-            "n_updates": 109.0,
-            "nudge": 0.9068649411201477,
-        },
-        "DreamerV3-drift": {
-            "actor": 92.456298828125,
-            "critic": 95.05998229980469,
-            "world_model": 548.9129638671875,
-            "n_updates": 61.0,
-            "drift": 0.5100106000900269,
-        },
-        "IQL-nudge": {
-            "actor": 8.025843620300293,
-            "critic": 19.829771041870117,
-            "value": 7.917448043823242,
-            "target": 8.0,
-            "n_updates": 91.0,
-            "nudge": 1.0078387260437012,
-        },
-        "PPO-discrete-nudge": {
-            "actor": 7.250933647155762,
-            "critic": 8.975752830505371,
-            "target": 8.000201225280762,
-            "n_updates": 5.0,
-            "nudge": 0.8785082697868347,
-        },
-        "PPO-env-split": {
-            "actor": 6.051539421081543,
-            "critic": 7.1972222328186035,
-            "target": 6.0001020431518555,
-            "n_updates": 5.0,
-        },
-        "PPO-env-split-nudge": {
-            "actor": 5.6332526206970215,
-            "critic": 7.161618709564209,
-            "target": 6.0001020431518555,
-            "n_updates": 5.0,
-            "nudge": 0.8785082697868347,
-        },
-        "PPO-flat": {
-            "actor": 6.003330230712891,
-            "critic": 7.231827259063721,
-            "target": 6.0001020431518555,
-            "n_updates": 3.0,
-        },
-        "PPO-gru": {
-            "actor": 57.02423095703125,
-            "critic": 54.61772918701172,
-            "target": 56.98634719848633,
-            "n_updates": 5.0,
-        },
-        "PPO-mcc": {
-            "actor": 4.007291316986084,
-            "critic": 5.075912952423096,
-            "target": 4.000099182128906,
-            "n_updates": 3.0,
-        },
-        "PPO-unroll": {
-            "actor": 6.006885051727295,
-            "critic": 7.250239372253418,
-            "target": 6.0001020431518555,
-            "n_updates": 3.0,
-        },
-        "PQN": {
-            "actor": 34.02022933959961,
-            "critic": 34.03536605834961,
-            "target": 34.03536605834961,
-            "n_updates": 9.0,
-        },
-        "PQN-nudge": {
-            "actor": 34.020225524902344,
-            "critic": 34.03536605834961,
-            "target": 34.03536605834961,
-            "n_updates": 9.0,
-            "nudge": 0.8256397247314453,
-        },
-        "REDQ": {
-            "actor": 10.62346363067627,
-            "critic": 36.932762145996094,
-            "target": 10.68629264831543,
-            "n_updates": 0.0,
-            "alpha": 0.9872119426727295,
-        },
-        "SAC": {
-            "actor": 10.58867359161377,
-            "critic": 17.932748794555664,
-            "target": 10.68629264831543,
-            "n_updates": 0.0,
-            "alpha": 0.9744771122932434,
-        },
-        "SAC-expert": {
-            "actor": 10.587984085083008,
-            "critic": 17.91284942626953,
-            "target": 10.68629264831543,
-            "n_updates": 0.0,
-            "alpha": 0.9746769666671753,
-        },
-        "SAC-gru": {
-            "actor": 53.79410934448242,
-            "critic": 124.17153930664062,
-            "target": 52.7663688659668,
-            "n_updates": 0.0,
-            "alpha": 0.9758204817771912,
-        },
-        "SAC-mcc": {
-            "actor": 8.320406913757324,
-            "critic": 15.497808456420898,
-            "target": 8.329099655151367,
-            "n_updates": 0.0,
-            "alpha": 0.9759957194328308,
-        },
-        "TD3": {
-            "actor": 15.418506622314453,
-            "critic": 27.09539031982422,
-            "target": 15.265251159667969,
-            "n_updates": 91.0,
-        },
-        "TD3-mcc": {
-            "actor": 17.516809463500977,
-            "critic": 28.63946533203125,
-            "target": 17.338119506835938,
-            "n_updates": 91.0,
-        },
-        "TDMPC2-drift": {
-            "actor": 32.238319396972656,
-            "world_model": 162.49891662597656,
-            "n_updates": 39.0,
-            "drift": 0.5062060952186584,
-        },
-        "TDMPC2MultiTask-drift": {
-            "actor": 32.23353576660156,
-            "world_model": 161.12286376953125,
-            "n_updates": 12.0,
-            "drift": 0.4896028935909271,
-        },
-        "TQC": {
-            "actor": 17.295066833496094,
-            "critic": 45.290157318115234,
-            "target": 17.321802139282227,
-            "n_updates": 0.0,
-            "alpha": 0.972418487071991,
-        },
-        "TQC-nudge": {
-            "actor": 17.15433692932129,
-            "critic": 43.00996398925781,
-            "target": 17.321802139282227,
-            "n_updates": 0.0,
-            "alpha": 0.9724184274673462,
-            "nudge": 0.8450943231582642,
-        },
-        "UDRL-nudge": {
-            "actor": 21.741743087768555,
-            "critic": 23.000001907348633,
-            "target": 22.000200271606445,
-            "n_updates": 4.0,
-            "nudge": 0.8760150671005249,
-        },
-    }
-)
-
-# Re-recorded on macOS ARM CPU once the on-policy agents trained the whole
-# rollouts of their budget, as their original code does (they trained one
-# rollout more, TrainLoop.n_rollouts). n_updates drops by one: APO-nudge,
-# PPO-discrete-nudge, PPO-env-split(-nudge) and PPO-gru 5 -> 4, PPO-flat,
-# PPO-mcc and PPO-unroll 3 -> 2, PQN(-nudge) 9 -> 8. Relative shifts:
-# actor -0.22% to +1.23%, critic -1.30% to -0.04%, nudge -0.25% (PQN's
-# +0.65%); the targets unchanged.
-_GOLDEN.update(
-    {
-        "APO-nudge": {
-            "actor": 9.138960838317871,
-            "critic": 8.01103687286377,
-            "target": 9.211957931518555,
-            "n_updates": 4.0,
-            "nudge": 0.8760150671005249,
-        },
-        "PPO-discrete-nudge": {
-            "actor": 7.3403401374816895,
-            "critic": 8.971855163574219,
-            "target": 8.000201225280762,
-            "n_updates": 4.0,
-            "nudge": 0.8760150671005249,
-        },
-        "PPO-env-split": {
-            "actor": 6.0382161140441895,
-            "critic": 7.14845609664917,
-            "target": 6.0001020431518555,
-            "n_updates": 4.0,
-        },
-        "PPO-env-split-nudge": {
-            "actor": 5.701735973358154,
-            "critic": 7.114599227905273,
-            "target": 6.0001020431518555,
-            "n_updates": 4.0,
-            "nudge": 0.8760150671005249,
-        },
-        "PPO-flat": {
-            "actor": 6.004338264465332,
-            "critic": 7.137857437133789,
-            "target": 6.0001020431518555,
-            "n_updates": 2.0,
-        },
-        "PPO-gru": {
-            "actor": 56.994728088378906,
-            "critic": 54.49913787841797,
-            "target": 56.98634719848633,
-            "n_updates": 4.0,
-        },
-        "PPO-mcc": {
-            "actor": 4.038685321807861,
-            "critic": 5.010842800140381,
-            "target": 4.000099182128906,
-            "n_updates": 2.0,
-        },
-        "PPO-unroll": {
-            "actor": 5.998679161071777,
-            "critic": 7.159586429595947,
-            "target": 6.0001020431518555,
-            "n_updates": 2.0,
-        },
-        "PQN": {
-            "actor": 34.021881103515625,
-            "critic": 34.03536605834961,
-            "target": 34.03536605834961,
-            "n_updates": 8.0,
-        },
-        "PQN-nudge": {
-            "actor": 34.021873474121094,
-            "critic": 34.03536605834961,
-            "target": 34.03536605834961,
-            "n_updates": 8.0,
-            "nudge": 0.8321770429611206,
-        },
-    }
-)
-
-# Re-recorded on macOS ARM CPU once a replay row kept the action executed, as
-# IQL's reference does (learner.py sample_actions, train_finetune.py): IQL's
-# unsquashed samples past [-1, 1] were stored raw beside the clipped action's
-# reward. The other agents act inside the box, and their pins stay.
-_GOLDEN.update(
-    {
-        "IQL-nudge": {
-            "actor": 7.999928951263428,
-            "critic": 19.837133407592773,
-            "value": 7.922294616699219,
-            "target": 8.0,
-            "n_updates": 91.0,
-            "nudge": 1.0078387260437012,
-        },
-    }
-)
-
-# Re-recorded on macOS ARM CPU once APO's defaults became its reference
-# code's MuJoCo config: advantages not normalised (was normalised) and nu 1.0
-# (was 0.1); the case cuts its rollout into the same two minibatches. Relative
-# shifts: APO-nudge actor +0.90%, critic -0.05%; target, n_updates and nudge
-# unchanged.
-_GOLDEN.update(
-    {
-        "APO-nudge": {
-            "actor": 9.22077751159668,
-            "critic": 8.006710052490234,
-            "target": 9.211957931518555,
-            "n_updates": 4.0,
-            "nudge": 0.8760150671005249,
-        },
-    }
-)
-
-# Re-recorded on macOS ARM CPU once PPO stepped TensorFlow 1's Adam, ppo2's
-# (eps before the bias correction): PPO-mcc actor -0.11%, critic -0.02%;
-# PPO-flat actor -0.04%; PPO-discrete-nudge actor +2.8%, critic +0.07%.
-# Recurrent PPO and unroll_length keep optax's Adam, and their pins stay.
-_GOLDEN.update(
-    {
-        "PPO-mcc": {
-            "actor": 4.034129619598389,
-            "critic": 5.009683132171631,
-            "target": 4.000099182128906,
-            "n_updates": 2.0,
-        },
-        "PPO-flat": {
-            "actor": 6.001730442047119,
-            "critic": 7.137869834899902,
-            "target": 6.0001020431518555,
-            "n_updates": 2.0,
-        },
-        "PPO-discrete-nudge": {
-            "actor": 7.543189525604248,
-            "critic": 8.977977752685547,
-            "target": 8.000201225280762,
-            "n_updates": 4.0,
-            "nudge": 0.8760150671005249,
-        },
-    }
-)
-
-# Re-recorded on macOS ARM CPU once DQN's defaults became CleanRL's dqn.py:
-# the cases keep their network, replay and warm-up, and now update every 10
-# env steps (train_frequency): 11 updates of 128 steps from step 20, at 20,
-# 30, ..., 120 (was 109). Relative shifts: DQN actor -5.1%, target -4.9%;
-# DQN-dueling-nudge actor -4.1%, target -3.9%, nudge -7.6%; the critics,
-# never stepped, unchanged.
-_GOLDEN.update(
-    {
-        "DQN": {
-            "actor": 8.64346981048584,
-            "critic": 8.621588706970215,
-            "target": 8.636661529541016,
-            "n_updates": 11.0,
-        },
-        "DQN-dueling-nudge": {
-            "actor": 9.120174407958984,
-            "critic": 9.092710494995117,
-            "target": 9.109661102294922,
-            "n_updates": 11.0,
-            "nudge": 0.8379592299461365,
-        },
-    }
-)
-
-# Re-recorded on macOS ARM CPU once recurrent PPO's heads each read the
-# memory through a 128-unit ReLU layer of their own, as PureJaxRL's do
-# (ppo_rnn.py:59-75): new layers, so new numbers (actor +56%, critic +60%,
-# target +56%, about the new layers' squared norm).
-_GOLDEN.update(
-    {
-        "PPO-gru": {
-            "actor": 89.11834716796875,
-            "critic": 87.35801696777344,
-            "target": 88.98634338378906,
-            "n_updates": 4.0,
-        },
-    }
-)
-
-# Re-recorded on macOS ARM CPU once recurrent SAC became Ni et al.'s
-# (pomdp-baselines e7c19c3): its networks read the previous action and reward
-# through embeddings, the critics one memory, and the layers after the memory
-# start as rlkit's (biases 0.1); its critics' errors are summed and its
-# temperature steps alpha on the actor loss's log-densities. New layers, so
-# new numbers: actor +69.6%, critic +21.6%, target +71.7%, alpha +0.03%.
-_GOLDEN.update(
-    {
-        "SAC-gru": {
-            "actor": 91.2584457397461,
-            "critic": 150.99508666992188,
-            "target": 90.58779907226562,
-            "n_updates": 0.0,
-            "alpha": 0.9761014580726624,
-        },
-    }
-)
-
-# Recorded on macOS ARM CPU once PPO normalised its observations and returns
-# by default, as ppo2's MuJoCo VecNormalize (actors -2.8% to +1.4%, critics
-# -3.1% to -0.5%; targets and update counts unchanged).
-_GOLDEN.update(
-    {
-        "PPO-flat": {
-            "actor": 6.084283828735352,
-            "critic": 7.008105754852295,
-            "target": 6.0001020431518555,
-            "n_updates": 2.0,
-        },
-        "PPO-env-split": {
-            "actor": 6.029027938842773,
-            "critic": 7.020392417907715,
-            "target": 6.0001020431518555,
-            "n_updates": 4.0,
-        },
-        "PPO-env-split-nudge": {
-            "actor": 5.540170669555664,
-            "critic": 6.926347732543945,
-            "target": 6.0001020431518555,
-            "n_updates": 4.0,
-            "nudge": 0.8760150671005249,
-        },
-        "PPO-unroll": {
-            "actor": 6.055914878845215,
-            "critic": 6.934496879577637,
-            "target": 6.0001020431518555,
-            "n_updates": 2.0,
-        },
-        "PPO-gru": {
-            "actor": 89.6171875,
-            "critic": 86.63198852539062,
-            "target": 88.98634338378906,
-            "n_updates": 4.0,
-        },
-        "PPO-mcc": {
-            "actor": 3.9840002059936523,
-            "critic": 4.984694957733154,
-            "target": 4.000099182128906,
-            "n_updates": 2.0,
-        },
-        "PPO-discrete-nudge": {
-            "actor": 7.548346996307373,
-            "critic": 8.936015129089355,
-            "target": 8.000201225280762,
-            "n_updates": 4.0,
-            "nudge": 0.8760150671005249,
-        },
-    }
-)
-# Re-recorded on macOS ARM CPU once DAgger's fit became its reference code's
-# (IterationFit): a Gaussian actor cloned for 4 epochs over the whole replay
-# at the end of each iteration. The case's iterations are 100 steps, so it
-# fits at 100 and 200 (2 updates of 6 and 12 minibatches an epoch; was 93
-# online steps). Its unused critic and actor target are not pinned.
-_GOLDEN.update(
-    {
-        "DAgger-nudge": {
-            "actor": 4.547504901885986,
-            "n_updates": 2.0,
-            "nudge": 0.8891514539718628,
-        },
-    }
-)
-# Re-recorded on macOS ARM CPU once a forced reset restarted the reward
-# normaliser's running return (num_resets_per_eval, this case alone; actor
-# +0.2%, critic +0.2%; target and update count unchanged).
-_GOLDEN.update(
-    {
-        "PPO-env-split": {
-            "actor": 6.042834758758545,
-            "critic": 7.037717819213867,
-            "target": 6.0001020431518555,
-            "n_updates": 4.0,
-        },
-    }
-)
-# Re-recorded on Linux x86 CPU (flanders) once DQN on vector observations
-# stepped as CleanRL's dqn.py: Adam at eps 1e-8 on the squared error (were
-# centered RMSProp on the Huber loss). Relative shifts (actor, target): DQN
-# -0.19%, -0.14%; DQN-dueling-nudge -0.33%, -0.22%; the unused critic copy,
-# the update count and the nudge are unchanged.
-_GOLDEN.update(
-    {
-        "DQN": {
-            "actor": 8.627391815185547,
-            "critic": 8.621588706970215,
-            "target": 8.624855041503906,
-            "n_updates": 11.0,
-        },
-        "DQN-dueling-nudge": {
-            "actor": 9.089839935302734,
-            "critic": 9.092710494995117,
-            "target": 9.089208602905273,
-            "n_updates": 11.0,
-            "nudge": 0.8379592299461365,
-        },
-    }
-)
-
-# REINFORCE's pin, recorded on Linux x86 CPU (bob) when the agent was added.
-_GOLDEN["REINFORCE"] = {
-    "actor": 7.6761860847473145,
-    "critic": 8.163204193115234,
-    "target": 7.68051815032959,
-    "n_updates": 2.0,
-}

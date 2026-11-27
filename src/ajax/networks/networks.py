@@ -28,15 +28,7 @@ from ajax.networks.memory import (
     init_carry,
     parse_memory_config,
 )
-
-# Re-exported: these lived here before ajax.networks.sharing.
-from ajax.networks.sharing import (  # noqa: F401
-    _borrow_encoder,
-    mirror_shared_encoder,
-    shared_encoder_params,
-    take_actor_encoder,
-    with_critic_encoder,
-)
+from ajax.networks.sharing import _borrow_encoder, shared_encoder_params
 from ajax.networks.utils import (
     TORCH_LINEAR,
     dense,
@@ -51,7 +43,6 @@ from ajax.networks.values import (  # noqa: F401
     _apply_critic_action_units,
     _apply_critic_obs_norm,
     action_value_input,
-    critic_input,
     get_policy_updating_batch_statistics,
     in_critic_units,
     phi_star_critic_state,
@@ -602,9 +593,10 @@ class Critic(nn.Module):
     # features skip the encoder and the memory, which read the rest (the
     # observation and the previous action, :func:`action_value_input`), and
     # join the memory's output at a head of the encoder's architecture. A
-    # queried action never feeds the carry (Ni et al. 2022's recurrent
-    # critic, embedders before the memory, the action at the head after it;
-    # cited from memory, unverified).
+    # queried action never feeds the carry, as in Ni et al. (2022)'s
+    # recurrent critic: its memory reads the embedded previous action,
+    # reward and observation, and the current action joins its output
+    # (pomdp-baselines e7c19c3, recurrent_critic.py:129-139, :165-186).
     query_dim: int = 0
     # The value layer's kernel init (as Actor's output layers'); None keeps
     # orthogonal(1.0).

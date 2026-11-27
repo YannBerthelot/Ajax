@@ -53,7 +53,6 @@ the evaluations come on the ticks and states they would in one scan.
 from __future__ import annotations
 
 import dataclasses
-import warnings
 from collections.abc import Sequence
 from typing import Any, Callable, Optional
 
@@ -92,10 +91,11 @@ from ajax.log import (
     unevaluated,
 )
 from ajax.logging.wandb_logging import LoggingConfig, start_async_logging, vmap_log
-from ajax.networks.networks import mirror_shared_encoder
+from ajax.networks.sharing import mirror_shared_encoder
 from ajax.perf_utils import build_chunked_train, build_resumable_train
 from ajax.state import EnvironmentConfig
 from ajax.types import NormalizationInfo
+from ajax.user_warnings import warn_user
 from ajax.utils import online_normalize
 
 #: The extension phases the loop applies for every agent: a fresh run's
@@ -479,7 +479,21 @@ class TrainLoop:
                     " The one iteration that runs ends past the run's last"
                     " timestep, so no evaluation is recorded."
                 )
-            warnings.warn(message, UserWarning, stacklevel=2)
+            warn_user(message)
+
+    def warn_if_inside_warmup(self, learning_starts: int) -> None:
+        """Warn when the call ends before the first update, at
+        ``learning_starts`` steps collected: the run collects random steps
+        and its evaluations score a policy that never trained, which a short
+        test run met in silence."""
+        end = self.start_timestep + self.budget
+        if self.budget > 0 and end < learning_starts:
+            warn_user(
+                f"This call ends at timestep {end}, before the first update at"
+                f" learning_starts={learning_starts} steps collected: the agent"
+                " does not train, and its evaluations score the untrained"
+                " policy. Pass more n_timesteps, or a lower learning_starts."
+            )
 
     def n_rollouts(self, n_steps: int, timesteps: Optional[int] = None) -> int:
         """The iterations of :meth:`on_policy` for ``n_steps`` rollouts over
@@ -982,6 +996,8 @@ class TrainLoop:
                 agent_state, aux, index, recurrent, **(eval_kwargs or {})
             )
 
+        if n_updates is None:
+            self.warn_if_inside_warmup(learning_starts)
         if num_ticks is None:
             self.warn_if_partial(self.env_args.n_envs, "n_envs")
             num_ticks = self.budget // self.env_args.n_envs

@@ -197,11 +197,6 @@ the steps the whole run does.
       rewards that nothing read: the field is dropped. A saved field that
       the new layout lacks and does not list as removed is a mismatch and
       still raises;
-    - a UDRL segment buffer saved with a second copy of the environment's
-      own observations (`raw_obs`, kept for a run with an expert on
-      2026-10-17): the copy is dropped, since `obs` holds them. A UDRL buffer
-      of observations the environment normalised is refused: UDRL now keeps
-      them raw. Until 2026-11-17;
     - a PPO's or an APO's optimiser state saved when that optimiser
       clipped its network's gradient (`max_grad_norm`), as PPO's two did
       before PPO took ppo2's one clip over both networks, and APO's two

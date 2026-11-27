@@ -127,6 +127,20 @@ def test_the_algorithms_index_lists_every_exported_agent_once():
     assert set(listed) == set(ajax.__all__)
 
 
+def test_the_docs_home_page_links_every_agent_page():
+    """The home page's table of agents links the page of every agent the
+    algorithms index lists: REINFORCE's was missing there after it shipped."""
+    home = re.findall(
+        r"\]\(algorithms/(\w+)\.md", section(DOCS / "index.md", "The agents")
+    )
+    index = re.findall(
+        r"^\| \[\w+\]\((\w+)\.md",
+        section(DOCS / "algorithms" / "index.md", "Overview"),
+        re.MULTILINE,
+    )
+    assert set(home) == set(index), sorted(set(index).symmetric_difference(home))
+
+
 def test_the_extensions_catalogue_lists_every_extension_once():
     catalogue = section(DOCS / "guide" / "extensions.md", "Catalogue")
     listed = EXTENSION_ROW.findall(catalogue)

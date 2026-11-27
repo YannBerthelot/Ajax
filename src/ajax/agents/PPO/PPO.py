@@ -75,7 +75,8 @@ from ajax.environments.utils import check_if_environment_has_continuous_actions
 from ajax.extensions.base import ExtensionStack, merge_metrics
 from ajax.networks.distributions import policy_entropy, recompute_log_prob
 from ajax.networks.memory import MemoryConfig
-from ajax.networks.networks import predict_value, with_critic_encoder
+from ajax.networks.networks import predict_value
+from ajax.networks.sharing import with_critic_encoder
 from ajax.random_keys import derive_key, split_by_index
 from ajax.schedule import Schedule, at
 from ajax.state import BaseAgentState, LoadedTrainState, Transition
@@ -821,7 +822,7 @@ def _make_extensions_actor_loss(
     return compute_extensions_actor_loss
 
 
-# -- State, logged metrics and the legacy view --------------------------------
+# -- State and logged metrics -------------------------------------------------
 @struct.dataclass
 class PPOState(BaseAgentState):
     """PPO's state: the base state's fields."""

@@ -1,7 +1,6 @@
 import copy
 import difflib
 import inspect
-import warnings
 from collections.abc import Iterable, Mapping, Sequence
 from functools import partial, wraps
 from typing import Any, Callable, ClassVar, Optional, Tuple, TypeVar, Union, cast
@@ -56,6 +55,7 @@ from ajax.state import (
     OptimizerConfig,
 )
 from ajax.types import EnvType, InitializationFunction
+from ajax.user_warnings import warn_user
 
 
 def run_config(
@@ -74,19 +74,83 @@ def run_config(
 _Method = TypeVar("_Method", bound=Callable[..., Any])
 
 
+#: The page mapping Stable-Baselines3's calls and arguments to Ajax's.
+SB3_PAGE = (
+    "https://yannberthelot.github.io/Ajax/latest/getting-started/coming-from-sb3/"
+)
+
+#: Stable-Baselines3 arguments with no counterpart of that name, and where
+#: Ajax takes each instead.
+SB3_ARGUMENTS = {
+    "policy": "there is no policy to name: Ajax builds the network for the observations",
+    "policy_kwargs": "the networks are actor_architecture and critic_architecture",
+    "net_arch": "the networks are actor_architecture and critic_architecture",
+    "verbose": "train prints a line per evaluation, and logging_config=None runs silently",
+    "progress_bar": "train prints a line per evaluation, and logging_config=None runs silently",
+    "tensorboard_log": "pass train logging_config=LoggingConfig(backends=(TensorBoardBackend(folder),))",
+    "seed": "the seeds are train's, as in agent.train(seed=[0, 1, 2], n_timesteps=...)",
+    "device": "JAX runs on its default device, and train(devices=...) splits the seeds over several",
+}
+
+#: Stable-Baselines3 arguments whose spelling resembles an unrelated Ajax one
+#: (gradient_steps and n_step): the SB3 page answers them, not the spelling.
+SB3_ONLY_ARGUMENTS = frozenset(
+    {
+        "gradient_steps",
+        "ent_coef",
+        "target_entropy",
+        "use_sde",
+        "sde_sample_freq",
+        "exploration_fraction",
+        "exploration_initial_eps",
+        "exploration_final_eps",
+        "replay_buffer_class",
+        "replay_buffer_kwargs",
+        "optimize_memory_usage",
+        "stats_window_size",
+    }
+)
+
+
 def unknown_argument(owner: str, name: str, known: Iterable[str]) -> str:
     """The message for an argument ``owner`` (an agent, or one of its
     methods) does not take: the arguments holding its name (learning_rate:
-    actor_learning_rate), then the closest spellings (n_step: n_steps)."""
+    actor_learning_rate), then the closest spellings (n_step: n_steps). A
+    Stable-Baselines3 argument gets where Ajax takes it, or the SB3 page."""
     known = sorted(known)
     close = [other for other in known if name in other]
-    for other in difflib.get_close_matches(name, known, n=3):
-        if other not in close:
-            close.append(other)
-    meant = f" Did you mean {', '.join(close[:3])}?" if close else ""
-    return (
-        f"{owner} has no argument {name!r}.{meant} help({owner}) lists its arguments."
+    if name not in SB3_ARGUMENTS and name not in SB3_ONLY_ARGUMENTS:
+        for other in difflib.get_close_matches(name, known, n=3):
+            if other not in close:
+                close.append(other)
+    message = f"{owner} has no argument {name!r}."
+    if close:
+        message += f" Did you mean {', '.join(close[:3])}?"
+    if name in SB3_ARGUMENTS:
+        message += f" For Stable-Baselines3's {name}: {SB3_ARGUMENTS[name]}."
+    elif not close:
+        message += (
+            f" Coming from Stable-Baselines3? {SB3_PAGE} maps its arguments to Ajax's."
+        )
+    return message + f" help({owner}) lists its arguments."
+
+
+def extra_positional_arguments(
+    owner: str, given: Sequence[Any], takes: Sequence[str]
+) -> str:
+    """The message for an agent built with more positional arguments than it
+    takes, as Stable-Baselines3's PPO("MlpPolicy", env) is."""
+    message = (
+        f"{owner} takes {len(takes)} positional argument ({', '.join(takes)}) and"
+        f" was given {len(given)}: {', '.join(repr(value) for value in given)}."
+        f' Pass the others by name, as in {owner}("CartPole-v1", n_envs=8).'
     )
+    if any(isinstance(value, str) and value.endswith("Policy") for value in given):
+        message += (
+            ' There is no policy to name, as Stable-Baselines3\'s "MlpPolicy":'
+            " Ajax builds the network for the environment's observations."
+        )
+    return message
 
 
 def named_arguments(method: _Method) -> _Method:
@@ -110,10 +174,18 @@ def named_arguments(method: _Method) -> _Method:
                 raise TypeError(unknown_argument(owner, name, names))
         missing = [name for name in required[len(args) :] if name not in kwargs]
         if missing:
-            raise TypeError(
+            message = (
                 f"{owner} needs {', '.join(missing)}: {owner}({', '.join(names)})."
-                f" help({owner}) describes them."
             )
+            # predict names it agent_state, save state.
+            if args and required[0] in ("agent_state", "state"):
+                # agent.predict(obs) filled the state's place with the observation.
+                example = ", ".join(["state", *required[1:]])
+                message += (
+                    " Its first argument is the trained state that train"
+                    f" returns: agent.{method.__name__}({example})."
+                )
+            raise TypeError(f"{message} help({owner}) describes them.")
         return method(self, *args, **kwargs)
 
     return cast(_Method, call)
@@ -128,12 +200,10 @@ def warn_widths_without_activation(owner: str, name: str, layers: Any) -> None:
     if not all(str(layer).isnumeric() for layer in layers):
         return
     named = ", ".join(f'"{layer}", "tanh"' for layer in layers)
-    warnings.warn(
+    warn_user(
         f"{owner}({name}={layers!r}) lists widths only, so its layers have no"
         " activation between them and act as one linear layer. Name an"
-        f" activation after each width, as {name}=({named}).",
-        UserWarning,
-        stacklevel=4,
+        f" activation after each width, as {name}=({named})."
     )
 
 
@@ -254,7 +324,7 @@ def release_replaced(given: Any, resumed: Any) -> None:
 
     kept = set().union(*(buffers(leaf) for leaf in arrays(resumed)))
     for leaf in arrays(given):
-        if not buffers(leaf) & kept:
+        if not buffers(leaf).intersection(kept):
             leaf.delete()
 
 

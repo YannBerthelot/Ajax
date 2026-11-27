@@ -37,7 +37,7 @@ _Q = {"learning_rate": 1e-3, "architecture": NET, "gamma": GAMMA, "n_envs": 1}
 # APO's cells were calibrated on its defaults before its reference's (2026-11-13).
 _APO_CALIBRATED = {"num_minibatches": 0, "normalize_advantage": True, "nu": 0.1}
 # PQN's cells were calibrated at its epsilon decay and constant rate before 11-13.
-_PQN_KEPT = {"epsilon_decay_frac": 0.5, "lr_linear_decay": False}
+_PQN_KEPT = {"epsilon_decay_frac": 0.5, "learning_rate_decay": None}
 _PQN_ROLLOUT = {"n_envs": 8, "n_steps": 16, "n_epochs": 4, "num_minibatches": 1}
 # DQN's were calibrated updating every step, its default until CleanRL's (11-13).
 _DQN_CALIBRATED = {"target_update_interval": 100, "train_frequency": 1}
@@ -122,7 +122,7 @@ _TINY: dict[str, dict[str, Any]] = {
 PRESETS: Mapping[str, Mapping[str, Mapping[str, Any]]] = MappingProxyType(
     {"probe": _PROBE, "bookkeeping": _BOOKKEEPING, "tiny": _TINY}
 )
-DIGEST = "db55dd313dfb"
+DIGEST = "d7f35213bbad"
 FAMILY = {"PPO": "v", "APO": "v", "DQN": "dqn", "PQN": "dqn"}
 """Which value an agent's readout reads (others: Q at the mean action)."""
 

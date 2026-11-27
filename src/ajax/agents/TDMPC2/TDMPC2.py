@@ -248,8 +248,8 @@ class TDMPC2(OwnReplayAgent):
         self.config.update(self.model_config.resolved(self.action_dim))
 
     def set_compute_dtype(self, dtype: str) -> None:
-        """The world model's and the policy prior's layers compute in
-        ``dtype`` (:attr:`TDMPC2Config.compute_dtype`)."""
+        """The world model's and the policy prior's layers compute in dtype
+        (TDMPC2Config.compute_dtype)."""
         self.model_config = self.model_config.replace(compute_dtype=dtype)
 
     def run_capabilities(self) -> frozenset[str]:

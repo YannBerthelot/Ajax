@@ -50,6 +50,31 @@ to do for each change that can break code or results.
 
 ### Changes since 0.5.0
 
+- **Progress lines give the time left.** From a run's second evaluation, each
+  line `train` prints ends with the call's time left, at the pace of the last
+  interval between two evaluations.
+- **A run with a `LoggingConfig` of yours prints one line when it starts**:
+  how often it evaluates and where it logs. It printed nothing until `train`
+  returned.
+- **A call that ends before the first update warns.** An off-policy call
+  ending before `learning_starts` steps collected trains nothing; it now
+  says so.
+- **Stable-Baselines3's call shapes get Ajax's answer.**
+  `PPO("MlpPolicy", env)` says Ajax takes the environment alone;
+  `agent.predict(obs)` and `agent.save(path)` say the trained state comes
+  first; a Gymnasium environment object, or an id without its prefix, names
+  the `gymnasium:` form; SB3's own argument names (`verbose`, `net_arch`,
+  `policy_kwargs`, `tensorboard_log`, `seed`, `device`, `progress_bar`) say
+  where Ajax takes each, and the others point to the SB3 page instead of a
+  misleading spelling match.
+- **Warnings name your line**, not Ajax's (the Gymnasium and whole-rollouts
+  warnings did), and a script that logs without a main guard is told so
+  without a traceback before the message.
+- **Docs:** the SB3 page says `predict` returns the action alone, as a JAX
+  array (a Gymnasium environment takes it through `np.asarray`), and that
+  `load` returns the agent and its state; the quickstart renders 100 steps
+  and prints where the GIF went; installing the TensorBoard viewer; the
+  warm-up defaults in the training guide.
 - `agent.render` no longer floods the output with ALSA errors on a machine
   without a sound card: Gymnasium's classic-control drawings start pygame,
   which opened an audio device every frame. SDL now gets its dummy audio
@@ -448,16 +473,17 @@ to do for each change that can break code or results.
     defaults keep every other memory unchanged. Upgrade: a controller saved
     before restores with `bias=True, layer_norm_epsilon=1e-6, mlp_ratio=2`.
   - IQL's actor learning rate decays to 0 by a cosine over the run's
-    updates, its reference Learner's default (`actor_lr_decay="cosine"`).
-    A run split into calls passes its whole horizon (`total_timesteps`) to
-    each. Upgrade: `actor_lr_decay=None` keeps the rate constant, as the
+    updates, its reference Learner's default
+    (`actor_learning_rate_decay="cosine"`). A run split into calls passes its
+    whole horizon (`total_timesteps`) to each. Upgrade:
+    `actor_learning_rate_decay=None` keeps the rate constant, as the
     reference's fine-tuning config does; pass it to fine-tune a state
     trained offline.
   - PQN's defaults are purejaxql's MinAtar config: 128 envs of 32 steps, 2
     epochs of 32 minibatches, RAdam at 5e-4 decayed linearly over the run
-    (`lr_linear_decay`), epsilon decaying over the first 10% of the run.
-    Upgrade: `n_envs=8, n_steps=128, n_epochs=4, num_minibatches=4,
-    learning_rate=2.5e-4, lr_linear_decay=False, epsilon_decay_frac=0.5`.
+    (`learning_rate_decay="linear"`), epsilon decaying over the first 10% of
+    the run. Upgrade: `n_envs=8, n_steps=128, n_epochs=4, num_minibatches=4,
+    learning_rate=2.5e-4, learning_rate_decay=None, epsilon_decay_frac=0.5`.
 
 - **DQN's defaults are CleanRL's `dqn.py`** (cleanrl `fe8d8a0`), its
   vector-observation reference: a 120-84 ReLU network (was 128-128), a
@@ -925,6 +951,9 @@ checkpoints restore with the arguments their Upgrade lines give. The rest:
   are removed.** Nothing has read them since 0.4.0: `expose_recent_rollout`,
   `burn_in`, `sequence_length` and `stored_state` are each agent's own fields.
   *What to do:* drop any import of them.
+- **`ajax.state.with_batch_stats` is now `network_variables`.** It returns the
+  same variables, and also the encoder a network shares with another
+  (`share_encoder`). *What to do:* rename the call; no result changes.
 - **The SAC family's update functions.** `critic_value_readers` moved from
   `ajax.agents.critics` to `ajax.agents.update_steps`, and `critic_step`
   builds it unless an agent passes its own. The SAC family's TD targets and

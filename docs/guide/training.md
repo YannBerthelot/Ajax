@@ -97,7 +97,7 @@ preprocessing stay yours.
 | [DQN](../algorithms/dqn.md#presets) | `Atari` | `learning_rate`, `gamma`, `buffer_size`, `batch_size`, `learning_starts`, `train_frequency`, `target_update_interval`, `epsilon_start`, `epsilon_end`, `epsilon_decay_start`, `epsilon_decay_frac` | Mnih et al.'s `run_gpu` |
 | [IQL](../algorithms/iql.md#presets) | `AntMaze` | `expectile`, `temperature` | `antmaze_config.py` |
 | [PPO](../algorithms/ppo.md#presets) | `Atari`, `SB3` | `n_envs`, `n_steps`, `batch_size`, `n_epochs`, `num_minibatches`, `actor_learning_rate`, `critic_learning_rate`, `gamma`, `gae_lambda`, `clip_range`, `clip_value_loss`, `normalize_advantage`, `ent_coef`, `vf_coef`, `max_grad_norm`, `adam_eps`, `normalize_observations`, `normalize_rewards`, `share_encoder` | ppo2's `defaults.py`; Stable-Baselines3's PPO defaults |
-| [PQN](../algorithms/pqn.md#presets) | `CartPole`, `Atari` | `architecture`, `n_envs`, `n_steps`, `n_epochs`, `num_minibatches`, `learning_rate`, `lr_linear_decay`, `epsilon_end`, `epsilon_decay_frac`, `q_lambda`, `reward_scale` | purejaxql's configs |
+| [PQN](../algorithms/pqn.md#presets) | `CartPole`, `Atari` | `architecture`, `n_envs`, `n_steps`, `n_epochs`, `num_minibatches`, `learning_rate`, `learning_rate_decay`, `epsilon_end`, `epsilon_decay_frac`, `q_lambda`, `reward_scale` | purejaxql's configs |
 | [REDQ](../algorithms/redq.md#presets) | `Hopper`, `HalfCheetah`, `Walker2d`, `Ant`, `Humanoid` | `target_entropy_per_dim` | MBPO's target entropies |
 | [REINFORCE](../algorithms/reinforce.md#presets) | `rtg_pg` | `baseline`, `normalize_advantage`, `gamma`, `n_steps`, `actor_architecture`, `actor_learning_rate` | Spinning Up's `2_rtg_pg.py` |
 | [TD3](../algorithms/td3.md#presets) | `D4RL` (TD3+BC) | `normalize_observations`, `extensions` | TD3_BC's `main.py` |
@@ -135,10 +135,10 @@ with a warning; a budget below one rollout runs that one rollout and
 records no evaluation.
 
 The off-policy agents act uniformly at random and do not update until
-`learning_starts` steps are collected: 10,000 by default for SAC, TD3, REDQ
-and ASAC, 5,000 for CrossQ, 1,000 for DQN, 257 for TQC (whose policy acts
-from the first step), 0 for AVG. A short test run must lower it, or the
-agent never trains.
+`learning_starts` steps are collected: 10,000 by default for SAC, ASAC,
+RVI-SAC and DQN, 25,000 for TD3, 5,000 for REDQ and CrossQ, 257 for TQC
+(whose policy acts from the first step), 0 for AVG. A short test run must
+lower it, or the agent never trains; a call that ends before it warns.
 
 ### Seeds
 
@@ -261,11 +261,12 @@ latent policy or planner. Their pages say what they log.
 - **With no `logging_config` given**, the run evaluates about ten times
   (every tenth of `n_timesteps`, rounded up to a whole number of the agent's
   iterations, such as PPO's rollouts), prints a line for each (the mean return over the seeds, with the lowest
-  and highest) and `out` holds the evaluations.
+  and highest; from the second, the time left) and `out` holds the evaluations.
 - **With `logging_config=None`**, `out` is `None` and nothing is printed.
   The evaluation is not even compiled into the program: the fastest run.
 - **With a `LoggingConfig`**, the run evaluates every `log_frequency` steps,
-  logs to its backends, prints nothing, and `out` holds the evaluations.
+  logs to its backends, prints one line when it starts (how often it
+  evaluates and where it logs), and `out` holds the evaluations.
 
 The evaluations are a dictionary from each logged name to an array of shape
 `(seeds, evaluations)`, with two entries by name: `out.returns` (the mean

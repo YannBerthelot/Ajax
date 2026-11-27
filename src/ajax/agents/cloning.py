@@ -84,7 +84,7 @@ def with_borrowed_encoder(actor_state: Any) -> Any:
 def with_trained_params(actor_state: Any, params: Any) -> Any:
     """actor_state with params (with_borrowed_encoder's layout) trained: the
     encoder's back in its borrowed copy, which the caller hands to the
-    critic (networks.take_actor_encoder)."""
+    critic (sharing.take_actor_encoder)."""
     shared_params = getattr(actor_state, "shared_params", None)
     if shared_params is None:
         return actor_state.replace(params=params)

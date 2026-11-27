@@ -157,7 +157,9 @@ N_TIMESTEPS = 1024
 AGENTS = {
     "SAC": (SAC, "mujoco:Hopper-v5", {"learning_starts": 256}),
     "PPO": (PPO, "mujoco:Hopper-v5", {"n_steps": 64}),
-    "APO": (APO, "mujoco:Hopper-v5", {"n_steps": 64}),
+    # APO splits its rollout into 20 minibatches by default (xtma/apo's
+    # config); 4 envs x 64 steps split into 4 of 64.
+    "APO": (APO, "mujoco:Hopper-v5", {"n_steps": 64, "num_minibatches": 4}),
     # TD-MPC2 is benchmarked on tasks without terminations (CheetahRun is one).
     "TDMPC2": (TDMPC2, "CheetahRun", {**TDMPC2_TINY, "seed_steps": 256}),
     "DreamerV3": (DreamerV3, "CheetahRun", DREAMER_TINY),

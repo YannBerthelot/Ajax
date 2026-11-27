@@ -247,8 +247,8 @@ end-to-end JAX libraries, not beside these two.
   Stoix train across devices ([Brax][brax-agents], [Stoix][stoix]).
 - **You want to sweep any hyperparameter of any agent in one program.**
   `train(sweep=...)` trains several configurations in one program, but only
-  over the numbers an agent declares sweepable, and so far only SAC and PPO
-  declare any ([Training an agent](../guide/training.md#hyperparameter-sweeps)).
+  over the numbers an agent declares sweepable, and APG, DreamerV3 and
+  TD-MPC2 declare none ([Training an agent](../guide/training.md#hyperparameter-sweeps)).
   Any other trial compiles anew. Rejax vmaps over hyperparameters as well
   as seeds ([README][rejax]).
 - **You want a mature, stable library.** SB3 describes itself as stable, with

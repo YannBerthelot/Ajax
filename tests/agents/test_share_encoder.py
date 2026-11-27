@@ -39,9 +39,9 @@ from ajax.checkpoint import restore_into, save_checkpoint
 from ajax.environments.interaction import get_pi
 from ajax.extensions.observe import PreviousAction
 from ajax.networks.memory import MemoryConfig
-from ajax.networks.networks import (
+from ajax.networks.networks import predict_value
+from ajax.networks.sharing import (
     mirror_shared_encoder,
-    predict_value,
     take_actor_encoder,
     with_critic_encoder,
 )

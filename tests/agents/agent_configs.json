@@ -415,7 +415,7 @@
     "relu"
    ],
    "actor_learning_rate": 0.0003,
-   "actor_lr_decay": "cosine",
+   "actor_learning_rate_decay": "cosine",
    "algo_name": "IQL",
    "batch_size": 256,
    "buffer_size": 1000000,
@@ -540,7 +540,7 @@
    "extensions": [],
    "gamma": 0.99,
    "learning_rate": 0.0005,
-   "lr_linear_decay": true,
+   "learning_rate_decay": "linear",
    "max_grad_norm": 10.0,
    "n_envs": 128,
    "n_epochs": 2,
@@ -628,7 +628,6 @@
     "tanh"
    ],
    "critic_learning_rate": 0.001,
-   "encoder_kernel_init": "torch_linear",
    "env_id": "fast",
    "env_params": null,
    "episode_length": null,
@@ -636,11 +635,7 @@
    "extensions": [],
    "gae_lambda": 0.97,
    "gamma": 0.99,
-   "log_std_init": -0.5,
-   "log_std_state_independent": true,
-   "logits_kernel_init": "torch_linear",
    "max_grad_norm": null,
-   "mean_kernel_init": "torch_linear",
    "n_envs": 1,
    "n_steps": 4000,
    "normalize_advantage": true,
@@ -648,7 +643,6 @@
    "normalize_rewards": false,
    "observation_clip": null,
    "reward_normalization_gamma": null,
-   "value_kernel_init": "torch_linear",
    "value_steps": 80,
    "weight_decay": 0.0
   }

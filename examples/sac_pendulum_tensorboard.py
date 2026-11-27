@@ -1,6 +1,7 @@
 """Train SAC on Pendulum and log the runs to TensorBoard.
 
-Afterwards: ``tensorboard --logdir runs``.
+Afterwards, with the viewer installed (``pip install tensorboard``; Ajax only
+writes the files): ``tensorboard --logdir runs``.
 """
 
 from ajax import SAC

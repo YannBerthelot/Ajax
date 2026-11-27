@@ -10,7 +10,6 @@ import queue
 import secrets
 import string
 import struct as pystruct
-import warnings
 from collections import defaultdict
 from pathlib import Path
 from typing import Any, Dict, Optional, Sequence
@@ -26,6 +25,7 @@ from ajax.logging.backends import (
     TensorBoardBackend,
     WandbBackend,
 )
+from ajax.user_warnings import warn_user
 
 
 @struct.dataclass
@@ -89,27 +89,23 @@ class LoggingConfig:
                 " without evaluations is train(logging_config=None)."
             )
         if self.sweep:
-            # stacklevel 3: the caller of LoggingConfig(...), past __init__.
-            warnings.warn(
+            warn_user(
                 "LoggingConfig's sweep is deprecated: it is now"
                 " evaluate_last_fifth_only (train's sweep is another thing).",
                 FutureWarning,
-                stacklevel=3,
             )
             object.__setattr__(self, "evaluate_last_fifth_only", True)
             # Read once: a copy (replace) does not warn again.
             object.__setattr__(self, "sweep", False)
         flag_set = self.use_wandb is not None or self.use_tensorboard is not None
         if flag_set and self.backends is None:
-            # stacklevel 3: the caller of LoggingConfig(...), past __init__.
-            warnings.warn(
+            warn_user(
                 "LoggingConfig's use_wandb and use_tensorboard are deprecated:"
                 " name the backends instead, such as"
                 " backends=(TensorBoardBackend(folder),),"
                 " backends=(WandbBackend(project, group),), or backends=() for"
                 " none.",
                 FutureWarning,
-                stacklevel=3,
             )
         if self.backends is not None and flag_set:
             raise ValueError(
@@ -278,8 +274,13 @@ def start_async_logging() -> None:
         except RuntimeError as error:
             # Python refuses a process started while another is being
             # imported: this is the worker, importing a script that trains
-            # at its top level.
-            raise RuntimeError(UNGUARDED_SCRIPT) from error
+            # at its top level. It ends with the message alone: a traceback
+            # of the spawn machinery buried it. Python names this refusal
+            # in its message only (the worker's parent_process is not set
+            # until the import ends).
+            if "bootstrapping phase" in str(error):
+                raise SystemExit(UNGUARDED_SCRIPT) from error
+            raise
         finally:
             _restore_platforms(_old)
         for msg in _pending_init_msgs:
@@ -300,12 +301,10 @@ def stop_async_logging() -> None:
     global _log_queue, _log_process, _pending_init_msgs
     if _log_process is not None and _log_process.exitcode not in (None, 0):
         # The worker died before its poison pill: nothing it held was written.
-        warnings.warn(
+        warn_user(
             f"The logging process stopped early (exit code"
             f" {_log_process.exitcode}): this run's logs are missing or"
-            f" incomplete; train's evaluations are whole. {UNGUARDED_SCRIPT}",
-            UserWarning,
-            stacklevel=2,
+            f" incomplete; train's evaluations are whole. {UNGUARDED_SCRIPT}"
         )
     if _log_process is not None and _log_process.is_alive() and _log_queue is not None:
         _log_queue.put(None)  # poison pill

@@ -23,7 +23,7 @@ policy, argmax_a Q); critic_state mirrors it at init and is never stepped.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable, Optional
+from typing import Any, Callable, ClassVar, Optional
 
 import jax
 import jax.numpy as jnp
@@ -114,18 +114,6 @@ class DQN(
     (the module's equations), acting epsilon-greedy.
 
     Defaults: on vector observations, CleanRL's dqn.py (vwxyzjn/cleanrl
-    #: The numbers a sweep may vary in one program (ActorCritic.sweepable),
-    #: each checked against separate runs by tests/agents/test_sweep_every_agent.py.
-    sweepable: ClassVar[frozenset[str]] = frozenset(
-        {
-            "epsilon_end",
-            "epsilon_start",
-            "gamma",
-            "reward_scale",
-            "tau",
-        }
-    )
-
     @fe8d8a0, its Args at lines 47-71 and QNetwork at 95-99), the
     classic-control reference, with its Adam and squared loss (dqn.py:148,
     :201); on image observations (cnn_image_shape), Mnih et al.'s optimiser
@@ -182,6 +170,18 @@ class DQN(
     #: The Q-network module: None is QNetwork; DuelingQNetwork
     #: (ajax.networks.q_networks) the dueling architecture.
     q_network_cls: Optional[type] = None
+
+    #: The numbers a sweep may vary in one program (ActorCritic.sweepable),
+    #: each checked against separate runs by tests/agents/test_sweep_every_agent.py.
+    sweepable: ClassVar[frozenset[str]] = frozenset(
+        {
+            "epsilon_end",
+            "epsilon_start",
+            "gamma",
+            "reward_scale",
+            "tau",
+        }
+    )
 
     def actor_critic_args(self) -> dict[str, Any]:
         # DQN has one Q-network: both of ActorCritic's slots take it. Its

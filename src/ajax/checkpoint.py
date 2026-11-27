@@ -197,7 +197,6 @@ def restore_into(skeleton: Any, path: str) -> Any:
     state_dict = _without_removed_fields(skeleton, state_dict)
     state_dict = _with_added_fields(skeleton, state_dict)
     state_dict = _with_replay_next_obs(skeleton, state_dict)
-    state_dict = _without_segment_raw_obs(skeleton, state_dict)
     state_dict = _with_new_empty_fields(skeleton_dict, state_dict)
     if _took_a_joint_clip(skeleton):
         state_dict = _without_own_gradient_clip(skeleton_dict, state_dict)
@@ -392,36 +391,6 @@ def _with_replay_next_obs(skeleton: Any, state_dict: Any) -> Any:
     saved = saved.replace(experience={**saved.experience, **rebuilt})
     collector = {**state_dict["collector_state"], "buffer_state": saved}
     return {**state_dict, "collector_state": collector}
-
-
-def _without_segment_raw_obs(skeleton: Any, state_dict: Any) -> Any:
-    """Restore a UDRL segment buffer saved while it held the env's own
-    observations twice, in ``obs`` and, for a run with an expert, in
-    ``raw_obs``: the field is dropped, and ``obs`` holds them. A buffer of
-    observations the env normalised is refused: each row kept the statistics
-    of its collection, which are not saved, and UDRL now normalises the rows
-    it reads itself.
-
-    Contract shim (CLAUDE.md, refactoring rule 10) for checkpoints written
-    between ``raw_obs``'s addition and its removal, both on 2026-10-17, and
-    for UDRL's env normalisation before. Delete it on 2026-11-17.
-    """
-    from ajax.agents.UDRL.buffer import SegmentBuffer
-
-    saved = state_dict.get("buffer") if isinstance(state_dict, dict) else None
-    segments = getattr(skeleton, "buffer", None)
-    if not isinstance(segments, SegmentBuffer) or not isinstance(saved, dict):
-        return state_dict
-    if _saved_obs_normalised(state_dict):
-        raise ValueError(
-            "This UDRL checkpoint's segment buffer holds observations the"
-            " environment normalised, each with the statistics of its"
-            " collection, which are not saved; UDRL now keeps them raw and"
-            " normalises them itself. Resume the run with the Ajax version that"
-            " wrote it, or start it afresh."
-        )
-    saved = {k: v for k, v in saved.items() if k != "raw_obs"}
-    return {**state_dict, "buffer": saved}
 
 
 def _saved_obs_normalised(saved_agent: dict) -> bool:
@@ -645,14 +614,16 @@ def _behind_a_clip(new: Any, old: Any, params: Any = None) -> bool:
     return empty and _same_keys(new, old["1"], params)
 
 
-def _same_keys(a: Any, b: Any, params: Any = None) -> bool:
-    """Whether two state dicts nest the same keys, a leaf of ``a`` matching
-    a dict of ``b`` nesting the keys of ``params``, when given."""
-    if params is not None and not isinstance(a, dict) and isinstance(b, dict):
-        return _same_keys(params, b)
-    if not isinstance(a, dict) or not isinstance(b, dict):
-        return not isinstance(a, dict) and not isinstance(b, dict)
-    return a.keys() == b.keys() and all(_same_keys(a[k], b[k], params) for k in a)
+def _same_keys(new: Any, old: Any, params: Any = None) -> bool:
+    """Whether two state dicts nest the same keys, a leaf of ``new``
+    matching a dict of ``old`` nesting the keys of ``params``, when given."""
+    if params is not None and not isinstance(new, dict) and isinstance(old, dict):
+        return _same_keys(params, old)
+    if not isinstance(new, dict) or not isinstance(old, dict):
+        return not isinstance(new, dict) and not isinstance(old, dict)
+    return new.keys() == old.keys() and all(
+        _same_keys(new[key], old[key], params) for key in new
+    )
 
 
 def _check_memory_final_norm(skeleton: Any, saved: Any) -> None:

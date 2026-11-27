@@ -64,8 +64,8 @@ jobs:
 
   # The wheel in a fresh environment outside the checkout, on the oldest and
   # the newest Python supported: "docs" with the extras the documentation
-  # uses runs the README's and the docs' examples (there are no notebooks),
-  # the others each extra alone with its smoke test (tests/release_smoke.py).
+  # uses runs the README's, the docs' and the notebook's examples, the others
+  # each extra alone with its smoke test (tests/release_smoke.py).
   installed:
     name: Installed package (${{ matrix.check }}, ${{ matrix.python }})
     needs: build
@@ -123,6 +123,6 @@ jobs:
           assert location.is_relative_to(site), f"ajax comes from {location}, not {site}"
           '
       - if: matrix.check == 'docs'
-        run: python tests/doc_examples.py README.md docs
+        run: python tests/doc_examples.py README.md docs notebooks
       - if: matrix.check != 'docs'
         run: python tests/release_smoke.py ${{ matrix.check }}

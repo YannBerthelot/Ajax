@@ -1123,64 +1123,6 @@ def test_a_checkpoint_with_a_longer_replay_restores(sac_run, tmp_path):
     assert restored["obs"].shape[2] == 2 * buffer.experience["obs"].shape[2]
 
 
-def _udrl(**kw):
-    from ajax.agents.UDRL.UDRL import UDRL
-
-    net = ("8", "relu")
-    sizes = {"n_envs": 2, "n_steps": 8, "batch_size": 8, "n_updates_per_iter": 1}
-    return UDRL(env_id="Pendulum-v1", actor_architecture=net, **sizes, **kw)
-
-
-def _resaved(path: str, change) -> dict:
-    """The checkpoint at ``path`` as ``change`` leaves its pickled dict."""
-    import pickle
-
-    with open(path, "rb") as fh:
-        saved = pickle.load(fh)
-    change(saved)
-    with open(path, "wb") as fh:
-        pickle.dump(saved, fh)
-    return saved
-
-
-@pytest.mark.parametrize("copy", [True, False], ids=["raw_obs", "none"])
-def test_a_udrl_buffer_saved_with_a_raw_obs_field_restores(tmp_path, copy):
-    """On 2026-10-17 UDRL's segment buffer held the env's own observations
-    twice, in obs and, for a run with an expert, in raw_obs (None without
-    one): a checkpoint written then restores, the copy dropped."""
-    state, _ = _udrl().train(seed=0, n_timesteps=16, logging_config=None)
-    path = str(tmp_path / "old.pkl")
-    save_checkpoint(state, path)
-
-    def with_field(saved: dict) -> None:
-        obs = saved["buffer"]["obs"]
-        saved["buffer"]["raw_obs"] = obs[..., :-2] if copy else None
-
-    saved = _resaved(path, with_field)
-    restored = restore_into(state, path).buffer
-    np.testing.assert_array_equal(restored.obs, saved["buffer"]["obs"])
-
-
-def test_a_udrl_buffer_the_env_normalised_is_refused(tmp_path):
-    """A UDRL checkpoint saved while the env normalised its observations (its
-    env state holds their statistics) keeps each row at the statistics of
-    its collection: refused, saying why, since UDRL now normalises the raw
-    rows it reads."""
-    state, _ = _udrl(normalize_observations=True).train(
-        seed=0, n_timesteps=16, logging_config=None
-    )
-    path = str(tmp_path / "old.pkl")
-    save_checkpoint(state, path)
-    stats = {"count": 1.0, "mean": 0.0, "mean_2": 1.0}
-
-    def env_normalised(saved: dict) -> None:
-        saved["collector_state"]["_env_state"]["normalization_info"] = {"obs": stats}
-
-    _resaved(path, env_normalised)
-    with pytest.raises(ValueError, match="environment normalised"):
-        restore_into(state, path)
-
-
 def test_a_checkpoint_from_before_the_collections_own_stream_restarts_it(tmp_path):
     """A state saved before collection had its own stream of keys (format 1)
     held, as its collector's key, the carry of its last collection, an

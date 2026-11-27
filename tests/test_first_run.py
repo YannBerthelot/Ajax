@@ -159,8 +159,9 @@ def test_a_logging_config_of_the_callers_prints_its_start_line_only(capsys):
 def test_the_start_line_of_a_logged_run_names_its_tensorboard_folder(capsys):
     logging = LoggingConfig(log_frequency=1_000, backends=(TensorBoardBackend("runs"),))
     run_logging(logging, "SAC", [0, 1], 3_000, 3_000, together=True)
-    assert "an evaluation every 1,000 steps, logged to TensorBoard in runs/tensorboard." in (
-        capsys.readouterr().out
+    assert (
+        "an evaluation every 1,000 steps, logged to TensorBoard in runs/tensorboard."
+        in (capsys.readouterr().out)
     )
 
 
@@ -170,7 +171,8 @@ def test_a_line_after_a_runs_first_evaluation_gives_the_time_left():
     printer = ProgressPrinter(
         "PPO", ["seed 0"], 400, True, write=lines.append, clock=lambda: now[0]
     )
-    for step, elapsed in [(100, 5.0), (200, 7.0), (300, 8.0), (400, 9.0)]:
+    timeline = [(100, 5.0), (200, 7.0), (300, 8.0), (350, 8.1), (400, 9.0)]
+    for step, elapsed in timeline:
         now[0] = elapsed
         printer({"timestep": np.array(step), RETURN: np.array(1.0)}, 0)
     assert lines == [
@@ -179,6 +181,8 @@ def test_a_line_after_a_runs_first_evaluation_gives_the_time_left():
         "        200 / 400 steps | return 1.0 | 7.0 s, about 4 s left",
         # 0.01 s a step, 100 steps left.
         "        300 / 400 steps | return 1.0 | 8.0 s, about 1 s left",
+        # 0.002 s a step, 50 steps left: 0.1 s, too little to say.
+        "        350 / 400 steps | return 1.0 | 8.1 s",
         "        400 / 400 steps | return 1.0 | 9.0 s",
     ]
 
@@ -188,7 +192,12 @@ def test_members_trained_one_after_another_count_the_runs_to_come():
     evaluation, its last 100 steps and seed 1's 300, at 0.01 s a step."""
     lines, now = [], [0.0]
     printer = ProgressPrinter(
-        "PPO", ["seed 0", "seed 1"], 300, False, write=lines.append, clock=lambda: now[0]
+        "PPO",
+        ["seed 0", "seed 1"],
+        300,
+        False,
+        write=lines.append,
+        clock=lambda: now[0],
     )
     for step, elapsed in [(100, 1.0), (200, 2.0)]:
         now[0] = elapsed

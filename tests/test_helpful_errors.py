@@ -594,7 +594,9 @@ def test_a_warning_about_a_call_names_the_callers_line(call, category, text):
 
 def test_a_call_ending_before_the_first_update_warns_that_it_does_not_train():
     """DQN's first update waits for learning_starts=10,000 steps collected."""
-    with pytest.warns(UserWarning, match="before the first update at learning_starts=10000"):
+    with pytest.warns(
+        UserWarning, match="before the first update at learning_starts=10000"
+    ):
         DQN("CartPole-v1").train(seed=0, n_timesteps=64, logging_config=None)
 
 

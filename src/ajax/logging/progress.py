@@ -194,7 +194,8 @@ class ProgressPrinter:
             text += f" | {label}"
         text += f" | {elapsed:.1f} s"
         left = self.time_left(step, elapsed, label)
-        if left is not None:
+        # Under a second left is no estimate worth a word.
+        if left is not None and round(left) >= 1:
             text += f", about {describe_duration(left)} left"
         self.write(text)
         if len(self.groups) != len(scores):
@@ -277,7 +278,11 @@ def run_logging(
                 f" most {end_timestep}."
             )
         if isinstance(logging_config, LoggingConfig) and n_timesteps >= 1:
-            print(announce_logged_run(logging_config, run_title(agent_name, seeds, n_timesteps)))
+            print(
+                announce_logged_run(
+                    logging_config, run_title(agent_name, seeds, n_timesteps)
+                )
+            )
         return logging_config, None
     if logging_config != "default":
         raise ValueError(

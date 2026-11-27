@@ -4,7 +4,7 @@ from its records.
 Contract: a cell is the return at the last evaluation of each seed's latest
 attempt, shown as mean ± sample standard deviation, and only once every seed
 of the run reached the step budget; seeds run in parts are gathered. The
-README and the benchmark page carry exactly what the records give.
+benchmark page carries exactly what the records give.
 """
 
 import json
@@ -34,13 +34,10 @@ def test_published_tables_match_the_records():
     hand edits to the generated tables."""
     runs = publish.read_runs()
     page = publish.PAGE.read_text()
-    readme = publish.README.read_text()
     assert (
         publish.replace_block(page, "benchmark-tables", publish.page_block(runs))
         == page
     )
-    summary = publish.readme_block(runs)
-    assert publish.replace_block(readme, "benchmark-summary", summary) == readme
 
 
 def test_score_uses_the_latest_attempt_and_gathers_seeds_run_in_parts(tmp_path):

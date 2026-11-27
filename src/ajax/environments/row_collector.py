@@ -91,6 +91,7 @@ from ajax.controller import (
     previous_reward_input,
     restart_observers,
 )
+from ajax.environments.create import build_of
 from ajax.environments.interaction import (
     get_final_obs,
     init_rolling_mean,
@@ -353,7 +354,7 @@ def collect_row(
             mode,
         )
     else:
-        if check_env_is_playground(env) and not getattr(env, "_ajax_fresh_reset", True):
+        if check_env_is_playground(env) and not build_of(env).fresh_reset:
             warn_user(
                 "Dynamic reset mode on a mujoco_playground env built with"
                 " fresh_reset=False: its auto-reset returns a cached first"

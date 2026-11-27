@@ -178,7 +178,7 @@ self.name, ("dataset", "eval_envs"))`.
 arguments, drops `self`, `__class__` and the names passed in `exclude` (its
 dataset and evaluation envs), and adds `algo_name`. With a
 `LoggingConfig`, `train` merges `agent.config` into `logging_config.config`,
-which is what W&B and TensorBoard record for the run.
+which W&B and TensorBoard record.
 
 ### Agent units and env units
 
@@ -230,7 +230,7 @@ agent at once. The probes check it end to end: a planted fault that runs
 
 | Shape | Agents | One iteration | Budget |
 | --- | --- | --- | --- |
-| `loop.off_policy(init, update, learning_starts, ...)` | the replay agents and AVG | one step per env (a *tick*); from `learning_starts` on, one `update(state, transition)` | `budget // n_envs` ticks |
+| `loop.off_policy(init, update, learning_starts, ...)` | the replay agents (<!-- agents: replay -->SAC, TD3, REDQ, CrossQ, TQC, ASAC, RVI-SAC, IQL, DQN, DAgger<!-- /agents -->) and AVG | one step per env (a *tick*); from `learning_starts` on, one `update(state, transition)` | `budget // n_envs` ticks |
 | `loop.on_policy(init, update, n_steps, ...)` | the on-policy agents (PPO, APO, REINFORCE, PQN) | an `n_steps` rollout per env from the agent state `agent_state_at_rollout_start`, then `update(agent_state, rollout, agent_state_at_rollout_start)` | the whole rollouts the budget holds, at least one |
 | `loop.off_policy(..., collect=, n_updates=, evaluation=)` | DreamerV3, TDMPC2 (`OwnReplayAgent`) | the agent's own `collect(state, tick)`, then `n_updates(tick, state)` updates (a train ratio, a burst), then the agent's own `Evaluation` | `budget // n_envs` ticks, or `num_ticks` |
 

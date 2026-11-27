@@ -468,7 +468,7 @@ def compute_half_mse_td_loss(q_taken: jax.Array, target_q: jax.Array) -> jax.Arr
     return 0.5 * jnp.mean((q_taken - target_q) ** 2)
 
 
-# -- State, logged metrics and the legacy view --------------------------------
+# -- State and logged metrics -------------------------------------------------
 @struct.dataclass(kw_only=True)
 class PQNState(BaseAgentState):
     """PQN carries a single Q-network -- no replay buffer, no target network.

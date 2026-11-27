@@ -602,9 +602,10 @@ class Critic(nn.Module):
     # features skip the encoder and the memory, which read the rest (the
     # observation and the previous action, :func:`action_value_input`), and
     # join the memory's output at a head of the encoder's architecture. A
-    # queried action never feeds the carry (Ni et al. 2022's recurrent
-    # critic, embedders before the memory, the action at the head after it;
-    # cited from memory, unverified).
+    # queried action never feeds the carry, as in Ni et al. (2022)'s
+    # recurrent critic: its memory reads the embedded previous action,
+    # reward and observation, and the current action joins its output
+    # (pomdp-baselines e7c19c3, recurrent_critic.py:129-139, :165-186).
     query_dim: int = 0
     # The value layer's kernel init (as Actor's output layers'); None keeps
     # orthogonal(1.0).

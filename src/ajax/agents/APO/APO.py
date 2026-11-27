@@ -589,7 +589,7 @@ def compute_value_loss(
 TORCH_CLIP_EPS = 1e-6
 
 
-# -- State, logged metrics and the legacy view --------------------------------
+# -- State and logged metrics -------------------------------------------------
 @struct.dataclass(kw_only=True)
 class APOState(BaseAgentState):
     """APO's state: the base state's, the reward rate and the value bias."""

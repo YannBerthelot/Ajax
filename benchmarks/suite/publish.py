@@ -325,7 +325,8 @@ def speed_text(steps_per_s: float) -> str:
 def timing_block(runs: list[Run], timings: dict) -> str:
     """The performance page's table: each agent's steps per second on four
     CPU cores and on one GPU, in the benchmark tables' order, with its
-    compile seconds; then the machines and the commit."""
+    compile seconds, a machine not timed yet shown as pending; then the
+    machines and the commit."""
     records = list(timings.values())
     counts = ordered(record["n_seeds"] for record in records)
     seeds = "/".join(str(count) for count in counts)
@@ -346,14 +347,14 @@ def timing_block(runs: list[Run], timings: dict) -> str:
             if cpu is None and gpu is None:
                 continue
             speeds = [
-                DASH if record is None else speed_text(record["run_steps_per_s"])
+                "pending" if record is None else speed_text(record["run_steps_per_s"])
                 for record in (cpu, gpu)
             ]
             gain = DASH
             if cpu is not None and gpu is not None:
                 gain = f"{gpu['run_steps_per_s'] / cpu['run_steps_per_s']:.2g} times"
             compiles = " / ".join(
-                DASH if record is None else f"{record['compile_s']:.0f}"
+                "pending" if record is None else f"{record['compile_s']:.0f}"
                 for record in (cpu, gpu)
             )
             task = suite_and_task((cpu or gpu)["env"])[1]
@@ -363,15 +364,16 @@ def timing_block(runs: list[Run], timings: dict) -> str:
             )
     if not records:
         return "\n".join(lines)
+    machines = f"The CPU column ran on four cores of an {' and '.join(cpus)}"
+    if gpus:
+        machines += f", the GPU column on one {' and '.join(gpus)} of the same machine"
     lines.append(
-        f"\nEnvironment steps per second per seed, higher is faster, with {seeds}"
-        f" seeds trained together: the run makes {seeds} times as many in all."
-        " Each is timed"
-        " on a segment of training once the agent's updates run, without"
-        " evaluations; the compile seconds are those of the run's first call."
-        f" The CPU column ran on four cores of an {' and '.join(cpus)}, the GPU"
-        " column on that machine's GPU, at commit"
-        f" {' and '.join(commits)} ([records]({RECORDS_URL}/timing-0.6))."
+        "\nEnvironment steps per second per seed, higher is faster, with"
+        f" {seeds} seeds trained together: the run makes {seeds} times as many"
+        " in all. Each is timed on a segment of training once the agent's"
+        " updates run, without evaluations; the compile seconds are those of"
+        f" the run's first call. {machines}, at commit {' and '.join(commits)}"
+        f" ([records]({RECORDS_URL}/timing-0.6))."
     )
     return "\n".join(lines)
 
@@ -526,7 +528,7 @@ def draw_scores(plt: Any, style: dict, scores: dict, path: pathlib.Path) -> None
     thresholds = np.linspace(0, top, 101)
     counts = ordered(len(np.concatenate(final)) for final in finals.values())
     figure, (means, profiles) = plt.subplots(
-        1, 2, figsize=(9.5, 1.5 + 0.3 * len(finals)), width_ratios=(1, 1.3)
+        1, 2, figsize=(10.5, 1.5 + 0.3 * len(finals)), width_ratios=(1, 1.3)
     )
     for row, (agent, final) in enumerate(finals.items()):
         colour, line = style[agent]
@@ -553,7 +555,7 @@ def draw_scores(plt: Any, style: dict, scores: dict, path: pathlib.Path) -> None
     means.set_title(f"Interquartile mean{runs}, 95% interval", loc="left")
     profiles.set_title("Performance profile", loc="left")
     profiles.set_ylabel("Fraction of runs above")
-    profiles.legend(loc="lower left", frameon=False)
+    profiles.legend(loc="center left", bbox_to_anchor=(1, 0.5), frameon=False)
     for axis in (means, profiles):
         axis.set_xlabel("Normalised final return")
         axis.grid(alpha=0.25)
@@ -567,13 +569,37 @@ def draw_time(
 ) -> None:
     """The interquartile mean through training against the hours each
     evaluation's step takes; panels: (title, {agent: each task's normalised
-    returns}), hours: each agent's evaluations, in hours."""
+    returns}), hours: each timed agent's evaluations, in hours. An agent
+    not timed yet is named as pending."""
     figure, axes = plt.subplots(
-        1, len(panels), figsize=(4.7 * len(panels), 3.9), squeeze=False
+        1, len(panels), figsize=(max(6.4, 4.7 * len(panels)), 3.9), squeeze=False
     )
     handles = {}
     for axis, (title, scores) in zip(axes[0], panels, strict=True):
+        pending = [name(agent) for agent in scores if agent not in hours]
+        if len(pending) == len(scores):
+            axis.text(
+                0.5,
+                0.5,
+                "GPU timing pending",
+                transform=axis.transAxes,
+                ha="center",
+                color="#7a7974",
+            )
+            axis.set_xlim(0.01, 100)  # no curve sets the log axis's range
+        elif pending:
+            axis.text(
+                0.98,
+                0.04,
+                "GPU timing pending: " + ", ".join(pending),
+                transform=axis.transAxes,
+                ha="right",
+                fontsize=8,
+                color="#7a7974",
+            )
         for agent, per_task in scores.items():
+            if agent not in hours:
+                continue
             colour, line = style[agent]
             resampled = np.swapaxes(stratified_resamples(per_task), 1, 2)
             band = interval(interquartile_mean(resampled))
@@ -596,8 +622,10 @@ def draw_time(
     figure.legend(
         handles.values(), handles.keys(), loc="lower center", ncol=6, frameon=False
     )
-    figure.supxlabel(label, y=0.125)
-    figure.tight_layout(rect=(0, 0.17, 1, 1))
+    # The legend's rows take about 0.065 of the height each, the label above.
+    label_height = 0.065 * -(-len(handles) // 6) + 0.01
+    figure.supxlabel(label, y=label_height)
+    figure.tight_layout(rect=(0, label_height + 0.05, 1, 1))
     figure.savefig(path, metadata={"Date": None})
     plt.close(figure)
 
@@ -646,18 +674,11 @@ def write_aggregate_figures(
                 if tasks[0] in returns[agent]
             }
             panels.append((tasks[0], first_task))
-        panels = [
-            (title, {agent: scores[agent] for agent in scores if agent in hours})
-            for title, scores in panels
-        ]
-        if hours:
-            timed = timings[(next(iter(hours)), suite, "gpu")]
-            task = suite_and_task(timed["env"])[1]
-            label = (
-                f"Hours on one {timed['manifest']['device']}, at the timing pass's"
-                f" speed on {task}"
-            )
-            draw_time(plt, style, panels, hours, label, directory / f"{short}-time.svg")
+        timed = [timings[(agent, suite, "gpu")] for agent in hours]
+        device = timed[0]["manifest"]["device"] if timed else "GPU"
+        task = suite_and_task(timed[0]["env"])[1] if timed else tasks[0]
+        label = f"Hours on one {device}, from the timing pass on {task}"
+        draw_time(plt, style, panels, hours, label, directory / f"{short}-time.svg")
 
 
 def main(argv: Optional[list[str]] = None) -> int:

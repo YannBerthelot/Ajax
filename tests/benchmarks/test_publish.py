@@ -141,12 +141,12 @@ def test_resamples_draw_seeds_within_each_task():
 
 
 def test_scores_share_one_scale_per_suite():
-    """Catches scaling DeepMind Control by its best agent, or MinAtar by a
-    fixed maximum or by the mean of the agents."""
+    """Catches scaling DeepMind Control by its best agent, or MinAtar by its
+    best seed, its last agent or the mean of the agents."""
     runs = [
         final_run("SAC", "CheetahRun", "DeepMind Control", [500.0, 700.0]),
-        final_run("DQN", "Breakout", "MinAtar", [10.0, 30.0]),  # mean 20
         final_run("PQN", "Breakout", "MinAtar", [40.0, 40.0]),  # mean 40, the best
+        final_run("DQN", "Breakout", "MinAtar", [10.0, 50.0]),  # mean 30
     ]
     assert publish.score_scales(runs) == {
         ("DeepMind Control", "CheetahRun"): 1000.0,
@@ -175,3 +175,17 @@ def test_timing_table_gives_each_machine_and_the_gpu_gain(tmp_path):
     table = publish.timing_block(runs, publish.read_timings(tmp_path))
 
     assert "| SAC | CheetahRun | 40 | 240 | 6 times | 19 / 63 |" in table.splitlines()
+
+
+def test_timing_table_shows_a_machine_not_timed_yet_as_pending(tmp_path):
+    """Catches a missing GPU record read as a speed, or the row dropped."""
+    manifest = {"commit": "abcdef0", "machine": {"cpu": "A CPU"}, "device": "cpu"}
+    record = {"agent": "SAC", "env": "CheetahRun", "machine": "cpu", "n_seeds": 10}
+    record.update({"run_steps_per_s": 40.0, "compile_s": 19.0, "manifest": manifest})
+    write(tmp_path / "cpu.jsonl", [record])
+    runs = [final_run("SAC", "CheetahRun", "DeepMind Control", [1.0])]
+
+    table = publish.timing_block(runs, publish.read_timings(tmp_path))
+
+    row = f"| SAC | CheetahRun | 40 | pending | {publish.DASH} | 19 / pending |"
+    assert row in table.splitlines()

@@ -18,6 +18,8 @@ MuJoCo's C library):
   keeps it in the evaluation rebuild, and an unknown id is refused.
 """
 
+import functools
+
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -76,6 +78,14 @@ ONE_STEP_TOLERANCE = {
     "float32": 1e-3,
 }
 
+# A deliberate workaround for jaxlib before 0.11.2: at XLA's optimisation
+# level 0, which the fast tier and the Compatibility job compile at, those
+# versions recompute inside a fused kernel what its elements share. A chain
+# of quaternion products costs 4 times more per link, so MJX's kinematics on
+# Pusher's 10-link arm took 150 s a call and a step 20 s (0.01 s at level 2).
+# Remove once the JAX floor reaches 0.11.2.
+DEEP_CHAIN_COMPILE = {"Pusher-v5": {"xla_backend_optimization_level": 2}}
+
 
 @pytest.mark.parametrize("dtype", ["float64", "float32"])
 @pytest.mark.parametrize("task_id", sorted(TASKS))
@@ -89,7 +99,7 @@ def test_one_step_from_gymnasiums_states_gives_gymnasiums_values(task_id, dtype)
         task = make(task_id)
         template = task.reset(jax.random.key(0))
 
-        @jax.jit
+        @functools.partial(jax.jit, compiler_options=DEEP_CHAIN_COMPILE.get(task_id))
         def one_step(qpos, qvel, action):
             state = template.replace(data=task.set_state(qpos, qvel))
             return task.step(state, action)

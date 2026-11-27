@@ -64,14 +64,15 @@ def build_for_timing(label: str) -> tuple[Any, dict]:
 
 
 def first_update_step(agent: Any) -> int:
-    """The step the agent first updates at: its learning_starts or seed
-    phase, DreamerV3's replay gate (batch_length x n_envs + batch_size, as
-    its TrainRatio derives it), else 0 for the agents that update after
-    each rollout."""
+    """The step the agent first updates at: its learning_starts; TD-MPC2's
+    seed tick, which waits for at least one episode whatever seed_steps;
+    DreamerV3's replay gate (batch_length x n_envs + batch_size, as its
+    TrainRatio derives it); else 0 for the agents that update after each
+    rollout."""
     if hasattr(agent, "learning_starts"):
         return agent.learning_starts
     if hasattr(agent, "resolved_seed_steps"):
-        return agent.resolved_seed_steps
+        return agent.schedule.seed_step * agent.env_args.n_envs
     if hasattr(agent, "train_ratio"):
         return agent.batch_length * agent.env_args.n_envs + agent.batch_size
     return 0

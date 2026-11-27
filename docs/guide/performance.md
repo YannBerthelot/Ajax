@@ -152,24 +152,24 @@ learning you want, then use seeds to fill the device.
 On four CPU cores, on CheetahRun (top) and Breakout-MinAtar (below):
 
 <!-- agent-timing:start -->
-| Agent | Task | Four CPU cores | One GPU | Gain | Compile s, CPU / GPU |
-|---|---|---:|---:|---:|---:|
-| SAC | CheetahRun | 41 | pending | – | 19 / pending |
-| TD3 | CheetahRun | 51 | pending | – | 17 / pending |
-| ASAC | CheetahRun | 34 | pending | – | 28 / pending |
-| RVI-SAC | CheetahRun | 42 | pending | – | 21 / pending |
-| AVG | CheetahRun | 171 | pending | – | 20 / pending |
-| APO | CheetahRun | 1,066 | pending | – | 29 / pending |
-| PPO | CheetahRun | 1,269 | pending | – | 29 / pending |
-| REDQ | CheetahRun | 0.71 | pending | – | 26 / pending |
-| TQC | CheetahRun | 3.1 | pending | – | 20 / pending |
-| CrossQ | CheetahRun | 0.98 | pending | – | 21 / pending |
-| DreamerV3 | CheetahRun | 0.064 | pending | – | 51 / pending |
-| TD-MPC2 | CheetahRun | 0.3 | pending | – | 34 / pending |
-| DQN | Breakout | 2,926 | pending | – | 4 / pending |
-| PQN | Breakout | 14,045 | pending | – | 3 / pending |
-| PPO | Breakout | 4,622 | pending | – | 5 / pending |
-| UDRL | Breakout | 545 | pending | – | 5 / pending |
+| Agent | Task | Four CPU cores | Compile s |
+|---|---|---:|---:|
+| SAC | CheetahRun | 41 | 19 |
+| TD3 | CheetahRun | 51 | 17 |
+| ASAC | CheetahRun | 34 | 28 |
+| RVI-SAC | CheetahRun | 42 | 21 |
+| AVG | CheetahRun | 171 | 20 |
+| APO | CheetahRun | 1,066 | 29 |
+| PPO | CheetahRun | 1,269 | 29 |
+| REDQ | CheetahRun | 0.71 | 26 |
+| TQC | CheetahRun | 3.1 | 20 |
+| CrossQ | CheetahRun | 0.98 | 21 |
+| DreamerV3 | CheetahRun | 0.064 | 51 |
+| TD-MPC2 | CheetahRun | 0.3 | 34 |
+| DQN | Breakout | 2,926 | 4 |
+| PQN | Breakout | 14,045 | 3 |
+| PPO | Breakout | 4,622 | 5 |
+| UDRL | Breakout | 545 | 5 |
 
 Environment steps per second per seed, higher is faster, with 10 seeds trained together: the run makes 10 times as many in all. Each is timed on a segment of training once the agent's updates run, without evaluations; the compile seconds are those of the run's first call. The CPU column ran on four cores of an AMD EPYC 9454 48-Core Processor, at commits `7687a4d` and `7bc8b3c` ([records](https://github.com/YannBerthelot/Ajax/tree/main/benchmarks/suite/results/timing-0.6)).
 <!-- agent-timing:end -->

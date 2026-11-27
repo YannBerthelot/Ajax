@@ -24,6 +24,7 @@ where it may act. Every other phase keeps a default that changes nothing.
 | `actuate` | at each collection step, after the action is chosen, and at evaluation | execute the chosen action through the expert (gain mode); the replay stores the chosen one | one per agent |
 | `choose_warmup_action` | at each warm-up step (before `learning_starts`) | choose the warm-up's actions instead of the uniform ones, and say whether the expert took them (the replay flags those rows) | one per agent; the agents whose uniform warm-up takes one (<!-- agents: warmup-action -->SAC, ASAC, RVI-SAC, REDQ, CrossQ, TD3, IQL, DQN, AVG<!-- /agents -->) |
 | `choose_replay_action` | at each collection step, as the replay stores the step | choose the action the replay row stores instead of the executed one | one per agent; the [replay agents](../algorithms/index.md#agent-families) but DAgger, and UDRL (<!-- agents: replay-action -->SAC, ASAC, RVI-SAC, REDQ, CrossQ, TQC, TD3, IQL, DQN, UDRL<!-- /agents -->) |
+| `track_memory` | at each collection step, after the environment steps, on the agents on the shared collector | set the expert's memory after the step from the action applied (`BumplessTracking`); by default it is the expert's own step | the first one's |
 | `post_update` | after each update | change the agent's state (schedules, refreshes) | in list order |
 | `eval_metrics` | at each evaluation | add metrics to the log | merged |
 | `observe` | whenever an observation arrives, in collection and evaluation | append columns to it, stored with it (an observation feature) | in column order: the normalised ones, then the raw ones |
@@ -37,7 +38,7 @@ Each call gets a random key of its own, on which the agent draws nothing else
 empty stack a fold returns its input untouched and draws nothing. The `action`,
 `transform_action` and `actuate` phases are the exceptions: the agent's
 controller (its action pipeline, the shared collector and evaluation) calls
-them directly (see [below](../guide/extensions.md#which-agent-runs-which-phase)).
+them directly ([which agent runs which phase](../guide/extensions.md#which-agent-runs-which-phase)).
 
 ## What a phase hands an extension
 
@@ -85,10 +86,10 @@ which the agent reads when it is built:
 
 | Attribute | What it says |
 | --- | --- |
-| `buffer_fields` | replay fields beyond the agent's own that the extension reads. Today only `raw_next_obs`, the environment's own next observation; SAC, TD3, REDQ, ASAC and AVG store it when an extension declares it, and the other agents refuse such an extension. |
+| `buffer_fields` | replay fields beyond the agent's own that the extension reads: `raw_next_obs` (the environment's own next observation), `next_action` or `return_to_go`. An agent stores one only when an extension declares it, and refuses an extension needing one it cannot store; SAC, TD3, REDQ, CrossQ, TQC, ASAC, RVISAC, AVG and IQL store `raw_next_obs`. |
 | `expert_fields` | the fields holding an expert. The agent converts each one to [agent units](../guide/expert-guidance.md#the-expert), and a run whose extensions hold an expert keeps the replay fields only experts read. |
 | `experts()` | the experts the extension calls itself, without a state, on the observations it is given. |
-| `reads_agent_expert_actions` | the extension reads the expert's actions the agent stored at collection when its expert is the agent's own `expert_policy` (SAC, TD3, REDQ, ASAC, AVG and APO store them). |
+| `reads_agent_expert_actions` | the extension reads the expert's actions the agent stored at collection when its expert is the agent's own `expert_policy` (SAC, TD3, REDQ, CrossQ, TQC, ASAC, RVISAC, AVG, DQN, APO and DAgger store them). |
 | `uses_expert_actions_as_policy_actions()` | the extension puts an expert's actions where the policy's go: as the actor's target, or as an action its critics score. Gain mode refuses it, since there the policy chooses gains. |
 | `requires` | the capabilities it needs beyond those its phases imply (`needs()` returns them all; an extension whose needs depend on its options overrides it). |
 | `provides` | the capabilities it gives the rest of its stack: `MCPretrain` provides `phi_star`. |
@@ -97,7 +98,7 @@ which the agent reads when it is built:
 | `batch_keys` | per phase, the batch keys it reads beyond those every agent folding the phase passes (`reads()` returns them). |
 | `reads_step_in_episode` | the extension reads each copy's step within its episode, which the agent then counts. |
 | `reads_last_rollout` | the extension reads the agent's latest rollout (`state.last_rollout`), which an on-policy or incremental agent then keeps. |
-| `action_slot` | where in SAC's action pipeline its `action` runs. |
+| `action_slot` | where in the shared collector's action stage its `action` runs, before or after the warm-up's choice. |
 
 `φ*` is a separate critic fitted to an expert's returns before training.
 `MCPretrain` fits it (it provides `phi_star`); `OnlineBC`, `CriticBlend`,

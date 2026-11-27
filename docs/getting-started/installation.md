@@ -1,91 +1,25 @@
 # Installation
 
-Ajax is on PyPI as `ajax-rl` and imports as `ajax`. It needs Python 3.12 or
-newer.
+This page installs Ajax, the extras some environments and tools need, and
+CUDA for a GPU. Ajax is on PyPI as `ajax-rl` and imports as `ajax`. It needs
+Python 3.12 or newer:
 
 ```bash
 pip install ajax-rl
 ```
 
-Brax and MuJoCo Playground environments need an [extra](#extras):
-`"ajax-rl[playground]"` installs both, `"ajax-rl[brax]"` Brax alone. pip
-installs main from the repository:
-
-```bash
-pip install "ajax-rl @ git+https://github.com/YannBerthelot/Ajax.git"
-```
-
-pip does not read `uv.lock`, so it takes the newest versions that
-`pyproject.toml` allows. A weekly CI job tests those too, and another the
-oldest versions allowed
-([Dependencies and releases](../developer/contributing.md#dependencies-and-releases)).
-
-## From source
-
-[uv](https://docs.astral.sh/uv/) installs Ajax from source:
-
-```bash
-git clone https://github.com/YannBerthelot/Ajax.git
-cd Ajax
-uv sync
-```
-
-`uv sync` creates `.venv` with the versions in `uv.lock`, which CI tests.
-Prefix commands with `uv run`, or activate the environment with
-`source .venv/bin/activate`. To check the install:
-
-```bash
-uv run python -c "import ajax; print(ajax.__version__)"
-```
-
-## CPU or GPU
-
-Ajax installs JAX for the CPU. CUDA comes only from its `cuda` extra (Linux
-only); without it, JAX runs on the CPU even on a machine with an NVIDIA GPU.
-To use the GPU:
-
-```bash
-uv sync --extra cuda
-```
-
-A project that depends on Ajax asks for `ajax-rl[cuda]` instead.
-
-To keep a run on the CPU on a machine with a GPU, set `JAX_PLATFORMS=cpu`.
-The repository's `make` targets go further and hide the GPU from CUDA as well,
-so tests never compete with an experiment running on it:
-
-```bash
-CUDA_VISIBLE_DEVICES="" JAX_PLATFORMS=cpu uv run python my_script.py
-```
-
-[Performance](../guide/performance.md) says when each device pays off.
-
-## Dependency groups
-
-`uv sync` installs the runtime and the `dev` group by default. The others are
-opt-in.
-
-| Group | Default | What it adds |
-| --- | --- | --- |
-| `dev` | yes | pytest, coverage, pre-commit, ruff, mypy, the probing environments the tests train on, and the `playground`, `gymnasium` and `gymnasium-mjx` extras |
-| `wandb` | no | the `wandb` extra (below) |
-| `plane` | no | [TargetGym](https://github.com/YannBerthelot/TargetGym), for the Plane3DCircle scenario of the speed benchmark (`benchmarks/perf_bench.py`) |
-| `docs` | no | MkDocs and its plugins, to build this site |
-
-```bash
-uv sync --group plane         # add an opt-in group
-uv sync --no-default-groups   # the runtime alone
-```
-
-The `docs` group builds the site without the runtime
-(`uv sync --only-group docs`): the API pages are read from the source, not
-imported.
+That is enough for the [quickstart](quickstart.md): gymnax's environments,
+such as `"CartPole-v1"`, come with Ajax.
 
 ## Extras
 
+Other environments and some tools come with an extra, such as
+`pip install "ajax-rl[playground]"`. Without it, building such an
+environment raises an error that names the extra.
+
 | Extra | What it adds |
 | --- | --- |
-| `cuda` | JAX with CUDA, on Linux ([above](#cpu-or-gpu)) |
+| `cuda` | JAX with CUDA, on Linux ([below](#cpu-or-gpu)) |
 | `brax` | [Brax](https://github.com/google/brax), for Brax environments such as `"ant"` |
 | `playground` | [MuJoCo Playground](https://github.com/google-deepmind/mujoco_playground) and Brax, for Playground environments such as `"CartpoleBalance"` |
 | `gymnasium` | [Gymnasium](https://gymnasium.farama.org) with MuJoCo, for [Gymnasium environments](../guide/environments.md#gymnasium-environments) such as `"gymnasium:HalfCheetah-v5"`, which step in Python |
@@ -94,28 +28,61 @@ imported.
 | `compare` | the `adastop` package, whose confidence sequence [`ajax.compare.estimate`](../guide/comparing-agents.md#one-agent-how-sure-is-a-number) uses; AdaStop itself needs no extra |
 | `reproduction` | Hugging Face Hub, pandas and pyarrow, for `ajax.reproduction.load` ([Reproduction](../reproduction/index.md)) |
 | `manifolds` | umap-learn, M-PHATE and matplotlib, for embedding a recorded run ([Representations during training](../guide/representations.md#embedding-a-run)) |
-| `wandb` | Weights & Biases, for [logging](../guide/logging.md) with `WandbBackend`; the `wandb` group installs it in a checkout |
+| `wandb` | Weights & Biases, for [logging](../guide/logging.md#backends) with `WandbBackend` |
+
+Until an adastop release includes the confidence sequence, a checkout's
+`uv sync` takes adastop from the commit that
+[`pyproject.toml`](../../pyproject.toml) names in `[tool.uv.sources]`. pip
+does not read that table: with pip, install adastop from that commit
+yourself.
+
+## CPU or GPU
+
+Ajax installs JAX for the CPU: without the `cuda` extra, JAX runs on the CPU
+even on a machine with an NVIDIA GPU. On Linux, the extra adds CUDA:
 
 ```bash
-uv sync --extra compare
+pip install "ajax-rl[cuda]"   # or, in a checkout: uv sync --extra cuda
 ```
 
-Brax and MuJoCo Playground come only with their extras: a project that
-uses their environments asks for `ajax-rl[playground]`, or `ajax-rl[brax]`
-for Brax alone. Without them, building a Brax or Playground environment raises
-an error that names the extra. Gymnasium's MuJoCo tasks likewise need the
-`gymnasium` extra, and their MJX versions (`"mujoco:<id>"`) the
-`gymnasium-mjx` extra. The `dev` group installs all four, so `uv sync` in
-this repository has them.
+To keep a run on the CPU of a machine with a GPU, set `JAX_PLATFORMS=cpu`;
+`CUDA_VISIBLE_DEVICES=""` hides the GPU from CUDA as well:
 
-The `compare` extra takes `adastop` from a commit of its main branch, named
-in `[tool.uv.sources]`, until a release includes the confidence sequence.
-pip does not read that table: with pip, install `adastop` from that commit
-yourself.
+```bash
+CUDA_VISIBLE_DEVICES="" JAX_PLATFORMS=cpu python my_script.py
+```
+
+[Performance](../guide/performance.md#cpu-or-gpu) says when a GPU pays off.
+
+## From source
+
+pip installs main, the development version, from the repository:
+
+```bash
+pip install "ajax-rl @ git+https://github.com/YannBerthelot/Ajax.git"
+```
+
+pip takes the newest versions of the dependencies that `pyproject.toml`
+allows; a weekly CI job tests those, and another the oldest allowed. For a
+checkout, [uv](https://docs.astral.sh/uv/) installs the versions in
+`uv.lock`, which CI tests:
+
+```bash
+git clone https://github.com/YannBerthelot/Ajax.git
+cd Ajax
+uv sync
+uv run python -c "import ajax; print(ajax.__version__)"
+```
+
+`uv sync` creates `.venv`: prefix commands with `uv run`, or activate it
+with `source .venv/bin/activate`. It also installs the `dev` group, with
+the test tools and the extras the tests need;
+[Contributing](../developer/contributing.md#development-setup) lists the
+groups and the checks a change runs.
 
 ## Using Ajax from another project
 
-Ajax and every runtime dependency, gymnax 1.0.1 or newer included, come from PyPI:
+A project that depends on Ajax names `ajax-rl` with the extras it needs:
 
 ```toml
 [project]
@@ -125,18 +92,15 @@ dependencies = ["ajax-rl"]  # "ajax-rl[cuda]" for CUDA, "ajax-rl[playground]" fo
 ajax-rl = { git = "https://github.com/YannBerthelot/Ajax.git" }  # optional: main instead of a release
 ```
 
-A project that declared `ajax` from git or a path renames it `ajax-rl`; the
-import stays `import ajax`.
-
-uv resolves that project's own versions within Ajax's bounds, not those of
-Ajax's `uv.lock`.
+Its installer picks versions within Ajax's bounds; Ajax's `uv.lock` applies
+only to a checkout of Ajax. A project that declared `ajax` from git or a
+path renames it `ajax-rl`; the import stays `import ajax`.
 
 ## The compile cache
 
 `import ajax` turns on JAX's persistent compile cache, in
-`~/.cache/ajax/jax_compile_cache`. A second process that runs the same
-program loads it from disk instead of compiling it again. Two environment
-variables control it:
+`~/.cache/ajax/jax_compile_cache`: a second process that runs the same
+program loads it from disk instead of compiling it again.
 
 | Variable | Effect |
 | --- | --- |
@@ -148,19 +112,12 @@ saves and when it does not apply.
 
 ## Weights & Biases
 
-A [`LoggingConfig`](../guide/logging.md) logs to the backends you name, and
-to TensorBoard when it names none. To log to Weights & Biases, install the
-`wandb` extra (`pip install "ajax-rl[wandb]"`, or `uv sync --group wandb` in
-a checkout), name `WandbBackend`, and log in once with `uv run wandb login`
-before the first run that uses it. Runs that keep their results in memory
-(`backends=()`), as in the [quickstart](quickstart.md), or write TensorBoard
-files need no account.
+Logging to Weights & Biases needs the `wandb` extra, a `WandbBackend` in the
+[`LoggingConfig`](../guide/logging.md#backends), and a login once, with
+`wandb login`, before the first run. A run that keeps its evaluations in
+memory, as in the quickstart, or writes TensorBoard files needs no account.
 
-## Working on Ajax
+## Next
 
-After `uv sync`, run `uv run pre-commit install` once, so ruff and mypy check
-every commit. `make docs` builds this site as CI does
-(`uv run --group docs mkdocs build --strict`: a broken link or a docstring
-naming a parameter the code does not have fails it), and `make docs-serve`
-serves it at `http://127.0.0.1:8000`, rebuilt on save.
-[Contributing](../developer/contributing.md) covers the rest.
+The [quickstart](quickstart.md) trains a first agent, reads its results,
+acts with it and saves it.

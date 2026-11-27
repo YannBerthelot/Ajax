@@ -4,7 +4,9 @@ Is one agent better than another, and how many seeds does it take to say
 so? `ajax.compare` answers with AdaStop (Mathieu et al., "AdaStop: adaptive
 statistical testing for sound comparisons of Deep RL agents", TMLR 2024,
 [arXiv:2306.10882](https://arxiv.org/abs/2306.10882)). It trains a few seeds
-of each agent, tests, and trains more only while the answer is unclear.
+of each agent, tests, and trains more only while the answer is unclear. For
+one agent, [`estimate`](#one-agent-how-sure-is-a-number) says how well a
+number is known.
 
 ```python
 # doc: skip (trains 5 to 25 seeds of each agent: tens of minutes on a CPU; tests/test_compare.py covers compare)
@@ -95,37 +97,35 @@ test.decisions  # {("a", "b"): "larger"}
   in every agent, whichever agents have stopped. Rows of unequal length are
   refused. `compare` trains the same seeds in every agent when you pass
   `paired=True`, instead of disjoint ones.
-- **Pairing only helps if the rows share something.** Runs that share nothing
-  gain nothing, and lose a little: the test then rests on `n * K` differences,
-  not `2 * n * K` scores.
+- **Pairing helps only if the rows share something.** Runs that share
+  nothing gain nothing, and lose a little: the test then rests on `n * K`
+  differences, not `2 * n * K` scores.
 - **The test.** Each permutation flips the sign of whole rows, with the same
   flips in every comparison and the observed rows first. The rest is the
   unpaired test: step-down, boundaries, ties and level carried over.
-- **What holds exactly.** For two equal agents the level is exact when a row's
-  two scores are exchangeable. With three or more it is exact for symmetric
-  noise, and otherwise rests on the shared flips, which came out cautious on
-  skewed noise (0.03 at `alpha = 0.05`, 12 agents).
-- **`difference` and `resolution` take `paired=True` too.** They then resample
-  whole rows. Without it they describe an unpaired test: `difference` gives
-  an interval that still holds the rows' shared spread, and `resolution` the
-  gap an unpaired test would detect.
-
-The `paired` branch of the authors' `adastop` package tests each pair's
-differences against a dummy agent of zeros. Here the signs flip row by row,
-and `active` still says which agents can stop.
+- **What holds exactly.** For two equal agents the level is exact when a
+  row's two scores are exchangeable. With three or more it is exact for
+  symmetric noise, and otherwise rests on the shared flips, which came out
+  cautious on skewed noise (0.03 at `alpha = 0.05`, 12 agents).
+- **`difference` and `resolution` take `paired=True` too.** They then
+  resample whole rows. Without it they describe an unpaired test:
+  `difference` gives an interval that still holds the rows' shared spread,
+  and `resolution` the gap an unpaired test would detect.
 
 ## The score
 
 The test compares one number per run, and the choice of that number changes
 the question:
 
-- `final_return`: the last evaluation, or how the run ends.
-- `last_third`: the mean over the last third of the evaluations, or how
-  steadily it stays there.
-- `auc`: the mean over all evaluations, or how fast it learns.
+| Score | Each run's | Asks |
+| --- | --- | --- |
+| `final_return` | last evaluation | how the run ends |
+| `last_third` | mean over the last third of the evaluations | how steadily it stays there |
+| `auc` | mean over all evaluations | how fast it learns |
 
-They can disagree on the same runs. Choose the score before seeing the
-results: picking it afterwards voids the error guarantee.
+!!! warning
+    The scores can disagree on the same runs: choose one before seeing the
+    results, as picking it afterwards voids the error guarantee.
 
 ## Cost
 
@@ -134,15 +134,14 @@ comparison stops early only on a clear difference; agents that differ
 little, or not at all, use every run. The paper advises `n * K >= 30` for
 the means to be well estimated. Very few runs cannot reject anything: with
 `n = 2` and `K = 2` no outcome is extreme enough at `alpha = 0.05`. The test
-itself takes milliseconds; the training is the cost.
-
-The [reference comparison](../../benchmarks/reference/README.md) reports an
+itself takes milliseconds; the training is the cost. The
+[reference comparison](../../benchmarks/reference/README.md) reports an
 AdaStop verdict on its recorded runs.
 
 **A small `alpha` needs more permutations.** Only about `alpha * B / K`
 permutations sit beyond each interim's boundary: 13 at `alpha = 0.05 / 19`,
-`K = 2` and `B = 10,000`. Below `B = 1 / alpha` there are none, and nothing can
-be rejected. The error rate held at those settings: 0.0030 over 12,000
+`K = 2` and `B = 10,000`. Below `B = 1 / alpha` there are none, and nothing
+can be rejected. The error rate held at those settings: 0.0030 over 12,000
 simulated paired runs of 12 equal agents, against a level of 0.0026. But a
 boundary read off so few permutations is noisy, so raise `B` with a small
 `alpha`. It costs seconds rather than milliseconds.
@@ -164,6 +163,9 @@ statistic. `ajax.compare` follows the paper instead, with these choices:
 - No early acceptance (the paper's Appendix F, which gives no error bound
   for it), as in the package's default.
 - Every agent adds the same `n` runs per interim, as in the paper.
+- Paired runs flip signs row by row, and `active` still says which agents can
+  stop; the package's `paired` branch tests each pair's differences against
+  a dummy agent of zeros.
 
 ## One agent: how sure is a number?
 
@@ -202,9 +204,9 @@ whether the mean is above `t`; `half_width(w)` once it is at most `2 * w`
 wide. The intervals are the hedged betting confidence sequence of
 Waudby-Smith and Ramdas ("Estimating means of bounded random variables by
 betting", JRSS-B, Section 4.4), the authors' `Bounded_Confseq` from the
-`adastop` package: install the `compare` extra (`uv sync --extra compare`,
-or depend on `ajax-rl[compare]`). It comes from adastop's main branch until a
-release includes it.
+`adastop` package. It needs the `compare` extra, which
+[Installation](../getting-started/installation.md#extras) explains, as no
+`adastop` release has it yet.
 
 - **Valid at every seed count at once**: with probability at least
   `1 - delta` the interval holds the true mean after every round, not only
@@ -224,5 +226,5 @@ comparison's recorded runs, 16 seeds left PPO on CartPole a success rate
 return of 468 within `[275, 500]`, and SAC on Pendulum a final return of
 -146 within `[-1359, 0]`. So decide against a threshold rather than aim for
 a width; prefer metrics whose bounds are close to what runs reach, such as
-success rates or KPI fractions, to returns; and train many seeds per round,
+success rates or other fractions, to returns; and train many seeds per round,
 which share one compiled program.

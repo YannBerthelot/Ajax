@@ -271,12 +271,19 @@ def page_block(runs: list[Run]) -> str:
     return "\n\n".join(tabs)
 
 
+def timed_machines(timings: dict) -> list[str]:
+    """The machines the timing pass has records from, the CPU first."""
+    timed = {machine for _, _, machine in timings}
+    return [machine for machine in ("cpu", "gpu") if machine in timed]
+
+
 def timing_block(runs: list[Run], timings: dict) -> str:
-    """The performance page's table: each agent's steps per second on four
-    CPU cores and on one GPU, in the benchmark tables' order, with its
-    compile seconds, a machine not timed yet shown as pending; then the
-    machines and the commit."""
+    """The performance page's table: each agent's steps per second and
+    compile seconds on each machine the timing pass ran on, in the benchmark
+    tables' order, with the GPU's gain once both ran; then the machines and
+    the commits."""
     records = list(timings.values())
+    machines = timed_machines(timings)
     counts = ordered(record["n_seeds"] for record in records)
     seeds = "/".join(str(count) for count in counts)
     cpus = ordered(record["manifest"]["machine"]["cpu"] for record in records)
@@ -284,42 +291,44 @@ def timing_block(runs: list[Run], timings: dict) -> str:
         record["manifest"]["device"] for record in records if record["machine"] == "gpu"
     )
     commits = ordered(f"`{record['manifest']['commit'][:7]}`" for record in records)
-    lines = [
-        f"| Agent | Task | Four CPU cores | One {' or '.join(gpus) or 'GPU'} | Gain"
-        " | Compile s, CPU / GPU |",
-        "|---|---|---:|---:|---:|---:|",
-    ]
+    titles = {"cpu": "Four CPU cores", "gpu": f"One {' or '.join(gpus)}"}
+    head = ["Agent", "Task", *(titles[machine] for machine in machines)]
+    head += ["Gain", "Compile s, CPU / GPU"] if len(machines) == 2 else ["Compile s"]
+    lines = ["| " + " | ".join(head) + " |", "|---|---|" + "---:|" * (len(head) - 2)]
     for suite in SUITES:
         members = [run for run in runs if run.suite == suite]
         for agent in [agent for group in split_agents(members) for agent in group]:
-            cpu, gpu = (timings.get((agent, suite, kind)) for kind in ("cpu", "gpu"))
-            if cpu is None and gpu is None:
+            timed = [timings.get((agent, suite, machine)) for machine in machines]
+            found = [record for record in timed if record is not None]
+            if not found:
                 continue
-            speeds, compiles, gain = ["pending"] * 2, ["pending"] * 2, DASH
-            for column, record in enumerate((cpu, gpu)):
+            speeds, compiles = [DASH] * len(timed), [DASH] * len(timed)
+            for column, record in enumerate(timed):
                 if record is not None:
                     speed = steps_per_second(record)
                     speeds[column] = f"{speed:,.0f}" if speed >= 10 else f"{speed:.2g}"
                     compiles[column] = f"{record['compile_s']:.0f}"
-            if cpu is not None and gpu is not None:
-                gain = f"{steps_per_second(gpu) / steps_per_second(cpu):.2g} times"
-            task = suite_and_task((cpu or gpu)["env"])[1]
-            lines.append(
-                f"| {name(agent)} | {task} | {speeds[0]} | {speeds[1]} | {gain}"
-                f" | {compiles[0]} / {compiles[1]} |"
-            )
+            if len(machines) == 2:
+                cpu, gpu = timed
+                gain = DASH
+                if cpu is not None and gpu is not None:
+                    gain = f"{steps_per_second(gpu) / steps_per_second(cpu):.2g} times"
+                speeds.append(gain)
+            task = suite_and_task(found[0]["env"])[1]
+            cells = [name(agent), task, *speeds, " / ".join(compiles)]
+            lines.append("| " + " | ".join(cells) + " |")
     if not records:
         return "\n".join(lines)
-    machines = f"The CPU column ran on four cores of an {' and '.join(cpus)}"
+    where = f"The CPU column ran on four cores of an {' and '.join(cpus)}"
     if gpus:
-        machines += f", the GPU column on one {' and '.join(gpus)} of the same machine"
+        where += f", the GPU column on one {' and '.join(gpus)} of the same machine"
     commit = "commits" if len(commits) > 1 else "commit"
     lines.append(
         "\nEnvironment steps per second per seed, higher is faster, with"
         f" {seeds} seeds trained together: the run makes {seeds} times as many"
         " in all. Each is timed on a segment of training once the agent's"
         " updates run, without evaluations; the compile seconds are those of"
-        f" the run's first call. {machines}, at {commit} {' and '.join(commits)}"
+        f" the run's first call. {where}, at {commit} {' and '.join(commits)}"
         f" ([records]({RECORDS_URL}/timing-0.6))."
     )
     return "\n".join(lines)
@@ -497,8 +506,8 @@ def draw_time(
 ) -> None:
     """The interquartile mean through training against the hours each
     evaluation's step takes; panels: (title, {agent: each task's normalised
-    returns}), hours: each timed agent's evaluations, in hours. An agent
-    not timed yet is named as pending."""
+    returns}), hours: each timed agent's evaluations, in hours. Agents not
+    timed yet are named in a corner."""
     figure, axes = plt.subplots(
         1, len(panels), figsize=(max(6.4, 4.7 * len(panels)), 3.9), squeeze=False
     )
@@ -507,7 +516,7 @@ def draw_time(
         pending = [name(agent) for agent in scores if agent not in hours]
         if pending:
             names = "" if len(pending) == len(scores) else ": " + ", ".join(pending)
-            note = f"GPU timing pending{names}"
+            note = f"Not timed yet{names}"
             axis.text(0.98, 0.04, note, transform=axis.transAxes, ha="right")
         if len(pending) == len(scores):
             axis.set_xlim(0.01, 100)  # no curve sets the log axis's range
@@ -533,6 +542,24 @@ def draw_time(
     plt.close(figure)
 
 
+def figure_hours(members: list[Run], timings: dict) -> tuple[dict, str]:
+    """Each timed agent's evaluations in hours at the timing pass's speed,
+    on one GPU once the pass ran there and on four CPU cores until then,
+    and the axis label naming that machine and the timed task."""
+    machine = (timed_machines(timings) or ["cpu"])[-1]
+    hours, timed = {}, []
+    for run in members:
+        timing = timings.get((run.agent, run.suite, machine))
+        if timing is not None:
+            hours[run.agent] = run.steps / steps_per_second(timing) / 3600
+            timed.append(timing)
+    where = "four CPU cores"
+    if machine == "gpu":
+        where = f"one {timed[0]['manifest']['device']}" if timed else "one GPU"
+    task = suite_and_task(timed[0]["env"])[1] if timed else members[0].task
+    return hours, f"Hours on {where}, from the timing pass on {task}"
+
+
 def write_aggregate_figures(
     runs: list[Run], timings: dict, directory: pathlib.Path = FIGURES
 ) -> None:
@@ -541,8 +568,8 @@ def write_aggregate_figures(
     for the agents that ran every task: the interquartile mean of the
     normalised final returns over the runs (a task and a seed each) with a
     95% stratified bootstrap interval, beside the performance profile. Then
-    that mean through training, against the hours one GPU takes to reach
-    each evaluation at the timing pass's speed on the suite's first task;
+    that mean through training, against the hours to reach each evaluation
+    at the timing pass's speed on the suite's first task (figure_hours);
     agents that ran only that task get a panel of it."""
     plt = pyplot()
     style, scales = agent_styles(runs), score_scales(runs)
@@ -554,12 +581,8 @@ def write_aggregate_figures(
         tasks = ordered(run.task for run in members)
         agents = [agent for group in split_agents(members) for agent in group]
         returns: dict = {agent: {} for agent in agents}
-        hours = {}
         for run in members:
             returns[run.agent][run.task] = run.returns / scales[(suite, run.task)]
-            timing = timings.get((run.agent, suite, "gpu"))
-            if timing is not None:
-                hours[run.agent] = run.steps / steps_per_second(timing) / 3600
         complete = {
             agent: list(returns[agent].values())
             for agent in agents
@@ -577,10 +600,7 @@ def write_aggregate_figures(
                 if tasks[0] in returns[agent]
             }
             panels.append((tasks[0], first_task))
-        timed = [timings[(agent, suite, "gpu")] for agent in hours]
-        device = timed[0]["manifest"]["device"] if timed else "GPU"
-        task = suite_and_task(timed[0]["env"])[1] if timed else tasks[0]
-        label = f"Hours on one {device}, from the timing pass on {task}"
+        hours, label = figure_hours(members, timings)
         draw_time(plt, style, panels, hours, label, directory / f"{short}-time.svg")
 
 

@@ -53,9 +53,10 @@ task. Without `memory`, the same agent cannot tell which way the pole moves.
 | AVG, CrossQ, DQN, PQN, APO, REINFORCE, IQL, UDRL, DAgger, TDMPC2, TDMPC2MultiTask | none; `memory=` raises an error |
 
 With memory, SAC, ASAC, RVI-SAC, REDQ, TD3, TQC and PPO take no expert
-policy and no extensions yet, observation features aside: they raise an
-error when training starts rather than run untested combinations. APG takes
-memory and extensions together.
+policy yet, and of the extensions only those that act outside the update,
+such as observation features: the others raise an error when training
+starts rather than run untested combinations. APG takes memory and
+extensions together.
 
 ## The kinds
 

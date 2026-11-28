@@ -11,6 +11,11 @@ PyPI as `ajax-rl`.
   the dated comparison of 2026-11-06. The benchmark's score-against-time
   figures count hours on that GPU, and the README's speed line gives the new
   gains.
+- **Docs: the GPU's gain by number of seeds.** A figure and a table give
+  each agent's gain at 1, 10 and 50 seeds trained together (DreamerV3 at 1
+  and 10). Four CPU cores are full by 10 seeds; the L40S is not, so most
+  gains grow with the seeds, SAC's from 15 to 44 times. The timing script
+  takes `--seeds`.
 - **REINFORCE declares `reward_learning`**: it learns from the reward. The
   expert modules that need it (`ExpertActionInput`, `ResidualPolicy`,
   `ExpertGains`, `OuterLoopReference`) are still refused on REINFORCE, now

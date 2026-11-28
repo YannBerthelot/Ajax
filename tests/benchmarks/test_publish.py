@@ -48,7 +48,9 @@ def test_published_tables_match_the_records():
     )
     performance = publish.PERFORMANCE_PAGE.read_text()
     timing = publish.timing_block(runs, publish.read_timings())
-    assert publish.replace_block(performance, "agent-timing", timing) == performance
+    gain = publish.gain_block(runs, publish.gains(publish.seed_passes()))
+    rebuilt = publish.replace_block(performance, "agent-timing", timing)
+    assert publish.replace_block(rebuilt, "agent-gain-by-seeds", gain) == performance
 
 
 def test_score_uses_the_latest_attempt_and_gathers_seeds_run_in_parts(tmp_path):
@@ -162,10 +164,10 @@ def test_profile_counts_the_runs_strictly_above_each_threshold():
     np.testing.assert_allclose(fractions, [1.0, 1 / 3, 0.0])
 
 
-def timing_record(machine, timed_steps, exec_s, compile_s, agent="SAC"):
+def timing_record(machine, timed_steps, exec_s, compile_s, agent="SAC", n_seeds=10):
     manifest = {"commit": "abcdef0", "machine": {"cpu": "A CPU"}, "device": "B"}
     record = {"agent": agent, "env": "CheetahRun", "machine": machine}
-    record.update({"n_seeds": 10, "timed_steps": timed_steps, "exec_s": exec_s})
+    record.update({"n_seeds": n_seeds, "timed_steps": timed_steps, "exec_s": exec_s})
     record.update({"compile_s": compile_s, "manifest": manifest})
     return record
 
@@ -192,6 +194,51 @@ def test_timing_table_writes_a_gain_of_a_hundred_or_more_in_full(tmp_path):
     table = publish.timing_block(runs, publish.read_timings(tmp_path))
 
     assert "| SAC | CheetahRun | 1 | 110 | 110 times | 19 / 63 |" in table.splitlines()
+
+
+def write_pass(directory, seeds, cpu_steps, gpu_steps, agent="SAC"):
+    """A pass's records: 100 s timed on each machine."""
+    records = [
+        timing_record(machine, steps, 100.0, 19.0, agent, n_seeds=seeds)
+        for machine, steps in (("cpu", cpu_steps), ("gpu", gpu_steps))
+        if steps is not None
+    ]
+    for record in records:
+        write(directory / f"{record['machine']}.jsonl", [record])
+
+
+def test_gains_divide_the_gpu_by_the_cpu_for_each_number_of_seeds(tmp_path):
+    """Catches the gain inverted, passes mixed up, or a pass that one machine
+    has not timed counted."""
+    # 10 seeds: 40 and 240 per second, 6 times; 50 seeds: 8 and 400, 50 times.
+    write_pass(tmp_path, 10, 4000, 24000)
+    write_pass(tmp_path / "50-seeds", 50, 800, 40000)
+    write_pass(tmp_path / "1-seed", 1, 10000, None)  # no GPU record yet
+
+    found = publish.gains(publish.seed_passes(tmp_path))
+
+    assert found == {("SAC", "DeepMind Control"): ("CheetahRun", {10: 6.0, 50: 50.0})}
+
+
+def test_gain_table_has_a_column_per_number_of_seeds(tmp_path):
+    """Catches the seed counts out of order, or a missing gain left blank."""
+    write_pass(tmp_path, 10, 4000, 24000)
+    write_pass(tmp_path / "1-seed", 1, 4000, 2000)  # half as fast on the GPU
+    write_pass(tmp_path / "50-seeds", 50, 800, 40000, agent="TD3")
+    runs = [
+        final_run(agent, "CheetahRun", "DeepMind Control", [1.0])
+        for agent in ("SAC", "TD3")
+    ]
+
+    table = publish.gain_block(runs, publish.gains(publish.seed_passes(tmp_path)))
+
+    dash = publish.DASH
+    assert table.splitlines() == [
+        "| Agent | Task | 1 seed | 10 seeds | 50 seeds |",
+        "|---|---|---:|---:|---:|",
+        f"| SAC | CheetahRun | 0.5 | 6 | {dash} |",
+        f"| TD3 | CheetahRun | {dash} | {dash} | 50 |",
+    ]
 
 
 def test_timing_table_shows_a_dash_where_the_gpu_has_not_timed_an_agent(tmp_path):

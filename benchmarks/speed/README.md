@@ -85,7 +85,7 @@ steps per seed. It counts every step and every update between its ends.
   of `warmup` and of `warmup + segment` steps, each compiled first; the
   difference of their run times is the stretch's.
 - **Ajax**: a first call trains `warmup` steps and compiles; two calls then
-  resume from it, of about a quarter of `segment` steps and of `segment`
+  resume from its state, one of a single update's steps and one of `segment`
   steps, each timed less the seconds JAX spends compiling its program. The
   difference of the two is the stretch's: a call's fixed cost (seconds on
   HalfCheetah) cancels, as the set-up of the other libraries is left out.

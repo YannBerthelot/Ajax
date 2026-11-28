@@ -4,12 +4,13 @@ for one seed, ``train(seed=list(range(10)))`` for ten.
 usage: uv run python benchmarks/speed/run_ajax.py ALGORITHM TASK N_SEEDS WARMUP SEGMENT
 
 A first call trains WARMUP steps per seed and compiles. Two calls then resume
-from it, one after the other: a short one, about a quarter of SEGMENT, and
-one of SEGMENT steps. Each is timed less the seconds JAX spends tracing and
-compiling its program (each resumed call compiles a program of its own); the
-difference of the two is the stretch's time, so a call's fixed cost (seconds
-on HalfCheetah) cancels, as the other libraries' timings leave out their
-set-up. No evaluation runs (logging_config=None). Prints one JSON line.
+from its state: one of a single update's worth of steps and one of SEGMENT
+steps. Each is timed less the seconds JAX spends tracing and compiling its
+program (each resumed call compiles a program of its own). The difference of
+the two is the time of the SEGMENT steps after the warm-up, the stretch the
+other libraries time, without a call's fixed cost (seconds on HalfCheetah),
+as the other libraries' timings leave out their set-up. No evaluation runs
+(logging_config=None). Prints one JSON line.
 """
 
 import json
@@ -110,25 +111,32 @@ def keywords(algorithm: str, task: str) -> dict:
 
 
 def main() -> None:
+    import jax
+
     import ajax
 
     algorithm, task = sys.argv[1:3]
     n_seeds, warmup, segment = map(int, sys.argv[3:6])
     s = settings(algorithm, task)
-    unit = s["n_envs"] * s.get("n_steps", 1)  # a whole rollout per call
-    short = unit * max(1, round(segment / unit / 4))
+    # The fewest steps a call can take: a rollout, or one update's steps.
+    unit = s["n_envs"] * s.get("n_steps", s.get("train_frequency", 1))
     agent = getattr(ajax, algorithm)(
         AJAX_IDS.get(task, task), **keywords(algorithm, task)
     )
     seed = 0 if n_seeds == 1 else list(range(n_seeds))
-    run = {"total_timesteps": warmup + short + segment, "logging_config": None}
+    run = {"total_timesteps": warmup + segment, "logging_config": None}
     spans = compile_spans()
     state, _ = agent.train(seed=seed, n_timesteps=warmup, **run)
+    # A resumed call takes its state over (donates it), so the short call
+    # resumes from a copy and the long one from the original.
+    copy = jax.tree.map(
+        lambda x: jax.numpy.copy(x) if isinstance(x, jax.Array) else x, state
+    )
     windows = []
-    for steps in (short, segment):
+    for steps, start_state in ((unit, copy), (segment, state)):
         spans.clear()
         start, cpu = time.time(), time.process_time()
-        state, _ = agent.train(seed=seed, n_timesteps=steps, initial_state=state, **run)
+        agent.train(seed=seed, n_timesteps=steps, initial_state=start_state, **run)
         end = time.time()
         windows.append(
             {
@@ -141,7 +149,7 @@ def main() -> None:
         )
     short_s, long_s = (w["end"] - w["start"] - w["compile_s"] for w in windows)
     record = {
-        "steps": n_seeds * (segment - short),
+        "steps": n_seeds * (segment - unit),
         "seconds": long_s - short_s,
         "windows": windows,
         "device_kind": ajax_device(),

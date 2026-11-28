@@ -15,7 +15,8 @@ The method of results/timing-gpu and PHASE0.md:
   program of its own, its start being part of it;
 - no evaluations run (logging_config=None).
 Segments are picked per agent and machine so that the timed call takes one to
-three minutes. Each record goes to cpu.jsonl or gpu.jsonl beside this file.
+three minutes. Each record goes to cpu.jsonl or gpu.jsonl beside this file;
+with another number of seeds (--seeds), to <n>-seeds/cpu.jsonl or gpu.jsonl.
 """
 
 import argparse
@@ -91,7 +92,7 @@ def gpu_processes() -> Optional[list[str]]:
     return [line.strip() for line in result.stdout.splitlines() if line.strip()]
 
 
-def time_agent(label: str, machine: str, steps: int) -> dict:
+def time_agent(label: str, machine: str, steps: int, n_seeds: int = N_SEEDS) -> dict:
     benchmark = agent_suite.BENCHMARKS[label]
     agent, options = build_for_timing(label)
     unit = agent_suite.iteration_steps(agent)
@@ -99,7 +100,7 @@ def time_agent(label: str, machine: str, steps: int) -> dict:
     first_steps = agent_suite.round_up(
         max(timed_steps, first_update_step(agent) + unit), unit
     )
-    seeds = list(range(N_SEEDS))
+    seeds = list(range(n_seeds))
     run = {"total_timesteps": benchmark.budget, "logging_config": None}
     spans = compile_spans()
     spans.clear()
@@ -118,7 +119,7 @@ def time_agent(label: str, machine: str, steps: int) -> dict:
         "agent": label,
         "env": benchmark.env_id,
         "machine": machine,
-        "n_seeds": N_SEEDS,
+        "n_seeds": n_seeds,
         "options": options,
         "first_update_step": first_update_step(agent),
         "first_steps": first_steps,
@@ -129,7 +130,7 @@ def time_agent(label: str, machine: str, steps: int) -> dict:
         "exec_s": round(exec_s, 2),
         # A seed's steps count each of its envs; the run's count every seed.
         "run_steps_per_s": round(timed_steps / exec_s, 1),
-        "env_steps_per_s": round(N_SEEDS * timed_steps / exec_s, 1),
+        "env_steps_per_s": round(n_seeds * timed_steps / exec_s, 1),
         "peak_memory_gb": agent_suite.peak_memory_gb(),
         "device_peak_memory_gb": agent_suite.device_peak_memory_gb(),
         "cores": sorted(os.sched_getaffinity(0)),
@@ -145,9 +146,12 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("machine", choices=("cpu", "gpu"))
     parser.add_argument("label", choices=sorted(agent_suite.BENCHMARKS))
     parser.add_argument("steps", type=int, help="the segment's steps per seed")
+    parser.add_argument("--seeds", type=int, default=N_SEEDS, help="seeds trained together")
     args = parser.parse_args(argv)
-    record = time_agent(args.label, args.machine, args.steps)
-    agent_suite.append(HERE / f"{args.machine}.jsonl", record)
+    record = time_agent(args.label, args.machine, args.steps, args.seeds)
+    directory = HERE if args.seeds == N_SEEDS else HERE / f"{args.seeds}-seeds"
+    directory.mkdir(exist_ok=True)
+    agent_suite.append(directory / f"{args.machine}.jsonl", record)
     print(json.dumps(record), flush=True)
     return 0
 

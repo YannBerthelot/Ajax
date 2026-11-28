@@ -274,13 +274,16 @@ def reporting_chunk(
     call; a chunk with no divisor near (a prime length) reports at its end.
     Under the seed vmap it calls ``progress`` once per member.
 
-    The chunk is one scan of its ticks, as without reports, each tick
-    reporting under a cond when it ends a piece. More, shorter chunks would
-    report as well, but MuJoCo Warp captures its CUDA graphs anew each time
-    a program runs (two of about 65 ms on SAC Hopper): a hundred chunks a
-    call made SAC on Hopper about 20% slower. Pieces scanned one by one
-    inside the chunk, with a barrier or a callback between them, changed
-    SAC's and TD3's bits on CPU; the tick's cond does not."""
+    The chunk is one scan of its ticks, as without reports: a tick that ends
+    a piece reports under a cond, and the chunk's last report comes after
+    the scan. More, shorter chunks would report as well, but MuJoCo Warp
+    captures its CUDA graphs anew each time a program runs (two of about
+    65 ms on SAC Hopper): a hundred chunks a call made SAC on Hopper about
+    20% slower. Pieces scanned one by one inside the chunk, with a barrier
+    or a callback between them, changed SAC's and TD3's bits on CPU, and a
+    barrier on every tick AVG's; the cond does not. The reports come as the
+    ticks train, though not always in order (ProgressBar keeps each member's
+    furthest)."""
 
     def reported(done: Any, index: Any) -> None:
         progress(int(done) / num_updates, None if index is None else int(index))
@@ -293,19 +296,24 @@ def reporting_chunk(
 
         def reporting_tick(state: Any, tick: Any) -> Tuple[Any, Any]:
             state, aux = tick_fn(state, index, tick)
-            # Through the barrier, the count waits for every leaf of the
-            # tick's state, so a report waits for the training before it.
-            state, done = jax.lax.optimization_barrier((state, tick - call_first + 1))
+            trained = tick - first_tick + 1
             jax.lax.cond(
-                (tick - first_tick + 1) % piece == 0,
+                (trained % piece == 0) & (trained < length),
                 lambda done: jax.debug.callback(reported, done, index),
                 lambda _: None,
-                done,
+                tick - call_first + 1,
             )
             return state, aux
 
         ticks = first_tick + jnp.arange(length)
-        return final_aux_scan(reporting_tick, agent_state, length, ticks)
+        agent_state, aux = final_aux_scan(reporting_tick, agent_state, length, ticks)
+        # The last report reads no tick, so it could come before the chunk
+        # has run: through the barrier, its count waits for the whole state.
+        agent_state, done = jax.lax.optimization_barrier(
+            (agent_state, first_tick + length - call_first)
+        )
+        jax.debug.callback(reported, done, index)
+        return agent_state, aux
 
     return chunk
 

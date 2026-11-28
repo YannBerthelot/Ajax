@@ -238,7 +238,7 @@ SEGMENTS = {
     ("PPO", "CartPole-v1", "compiled", 1, "gpu"): 2_278_400,
     ("PPO", "CartPole-v1", "compiled", 10, "gpu"): 1_980_928,
     ("PPO", "HalfCheetah-v5", "compiled", 1, "gpu"): 6_144,
-    ("PPO", "HalfCheetah-v5", "compiled", 10, "gpu"): 2_048,
+    ("PPO", "HalfCheetah-v5", "compiled", 10, "gpu"): 8_192,
     ("DQN", "CartPole-v1", "compiled", 1, "gpu"): 400_000,
     ("DQN", "CartPole-v1", "compiled", 10, "gpu"): 471_000,
     ("PQN", "CartPole-v1", "compiled", 1, "gpu"): 6_449_152,

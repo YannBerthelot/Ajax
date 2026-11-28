@@ -3,10 +3,13 @@ for one seed, ``train(seed=list(range(10)))`` for ten.
 
 usage: uv run python benchmarks/speed/run_ajax.py ALGORITHM TASK N_SEEDS WARMUP SEGMENT
 
-The method of benchmarks/suite/results/timing-0.6: a first call trains WARMUP
-steps per seed and compiles; a second resumes for SEGMENT steps and is timed,
-less the seconds JAX spends tracing and compiling the resumed program. No
-evaluation runs (logging_config=None). Prints one JSON line.
+A first call trains WARMUP steps per seed and compiles. Two calls then resume
+from it, one after the other: a short one, about a quarter of SEGMENT, and
+one of SEGMENT steps. Each is timed less the seconds JAX spends tracing and
+compiling its program (each resumed call compiles a program of its own); the
+difference of the two is the stretch's time, so a call's fixed cost (seconds
+on HalfCheetah) cancels, as the other libraries' timings leave out their
+set-up. No evaluation runs (logging_config=None). Prints one JSON line.
 """
 
 import json
@@ -111,24 +114,36 @@ def main() -> None:
 
     algorithm, task = sys.argv[1:3]
     n_seeds, warmup, segment = map(int, sys.argv[3:6])
+    s = settings(algorithm, task)
+    unit = s["n_envs"] * s.get("n_steps", 1)  # a whole rollout per call
+    short = unit * max(1, round(segment / unit / 4))
     agent = getattr(ajax, algorithm)(
         AJAX_IDS.get(task, task), **keywords(algorithm, task)
     )
     seed = 0 if n_seeds == 1 else list(range(n_seeds))
-    run = {"total_timesteps": warmup + segment, "logging_config": None}
+    run = {"total_timesteps": warmup + short + segment, "logging_config": None}
     spans = compile_spans()
     state, _ = agent.train(seed=seed, n_timesteps=warmup, **run)
-    spans.clear()
-    start, cpu = time.time(), time.process_time()
-    agent.train(seed=seed, n_timesteps=segment, initial_state=state, **run)
-    end = time.time()
-    compile_s = covered_seconds(spans)
-    window = {"start": start, "end": end, "cpu_s": time.process_time() - cpu}
+    windows = []
+    for steps in (short, segment):
+        spans.clear()
+        start, cpu = time.time(), time.process_time()
+        state, _ = agent.train(seed=seed, n_timesteps=steps, initial_state=state, **run)
+        end = time.time()
+        windows.append(
+            {
+                "steps": steps,
+                "start": start,
+                "end": end,
+                "cpu_s": time.process_time() - cpu,
+                "compile_s": covered_seconds(spans),
+            }
+        )
+    short_s, long_s = (w["end"] - w["start"] - w["compile_s"] for w in windows)
     record = {
-        "steps": n_seeds * segment,
-        "seconds": end - start - compile_s,
-        "resume_compile_s": compile_s,
-        "windows": [window],
+        "steps": n_seeds * (segment - short),
+        "seconds": long_s - short_s,
+        "windows": windows,
         "device_kind": ajax_device(),
     }
     print(json.dumps(record), flush=True)

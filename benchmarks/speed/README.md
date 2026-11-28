@@ -32,16 +32,16 @@ timed stretch.
 |---|---|---|
 | Ajax | `train(seed=...)` | one program, the seeds vmapped |
 | PureJaxRL, purejaxql | `jax.jit(jax.vmap(make_train(config)))` | one program, the seeds vmapped |
-| SB3, SBX | `Algorithm("MlpPolicy", env).learn(n)`, Gymnasium environments in a DummyVecEnv | ten processes at once, one torch thread each |
-| CleanRL | its single-file scripts, unmodified (`../reference/vendor/cleanrl`): JAX versions for TD3 and DQN, which its docs call faster | ten processes at once, one torch thread each |
-| Brax | `brax.training.agents.{sac,ppo}.train` | ten processes at once on the CPU; one after another on a GPU |
+| SB3, SBX | `Algorithm("MlpPolicy", env).learn(n)`, Gymnasium environments in a DummyVecEnv | ten processes at once, torch at one thread each |
+| CleanRL | its single-file scripts, unmodified (`../reference/vendor/cleanrl`): JAX versions for TD3 and DQN, which its docs call faster | ten processes at once, torch at one thread each |
+| Brax | `brax.training.agents.{sac,ppo}.train` | ten processes at once on the CPU; on a GPU, one after another: its one-seed speed |
 
-A single seed runs with each library's own threading. On a GPU only Ajax and
-the JAX libraries are timed; SB3, SBX and CleanRL run on the CPU, and a GPU
-gives them little for networks this size. Ten processes on four cores share
-them; a library whose ten processes would run slower together than one after
-another is shown at its one-after-another speed, its one-seed speed (the
-records keep both).
+A single seed runs with each library's own threading. JAX's CPU thread pool
+takes the run's four cores in every process; torch's threads are set to one
+for ten processes. A library whose ten processes run slower together than one
+after another is shown at its one-after-another speed, its one-seed speed (the
+records keep both). On a GPU only Ajax and the JAX libraries are timed; SB3,
+SBX and CleanRL step their environments in Python on the CPU.
 
 On HalfCheetah, SB3, SBX and CleanRL step C MuJoCo through Gymnasium
 (CleanRL's scripts need Gymnasium 0.29's vector API, so they step
@@ -84,9 +84,11 @@ steps per seed. It counts every step and every update between its ends.
 - **PureJaxRL, purejaxql**: a run is one compiled program, so two are timed,
   of `warmup` and of `warmup + segment` steps, each compiled first; the
   difference of their run times is the stretch's.
-- **Ajax**: a first call trains `warmup` steps and compiles; a second resumes
-  for `segment` steps and is timed, less the seconds JAX spends compiling
-  the resumed program (the method of `../suite/results/timing-0.6`).
+- **Ajax**: a first call trains `warmup` steps and compiles; two calls then
+  resume from it, of about a quarter of `segment` steps and of `segment`
+  steps, each timed less the seconds JAX spends compiling its program. The
+  difference of the two is the stretch's: a call's fixed cost (seconds on
+  HalfCheetah) cancels, as the set-up of the other libraries is left out.
 
 The segments are sized so that a stretch lasts about a minute (twenty
 seconds at least) on four of bob's cores (`SEGMENTS` in `speed_specs.py`). Each

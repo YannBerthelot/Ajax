@@ -98,7 +98,8 @@ An `action` extension runs before or after the warm-up's choice, as its
 
 Running a phase is not enough: the agent must also have what the extension
 needs, as the next section explains: PPO, APO and REINFORCE run `action` but
-refuse the extensions acting there, which need an off-policy update.
+refuse the extensions acting there, which need an off-policy update; the
+refusal names the phase.
 
 ## What an agent has, and what an extension needs
 
@@ -144,7 +145,7 @@ policy's), continuous actions for `transform_action` and `actuate`, a warm-up
 with steps for `choose_warmup_action`, a replay for `choose_replay_action`.
 An extension needing nothing runs on every agent. When the agent is built,
 an extension needing something its run lacks is refused with
-`MissingCapability`, which names it:
+`MissingCapability`, which names it, and the phase needing it where one does:
 
 ```python
 import jax.numpy as jnp
@@ -160,7 +161,7 @@ def expert(obs):
 try:
     DQN("CartPole-v1", extensions=(ImitationLoss(expert),))
 except ValueError as error:
-    print(error)  # DQN cannot run ImitationLoss ('imitation_loss'), which needs actor (...), continuous_actions (...).
+    print(error)  # DQN cannot run ImitationLoss ('imitation_loss'), which needs actor (...) for its actor_loss phase, continuous_actions (...).
 ```
 
 When the run has everything but the agent's code does not pass it on yet,

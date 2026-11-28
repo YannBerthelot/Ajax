@@ -25,6 +25,10 @@ PyPI as `ajax-rl`.
   phase, is refused because the phase needs an off-policy update; the
   message now says so: `... which needs off_policy (...) for its action
   phase`.
+- The agents named in `ImitationLoss`'s, `ExpertValueMetrics`',
+  `CloningPretrain`'s, `ExpertPrefill`'s and `PriorData`'s docstrings and
+  error messages are those that run them: CrossQ, TQC, RVI-SAC, IQL, AVG
+  and DAgger were missing where they apply.
 
 ## 0.6.0
 

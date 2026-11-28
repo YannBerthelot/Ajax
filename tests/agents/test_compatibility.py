@@ -12,7 +12,9 @@ network option (``memory``, ``cnn``). Every cell must be one of:
 
 Anything else fails: another exception, a gap not pinned, a pinned gap that
 now works. The matrix is written to ``docs/guide/compatibility.md``, which
-must match (``AJAX_WRITE_COMPATIBILITY=1`` rewrites it).
+must match (``AJAX_WRITE_COMPATIBILITY=1`` rewrites it), and the catalogue
+of ``docs/guide/extensions.md``, written by hand, must name for each module
+the agents the matrix runs it on.
 """
 
 from __future__ import annotations
@@ -22,6 +24,8 @@ import importlib
 import inspect
 import os
 import pkgutil
+import re
+from collections.abc import Mapping
 from functools import cache
 from pathlib import Path
 from typing import Any
@@ -38,6 +42,7 @@ from ajax.extensions.pretrain import ExpertPrefill, MCPretrain
 from ajax.networks.memory import MemoryConfig
 from ajax.networks.networks import CNNSpec
 from tests.agents.TDMPC2.test_TDMPC2MultiTask import make_dataset
+from tests.test_docs_agent_sets import PROSE_NAMES, SETS, agents_where
 
 #: (agent, environment): each agent on each action kind it takes.
 ROWS = [
@@ -295,9 +300,12 @@ def build(agent: str, env: str, **kwargs: Any) -> Any:
     return cls(env, **kwargs)
 
 
-def verdict(agent: str, env: str, column: str) -> tuple[str, str]:
-    """``(kind, detail)`` of one cell: kind ``supported``, ``inherent`` or
-    ``gap``; raises on any other outcome."""
+def verdict(
+    agent: str, env: str, column: str, agent_options: Mapping[str, Any] | None = None
+) -> tuple[str, str]:
+    """``(kind, detail)`` of one cell, the agent built with its defaults or
+    with ``agent_options``: kind ``supported``, ``inherent`` or ``gap``;
+    raises on any other outcome."""
     if column == "memory":
         if "obs_networks" not in agent_class(agent).capabilities:
             return "inherent", "obs_networks"
@@ -323,6 +331,7 @@ def verdict(agent: str, env: str, column: str) -> tuple[str, str]:
         takes = inspect.signature(agent_class(agent).__init__).parameters
         if name in MODULE_EXPERTS and env != "CartPole-v1" and "expert_policy" in takes:
             kwargs["expert_policy"] = MODULE_EXPERTS[name]
+    kwargs.update(agent_options or {})
     try:
         build(agent, env, **kwargs)
     except MissingCapability as error:
@@ -438,6 +447,117 @@ def test_the_docs_table_matches_the_matrix() -> None:
         "docs/guide/compatibility.md is stale: rerun this test with"
         " AJAX_WRITE_COMPATIBILITY=1"
     )
+
+
+EXTENSIONS_GUIDE = DOCS.with_name("extensions.md")
+#: The capabilities an agent's option gives where the default build lacks
+#: them: the option, a value giving it, and the words a catalogue cell
+#: states that condition in.
+OPTIONS_GIVING = {
+    "critic_ensemble": ("num_critics", 2, "two critics or more"),
+    "warmup_steps": ("learning_starts", 4, "`learning_starts` above 0"),
+}
+
+
+def catalogue() -> dict[str, str]:
+    """Each module of the guide's catalogue with its "Works with" cell, the
+    last of its row."""
+    text = EXTENSIONS_GUIDE.read_text().split("\n## Catalogue\n", 1)[1]
+    cells = {}
+    for line in text.split("\n## ", 1)[0].splitlines():
+        if line.startswith("| `"):
+            row = line.strip().strip("|").split("|")
+            cells[row[0].strip(" `")] = row[-1].strip()
+    return cells
+
+
+def catalogue_phrases() -> dict[str, set[str]]:
+    """The phrases a cell names a set of agents by, each with its agents:
+    the longer of two phrases starting alike comes first."""
+    agents = {agent for agent, _ in ROWS}
+    takes_expert = {
+        agent
+        for agent in agents
+        if "expert_policy" in inspect.signature(agent_class(agent).__init__).parameters
+    }
+    critic = {"q_critic", "v_critic"}
+    return {
+        "every agent with a stateful expert": takes_expert,
+        "every agent with an expert": takes_expert,
+        "every agent with a critic": {
+            a for a in agents if critic.intersection(agent_class(a).capabilities)
+        },
+        "every agent whose networks read the observation": {
+            a for a in agents if "obs_networks" in agent_class(a).capabilities
+        },
+        "every agent": agents,
+        "the off-policy actor-critics": agents_where(SETS["off-policy-actor-critics"]),
+        "the agents with a warm-up": agents_where(SETS["warmup-action"]),
+    }
+
+
+def stated_agents(module: str, cells: Mapping[str, str]) -> set[str]:
+    """The agents ``module``'s cell names: agents, catalogue_phrases and
+    "as `Other`" (that module's), less those after "but". The set comes
+    first; its conditions (", with ...", "; ...", an aside in parentheses)
+    and a heading ending in a colon name no agent."""
+    phrases = catalogue_phrases()
+    text = re.sub(r"<!--.*?-->", "", cells[module])
+    for index, phrase in enumerate(phrases):
+        text = text.replace(phrase, f"#{index}")
+    text = re.sub(r"\([^)]*\)", "", text).split(";")[0].split(" with ")[0]
+    named, _, excluded = text.split(":")[-1].partition(" but ")
+
+    def agents_in(part: str) -> set[str]:
+        found: set[str] = set()
+        for item in re.split(r",|\band\b", part.replace("`", "")):
+            item = item.strip()
+            if item.startswith("as "):
+                found.update(stated_agents(item.removeprefix("as "), cells))
+            elif item.startswith("#"):
+                found.update(list(phrases.values())[int(item[1:])])
+            elif item:
+                found.add(PROSE_NAMES.get(item, item))
+        return found
+
+    return agents_in(named).difference(agents_in(excluded))
+
+
+def accepting_agents(module: str, cell: str) -> set[str]:
+    """The agents the matrix runs ``module`` on, with either action kind;
+    an agent refused only for capabilities an option of its own gives
+    (OPTIONS_GIVING) is built again with it, where the cell states it."""
+    accepting = set()
+    for agent, env in ROWS:
+        kind, detail = matrix()[(row_label(agent, env), module)]
+        if kind == "inherent":
+            fields = inspect.signature(agent_class(agent)).parameters
+            lacks = detail.split(", ")
+            given = [OPTIONS_GIVING.get(capability) for capability in lacks]
+            if all(g is not None and g[0] in fields and g[2] in cell for g in given):
+                options = {g[0]: g[1] for g in given if g is not None}
+                kind = verdict(agent, env, module, options)[0]
+        if kind == "supported":
+            accepting.add(agent)
+    return accepting
+
+
+def test_the_catalogue_names_the_agents_each_module_runs_on() -> None:
+    """Each "Works with" cell of the guide's catalogue names exactly the
+    agents the matrix runs its module on, and every module has a row.
+    Catches a cell left behind when an agent gains or loses a module, which
+    the 0.6.0 review found in several rows."""
+    cells = catalogue()
+    assert set(cells) == set(extension_classes())
+    wrong = {}
+    for module, cell in sorted(cells.items()):
+        stated, accepting = stated_agents(module, cells), accepting_agents(module, cell)
+        if stated != accepting:
+            wrong[module] = {
+                "named, not run": sorted(stated.difference(accepting)),
+                "run, not named": sorted(accepting.difference(stated)),
+            }
+    assert not wrong, f"docs/guide/extensions.md's catalogue: {wrong}"
 
 
 if __name__ == "__main__":  # print the gap cells, to pin them

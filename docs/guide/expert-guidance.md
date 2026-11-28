@@ -168,7 +168,8 @@ defaults collect about a million) and train for tens of thousands of steps.
 
 The agents in brackets accept each piece, as
 [Compatibility](compatibility.md) lists them from the code. "The off-policy
-actor-critics" are SAC, TD3, REDQ, CrossQ, TQC, ASAC, RVISAC, AVG and IQL;
+actor-critics" are
+<!-- agents: off-policy-actor-critics -->SAC, TD3, REDQ, CrossQ, TQC, ASAC, RVISAC, AVG and IQL<!-- /agents -->;
 "the replay agents" are
 <!-- agents: replay -->SAC, TD3, REDQ, CrossQ, TQC, ASAC, RVI-SAC, IQL, DQN, DAgger<!-- /agents -->.
 "Developed with Ajax" marks a feature with no external reference.

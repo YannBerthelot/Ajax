@@ -1,0 +1,29 @@
+# PureJaxRL's scripts (../../../reference/vendor/purejaxrl) for the speed
+# comparison (../../README.md), at the JAX, Flax, Optax and gymnax versions of
+# Ajax's uv.lock; distrax at its latest release. Brax, MuJoCo Playground and
+# gymnasium-mjx bring HalfCheetah-v5, as ../brax does.
+[project]
+name = "speed-purejaxrl"
+version = "0"
+requires-python = "==3.12.*"
+dependencies = [
+    "jax==0.11.2",
+    "flax==0.12.12",
+    "optax==0.2.9",
+    "distrax==0.1.9",
+    # dqn.py's replay buffer.
+    "flashbax==0.1.3",
+    "gymnax==1.0.1",
+    "brax==0.14.2",
+    "mujoco==3.15.0",
+    "mujoco-mjx==3.15.0",
+    "playground==0.2.0",
+    "gymnasium-mjx[playground]==0.3.0",
+]
+
+[tool.uv]
+package = false
+
+[project.optional-dependencies]
+# The GPU runs: `uv sync --extra cuda`.
+cuda = ["jax[cuda]==0.11.2"]

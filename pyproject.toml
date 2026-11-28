@@ -229,6 +229,7 @@ pythonpath = [
     "benchmarks/reference",
     "benchmarks/expert_guidance",
     "benchmarks/suite",
+    "benchmarks/speed",
 ]
 # An unregistered mark is an error, not a silent no-op.
 addopts = "--strict-markers"

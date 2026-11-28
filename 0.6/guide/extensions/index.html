@@ -1,0 +1,4045 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Reinforcement learning agents in JAX: whole training runs compiled end to end, research features composed as extensions.">
+      
+      
+      
+        <link rel="canonical" href="https://yannberthelot.github.io/Ajax/0.6/guide/extensions/">
+      
+      
+        <link rel="prev" href="../comparing-agents/">
+      
+      
+        <link rel="next" href="../representations/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Extensions - Ajax</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
+    
+      <link rel="stylesheet" href="../../stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#extensions" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+          <aside class="md-banner md-banner--warning">
+            <div class="md-banner__inner md-grid md-typeset">
+              
+  
+    This is the documentation of an earlier release.
+  
+  <a href="../../..">
+    <strong>Read the latest release's documentation.</strong>
+  </a>
+
+            </div>
+            <script>var el=document.querySelector("[data-md-component=outdated]"),base=new URL("../.."),outdated=__md_get("__outdated",sessionStorage,base);!0===outdated&&el&&(el.hidden=!1)</script>
+          </aside>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="Ajax" class="md-header__button md-logo" aria-label="Ajax" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Ajax
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Extensions
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Follow system theme"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Follow system theme" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m14.3 16-.7-2h-3.2l-.7 2H7.8L11 7h2l3.2 9zM20 8.69V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12zm-9.15 3.96h2.3L12 9z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_2" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_2">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/YannBerthelot/Ajax" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    YannBerthelot/Ajax
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="Ajax" class="md-nav__button md-logo" aria-label="Ajax" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Ajax
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/YannBerthelot/Ajax" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    YannBerthelot/Ajax
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/why-ajax/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Why Ajax
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/coming-from-sb3/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Coming from SB3
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../training/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Training an agent
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../deploy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Train, evaluate, deploy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../environments/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Environments
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../networks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Networks and the PID policy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../memory/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Memory
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../logging/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Logging
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../checkpoints/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Checkpoints and resuming
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../performance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Performance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../comparing-agents/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Comparing agents
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Extensions
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Extensions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#using-extensions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Using extensions
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#which-agent-runs-which-phase" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Which agent runs which phase
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-an-agent-has-and-what-an-extension-needs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What an agent has, and what an extension needs
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-is-checked-and-when" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What is checked, and when
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#catalogue" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Catalogue
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#measuring-a-replay-agents-critic" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Measuring a replay agent's critic
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#extensions-that-need-the-agents-context" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Extensions that need the agent's context
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#writing-your-own" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Writing your own
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#see-also" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        See also
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../representations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Representations during training
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../compatibility/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Compatibility
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../expert-guidance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Expert guidance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../differentiable-simulation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Differentiable simulation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../world-models/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    World models
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../algorithms/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Algorithms
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_4" id="__nav_4_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Algorithms
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/sac/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SAC
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/asac/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ASAC
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/rvisac/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    RVI-SAC
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/redq/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    REDQ
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/crossq/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CrossQ
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/td3/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TD3
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/tqc/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TQC
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/iql/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    IQL
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/avg/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AVG
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/dqn/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DQN
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/pqn/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PQN
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/ppo/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PPO
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/apo/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    APO
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/reinforce/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    REINFORCE
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/udrl/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    UDRL
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/dagger/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DAgger
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/apg/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    APG
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/dreamerv3/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DreamerV3
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/tdmpc2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TD-MPC2
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../reproduction/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reproduction
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_5" id="__nav_5_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reproduction
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reproduction/protocol/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Protocol
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reproduction/specs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Specifications
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reproduction/results/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Results
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reproduction/expert-guidance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Expert guidance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reproduction/benchmark/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent benchmark
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Developer guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Developer guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../developer/architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../developer/contributing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../developer/extension-phases/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Extension phases
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../developer/writing-an-extension/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Writing an extension
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../developer/testing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../developer/performance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Performance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_7" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../world_models/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    World model design notes
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6_7" id="__nav_6_7_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_6_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    World model design notes
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../world_models/DESIGN/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Design
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../world_models/deviations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deviations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../world_models/dreamerv3_spec/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DreamerV3 specification
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../world_models/tdmpc2_spec/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TD-MPC2 specification
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../world_models/shared_blocks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Shared building blocks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../world_models/VALIDATION/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Validation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/agents/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agents
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/training-loop/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Training loop
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/extensions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Extensions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/environments/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Environments and wrappers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/networks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Networks and modules
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/buffers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Buffers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/logging/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Logging, evaluation and checkpoints
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/compare/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Comparing agents
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Releases
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Releases
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../upgrading/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Upgrading
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#using-extensions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Using extensions
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#which-agent-runs-which-phase" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Which agent runs which phase
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-an-agent-has-and-what-an-extension-needs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What an agent has, and what an extension needs
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-is-checked-and-when" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What is checked, and when
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#catalogue" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Catalogue
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#measuring-a-replay-agents-critic" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Measuring a replay agent's critic
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#extensions-that-need-the-agents-context" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Extensions that need the agent's context
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#writing-your-own" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Writing your own
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#see-also" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        See also
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/YannBerthelot/Ajax/blob/v0.6.0/docs/guide/extensions.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="extensions">Extensions<a class="headerlink" href="#extensions" title="Permanent link">&para;</a></h1>
+<p>An extension adds a research feature to an agent's training without changing
+the agent: an extra loss term, a change to the critic's target, another way to
+choose actions while collecting, an expert to learn from, a pre-training step,
+or measurements logged at each evaluation. Ajax ships forty-four of them,
+listed in the <a href="#catalogue">catalogue</a>. This page shows how to pass them, which
+agent takes which, and what each one does.</p>
+<h2 id="using-extensions">Using extensions<a class="headerlink" href="#using-extensions" title="Permanent link">&para;</a></h2>
+<p>Pass a tuple of extension objects as <code>extensions=</code>. Each object holds its own
+settings:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax</span><span class="w"> </span><span class="kn">import</span> <span class="n">PPO</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax.extensions.instrumentation</span><span class="w"> </span><span class="kn">import</span> <span class="n">BiasVorePenalty</span><span class="p">,</span> <span class="n">CriticDiagnostics</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax.logging</span><span class="w"> </span><span class="kn">import</span> <span class="n">LoggingConfig</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="n">agent</span> <span class="o">=</span> <span class="n">PPO</span><span class="p">(</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="s2">&quot;CartPole-v1&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    <span class="n">extensions</span><span class="o">=</span><span class="p">(</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>        <span class="n">BiasVorePenalty</span><span class="p">(</span><span class="n">alpha</span><span class="o">=</span><span class="mf">0.3</span><span class="p">),</span>  <span class="c1"># an extra critic-loss term</span>
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>        <span class="n">CriticDiagnostics</span><span class="p">(),</span>  <span class="c1"># measurements at each evaluation</span>
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>    <span class="p">),</span>
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="p">)</span>
+<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="n">logging</span> <span class="o">=</span> <span class="n">LoggingConfig</span><span class="p">(</span><span class="n">log_frequency</span><span class="o">=</span><span class="mi">8_192</span><span class="p">,</span> <span class="n">backends</span><span class="o">=</span><span class="p">())</span>
+<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a><span class="n">state</span><span class="p">,</span> <span class="n">evaluations</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">seed</span><span class="o">=</span><span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">],</span> <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">16_384</span><span class="p">,</span> <span class="n">logging_config</span><span class="o">=</span><span class="n">logging</span><span class="p">)</span>
+<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a><span class="nb">print</span><span class="p">(</span><span class="n">evaluations</span><span class="p">[</span><span class="s2">&quot;Cond/critic_srank&quot;</span><span class="p">])</span>  <span class="c1"># one row per seed, one column per evaluation</span>
+</code></pre></div>
+<ul>
+<li><strong>Extensions are fixed for a run.</strong> They are compiled into the training
+  program, so changing a setting means a new agent and a new compilation.
+  Two extensions with equal settings compare and hash equal, so a second
+  agent built the same way traces the same program, which the
+  <a href="../performance/#the-compile-cache">compile cache</a> can load instead of
+  compiling.</li>
+<li><strong>Their state is the agent's.</strong> What changes during training lives in
+  <code>state.ext_state</code>, one entry per extension, which checkpoints save and a
+  resumed run carries on.</li>
+<li><strong>One-shot work runs once.</strong> An extension's initial state and its
+  <code>pretrain</code> step run on a fresh run only, not when a run resumes from
+  <code>initial_state=</code>.</li>
+<li><strong>Measurements come with the evaluations.</strong> An extension's metrics join
+  the evaluations <code>train</code> returns, next to <code>Eval/episodic mean reward</code>
+  (<a href="../logging/">Logging</a>). With <code>logging_config=None</code> there are no
+  evaluations, and no metrics.</li>
+<li><strong>Order matters only where it can.</strong> Target changes apply one after the
+  other, in list order. Loss terms add up. For collection actions, the last
+  extension that proposes one wins.</li>
+</ul>
+<p>An empty tuple costs nothing: the agent's program is the same as without the
+argument.</p>
+<p>An agent's constructor takes its algorithm's hyperparameters plus
+<code>extensions=()</code>. A feature kept apart as an extension works with every agent
+that runs the part of training it touches, and each agent's code stays
+readable next to its paper. The exceptions are the expert an agent tracks
+along each trajectory, <code>expert_policy</code>, and <code>eval_expert_policy</code>, an expert
+whose return the evaluations log and nothing else reads; every agent but
+REINFORCE and the world models takes both (<a href="../expert-guidance/">Expert guidance</a>).</p>
+<h2 id="which-agent-runs-which-phase">Which agent runs which phase<a class="headerlink" href="#which-agent-runs-which-phase" title="Permanent link">&para;</a></h2>
+<p>An extension acts at one or more <em>phases</em> of training: a critic target, a
+loss term, the action taken, a metric at evaluation. The
+<a href="#catalogue">catalogue</a> names each extension's phases, and
+<a href="../../developer/extension-phases/">Extension phases</a> describes what each one
+receives. There are fifteen: <code>pretrain</code>, <code>reward</code>, <code>observe</code>, <code>on_target</code>,
+<code>critic_loss</code>, <code>actor_loss</code>, <code>action</code>, <code>eval_action</code>, <code>transform_action</code>,
+<code>actuate</code>, <code>choose_warmup_action</code>, <code>choose_replay_action</code>, <code>track_memory</code>,
+<code>post_update</code> and <code>eval_metrics</code>.</p>
+<p>The phases an agent runs are those its code declares, in
+<code>supported_extension_phases</code>, which this table and each agent's page list.
+All run the shared loop's <code>pretrain</code>, <code>post_update</code> and <code>eval_metrics</code>; the
+others depend on what the agent's update and collection have:</p>
+<table>
+<thead>
+<tr>
+<th>Agent</th>
+<th>Other phases it runs</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>SAC, TD3, REDQ, CrossQ, ASAC, RVISAC, IQL</td>
+<td>all but <code>reward</code></td>
+</tr>
+<tr>
+<td>TQC</td>
+<td>all but <code>reward</code> and <code>choose_warmup_action</code></td>
+</tr>
+<tr>
+<td>AVG</td>
+<td>all but <code>reward</code> and <code>choose_replay_action</code></td>
+</tr>
+<tr>
+<td>PPO</td>
+<td>all but <code>choose_warmup_action</code> and <code>choose_replay_action</code></td>
+</tr>
+<tr>
+<td>APO</td>
+<td>all but <code>reward</code>, <code>choose_warmup_action</code> and <code>choose_replay_action</code></td>
+</tr>
+<tr>
+<td>DQN</td>
+<td>all but <code>reward</code>, <code>actor_loss</code>, <code>transform_action</code> and <code>actuate</code></td>
+</tr>
+<tr>
+<td>PQN</td>
+<td><code>observe</code>, <code>on_target</code>, <code>critic_loss</code>, <code>action</code>, <code>eval_action</code>, <code>track_memory</code></td>
+</tr>
+<tr>
+<td>DAgger</td>
+<td><code>observe</code>, <code>actor_loss</code>, <code>action</code>, <code>eval_action</code>, <code>track_memory</code></td>
+</tr>
+<tr>
+<td>UDRL</td>
+<td><code>observe</code>, <code>actor_loss</code>, <code>action</code>, <code>transform_action</code>, <code>actuate</code>, <code>choose_replay_action</code></td>
+</tr>
+<tr>
+<td>APG</td>
+<td><code>observe</code>, <code>actor_loss</code>, <code>transform_action</code>, <code>actuate</code></td>
+</tr>
+<tr>
+<td>REINFORCE</td>
+<td><code>observe</code>, <code>action</code>, <code>eval_action</code>, <code>track_memory</code></td>
+</tr>
+<tr>
+<td>DreamerV3, TDMPC2</td>
+<td><code>observe</code></td>
+</tr>
+<tr>
+<td>TDMPC2MultiTask</td>
+<td>none</td>
+</tr>
+</tbody>
+</table>
+<p>An <code>action</code> extension runs before or after the warm-up's choice, as its
+<code>action_slot</code> says (<code>"pre_warmup"</code> or <code>"post_warmup"</code>;
+<a href="../expert-guidance/#collection">Expert guidance</a> describes both).</p>
+<p>Running a phase is not enough: the agent must also have what the extension
+needs, as the next section explains: PPO, APO and REINFORCE run <code>action</code> but
+refuse the extensions acting there, which need an off-policy update.</p>
+<h2 id="what-an-agent-has-and-what-an-extension-needs">What an agent has, and what an extension needs<a class="headerlink" href="#what-an-agent-has-and-what-an-extension-needs" title="Permanent link">&para;</a></h2>
+<p>Each agent declares what its algorithm has, in <code>capabilities</code>:</p>
+<table>
+<thead>
+<tr>
+<th>Capability</th>
+<th>Meaning</th>
+<th>Agents</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>actor</code></td>
+<td>a policy network trained by gradient</td>
+<td>all but DQN, PQN</td>
+</tr>
+<tr>
+<td><code>q_critic</code></td>
+<td>a learned action value Q(s, a)</td>
+<td>SAC, TD3, REDQ, CrossQ, TQC, ASAC, RVISAC, AVG, IQL, DQN, PQN, TDMPC2, TDMPC2MultiTask</td>
+</tr>
+<tr>
+<td><code>v_critic</code></td>
+<td>a learned state value V(s)</td>
+<td>PPO, APO, REINFORCE, IQL, DreamerV3</td>
+</tr>
+<tr>
+<td><code>discounted</code></td>
+<td>it maximises a discounted return, not the average reward</td>
+<td>all but ASAC, RVISAC, APO, UDRL, DAgger, APG</td>
+</tr>
+<tr>
+<td><code>entropy_temperature</code></td>
+<td>a maximum-entropy objective, whose temperature the agent's state holds</td>
+<td>SAC, REDQ, CrossQ, TQC, ASAC, RVISAC, AVG</td>
+</tr>
+<tr>
+<td><code>policy_density</code></td>
+<td>a stochastic policy, with a density over its actions</td>
+<td>all with an actor but TD3, DAgger, APG</td>
+</tr>
+<tr>
+<td><code>replay</code></td>
+<td>its updates sample stored past transitions</td>
+<td>SAC, TD3, REDQ, CrossQ, TQC, ASAC, RVISAC, IQL, DQN, DAgger, UDRL, DreamerV3, TDMPC2, TDMPC2MultiTask</td>
+</tr>
+<tr>
+<td><code>off_policy</code></td>
+<td>its update stays correct on actions its policy did not choose</td>
+<td>all but PPO, APO, REINFORCE, APG</td>
+</tr>
+<tr>
+<td><code>one_step_target</code></td>
+<td>its target bootstraps one step ahead, <code>r + γ V(s′)</code>, not on a multi-step or lambda-return</td>
+<td>SAC, TD3, REDQ, CrossQ, TQC, ASAC, RVISAC, AVG, IQL, DQN</td>
+</tr>
+<tr>
+<td><code>next_action_target</code></td>
+<td>its target scores the critic at a next action, not a state value</td>
+<td>SAC, TD3, REDQ, CrossQ, TQC, ASAC, RVISAC, AVG, DQN, PQN, TDMPC2, TDMPC2MultiTask</td>
+</tr>
+<tr>
+<td><code>continuing_target</code></td>
+<td>its target goes on through a termination into the reset observation</td>
+<td>RVISAC</td>
+</tr>
+<tr>
+<td><code>critic_ensemble</code></td>
+<td>two critics or more</td>
+<td>SAC, TD3, REDQ, CrossQ, TQC, ASAC, RVISAC, IQL, TDMPC2, TDMPC2MultiTask; AVG with <code>num_critics</code> of 2 or more</td>
+</tr>
+<tr>
+<td><code>target_critic</code></td>
+<td>a slowly updated copy of its critic, which its bootstrap reads</td>
+<td>SAC, TD3, REDQ, TQC, ASAC, RVISAC, IQL, DQN, TDMPC2, TDMPC2MultiTask</td>
+</tr>
+<tr>
+<td><code>distributional_critic</code></td>
+<td>its critic predicts quantiles of the return</td>
+<td>TQC</td>
+</tr>
+<tr>
+<td><code>warmup</code></td>
+<td>it acts uniformly at random for its first steps (<code>learning_starts</code>)</td>
+<td>SAC, TD3, REDQ, CrossQ, ASAC, RVISAC, AVG, IQL, DQN, TDMPC2</td>
+</tr>
+<tr>
+<td><code>obs_networks</code></td>
+<td>its networks read the observation, not a world model's latent state</td>
+<td>all but DreamerV3, TDMPC2, TDMPC2MultiTask</td>
+</tr>
+<tr>
+<td><code>reward_learning</code></td>
+<td>it learns from the reward, not from an expert's labels alone</td>
+<td>all but DAgger and REINFORCE</td>
+</tr>
+</tbody>
+</table>
+<p>A run adds what its configuration and its stack give:</p>
+<table>
+<thead>
+<tr>
+<th>Capability</th>
+<th>Given by</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>critic</code></td>
+<td>a <code>q_critic</code> or a <code>v_critic</code></td>
+</tr>
+<tr>
+<td><code>scalar_target</code></td>
+<td>a critic that regresses on one target per row (every critic but TQC's)</td>
+</tr>
+<tr>
+<td><code>continuous_actions</code>, <code>discrete_actions</code></td>
+<td>the environment's actions</td>
+</tr>
+<tr>
+<td><code>agent_expert</code></td>
+<td>an <code>expert_policy</code></td>
+</tr>
+<tr>
+<td><code>warmup_steps</code></td>
+<td><code>learning_starts</code> above 0, on an agent with a <code>warmup</code></td>
+</tr>
+<tr>
+<td><code>stored_steps</code></td>
+<td>a replay, or the latest rollout an on-policy or incremental agent keeps</td>
+</tr>
+<tr>
+<td><code>phi_star</code></td>
+<td><code>MCPretrain</code> in the stack, which fits the expert critic <code>φ*</code></td>
+</tr>
+<tr>
+<td><code>seeded_replay</code></td>
+<td><code>ExpertPrefill</code> or <code>PriorData</code> in the stack, which fill the replay before training</td>
+</tr>
+</tbody>
+</table>
+<p>An extension needs what it declares in <code>requires</code> and what its phases imply:
+a critic for <code>on_target</code> and <code>critic_loss</code>, an actor for <code>actor_loss</code>, an
+off-policy update for <code>action</code> (the executed action is then not the
+policy's), continuous actions for <code>transform_action</code> and <code>actuate</code>, a warm-up
+with steps for <code>choose_warmup_action</code>, a replay for <code>choose_replay_action</code>.
+An extension needing nothing runs on every agent. When the agent is built,
+an extension needing something its run lacks is refused with
+<code>MissingCapability</code>, which names it:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">jax.numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">jnp</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax</span><span class="w"> </span><span class="kn">import</span> <span class="n">DQN</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax.extensions.expert</span><span class="w"> </span><span class="kn">import</span> <span class="n">ImitationLoss</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="k">def</span><span class="w"> </span><span class="nf">expert</span><span class="p">(</span><span class="n">obs</span><span class="p">):</span>
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>    <span class="k">return</span> <span class="n">jnp</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">obs</span><span class="o">.</span><span class="n">shape</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">+</span> <span class="p">(</span><span class="mi">1</span><span class="p">,))</span>
+<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>
+<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a>
+<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="k">try</span><span class="p">:</span>
+<a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a>    <span class="n">DQN</span><span class="p">(</span><span class="s2">&quot;CartPole-v1&quot;</span><span class="p">,</span> <span class="n">extensions</span><span class="o">=</span><span class="p">(</span><span class="n">ImitationLoss</span><span class="p">(</span><span class="n">expert</span><span class="p">),))</span>
+<a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a><span class="k">except</span> <span class="ne">ValueError</span> <span class="k">as</span> <span class="n">error</span><span class="p">:</span>
+<a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a>    <span class="nb">print</span><span class="p">(</span><span class="n">error</span><span class="p">)</span>  <span class="c1"># DQN cannot run ImitationLoss (&#39;imitation_loss&#39;), which needs actor (...), continuous_actions (...).</span>
+</code></pre></div>
+<p>When the run has everything but the agent's code does not pass it on yet,
+the refusal is <code>NotWired</code>, which says what is missing.
+<a href="../compatibility/">Compatibility</a>, generated from the code, shows for every
+agent and module which runs, which the algorithm cannot run, and which is not
+wired yet.</p>
+<h2 id="what-is-checked-and-when">What is checked, and when<a class="headerlink" href="#what-is-checked-and-when" title="Permanent link">&para;</a></h2>
+<p>Mistakes in a stack fail early, with a <code>ValueError</code> that names each offending
+extension (<code>MissingCapability</code> and <code>NotWired</code> are <code>ValueError</code>s):</p>
+<table>
+<thead>
+<tr>
+<th>Refused</th>
+<th>When</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>an extension needing a capability the run lacks (<code>MissingCapability</code>): <code>φ*</code> without <code>MCPretrain</code>, an expert on an agent without one, a Q critic on PPO</td>
+<td>the agent is built</td>
+</tr>
+<tr>
+<td>an extension the agent's code does not serve yet (<code>NotWired</code>): a phase it does not run, context it does not hand over, a batch key or a replay field it does not provide</td>
+<td>the agent is built</td>
+</tr>
+<tr>
+<td>a stateful expert called without its state: an extension calls its expert on the observations it is given, where no expert state exists, so a stateful one is allowed only when it is the agent's own <code>expert_policy</code>, on an agent that stores its actions (<a href="../expert-guidance/#the-expert">Expert guidance</a>)</td>
+<td>the agent is built</td>
+</tr>
+<tr>
+<td>an <code>action</code> extension without an <code>action_slot</code>; more than one of <code>ResidualPolicy</code>, <code>ExpertGains</code> and <code>OuterLoopReference</code>; under gain mode, an extension using the expert's actions as the policy's</td>
+<td>the agent is built</td>
+</tr>
+<tr>
+<td><code>CloningPretrain</code> after another pre-training extension; <code>PriorData</code> on a replay whose rows it cannot fill</td>
+<td>training starts</td>
+</tr>
+<tr>
+<td>with <code>memory=</code>, an <code>expert_policy</code> or an extension other than the observation features and <code>StorePolicyAction</code>, on every agent but APG (<code>NotImplementedError</code>)</td>
+<td>training starts</td>
+</tr>
+</tbody>
+</table>
+<h2 id="catalogue">Catalogue<a class="headerlink" href="#catalogue" title="Permanent link">&para;</a></h2>
+<p>One table per module. "Works with" names the agents that accept the
+extension, and "details" links its explanation or its settings;
+<a href="../compatibility/">Compatibility</a>, generated from the code, has the full
+matrix. "The off-policy actor-critics" are SAC, TD3, REDQ, CrossQ, TQC,
+ASAC, RVISAC, AVG and IQL, and "with an expert" means the agent was given an
+<code>expert_policy</code>.</p>
+<p><strong>Learning from an expert</strong> (<code>ajax.extensions.expert</code>)</p>
+<table>
+<thead>
+<tr>
+<th>Extension</th>
+<th>What it does</th>
+<th>Phases</th>
+<th>Works with</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>OnlineBC</code></td>
+<td>Pulls the actor's mean action towards the expert's, weighted by <code>φ*</code>'s value and fading out over <code>critic_warmup_frac</code> of training (<a href="../../api/extensions/#ajax.extensions.expert.OnlineBC">details</a>).</td>
+<td><code>actor_loss</code></td>
+<td>SAC with an expert and <code>MCPretrain</code></td>
+</tr>
+<tr>
+<td><code>ImitationLoss</code></td>
+<td>Adds TD3+BC's cloning term towards the expert's actions, weighted by <code>coef</code>. <code>q_filter=True</code> keeps the rows where the critic rates the expert higher; <code>target="replay"</code> clones the logged actions instead (<a href="../expert-guidance/#imitation-alongside-the-reward">details</a>).</td>
+<td><code>actor_loss</code>, <code>eval_metrics</code></td>
+<td>continuous actions: the off-policy actor-critics, APO, DAgger, PPO, APG and UDRL (on IQL, PPO, APG and UDRL a stateless expert); <code>q_filter</code> needs a Q critic, <code>target="replay"</code> a replay</td>
+</tr>
+<tr>
+<td><code>ResidualPolicy</code></td>
+<td>Executes <code>clip(a_E + scale · a_π, −1, 1)</code>, so the policy learns a correction to the expert; <code>zero_start=True</code> starts it as the expert (<a href="../expert-guidance/#collection">details</a>).</td>
+<td><code>pretrain</code>, <code>transform_action</code></td>
+<td>the off-policy actor-critics, PPO, APO, APG and UDRL, with an expert and continuous actions</td>
+</tr>
+<tr>
+<td><code>ExpertGains</code></td>
+<td>Gain mode: the policy's action sets the expert's learnable gains, between <code>1 / max_factor</code> and <code>max_factor</code> times their anchors, and the expert acts with them (<a href="../expert-guidance/#learning-a-pids-gains-gain-mode">details</a>).</td>
+<td><code>actuate</code></td>
+<td>as <code>ResidualPolicy</code>, with a stateful expert exposing <code>learnable_fields</code></td>
+</tr>
+<tr>
+<td><code>ExpertWarmup</code></td>
+<td>During the warm-up, the expert takes a share <code>fraction</code> of the steps and uniform random actions the others (<a href="../expert-guidance/#warm-up">details</a>).</td>
+<td><code>choose_warmup_action</code></td>
+<td>the agents with a warm-up (<!-- agents: warmup-action -->SAC, TD3, REDQ, CrossQ, ASAC, RVI-SAC, AVG, IQL, DQN<!-- /agents -->), with an expert and <code>learning_starts</code> above 0</td>
+</tr>
+<tr>
+<td><code>JSRLCurriculum</code></td>
+<td>The expert acts for the first <code>h</code> steps of each episode and the policy afterwards; <code>schedule</code> lowers <code>h</code> to 0, by default as evaluations pass (the paper's) (<a href="../expert-guidance/#collection">details</a>).</td>
+<td><code>action</code>, <code>post_update</code>, <code>eval_metrics</code></td>
+<td>the off-policy actor-critics, DQN, PQN, DAgger and UDRL, with an expert</td>
+</tr>
+<tr>
+<td><code>StorePolicyAction</code></td>
+<td>An ablation: the replay stores the action the policy chose, not the one executed (<a href="../../api/extensions/#ajax.extensions.expert.StorePolicyAction">details</a>).</td>
+<td><code>choose_replay_action</code></td>
+<td><!-- agents: replay-action -->SAC, TD3, REDQ, CrossQ, TQC, ASAC, RVI-SAC, IQL, DQN and UDRL<!-- /agents --></td>
+</tr>
+<tr>
+<td><code>ExpertValueMetrics</code></td>
+<td>Logs the critic's value at the expert's actions and its gap to the actions taken, on a replay batch at each evaluation (<a href="../expert-guidance/#evaluation">details</a>).</td>
+<td><code>eval_metrics</code></td>
+<td>SAC, TD3, REDQ, CrossQ, TQC, ASAC, RVISAC, IQL and DQN, with an expert</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Acting around a controller</strong> (<code>ajax.extensions.structure</code>)</p>
+<table>
+<thead>
+<tr>
+<th>Extension</th>
+<th>What it does</th>
+<th>Phases</th>
+<th>Works with</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>OuterLoopReference</code></td>
+<td>The policy's action moves the targets the expert reads, each by at most <code>max_change</code>, and the expert acts unchanged (<a href="../expert-guidance/#acting-around-a-controller">details</a>).</td>
+<td><code>actuate</code></td>
+<td>as <code>ResidualPolicy</code></td>
+</tr>
+<tr>
+<td><code>BumplessTracking</code></td>
+<td>Keeps the expert's memory true to the action applied, from the readings in <code>reading_channels</code> (<a href="../expert-guidance/#acting-around-a-controller">details</a>).</td>
+<td><code>track_memory</code></td>
+<td>every agent with a stateful expert but APG and UDRL</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Observation features</strong> (<code>ajax.extensions.observe</code>)</p>
+<table>
+<thead>
+<tr>
+<th>Extension</th>
+<th>What it does</th>
+<th>Phases</th>
+<th>Works with</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ExpertActionInput</code></td>
+<td>Appends the expert's action to each observation (<a href="../expert-guidance/#observation">details</a>).</td>
+<td><code>observe</code></td>
+<td>every agent with an expert but DAgger; not under gain mode</td>
+</tr>
+<tr>
+<td><code>ExpertStateInput</code></td>
+<td>Appends a stateful expert's internal state, sized by <code>ExpertStateInput.for_expert(expert)</code> (<a href="../expert-guidance/#observation">details</a>).</td>
+<td><code>observe</code></td>
+<td>every agent with a stateful expert</td>
+</tr>
+<tr>
+<td><code>PIDTermsInput</code></td>
+<td>Appends a PID's terms for the error <code>obs[target_idx] − obs[current_idx]</code>, which a <a href="../networks/#the-pid-policy"><code>PIDPolicy</code></a> actor reads (<a href="../../api/extensions/#ajax.extensions.observe.PIDTermsInput">details</a>).</td>
+<td><code>observe</code></td>
+<td>every agent but <code>TDMPC2MultiTask</code></td>
+</tr>
+<tr>
+<td><code>PreviousAction</code></td>
+<td>Appends the action executed before each observation, which recurrent networks read (<a href="../memory/">details</a>).</td>
+<td><code>observe</code></td>
+<td>every agent but <code>TDMPC2MultiTask</code></td>
+</tr>
+<tr>
+<td><code>PreviousReward</code></td>
+<td>Appends the reward paid before each observation, which recurrent networks read (<a href="../memory/">details</a>).</td>
+<td><code>observe</code></td>
+<td>every agent but <code>TDMPC2MultiTask</code> and APG</td>
+</tr>
+<tr>
+<td><code>TrainingProgressInput</code></td>
+<td>Appends the fraction of training done (<a href="../../api/extensions/#ajax.extensions.observe.TrainingProgressInput">details</a>).</td>
+<td><code>observe</code></td>
+<td>every agent but <code>TDMPC2MultiTask</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>Exploration</strong> (<code>ajax.extensions.exploration</code>)</p>
+<table>
+<thead>
+<tr>
+<th>Extension</th>
+<th>What it does</th>
+<th>Phases</th>
+<th>Works with</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>EDGEExploration</code></td>
+<td>Lets the expert act in place of the policy, step by step, as its <code>gate</code> decides: by default with probability <code>fixed_prob</code>, fading out over <code>decay_frac</code> of training (<a href="../expert-guidance/#collection">details</a>).</td>
+<td><code>action</code>, <code>eval_metrics</code></td>
+<td>the off-policy actor-critics, DAgger and UDRL, with an expert and continuous actions</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Changing the critic's target</strong> (<code>ajax.extensions.target_mods</code>)</p>
+<table>
+<thead>
+<tr>
+<th>Extension</th>
+<th>What it does</th>
+<th>Phases</th>
+<th>Works with</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>IBRL</code></td>
+<td>Bootstraps the target on the better of the expert's and the policy's next actions, and by default (<code>hybrid_acting</code>) acts with the better of the two (<a href="../expert-guidance/#critic">details</a>).</td>
+<td><code>on_target</code>; <code>action</code>, <code>eval_action</code>, <code>eval_metrics</code> with <code>hybrid_acting</code></td>
+<td>SAC, TD3, REDQ, TQC and IQL</td>
+</tr>
+<tr>
+<td><code>LCBGatedBootstrap</code></td>
+<td>Blends the policy's and the expert's next-action values in the target, weighted by their pessimistic (lower-confidence-bound) scores (<a href="../../api/extensions/#ajax.extensions.target_mods.LCBGatedBootstrap">details</a>).</td>
+<td><code>on_target</code>, <code>eval_metrics</code></td>
+<td>SAC, TD3, REDQ, TQC and IQL</td>
+</tr>
+<tr>
+<td><code>CriticBlend</code></td>
+<td>Blends the target with a one-step target on <code>φ*</code>, whose share falls from 1 to 0 over <code>critic_warmup_frac</code> (<a href="../../api/extensions/#ajax.extensions.target_mods.CriticBlend">details</a>).</td>
+<td><code>on_target</code>, <code>eval_metrics</code></td>
+<td>SAC with <code>MCPretrain</code></td>
+</tr>
+<tr>
+<td><code>MCVarianceCorrection</code></td>
+<td>Uses <code>φ*</code>'s value as the target where the critics' variance exceeds <code>threshold</code> (<a href="../../api/extensions/#ajax.extensions.target_mods.MCVarianceCorrection">details</a>).</td>
+<td><code>on_target</code></td>
+<td>SAC with <code>MCPretrain</code></td>
+</tr>
+<tr>
+<td><code>ValueBox</code></td>
+<td>Lets the expert act where its value under <code>φ*</code> exceeds a threshold that rises over training (<a href="../expert-guidance/#collection">details</a>).</td>
+<td><code>action</code>, <code>eval_metrics</code></td>
+<td>SAC with an expert and <code>MCPretrain</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>Pre-training</strong> (<code>ajax.extensions.pretrain</code>)</p>
+<table>
+<thead>
+<tr>
+<th>Extension</th>
+<th>What it does</th>
+<th>Phases</th>
+<th>Works with</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>CloningPretrain</code></td>
+<td>Before training, trains the actor to reproduce the expert's actions over <code>n_steps</code> steps of its rollouts per copy (<a href="../expert-guidance/#before-training">details</a>).</td>
+<td><code>pretrain</code>, <code>eval_metrics</code></td>
+<td>the off-policy actor-critics, APO and DAgger, with continuous actions</td>
+</tr>
+<tr>
+<td><code>MCPretrain</code></td>
+<td>Before training, fits the expert critic <code>φ*</code> to the expert's Monte-Carlo returns, and by default nudges the agent's critic towards it (<a href="../expert-guidance/#before-training">details</a>).</td>
+<td><code>pretrain</code>, <code>eval_metrics</code></td>
+<td>SAC</td>
+</tr>
+<tr>
+<td><code>BellmanPretrain</code></td>
+<td>Before training, runs <code>n_steps</code> ordinary critic updates on the replay <code>ExpertPrefill</code> or <code>PriorData</code> filled; kept for ablations (<a href="../expert-guidance/#before-training">details</a>).</td>
+<td><code>pretrain</code>, <code>eval_metrics</code></td>
+<td>SAC, TD3, REDQ and TQC, with <code>ExpertPrefill</code> or <code>PriorData</code></td>
+</tr>
+<tr>
+<td><code>PhiRefresh</code></td>
+<td>Refits <code>φ*</code> every <code>interval</code> steps on the replay rows where the expert acted (<a href="../../api/extensions/#ajax.extensions.pretrain.PhiRefresh">details</a>).</td>
+<td><code>post_update</code></td>
+<td>SAC with an expert and <code>MCPretrain</code></td>
+</tr>
+<tr>
+<td><code>PriorData</code></td>
+<td>Adds a transition <code>dataset</code> to the replay, then runs <code>offline_updates</code> of the agent's own update on it; pair it with <code>learning_starts=0</code> (<a href="../../api/extensions/#ajax.extensions.pretrain.PriorData">details</a>).</td>
+<td><code>pretrain</code></td>
+<td>SAC, TD3, REDQ, CrossQ, TQC, ASAC, RVISAC, IQL and DQN</td>
+</tr>
+<tr>
+<td><code>ExpertPrefill</code></td>
+<td>The expert acts <code>n_steps</code> steps in every copy before training, and its transitions go to the replay as expert rows (<a href="../expert-guidance/#before-training">details</a>).</td>
+<td><code>pretrain</code></td>
+<td>as <code>PriorData</code>, with an expert or an <code>expert</code> of its own</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Rows kept for the whole run</strong> (<code>ajax.extensions.retained</code>)</p>
+<p>These keep their rows in a ring of their own, which nothing evicts.</p>
+<table>
+<thead>
+<tr>
+<th>Extension</th>
+<th>What it does</th>
+<th>Phases</th>
+<th>Works with</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>RetainedDemonstrations</code></td>
+<td>Keeps <code>n_steps</code> steps of the expert per copy, or a transition <code>dataset</code>, for the whole run, as a <code>share</code> of each batch (DDPGfD) (<a href="../../api/extensions/#ajax.extensions.retained.RetainedDemonstrations">details</a>).</td>
+<td><code>pretrain</code></td>
+<td>as <code>PriorData</code></td>
+</tr>
+<tr>
+<td><code>RLPD</code></td>
+<td>The same rows as half of every batch, on critics with LayerNorm, which it checks unless <code>critic_layer_norm=False</code> (<a href="../../api/extensions/#ajax.extensions.retained.RLPD">details</a>).</td>
+<td><code>pretrain</code>, <code>on_target</code></td>
+<td>as <code>PriorData</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>Fine-tuning a clone</strong> (<code>ajax.extensions.porl</code>)</p>
+<p><code>porl(cloning, presample_steps, epsilon, features)</code> returns the agent's
+keyword arguments for PORL (Xiao et al., 2025): clone the expert, train only
+a fresh critic for <code>presample_steps</code> steps, then train as usual. A stateful
+expert needs its memory in <code>features</code> (<code>ExpertStateInput</code>, or
+<code>PIDTermsInput</code>).</p>
+<table>
+<thead>
+<tr>
+<th>Extension</th>
+<th>What it does</th>
+<th>Phases</th>
+<th>Works with</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>EpsilonGreedyPresample</code></td>
+<td>For the first <code>presample_steps</code> steps, acts with the actor's mean action, or a uniform one with probability <code>epsilon</code> (<a href="../../api/extensions/#ajax.extensions.porl.EpsilonGreedyPresample">details</a>).</td>
+<td><code>action</code>, <code>pretrain</code>, <code>post_update</code></td>
+<td>SAC, TD3, REDQ, CrossQ, TQC, ASAC, RVISAC, IQL, UDRL and DAgger, with continuous actions and no action transform</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Blending with the expert</strong> (<code>ajax.extensions.cheq</code>)</p>
+<table>
+<thead>
+<tr>
+<th>Extension</th>
+<th>What it does</th>
+<th>Phases</th>
+<th>Works with</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>CHEQ</code></td>
+<td>Executes a blend of the expert's and the policy's actions, the policy's weight falling from <code>lambda_max</code> to <code>lambda_min</code> as the critics disagree more (<a href="../../api/extensions/#ajax.extensions.cheq.CHEQ">details</a>).</td>
+<td><code>observe</code>, <code>action</code>, <code>eval_action</code>, <code>on_target</code>, <code>critic_loss</code>, <code>post_update</code>, <code>eval_metrics</code></td>
+<td>SAC, TD3, REDQ, CrossQ, ASAC, RVISAC and IQL, with an expert</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Offline RL</strong> (<code>ajax.extensions.offline</code>)</p>
+<table>
+<thead>
+<tr>
+<th>Extension</th>
+<th>What it does</th>
+<th>Phases</th>
+<th>Works with</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ConservativeQ</code></td>
+<td>CQL's critic term, weighted by <code>alpha</code>: it pushes the critic's values down on actions away from the data's (<a href="../../algorithms/sac/#cql-and-cal-ql-offline">details</a>).</td>
+<td><code>critic_loss</code></td>
+<td>the off-policy actor-critics but TD3</td>
+</tr>
+<tr>
+<td><code>CalQL</code></td>
+<td><code>ConservativeQ</code> with the values floored at the dataset's return to go (<a href="../../algorithms/sac/#cql-and-cal-ql-offline">details</a>).</td>
+<td><code>critic_loss</code></td>
+<td>SAC, REDQ, CrossQ, TQC and IQL</td>
+</tr>
+<tr>
+<td><code>TargetBC</code></td>
+<td>ReBRAC's critic penalty: the target less <code>beta</code> times the distance from its next actions to the dataset's (<a href="../../algorithms/td3/#rebrac-offline">details</a>).</td>
+<td><code>on_target</code></td>
+<td>SAC, TD3, REDQ, CrossQ and TQC</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Adversarial imitation</strong> (<code>ajax.extensions.adversarial</code>)</p>
+<table>
+<thead>
+<tr>
+<th>Extension</th>
+<th>What it does</th>
+<th>Phases</th>
+<th>Works with</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>AdversarialReward</code></td>
+<td>GAIL: a discriminator trained against the <code>demonstrations</code> dataset replaces the rollout's rewards (<a href="../../algorithms/ppo/#gail-imitation-by-a-discriminator">details</a>).</td>
+<td><code>reward</code></td>
+<td>PPO with continuous actions</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Critic ensembles</strong> (<code>ajax.extensions.ensemble</code>)</p>
+<table>
+<thead>
+<tr>
+<th>Extension</th>
+<th>What it does</th>
+<th>Phases</th>
+<th>Works with</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>KernelRepulsion</code></td>
+<td>Adds <code>coef</code> times the similarity of the critics' predictions to the critic loss, pushing an ensemble's critics apart (<a href="../../api/extensions/#ajax.extensions.ensemble.KernelRepulsion">details</a>).</td>
+<td><code>critic_loss</code></td>
+<td>the off-policy actor-critics with two critics or more</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Continuing tasks</strong> (<code>ajax.extensions.centering</code>, <code>ajax.extensions.reset_cost</code>)</p>
+<table>
+<thead>
+<tr>
+<th>Extension</th>
+<th>What it does</th>
+<th>Phases</th>
+<th>Works with</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ValueCentering</code></td>
+<td>Subtracts from the target an offset learned as the reward rate (reward centering), as its <code>rule</code> says (<a href="../../api/extensions/#ajax.extensions.centering.ValueCentering">details</a>).</td>
+<td><code>on_target</code></td>
+<td>SAC, TD3, REDQ, CrossQ, TQC, AVG, IQL and DQN</td>
+</tr>
+<tr>
+<td><code>ResetCost</code></td>
+<td>Treats a termination as a step into the reset state, charging terminated rows a cost that rises while the termination rate exceeds <code>target_rate</code> (<a href="../../api/extensions/#ajax.extensions.reset_cost.ResetCost">details</a>).</td>
+<td><code>on_target</code></td>
+<td>SAC, TD3, REDQ, CrossQ, TQC and DQN</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Temperature annealing</strong> (<code>ajax.extensions.annealing</code>)</p>
+<table>
+<thead>
+<tr>
+<th>Extension</th>
+<th>What it does</th>
+<th>Phases</th>
+<th>Works with</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>MEW</code></td>
+<td>Minimum Excess Work (Adamczyk et al., 2026): sets the entropy temperature from the rewards' covariance in place of the agent's own rule, at the pace <code>speed</code> sets (<a href="../../api/extensions/#ajax.extensions.annealing.MEW">details</a>).</td>
+<td><code>post_update</code>, <code>eval_metrics</code></td>
+<td>the maximum-entropy agents: SAC, REDQ, CrossQ, TQC, ASAC, RVISAC and AVG</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Measuring the critic</strong> (<code>ajax.extensions.instrumentation</code>)</p>
+<table>
+<thead>
+<tr>
+<th>Extension</th>
+<th>What it does</th>
+<th>Phases</th>
+<th>Works with</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>CriticDiagnostics</code></td>
+<td>Logs whether the critic's features are degrading: their effective rank, dormant units and norms (<a href="#measuring-a-replay-agents-critic">details</a>).</td>
+<td><code>eval_metrics</code></td>
+<td>every agent with a critic</td>
+</tr>
+<tr>
+<td><code>BiasVoreDecomposition</code></td>
+<td>Splits the critic's squared one-step error into squared bias and variance (<a href="#measuring-a-replay-agents-critic">details</a>).</td>
+<td><code>eval_metrics</code></td>
+<td>as <code>CriticDiagnostics</code></td>
+</tr>
+<tr>
+<td><code>BiasVorePenalty</code></td>
+<td>Adds a penalty on the variance of the critic's residual, set by <code>alpha</code> (0.5 adds nothing) (<a href="../../api/extensions/#ajax.extensions.instrumentation.BiasVorePenalty">details</a>).</td>
+<td><code>critic_loss</code></td>
+<td>the off-policy actor-critics but TQC, and PPO, APO, DQN and PQN</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Recording representations</strong> (<code>ajax.extensions.representation</code>)</p>
+<table>
+<thead>
+<tr>
+<th>Extension</th>
+<th>What it does</th>
+<th>Phases</th>
+<th>Works with</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>RepresentationProbe</code></td>
+<td>Every <code>probe_interval</code> steps, records the networks' activations and parameters on fixed states to <code>run_directory</code>, and logs each layer's rank and dead units (<a href="../representations/">details</a>).</td>
+<td><code>pretrain</code>, <code>post_update</code>, <code>eval_metrics</code></td>
+<td>every agent whose networks read the observation, but APG and UDRL</td>
+</tr>
+</tbody>
+</table>
+<p>Sources: reward centering is Naik, Wan, Tomar and Sutton, RLC 2024, and the
+reset cost Hisaki and Ono, ICML 2024; TD3+BC is Fujimoto and Gu, 2021; CQL is
+Kumar et al., 2020, Cal-QL Nakamoto et al., 2023, and ReBRAC Tarasov et al.,
+2023; GAIL is Ho and Ermon, 2016; Q-filtered BC is Nair et al., ICRA 2018;
+residual RL is Johannink et al., 2019; JSRL is Uchendu et al., 2023; the
+kernel's bandwidth follows the median heuristic of SVGD (Liu and Wang, 2016);
+effective rank is Kumar et al., 2021, and dormant units Sokar et al., 2023;
+IBRL is Hu et al., <em>Imitation Bootstrapped Reinforcement Learning</em>, 2023 (all
+cited in the code). EDGE, the LCB gates and the bias-variance (EVarEst)
+measurements were developed with Ajax and have no external reference.</p>
+<h2 id="measuring-a-replay-agents-critic">Measuring a replay agent's critic<a class="headerlink" href="#measuring-a-replay-agents-critic" title="Permanent link">&para;</a></h2>
+<p><code>CriticDiagnostics</code> and <code>BiasVoreDecomposition</code> need states the agent has
+visited. An on-policy or incremental agent keeps its latest rollout for them,
+as in the example at the top of this page; a replay agent's measurements
+sample its replay:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax</span><span class="w"> </span><span class="kn">import</span> <span class="n">SAC</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax.extensions.instrumentation</span><span class="w"> </span><span class="kn">import</span> <span class="n">BiasVoreDecomposition</span><span class="p">,</span> <span class="n">CriticDiagnostics</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax.logging</span><span class="w"> </span><span class="kn">import</span> <span class="n">LoggingConfig</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="n">agent</span> <span class="o">=</span> <span class="n">SAC</span><span class="p">(</span>
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>    <span class="s2">&quot;Pendulum-v1&quot;</span><span class="p">,</span>
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>    <span class="n">learning_starts</span><span class="o">=</span><span class="mi">500</span><span class="p">,</span>
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>    <span class="n">extensions</span><span class="o">=</span><span class="p">(</span><span class="n">CriticDiagnostics</span><span class="p">(),</span> <span class="n">BiasVoreDecomposition</span><span class="p">()),</span>
+<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="p">)</span>
+<a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a><span class="n">logging</span> <span class="o">=</span> <span class="n">LoggingConfig</span><span class="p">(</span><span class="n">log_frequency</span><span class="o">=</span><span class="mi">1_000</span><span class="p">,</span> <span class="n">backends</span><span class="o">=</span><span class="p">())</span>
+<a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="n">state</span><span class="p">,</span> <span class="n">evaluations</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">seed</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">2_000</span><span class="p">,</span> <span class="n">logging_config</span><span class="o">=</span><span class="n">logging</span><span class="p">)</span>
+<a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a><span class="nb">print</span><span class="p">(</span><span class="n">evaluations</span><span class="p">[</span><span class="s2">&quot;Cond/critic_dormant_frac&quot;</span><span class="p">],</span> <span class="n">evaluations</span><span class="p">[</span><span class="s2">&quot;EVarEst/bias_sq&quot;</span><span class="p">])</span>
+</code></pre></div>
+<p>When the batch they need is not available yet (an evaluation before the
+first rollout, say), these extensions log nothing rather than wrong numbers.</p>
+<h2 id="extensions-that-need-the-agents-context">Extensions that need the agent's context<a class="headerlink" href="#extensions-that-need-the-agents-context" title="Permanent link">&para;</a></h2>
+<p>Some extensions need objects only the agent builds: its environment, network
+settings, optimisers, replay buffer or discount. The agent hands them over
+when it builds its training program, through each extension's
+<code>bind_to_agent</code>; you never call it yourself. Each agent lists what it hands
+over in its <code>extension_context</code>, and an extension needing more is refused
+with <code>NotWired</code>. SAC hands over the most, which is why <code>MCPretrain</code>, and the
+extensions reading its <code>φ*</code>, run on SAC only.</p>
+<h2 id="writing-your-own">Writing your own<a class="headerlink" href="#writing-your-own" title="Permanent link">&para;</a></h2>
+<p>An extension is a frozen dataclass subclassing
+<a href="https://github.com/YannBerthelot/Ajax/blob/v0.6.0/src/ajax/extensions/base.py"><code>Extension</code></a> that overrides the phases it
+needs and declares what it reads.
+<a href="../../developer/writing-an-extension/">Writing an extension</a> walks through
+the contract, the dictionary each phase receives on each agent, and a
+complete example. If a feature seems to need a new keyword on an agent, that
+is the sign it should be an extension instead.</p>
+<h2 id="see-also">See also<a class="headerlink" href="#see-also" title="Permanent link">&para;</a></h2>
+<ul>
+<li><a href="../expert-guidance/">Expert guidance</a>: how the expert extensions fit
+  together, with an example.</li>
+<li><a href="../../api/extensions/">Extensions API</a>: every extension's settings.</li>
+<li><a href="https://github.com/YannBerthelot/Ajax/tree/v0.6.0/src/ajax/extensions"><code>ajax/extensions/</code></a>: the source, one module per
+  family.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Copyright &copy; Yann Berthelot
+    </div>
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.instant", "navigation.tracking", "navigation.sections", "navigation.top", "navigation.indexes", "toc.follow", "content.code.copy", "content.action.edit", "content.tabs.link", "search.suggest", "search.highlight"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"alias": true, "default": "latest", "provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+        <script src="../../javascripts/mathjax.js"></script>
+      
+        <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+      
+    
+  </body>
+</html>

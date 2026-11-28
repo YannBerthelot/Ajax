@@ -3780,11 +3780,155 @@ speeds into hours.</p>
 and world models (REDQ, TQC, CrossQ, DreamerV3, TD-MPC2) train about 50 to
 110 times as fast on the L40S. It gains little on one simulator step per seed:
 AVG, APO and DQN gain 4 to 6 times, and PPO on CheetahRun runs faster on the
-four CPU cores.</p>
-<p>More seeds help until the card is full. SAC's total levelled off near 8,000
-steps per second from 64 seeds, while PPO reached 42,000 at 256. Three SAC jobs
-at once on an otherwise idle card gave 1.9 times the throughput of one.
-<code>benchmarks/gpu_check.sh</code> compares four agents on CartPole and Pendulum with
+four CPU cores: with one environment per seed, the card steps only 10
+simulations at a time.</p>
+<p>How the gain changes with the number of seeds trained together, on the
+same tasks and machines. DreamerV3 stops at 10 seeds: at 50, its replay would
+need about 500 GB of memory.</p>
+<p><img alt="How many times as fast one GPU trains each agent as four CPU cores, against the number of seeds trained together" src="../../reproduction/benchmark-figures/gain-by-seeds.svg" /></p>
+<!-- agent-gain-by-seeds:start -->
+<table>
+<thead>
+<tr>
+<th>Agent</th>
+<th>Task</th>
+<th style="text-align: right;">1 seed</th>
+<th style="text-align: right;">10 seeds</th>
+<th style="text-align: right;">50 seeds</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>SAC</td>
+<td>CheetahRun</td>
+<td style="text-align: right;">3.2</td>
+<td style="text-align: right;">15</td>
+<td style="text-align: right;">44</td>
+</tr>
+<tr>
+<td>TD3</td>
+<td>CheetahRun</td>
+<td style="text-align: right;">2.4</td>
+<td style="text-align: right;">13</td>
+<td style="text-align: right;">39</td>
+</tr>
+<tr>
+<td>ASAC</td>
+<td>CheetahRun</td>
+<td style="text-align: right;">4</td>
+<td style="text-align: right;">18</td>
+<td style="text-align: right;">49</td>
+</tr>
+<tr>
+<td>RVI-SAC</td>
+<td>CheetahRun</td>
+<td style="text-align: right;">5</td>
+<td style="text-align: right;">14</td>
+<td style="text-align: right;">47</td>
+</tr>
+<tr>
+<td>AVG</td>
+<td>CheetahRun</td>
+<td style="text-align: right;">1.3</td>
+<td style="text-align: right;">3.9</td>
+<td style="text-align: right;">19</td>
+</tr>
+<tr>
+<td>APO</td>
+<td>CheetahRun</td>
+<td style="text-align: right;">0.92</td>
+<td style="text-align: right;">5.7</td>
+<td style="text-align: right;">9.2</td>
+</tr>
+<tr>
+<td>PPO</td>
+<td>CheetahRun</td>
+<td style="text-align: right;">0.15</td>
+<td style="text-align: right;">0.68</td>
+<td style="text-align: right;">3</td>
+</tr>
+<tr>
+<td>REDQ</td>
+<td>CheetahRun</td>
+<td style="text-align: right;">30</td>
+<td style="text-align: right;">80</td>
+<td style="text-align: right;">46</td>
+</tr>
+<tr>
+<td>TQC</td>
+<td>CheetahRun</td>
+<td style="text-align: right;">32</td>
+<td style="text-align: right;">51</td>
+<td style="text-align: right;">59</td>
+</tr>
+<tr>
+<td>CrossQ</td>
+<td>CheetahRun</td>
+<td style="text-align: right;">60</td>
+<td style="text-align: right;">90</td>
+<td style="text-align: right;">99</td>
+</tr>
+<tr>
+<td>DreamerV3</td>
+<td>CheetahRun</td>
+<td style="text-align: right;">75</td>
+<td style="text-align: right;">110</td>
+<td style="text-align: right;">–</td>
+</tr>
+<tr>
+<td>TD-MPC2</td>
+<td>CheetahRun</td>
+<td style="text-align: right;">59</td>
+<td style="text-align: right;">111</td>
+<td style="text-align: right;">103</td>
+</tr>
+<tr>
+<td>DQN</td>
+<td>Breakout</td>
+<td style="text-align: right;">1.2</td>
+<td style="text-align: right;">4.3</td>
+<td style="text-align: right;">24</td>
+</tr>
+<tr>
+<td>PQN</td>
+<td>Breakout</td>
+<td style="text-align: right;">12</td>
+<td style="text-align: right;">29</td>
+<td style="text-align: right;">87</td>
+</tr>
+<tr>
+<td>PPO</td>
+<td>Breakout</td>
+<td style="text-align: right;">2.2</td>
+<td style="text-align: right;">17</td>
+<td style="text-align: right;">64</td>
+</tr>
+<tr>
+<td>UDRL</td>
+<td>Breakout</td>
+<td style="text-align: right;">6.9</td>
+<td style="text-align: right;">12</td>
+<td style="text-align: right;">39</td>
+</tr>
+</tbody>
+</table>
+<!-- agent-gain-by-seeds:end -->
+
+<p>With one seed, the GPU wins by little where updates are light: 1.2 to 7
+times (PQN 12), and APO and PPO on CheetahRun run faster on the CPU. Agents
+with heavy updates gain 30 to 75 times already.</p>
+<p>Four CPU cores are full by 10 seeds: from 10 to 50, each agent's total stays
+about the same or falls a little (APO's doubles), so each seed runs about five
+times slower. The L40S still has room at 10 seeds for most agents: their total
+grows 2 to 4.6 times by 50 seeds, and their gain with it, SAC's from 15 to 44
+times and PPO's on CheetahRun from 0.68 to 3. TQC, CrossQ and TD-MPC2 fill the
+card by 10 seeds, so their total stays the same at 50. REDQ's total falls,
+from 563 to 360 steps per second, and its gain from 80 to 46 times; a second
+run gave the same speed.</p>
+<p>An earlier sweep (2026-11-06, records in <code>benchmarks/gpu/</code>) found SAC's total
+levelling off near 8,000 steps per second from 64 seeds, and PPO reaching
+42,000 at 256. Three SAC jobs at once on an otherwise idle card gave 1.9 times
+the throughput of one. <code>benchmarks/gpu_check.sh</code> compares four agents on CartPole and Pendulum with
 the same machine's CPU, in <code>benchmarks/gpu/report.md</code>.</p>
 <p>The logging worker always runs on the CPU, so it never takes GPU memory.
 Playground runs MJX's pure-JAX physics on every device by default. On a GPU,

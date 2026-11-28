@@ -3199,6 +3199,11 @@ the minor version. Each release is tagged <code>vX.Y.Z</code> on main and publis
 PyPI as <code>ajax-rl</code>.</p>
 <h2 id="unreleased">Unreleased<a class="headerlink" href="#unreleased" title="Permanent link">&para;</a></h2>
 <ul>
+<li><strong>Docs: speeds on one GPU.</strong> The performance page's timing table adds one
+  NVIDIA L40S beside the four CPU cores, with each agent's gain, and replaces
+  the dated comparison of 2026-11-06. The benchmark's score-against-time
+  figures count hours on that GPU, and the README's speed line gives the new
+  gains.</li>
 <li><strong>REINFORCE declares <code>reward_learning</code></strong>: it learns from the reward. The
   expert modules that need it (<code>ExpertActionInput</code>, <code>ResidualPolicy</code>,
   <code>ExpertGains</code>, <code>OuterLoopReference</code>) are still refused on REINFORCE, now

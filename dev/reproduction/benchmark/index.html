@@ -3045,11 +3045,11 @@ tasks. <code>benchmarks/suite/publish.py</code> draws them from the records.</p>
 <div class="tabbed-content">
 <div class="tabbed-block">
 <p><img alt="DeepMind Control: interquartile mean and performance profile of the normalised final returns" src="../benchmark-figures/control-scores.svg" /></p>
-<p><img alt="DeepMind Control: interquartile mean of the normalised returns against hours on four CPU cores" src="../benchmark-figures/control-time.svg" /></p>
+<p><img alt="DeepMind Control: interquartile mean of the normalised returns against hours on one GPU" src="../benchmark-figures/control-time.svg" /></p>
 </div>
 <div class="tabbed-block">
 <p><img alt="MinAtar: interquartile mean and performance profile of the normalised final returns" src="../benchmark-figures/minatar-scores.svg" /></p>
-<p><img alt="MinAtar: interquartile mean of the normalised returns against hours on four CPU cores" src="../benchmark-figures/minatar-time.svg" /></p>
+<p><img alt="MinAtar: interquartile mean of the normalised returns against hours on one GPU" src="../benchmark-figures/minatar-time.svg" /></p>
 </div>
 </div>
 </div>
@@ -3060,7 +3060,7 @@ each task. On the right, each line gives the fraction of runs that ended
 above each score: a line that stays high further to the right did well on
 more of its runs.</p>
 <p>The second figure follows the interquartile mean through training against the
-hours four CPU cores take to reach each evaluation, at the speed the
+hours one NVIDIA L40S takes to reach each evaluation, at the speed the
 <a href="../../guide/performance/#cpu-or-gpu">timing pass</a> measured rather than each
 run's own wall clock, since the runs used several machines. Its CheetahRun
 panel adds the five agents that ran that task only.</p>

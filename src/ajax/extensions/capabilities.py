@@ -159,7 +159,8 @@ def check_capabilities(
     ``takes_expert_policy``.
 
     :class:`MissingCapability` names each module and the capabilities it
-    lacks; otherwise :class:`NotWired` names what the agent does not pass on.
+    lacks, with the module's phases that need them; otherwise
+    :class:`NotWired` names what the agent does not pass on.
     """
     has = frozenset(has).union(*(ext.provides for ext in stack))
     phases, context = frozenset(phases), frozenset(context)
@@ -196,9 +197,10 @@ def check_capabilities(
         type(ext).__name__: f"{type(ext).__name__} ({ext.name!r})" for ext in stack
     }
     if missing:
+        modules = {type(ext).__name__: ext for ext in stack}
         details = "; ".join(
             f"{labels[name]}, which needs "
-            + ", ".join(f"{c} ({_meaning(c)})" for c in sorted(lacks))
+            + ", ".join(_needed(c, modules[name]) for c in sorted(lacks))
             for name, lacks in missing.items()
         )
         raise MissingCapability(f"{agent_name} cannot run {details}.", missing)
@@ -215,3 +217,21 @@ def check_capabilities(
 
 def _meaning(capability: str) -> str:
     return {**ALGORITHM_CAPABILITIES, **RUN_CAPABILITIES}[capability]
+
+
+def _needed(capability: str, ext: Any) -> str:
+    """A capability ``ext`` lacks, with its meaning and the phases of
+    ``ext`` that need it (PHASE_NEEDS). A module acting at a phase needs
+    what the phase does, which it need not declare: an agent folding the
+    phase (PPO folds ``action``) still refuses it, and the refusal says
+    which phase it is."""
+    phases = sorted(
+        phase
+        for phase in ext.implemented_phases()
+        if capability in PHASE_NEEDS.get(phase, ())
+    )
+    needed = f"{capability} ({_meaning(capability)})"
+    if phases:
+        plural = "s" if len(phases) > 1 else ""
+        needed += f" for its {' and '.join(phases)} phase{plural}"
+    return needed

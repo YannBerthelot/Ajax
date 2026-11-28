@@ -20,6 +20,11 @@ PyPI as `ajax-rl`.
   evaluations log `replay/expert_share`, and an extension calling an expert
   of its own reads the raw observations, not the normalised ones it was
   given under `normalize_observations=True`.
+- **A refusal names the phase that needs the missing capability.** An
+  extension acting at `action` on PPO, APO or REINFORCE, which run the
+  phase, is refused because the phase needs an off-policy update; the
+  message now says so: `... which needs off_policy (...) for its action
+  phase`.
 
 ## 0.6.0
 

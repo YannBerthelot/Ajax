@@ -369,7 +369,7 @@ for build in (
         build()
     except ValueError as error:
         print(error)
-# PQN cannot run ActorNudge ('actor-nudge'), which needs actor (a policy network trained by gradient).
+# PQN cannot run ActorNudge ('actor-nudge'), which needs actor (a policy network trained by gradient) for its actor_loss phase.
 # DQN has what its extensions need, but does not pass it on yet: NextObservationReader ('next-observation-reader'): DQN stores no ['raw_next_obs'] yet.
 # SAC cannot run PhiStarReader ('phi-star-reader'), which needs phi_star (add MCPretrain(expert_policy=...), which fits phi*, to the extensions).
 ```

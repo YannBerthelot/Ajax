@@ -4,6 +4,17 @@ Versions follow semantic versioning; before 1.0, a breaking change bumps
 the minor version. Each release is tagged `vX.Y.Z` on main and published to
 PyPI as `ajax-rl`.
 
+## Unreleased
+
+- **A progress bar.** On a terminal or in a notebook, `train` with no
+  `logging_config` draws a progress bar (tqdm) under its lines, with the
+  rate and the time left, which the lines then leave out. It moves each
+  time a chunk of training has trained, about a hundred times a call; in a
+  log file or CI nothing is drawn and the lines are as before. APG's lines
+  keep the time left: it trains in one program, with no chunks to report.
+- **`LoggingConfig(on_progress=...)`**, the bar's hook: a function called
+  with each seed's fraction done as training goes on.
+
 ## 0.6.0
 
 What a user of 0.5.0 meets:

@@ -11,7 +11,12 @@ import pytest
 from flax import struct
 
 from ajax.agents.base import ActorCritic, shared_counters
-from ajax.perf_utils import build_chunked_train, build_resumable_train, final_aux_scan
+from ajax.perf_utils import (
+    build_chunked_train,
+    build_resumable_train,
+    final_aux_scan,
+    progress_ends,
+)
 
 # ---------------------------------------------------------------------------
 # Resume offset
@@ -295,7 +300,7 @@ def test_builders_without_a_shared_input_are_unchanged():
 # is ten times the tick, so every expected value below is worked out by hand.
 
 
-def make_chunked_toy(num_updates, every=3):
+def make_chunked_toy(num_updates, every=3, progress=None):
     def init_fn(key, index):
         del key, index
         return {"sum": jnp.zeros((), jnp.int32)}
@@ -321,6 +326,7 @@ def make_chunked_toy(num_updates, every=3):
         due=lambda ticks: (ticks + 1) % every == 0,
         num_updates=num_updates,
         carry_out=carry_out,
+        progress=progress,
     )
 
 
@@ -338,6 +344,79 @@ def test_chunks_evaluate_after_each_due_tick_on_that_ticks_state():
     np.testing.assert_array_equal(rows, [expected, expected])
     np.testing.assert_array_equal(count, [2, 2])
     np.testing.assert_array_equal(state["sum"], [28, 28])  # 0+1+...+7
+
+
+# Contract of ``progress`` (build_chunked_train's docstring): it is called
+# after each chunk has trained, per member, with the fraction of the call's
+# ticks done, 1.0 after the last; the chunks end about PROGRESS_CHUNKS times a
+# call (every tick in a call shorter than that), and the ticks, evaluations
+# and states are those of the run without it.
+
+
+def test_a_run_reporting_progress_runs_and_evaluates_as_one_without_it():
+    """Catches finer chunks that skip or repeat a tick, or move an
+    evaluation off its tick: the rows and sums would differ from the run
+    without progress (test_chunks_evaluate_after_each_due_tick_...)."""
+    reports = []
+    train = make_chunked_toy(8, progress=lambda *report: reports.append(report))
+    state, (rows, count) = jax.vmap(train)(
+        jax.random.split(jax.random.PRNGKey(0), 2), jnp.arange(2)
+    )
+    jax.effects_barrier()
+    expected = [[2, 3, 20], [5, 15, 50], [-1, -1, -1], [-1, -1, -1]]
+    np.testing.assert_array_equal(rows, [expected, expected])
+    np.testing.assert_array_equal(count, [2, 2])
+    np.testing.assert_array_equal(state["sum"], [28, 28])
+    # 8 ticks, under the hundred chunks a call aims for: one chunk per tick,
+    # each member's fraction done after it.
+    for member in (0, 1):
+        done = [d for d, index in reports if index == member]
+        assert done == [tick / 8 for tick in range(1, 9)]
+
+
+def test_a_resumed_run_reports_the_fraction_of_its_own_call():
+    """Catches a fraction counted from tick 0 on a resume: after ticks 4..8
+    of a call resumed at tick 4, it would pass 1 before the call ends."""
+    reports = []
+    train = make_chunked_toy(5, progress=lambda *report: reports.append(report))
+    train(
+        jax.random.PRNGKey(0),
+        initial_state={"sum": jnp.int32(6)},
+        resume_from_state=True,
+        iteration_offset=jnp.int32(4),
+    )
+    jax.effects_barrier()
+    assert reports == [(tick / 5, None) for tick in range(1, 6)]
+
+
+@pytest.mark.parametrize(
+    "first, spans, chunks, cut",
+    [
+        # 1M steps of 2,048-step rollouts, evaluated every 49 (100,352
+        # steps): 9 spans of 49 and a tail of 47. A hundredth is 4.88
+        # rollouts; 49's nearest divisor is 7, and the tail is 6 x 7 + 5.
+        (0, [49] * 9 + [47], 100, [7] * 63 + [7] * 6 + [5]),
+        # 1M steps on 10 envs, evaluated every 10,000 ticks: pieces of 1,000.
+        (0, [10_000] * 10, 100, [1_000] * 100),
+        # A prime span has no divisor within a quarter of a hundredth of the
+        # call (9.7): the ends stay, where single ticks would make 970
+        # chunks of a tick each.
+        (0, [97] * 10, 100, [97] * 10),
+        # A resumed call of 22 ticks from tick 3, in about 5 chunks of 4.4:
+        # the spans of 8 cut into 4s, the shorter first one into 4 + 2.
+        (3, [6, 8, 8], 5, [4, 2, 4, 4, 4, 4]),
+    ],
+)
+def test_finer_chunk_ends_keep_every_end_and_compile_no_more_lengths(
+    first, spans, chunks, cut
+):
+    """Catches a cut that drops an evaluation's end, or one that adds chunk
+    lengths, each a compilation more than a run without progress makes."""
+    ends = (first - 1 + np.cumsum(spans)).tolist()
+    finer = progress_ends(first, ends, chunks)
+    np.testing.assert_array_equal(np.diff([first - 1, *finer]), cut)
+    assert set(ends) <= set(finer)
+    assert len(set(cut)) <= len(set(spans))
 
 
 def test_a_resumed_chunked_run_evaluates_on_absolute_ticks():

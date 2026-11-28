@@ -37,7 +37,7 @@ from ajax.extensions.base import (
     check_extensions,
 )
 from ajax.extensions.capabilities import NotWired, run_capabilities
-from ajax.logging.progress import finished, run_logging
+from ajax.logging.progress import finished, run_logging, stopped
 from ajax.logging.wandb_logging import (
     LoggingConfig,
     init_logging,
@@ -1042,16 +1042,21 @@ class ActorCritic:
                 offset_kwargs,
             )
 
-        if in_python:
-            result = _seed_by_seed(partial(run, values={}), keys, index)
-        else:
-            result = train_on_devices(train_members, batched, devices)
-        # Block until all XLA computation and debug.callbacks complete, then
-        # drain and stop the logging worker.  Calling stop_async_logging()
-        # inside the vmapped function was wrong: it ran as a Python side effect
-        # during vmap *tracing* (before any training executed), killing the
-        # worker before any log events were queued.
-        jax.block_until_ready(result)
+        try:
+            if in_python:
+                result = _seed_by_seed(partial(run, values={}), keys, index)
+            else:
+                result = train_on_devices(train_members, batched, devices)
+            # Block until all XLA computation and debug.callbacks complete,
+            # then drain and stop the logging worker.  Calling
+            # stop_async_logging() inside the vmapped function was wrong: it
+            # ran as a Python side effect during vmap *tracing* (before any
+            # training executed), killing the worker before any log events
+            # were queued.
+            jax.block_until_ready(result)
+        except BaseException:
+            stopped(printer)
+            raise
         stop_async_logging()
         return finished(result, printer)
 

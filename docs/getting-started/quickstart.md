@@ -23,16 +23,19 @@ agent = PPO("CartPole-v1", n_envs=8, n_steps=128)
 state, evaluations = agent.train(seed=[1, 2, 3], n_timesteps=40_960)
 ```
 
-It prints a line when it starts, one per evaluation and one at the end:
+It prints a line when it starts, one per evaluation and one at the end, and
+on a terminal or in a notebook a progress bar under the lines, which ends
+like this:
 
 ```text
 PPO, 3 run(s) of 40,960 steps: compiling, then a line per evaluation (pass logging_config=None for a silent run with none).
-      4,096 / 40,960 steps | return 96.1 (min 86.1, max 113.0 over 3 seeds) | 3.0 s
-      8,192 / 40,960 steps | return 361.9 (min 263.1, max 487.2 over 3 seeds) | 3.7 s, about 6 s left
-     12,288 / 40,960 steps | return 366.1 (min 222.0, max 500.0 over 3 seeds) | 4.0 s, about 2 s left
+      4,096 / 40,960 steps | return 96.1 (min 86.1, max 113.0 over 3 seeds) | 5.5 s
+      8,192 / 40,960 steps | return 361.9 (min 263.1, max 487.2 over 3 seeds) | 5.9 s
+     12,288 / 40,960 steps | return 366.1 (min 222.0, max 500.0 over 3 seeds) | 6.2 s
 ...
-     40,960 / 40,960 steps | return 437.0 (min 311.1, max 500.0 over 3 seeds) | 6.1 s
-Done in 6.1 s. evaluations.returns has a row per seed and a column per evaluation: shape (3, 10).
+     40,960 / 40,960 steps | return 437.7 (min 313.2, max 500.0 over 3 seeds) | 7.9 s
+PPO: 100%|██████████████████████████████████████| 41.0k/41.0k [00:04<00:00, 9.31k steps/s]
+Done in 7.9 s. evaluations.returns has a row per seed and a column per evaluation: shape (3, 10).
 ```
 
 What happened:
@@ -45,8 +48,12 @@ What happened:
   seeds side by side. The first line's time includes the compilation.
 - Ten times over the run, it evaluated each seed's policy on 10 test
   episodes (`num_episode_test`) and printed their mean return, with the
-  lowest and highest seed. From the second evaluation on, a line ends with
-  the time left.
+  lowest and highest seed.
+- The bar moved each time a part of the training ended, between the
+  evaluations too, with the steps per second and the time left. It appears
+  once the first part has trained, so its clock leaves out the compilation.
+  In a log file or CI, where no bar is drawn, the lines end with the time
+  left from the second evaluation on.
 
 ## Read the results
 

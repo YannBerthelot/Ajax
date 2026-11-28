@@ -26,7 +26,10 @@ program again, and compiles it unless the persistent cache holds it.
 and compiling (:func:`compile_spans`). ``--compare`` judges
 ``exec_steps_per_s`` when both files have it, else ``steps_per_s``.
 ``--n-seeds N`` trains N seeds at once, the vmapped program experiments
-run; steps/s then count every seed's steps.
+run; steps/s then count every seed's steps. ``--logging default`` times
+train's default run, ten evaluations between chunks of training, as off a
+terminal; ``--logging bar`` the same with the progress bar's reports, as on
+a terminal (LoggingConfig.on_progress, which ends chunks more often).
 """
 
 from __future__ import annotations
@@ -255,6 +258,23 @@ def covered_seconds(spans: list[tuple[float, float]]) -> float:
     return total
 
 
+def _logging_config(logging: str, agent, timesteps: int):
+    """The measured runs' logging_config: None, or train's default (about ten
+    evaluations, no backend) without its printed lines, and with the
+    progress bar's reports for ``bar``."""
+    if logging == "none":
+        return None
+    from ajax.logging import LoggingConfig
+    from ajax.logging.progress import default_log_frequency
+
+    frequency = default_log_frequency(timesteps, agent.smallest_evaluation_spacing())
+    if logging == "default":
+        return LoggingConfig(log_frequency=frequency, backends=())
+    return LoggingConfig(
+        log_frequency=frequency, backends=(), on_progress=lambda *_: None
+    )
+
+
 def _time_agent(
     name: str,
     env_id: str,
@@ -265,6 +285,7 @@ def _time_agent(
     warmup: int,
     timesteps: int,
     trials: int,
+    logging: str = "none",
 ) -> list[dict]:
     """Warm the JIT cache, then time `trials` measured runs of `timesteps`,
     each training `n_seeds` seeds at once (one vmapped program)."""
@@ -274,7 +295,9 @@ def _time_agent(
     t0 = time.perf_counter()
     agent = _build(name, env_id, kw, n_envs)
     out = agent.train(
-        seed=list(range(n_seeds)), n_timesteps=warmup, logging_config=None
+        seed=list(range(n_seeds)),
+        n_timesteps=warmup,
+        logging_config=_logging_config(logging, agent, warmup),
     )
     jax.block_until_ready(out)
     compile_s = time.perf_counter() - t0
@@ -287,7 +310,8 @@ def _time_agent(
         spans.clear()
         t0 = time.perf_counter()
         seeds = [1 + trial * n_seeds + i for i in range(n_seeds)]
-        out = agent.train(seed=seeds, n_timesteps=timesteps, logging_config=None)
+        config = _logging_config(logging, agent, timesteps)
+        out = agent.train(seed=seeds, n_timesteps=timesteps, logging_config=config)
         jax.block_until_ready(out)
         measured_s = time.perf_counter() - t0
         exec_s = measured_s - covered_seconds(spans)
@@ -305,6 +329,7 @@ def _time_agent(
                 "steps_per_s": round(env_steps / measured_s, 1),
                 "exec_s": round(exec_s, 3),
                 "exec_steps_per_s": round(env_steps / exec_s, 1),
+                "logging": logging,
             }
         )
         del agent, out
@@ -322,6 +347,7 @@ def capture(
     timesteps: int,
     trials: int,
     only: list[str] | None,
+    logging: str = "none",
 ) -> None:
     import jax
 
@@ -347,6 +373,7 @@ def capture(
                 warmup=warmup,
                 timesteps=timesteps,
                 trials=trials,
+                logging=logging,
             )
         except Exception as exc:  # - one agent must not abort all
             print(
@@ -444,6 +471,13 @@ def main(argv: list[str] | None = None) -> None:
         "--only", nargs="*", default=None, help="benchmark only these agents"
     )
     ap.add_argument(
+        "--logging",
+        choices=("none", "default", "bar"),
+        default="none",
+        help="none: logging_config=None (the baseline); default: train's"
+        " evaluations between chunks; bar: with the progress bar's reports",
+    )
+    ap.add_argument(
         "--compare",
         nargs=2,
         metavar=("BASELINE", "NEW"),
@@ -471,6 +505,7 @@ def main(argv: list[str] | None = None) -> None:
         timesteps=args.timesteps,
         trials=args.trials,
         only=args.only,
+        logging=args.logging,
     )
 
 

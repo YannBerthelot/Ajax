@@ -5,13 +5,21 @@ written once so a fix lands in one place instead of in every agent's
 ``train_*.py``.
 """
 
+import math
 import warnings
+from collections import Counter
+from collections.abc import Sequence
 from functools import partial
-from typing import Any, Callable, Tuple
+from typing import Any, Callable, Optional, Tuple
 
 import jax
 import jax.numpy as jnp
 import numpy as np
+
+#: About how many chunks a run reporting its progress is cut into
+#: (build_chunked_train's progress): a bar that moves every hundredth of the
+#: run, each chunk long enough that its dispatch costs nothing beside it.
+PROGRESS_CHUNKS = 100
 
 
 def start_state(
@@ -157,6 +165,7 @@ def build_chunked_train(
     num_updates: int,
     carry_out: Callable[[Any, Any], Any],
     resume_transform: Callable[[Any, Any], Any] | None = None,
+    progress: Optional[Callable[[float, Any], None]] = None,
 ) -> Callable:
     """:func:`build_resumable_train`'s train with the evaluations between
     chunks of ticks, as Brax trains: the ticks up to the next one that
@@ -176,6 +185,12 @@ def build_chunked_train(
     are one or two when the evaluations come every so many ticks or steps.
     The start, every chunk and every evaluation take the state by donation,
     so a run updates one copy of it in place.
+
+    ``progress(done, index)``, when given, is called in the training process
+    each time a chunk has trained on the device, with the fraction of the
+    call's ticks done (1.0 after the last) and the member's ``index``. The
+    chunks then end about :data:`PROGRESS_CHUNKS` times a call
+    (:func:`progress_ends`), and the run compiles no more chunk lengths.
 
     The train function has build_resumable_train's signature but ``shared``,
     and returns ``(agent_state, out)``. It is a Python loop over jitted
@@ -208,6 +223,7 @@ def build_chunked_train(
     # which without donation is a copy of all of it, replay included
     # (DreamerV3's replay in host memory ran out of its 64 GB pool there).
     log = jax.jit(log_fn, donate_argnums=(0, 2))
+    report = None if progress is None else progress_reporter(progress, num_updates)
 
     def train(
         key: Any,
@@ -220,9 +236,11 @@ def build_chunked_train(
         ticks = np.arange(first, first + num_updates)
         evaluates = set(ticks[np.asarray(due(ticks), dtype=bool)].tolist())
         agent_state, out = start(key, index, initial_state, resume_from_state)
-        ends = evaluates.union(ticks[-1:].tolist())
+        ends = sorted(evaluates.union(ticks[-1:].tolist()))
+        if report is not None:
+            ends = progress_ends(first, ends, PROGRESS_CHUNKS)
         begin = first
-        for end in sorted(ends):
+        for end in ends:
             with warnings.catch_warnings():
                 # A leaf a chunk or an evaluation leaves as it was (the
                 # parameters before the first update) is passed through, not
@@ -231,12 +249,67 @@ def build_chunked_train(
                     "ignore", message="Some donated buffers were not usable"
                 )
                 agent_state, aux = chunk(agent_state, index, begin, end - begin + 1)
+                if report is not None:
+                    smallest = min(jax.tree.leaves(agent_state), key=np.size)
+                    report(smallest, end - first + 1, index)
                 if end in evaluates:
                     agent_state, out = log(agent_state, aux, out, index, end)
             begin = end + 1
         return agent_state, out
 
     return train
+
+
+def progress_reporter(
+    progress: Callable[[float, Any], None], num_updates: int
+) -> Callable[[Any, Any, Any], None]:
+    """``report(after, done, index)``, a jitted program that calls
+    ``progress(done / num_updates, index)`` in the training process once
+    ``after`` is computed: given a leaf of the state a chunk returns, it runs
+    when the chunk has trained, where the Python loop, which dispatches every
+    chunk ahead, would report it at once. Under the seed vmap it calls
+    ``progress`` once per member."""
+
+    def reported(done: Any, index: Any) -> None:
+        progress(int(done) / num_updates, None if index is None else int(index))
+
+    @partial(jax.jit, keep_unused=True)
+    def report(after: Any, done: Any, index: Any) -> None:
+        del after  # an input only: the program waits for it
+        jax.debug.callback(reported, done, index)
+
+    return report
+
+
+def progress_ends(first: int, ends: Sequence[int], chunks: int) -> list[int]:
+    """``ends``, the sorted last ticks of a call's chunks from tick
+    ``first``, with each span between two cut into pieces of one length,
+    about the call's ticks / ``chunks``: a divisor of the commonest span, so
+    those spans cut evenly and any other keeps its remainder as its last
+    piece. The run then compiles no more chunk lengths than it did. Without
+    a divisor near that length (a prime span), the ends stay as they were."""
+    spans = np.diff([first - 1, *ends]).tolist()
+    count = Counter(spans)
+    common = max(count, key=lambda span: (count[span], span))
+    piece = nearest_divisor(common, (ends[-1] - first + 1) / chunks)
+    finer: list[int] = []
+    begin = first
+    for end in ends:
+        finer.extend(range(begin + piece - 1, end, piece))
+        finer.append(end)
+        begin = end + 1
+    return finer
+
+
+def nearest_divisor(n: int, target: float) -> int:
+    """The divisor of ``n`` nearest ``target`` by ratio, the larger on a tie,
+    among those of at least a quarter of it, so a call cuts into at most
+    about four times the chunks it aims for; ``n`` when none is."""
+    small = [d for d in range(1, math.isqrt(n) + 1) if n % d == 0]
+    divisors = [d for d in small + [n // d for d in small] if d >= target / 4]
+    if not divisors:
+        return n
+    return min(divisors, key=lambda d: (abs(math.log(d / target)), -d))
 
 
 def final_aux_scan(

@@ -405,7 +405,8 @@ What `train` returns follows from the logging config:
   rebuild the evaluation environment), and `train` returns `(state, None)`.
   APG returns its per-update metrics in place of `None`.
 - **Not given:** `train` makes a `LoggingConfig` of its own: about ten
-  evaluations, no backend, and a `ProgressPrinter` as `on_evaluation`
+  evaluations, no backend, a `ProgressPrinter` as `on_evaluation` and, on a
+  terminal or in a notebook, a `ProgressBar` (tqdm) as `on_progress`
   ([`logging/progress.py`](../../src/ajax/logging/progress.py)).
 - **A `LoggingConfig`:** the run evaluates whether or not a backend records
   it, and returns `(state, evaluations)`: every logged key's values per seed
@@ -424,6 +425,17 @@ the steps a tick takes, or the agent's `Evaluation.ticks`), so evaluations
 come on the same ticks and states as in one scan. Each chunk length compiles
 once: one or two lengths, two when `log_frequency` is not a multiple of an
 iteration's steps.
+
+With `on_progress` (train's progress bar) the chunks end about a hundred
+times a call (`perf_utils.progress_ends`): the spans between evaluations are
+cut into pieces of a divisor of the commonest span, the other spans keeping
+a remainder, so no more lengths compile; a prime span stays whole. After
+each chunk a small program of its own calls `on_progress`: it takes a leaf
+of the state the chunk returns, so it runs once the chunk has trained, while
+the Python loop dispatches every chunk ahead. A host callback inside the
+training step, reporting every step, cost 38-63% of the training speed on
+MuJoCo Warp. APG, which evaluates inside its one training program and returns every
+iteration's output, has no chunks to report: its lines keep the time left.
 
 With `LoggingConfig(evaluation_device=...)` the evaluation program keeps its
 gate and training metrics but leaves the policy's scores to an

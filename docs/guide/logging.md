@@ -29,6 +29,7 @@ logging = LoggingConfig(
 | `evaluate_last_fifth_only` | `False` | evaluate only in the last 20% of training, for hyperparameter searches that read the final scores |
 | `evaluation_device` | `None` | a JAX device to evaluate on while training goes on ([below](#evaluating-on-another-device)); `None`: training waits for each evaluation |
 | `on_evaluation` | `None` | a function called in the training process with each seed's evaluation, `on_evaluation(metrics, index)`, where `index` says which seed; within one evaluation the seeds' calls come in no fixed order |
+| `on_progress` | `None` | a function called in the training process as training goes on, `on_progress(done, index)`: the fraction of the call's training seed `index` has done, `1.0` at its end. Given, the training runs in about a hundred chunks a call instead of one per evaluation, and each chunk calls it once it has trained; `train`'s own progress bar is one |
 | `sweep` | `False` | deprecated: the earlier name of `evaluate_last_fifth_only`, which warns when set. It is not `train(sweep=...)` |
 | `use_wandb`, `use_tensorboard` | not set | deprecated: the earlier way to name backends. Set, they warn and name W&B (on unless set `False`) and TensorBoard (off unless set `True`), as before; setting one together with `backends` is refused |
 | `project_name`, `group_name` | `None` | with the deprecated flags: the W&B project and group |

@@ -1,12 +1,14 @@
 """What a train call shows and returns: without a logging configuration of
 its own, a line per evaluation, printed in the training process
-(:class:`ProgressPrinter`), and the evaluations by name
+(:class:`ProgressPrinter`), under it a progress bar on a terminal or in a
+notebook (:class:`ProgressBar`), and the evaluations by name
 (:class:`Evaluations`); with one, the line it starts with, saying where it
 logs."""
 
 from __future__ import annotations
 
 import os
+import sys
 import threading
 import time
 from collections.abc import Mapping, Sequence
@@ -107,12 +109,97 @@ def summary(scores: Sequence[float], unit: str) -> str:
     return text
 
 
+def bar_class() -> Any:
+    """tqdm.auto's bar: a widget in a Jupyter notebook with ipywidgets, else
+    text. Imported when a call draws one: in a notebook without ipywidgets,
+    tqdm warns at import that it draws none."""
+    from tqdm.auto import tqdm
+
+    return tqdm
+
+
+def draws_bars() -> bool:
+    """Whether a bar shows here, as tqdm draws one: in a notebook, or when
+    standard error is a terminal; not in a log file or CI, where a default
+    run prints its lines alone."""
+    notebook = any(cls.__module__ == "tqdm.notebook" for cls in bar_class().__mro__)
+    isatty = getattr(sys.stderr, "isatty", None)
+    return notebook or bool(isatty is not None and isatty())
+
+
+class ProgressBar:
+    """A train call's progress bar (tqdm): the steps trained, their rate and
+    the time left. It moves each time a chunk of training has trained
+    (``LoggingConfig.on_progress``: called with each member's fraction done)
+    and appears once every member has trained its first chunk, so the
+    compilation is not in its rate. ``together``: the members train side by
+    side and the bar stands at the slowest one; else one after another, and
+    it counts all their steps. ``make`` builds the tqdm bar."""
+
+    def __init__(
+        self,
+        name: str,
+        n_timesteps: int,
+        members: int,
+        together: bool = True,
+        make: Optional[Callable[..., Any]] = None,
+    ) -> None:
+        self.name, self.n_timesteps = name, int(n_timesteps)
+        self.members, self.together = members, together
+        self.make = make
+        self.done: dict[int, float] = {}
+        self.bar: Any = None
+        self.lock = threading.Lock()
+
+    @property
+    def drawn(self) -> bool:
+        """Whether the bar is on the screen, giving the time left."""
+        return self.bar is not None and not self.bar.disable
+
+    def __call__(self, done: float, index: Optional[int]) -> None:
+        with self.lock:
+            member = 0 if index is None else index
+            self.done[member] = max(done, self.done.get(member, 0.0))
+            if self.together and len(self.done) < self.members:
+                return
+            if self.together:
+                total = self.n_timesteps
+                steps = round(min(self.done.values()) * total)
+            else:
+                total = self.members * self.n_timesteps
+                steps = round(sum(self.done.values()) * self.n_timesteps)
+            if self.bar is None:
+                make = self.make or bar_class()
+                # Every report redrawn: they come about a hundred times a call.
+                self.bar = make(
+                    total=total,
+                    initial=steps,
+                    desc=self.name,
+                    unit=" steps",
+                    unit_scale=True,
+                    mininterval=0,
+                    miniters=1,
+                )
+            elif steps > self.bar.n:
+                self.bar.update(steps - self.bar.n)
+
+    def write(self, line: str) -> None:
+        """Print ``line`` above the bar, which tqdm then draws again."""
+        bar_class().write(line)
+
+    def close(self) -> None:
+        with self.lock:
+            if self.bar is not None:
+                self.bar.close()
+
+
 class ProgressPrinter:
     """Prints a run's progress: a first line when training starts, one per
     evaluation, one at the end. From a run's second evaluation, a line ends
     with the call's time left, at the pace of the last interval between two
     evaluations: the first one's time holds the compilation, and the one
-    after it can hold a second.
+    after it can hold a second. With a ``bar``, the lines print above it,
+    and while it is drawn they leave it the time left.
 
     It is called in the training process with each member's metrics at each
     evaluation (``LoggingConfig.on_evaluation``). ``together``: the members
@@ -133,11 +220,13 @@ class ProgressPrinter:
         write: Callable[[str], None] = print,
         clock: Callable[[], float] = time.perf_counter,
         groups: Sequence[str] | None = None,
+        bar: Optional[ProgressBar] = None,
     ) -> None:
         self.title, self.labels = title, list(labels)
         self.groups = list(groups) if groups and len(set(groups)) > 1 else []
         self.end_timestep, self.together = int(end_timestep), together
-        self.write, self.clock = write, clock
+        self.write = write if bar is None else bar.write
+        self.clock, self.bar = clock, bar
         self.started = clock()
         self.waiting: dict[int, dict[int, float]] = {}
         self.lock = threading.Lock()
@@ -194,8 +283,10 @@ class ProgressPrinter:
             text += f" | {label}"
         text += f" | {elapsed:.1f} s"
         left = self.time_left(step, elapsed, label)
-        # Under a second left is no estimate worth a word.
-        if left is not None and round(left) >= 1:
+        # Under a second left is no estimate worth a word; a drawn bar gives
+        # its own.
+        bar_drawn = self.bar is not None and self.bar.drawn
+        if left is not None and round(left) >= 1 and not bar_drawn:
             text += f", about {describe_duration(left)} left"
         self.write(text)
         if len(self.groups) != len(scores):
@@ -207,6 +298,8 @@ class ProgressPrinter:
     def close(self, evaluations: Any = None) -> None:
         """The last line, with how the returned ``evaluations`` are laid
         out: every call prints it, since a single seed has its row too."""
+        if self.bar is not None:
+            self.bar.close()
         text = f"Done in {self.clock() - self.started:.1f} s."
         if isinstance(evaluations, Evaluations) and RETURN in evaluations:
             text += " " + evaluations.layout("run" if self.groups else "seed")
@@ -264,8 +357,9 @@ def run_logging(
     """train's ``logging_config`` as the call runs it, and the printer to
     close at its end (None unless the default prints): a LoggingConfig or
     None as given; ``"default"`` becomes about ten evaluations
-    (:func:`default_log_frequency`) with a started :class:`ProgressPrinter`
-    and no backend, or None for a call of
+    (:func:`default_log_frequency`) with a started :class:`ProgressPrinter`,
+    above a :class:`ProgressBar` where one shows (:func:`draws_bars`), and
+    no backend, or None for a call of
     no step (one that only builds the state). ``groups``: each member's
     configuration in a sweep, for the printer."""
     if not isinstance(logging_config, str):
@@ -291,28 +385,44 @@ def run_logging(
         )
     if n_timesteps < 1:
         return None, None
+    # Off a terminal, no bar: the chunks stay one per evaluation.
+    bar = None
+    if draws_bars():
+        bar = ProgressBar(agent_name, n_timesteps, len(seeds), together)
     printer = ProgressPrinter(
         run_title(agent_name, seeds, n_timesteps),
         [f"seed {seed}" for seed in seeds],
         end_timestep,
         together=together,
         groups=groups,
+        bar=bar,
     )
     printer.start()
     config = LoggingConfig(
         log_frequency=default_log_frequency(n_timesteps, iteration_steps),
         backends=(),
         on_evaluation=printer,
+        on_progress=bar,
     )
     return config, printer
 
 
 def finished(result: Any, printer: Any) -> Any:
-    """train's ``(state, out)`` at its end: the printer closed, a dict of
-    evaluations as :class:`Evaluations`."""
+    """train's ``(state, out)`` at its end: the printer closed once every
+    report of the training has come, a dict of evaluations as
+    :class:`Evaluations`."""
     state, out = result
     if isinstance(out, dict) and not isinstance(out, Evaluations):
         out = Evaluations(out)
     if printer is not None:
+        # The last chunk's report runs after the state it reads is ready.
+        jax.effects_barrier()
         printer.close(out)
     return state, out
+
+
+def stopped(printer: Any) -> None:
+    """Close the bar of a train call that raised (an interrupt, an error),
+    so what follows starts on a line of its own."""
+    if printer is not None and printer.bar is not None:
+        printer.bar.close()

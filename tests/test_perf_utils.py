@@ -11,7 +11,11 @@ import pytest
 from flax import struct
 
 from ajax.agents.base import ActorCritic, shared_counters
-from ajax.perf_utils import build_chunked_train, build_resumable_train, final_aux_scan
+from ajax.perf_utils import (
+    build_chunked_train,
+    build_resumable_train,
+    final_aux_scan,
+)
 
 # ---------------------------------------------------------------------------
 # Resume offset
@@ -295,7 +299,7 @@ def test_builders_without_a_shared_input_are_unchanged():
 # is ten times the tick, so every expected value below is worked out by hand.
 
 
-def make_chunked_toy(num_updates, every=3):
+def make_chunked_toy(num_updates, every=3, progress=None):
     def init_fn(key, index):
         del key, index
         return {"sum": jnp.zeros((), jnp.int32)}
@@ -321,6 +325,7 @@ def make_chunked_toy(num_updates, every=3):
         due=lambda ticks: (ticks + 1) % every == 0,
         num_updates=num_updates,
         carry_out=carry_out,
+        progress=progress,
     )
 
 
@@ -338,6 +343,81 @@ def test_chunks_evaluate_after_each_due_tick_on_that_ticks_state():
     np.testing.assert_array_equal(rows, [expected, expected])
     np.testing.assert_array_equal(count, [2, 2])
     np.testing.assert_array_equal(state["sum"], [28, 28])  # 0+1+...+7
+
+
+# Contract of ``progress`` (build_chunked_train's and reporting_chunk's
+# docstrings): it is called per member each time a piece of a chunk has
+# trained, with the fraction of the call's ticks done, 1.0 after the last. A
+# chunk's pieces are of one length, the divisor of its length nearest the
+# call's ticks / PROGRESS_REPORTS (100), at least a quarter of that, or the
+# whole chunk without one; the ticks, evaluations and states are those of the
+# run without it.
+
+
+def test_a_run_reporting_progress_runs_and_evaluates_as_one_without_it():
+    """Catches reporting ticks that skip or repeat a tick, or an evaluation
+    moved off its tick: the rows and sums would differ from the run without
+    progress (test_chunks_evaluate_after_each_due_tick_...)."""
+    reports = []
+    train = make_chunked_toy(8, progress=lambda *report: reports.append(report))
+    state, (rows, count) = jax.vmap(train)(
+        jax.random.split(jax.random.PRNGKey(0), 2), jnp.arange(2)
+    )
+    jax.effects_barrier()
+    expected = [[2, 3, 20], [5, 15, 50], [-1, -1, -1], [-1, -1, -1]]
+    np.testing.assert_array_equal(rows, [expected, expected])
+    np.testing.assert_array_equal(count, [2, 2])
+    np.testing.assert_array_equal(state["sum"], [28, 28])
+    # 8 ticks, under the hundred reports a call aims for: pieces of a tick,
+    # each member's fraction done after each.
+    for member in (0, 1):
+        done = [d for d, index in reports if index == member]
+        assert done == [tick / 8 for tick in range(1, 9)]
+
+
+def test_a_resumed_run_reports_the_fraction_of_its_own_call():
+    """Catches a fraction counted from tick 0 on a resume: after ticks 4..8
+    of a call resumed at tick 4, it would pass 1 before the call ends."""
+    reports = []
+    train = make_chunked_toy(5, progress=lambda *report: reports.append(report))
+    train(
+        jax.random.PRNGKey(0),
+        initial_state={"sum": jnp.int32(6)},
+        resume_from_state=True,
+        iteration_offset=jnp.int32(4),
+    )
+    jax.effects_barrier()
+    assert reports == [(tick / 5, None) for tick in range(1, 6)]
+
+
+@pytest.mark.parametrize(
+    "num_updates, every, done",
+    [
+        # 1M steps of 2,048-step rollouts, evaluated every 49 (100,352
+        # steps): 9 chunks of 49 and a last of 47. A hundredth of the call is
+        # 4.88 ticks; 49's nearest divisor is 7, and 47, a prime, reports at
+        # its end only.
+        (488, 49, [7 * k for k in range(1, 64)] + [488]),
+        # Evaluated every 100 ticks of 1,000: a report every 10.
+        (1_000, 100, [10 * k for k in range(1, 101)]),
+        # Chunks of 97, a prime with no divisor within a quarter of a
+        # hundredth of the call (9.7): a report at each chunk's end, where
+        # pieces of a tick would make 970.
+        (970, 97, [97 * k for k in range(1, 11)]),
+    ],
+)
+def test_a_chunk_reports_after_each_piece_of_its_ticks(num_updates, every, done):
+    """Catches reports at the chunks' ends only (the bar would wait for each
+    evaluation), pieces of a tick in a chunk with no divisor near a hundredth
+    of the call (a report per tick), reports at the pieces' first ticks
+    instead of their last, and a tick skipped or repeated (the sum would
+    differ)."""
+    reports = []
+    train = make_chunked_toy(num_updates, every, lambda *r: reports.append(r))
+    state, _ = train(jax.random.PRNGKey(0))
+    jax.effects_barrier()
+    assert reports == [(ticks / num_updates, None) for ticks in done]
+    assert state["sum"] == num_updates * (num_updates - 1) // 2  # 0+1+...
 
 
 def test_a_resumed_chunked_run_evaluates_on_absolute_ticks():

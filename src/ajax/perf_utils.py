@@ -5,13 +5,18 @@ written once so a fix lands in one place instead of in every agent's
 ``train_*.py``.
 """
 
+import math
 import warnings
 from functools import partial
-from typing import Any, Callable, Tuple
+from typing import Any, Callable, Optional, Tuple
 
 import jax
 import jax.numpy as jnp
 import numpy as np
+
+#: About how many times a call reports its progress (build_chunked_train's
+#: progress): a bar that moves every hundredth of the run.
+PROGRESS_REPORTS = 100
 
 
 def start_state(
@@ -157,6 +162,7 @@ def build_chunked_train(
     num_updates: int,
     carry_out: Callable[[Any, Any], Any],
     resume_transform: Callable[[Any, Any], Any] | None = None,
+    progress: Optional[Callable[[float, Any], None]] = None,
 ) -> Callable:
     """:func:`build_resumable_train`'s train with the evaluations between
     chunks of ticks, as Brax trains: the ticks up to the next one that
@@ -176,6 +182,13 @@ def build_chunked_train(
     are one or two when the evaluations come every so many ticks or steps.
     The start, every chunk and every evaluation take the state by donation,
     so a run updates one copy of it in place.
+
+    ``progress(done, index)``, when given, is called in the training process
+    as training goes on, about :data:`PROGRESS_REPORTS` times a call, with
+    the fraction of the call's ticks done (1.0 after the last) and the
+    member's ``index``: each chunk reports from inside its program
+    (:func:`reporting_chunk`), so the chunks and the evaluations stay those
+    of the run without it.
 
     The train function has build_resumable_train's signature but ``shared``,
     and returns ``(agent_state, out)``. It is a Python loop over jitted
@@ -208,6 +221,9 @@ def build_chunked_train(
     # which without donation is a copy of all of it, replay included
     # (DreamerV3's replay in host memory ran out of its 64 GB pool there).
     log = jax.jit(log_fn, donate_argnums=(0, 2))
+    reporting = (
+        None if progress is None else reporting_chunk(tick_fn, progress, num_updates)
+    )
 
     def train(
         key: Any,
@@ -230,13 +246,96 @@ def build_chunked_train(
                 warnings.filterwarnings(
                     "ignore", message="Some donated buffers were not usable"
                 )
-                agent_state, aux = chunk(agent_state, index, begin, end - begin + 1)
+                if reporting is None:
+                    agent_state, aux = chunk(agent_state, index, begin, end - begin + 1)
+                else:
+                    agent_state, aux = reporting(
+                        agent_state, index, begin, end - begin + 1, first
+                    )
                 if end in evaluates:
                     agent_state, out = log(agent_state, aux, out, index, end)
             begin = end + 1
         return agent_state, out
 
     return train
+
+
+def reporting_chunk(
+    tick_fn: Callable[[Any, Any, Any], Tuple[Any, Any]],
+    progress: Callable[[float, Any], None],
+    num_updates: int,
+) -> Callable:
+    """build_chunked_train's chunk as ``chunk(agent_state, index, first_tick,
+    length, call_first)``, calling ``progress(done / num_updates, index)`` in
+    the training process each time a piece of its ticks has trained, with
+    ``done`` the call's ticks so far (from ``call_first``, its first tick).
+    The pieces are of one length, the divisor of the chunk's length nearest
+    the call's ticks / :data:`PROGRESS_REPORTS`, so about that many reports a
+    call; a chunk with no divisor near (a prime length) reports at its end.
+    Under the seed vmap it calls ``progress`` once per member.
+
+    The chunk is one scan of its ticks, as without reports, and a tick that
+    ends a piece inside it reports under a cond: in a loop's turn, so in
+    order, and up to a tick early (the cond reads the tick's count alone).
+    The chunk's end is reported by a program of its own that takes a leaf of
+    the state the chunk returns, so it runs once the chunk has trained: inside
+    the chunk that report would read no tick, and came first, at the chunk's
+    start, even behind an optimisation barrier over the state. More, shorter
+    chunks would report as well, but MuJoCo Warp captures its CUDA graphs
+    anew each time a program runs (two of about 65 ms on SAC Hopper): a
+    hundred chunks a call made SAC on Hopper about 20% slower. Pieces scanned
+    one by one inside the chunk, with a barrier or a callback between them,
+    changed SAC's and TD3's bits on CPU, and a barrier on every tick AVG's;
+    the cond does not."""
+
+    def reported(done: Any, index: Any) -> None:
+        progress(int(done) / num_updates, None if index is None else int(index))
+
+    @partial(jax.jit, static_argnames=("length",), donate_argnums=(0,))
+    def chunk(
+        agent_state: Any, index: Any, first_tick: Any, length: int, call_first: Any
+    ) -> Any:
+        piece = nearest_divisor(length, num_updates / PROGRESS_REPORTS)
+
+        def reporting_tick(state: Any, tick: Any) -> Tuple[Any, Any]:
+            state, aux = tick_fn(state, index, tick)
+            trained = tick - first_tick + 1
+            jax.lax.cond(
+                (trained % piece == 0) & (trained < length),
+                lambda done: jax.debug.callback(reported, done, index),
+                lambda _: None,
+                tick - call_first + 1,
+            )
+            return state, aux
+
+        ticks = first_tick + jnp.arange(length)
+        return final_aux_scan(reporting_tick, agent_state, length, ticks)
+
+    @partial(jax.jit, keep_unused=True)
+    def report_end(after: Any, done: Any, index: Any) -> None:
+        del after  # an input only: the program waits for it
+        jax.debug.callback(reported, done, index)
+
+    def reporting(
+        agent_state: Any, index: Any, first_tick: int, length: int, call_first: int
+    ) -> Any:
+        agent_state, aux = chunk(agent_state, index, first_tick, length, call_first)
+        smallest = min(jax.tree.leaves(agent_state), key=np.size)
+        report_end(smallest, first_tick + length - call_first, index)
+        return agent_state, aux
+
+    return reporting
+
+
+def nearest_divisor(n: int, target: float) -> int:
+    """The divisor of ``n`` nearest ``target`` by ratio, the larger on a tie,
+    among those of at least a quarter of it, so a chunk reports at most
+    about four times as often as it aims to; ``n`` when none is."""
+    small = [d for d in range(1, math.isqrt(n) + 1) if n % d == 0]
+    divisors = [d for d in small + [n // d for d in small] if d >= target / 4]
+    if not divisors:
+        return n
+    return min(divisors, key=lambda d: (abs(math.log(d / target)), -d))
 
 
 def final_aux_scan(

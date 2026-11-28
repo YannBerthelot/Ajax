@@ -382,6 +382,9 @@ class TrainLoop:
     #: (LoggingConfig.evaluation_device); None: each evaluation runs between
     #: chunks of training.
     evaluator: Optional[AsyncEvaluator] = None
+    #: Called as training goes on, about a hundred times a call
+    #: (LoggingConfig.on_progress, build_chunked_train).
+    progress: Optional[Callable[[float, Any], None]] = None
 
     @classmethod
     def create(
@@ -437,6 +440,7 @@ class TrainLoop:
                 logging_config is not None and logging_config.evaluate_last_fifth_only
             ),
             evaluator=evaluator,
+            progress=getattr(logging_config, "on_progress", None),
         )
 
     @property
@@ -855,6 +859,7 @@ class TrainLoop:
             num_updates=num_updates,
             carry_out=empty_rows,
             resume_transform=resume_transform,
+            progress=self.progress,
         )
 
         def train_with_evaluations(

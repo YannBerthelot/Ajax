@@ -92,6 +92,7 @@ For DQN, SB3's Huber loss is `td_loss_fn=compute_huber_1_td_loss`
 | `policy_kwargs=dict(net_arch=[64, 64])` | `actor_architecture=("64", "tanh", "64", "tanh")`, and `critic_architecture`: each width is followed by its activation | [Networks](../guide/networks.md) |
 | `learning_rate=3e-4` | `actor_learning_rate=3e-4, critic_learning_rate=3e-4`, one per network, and `alpha_learning_rate` for SAC's temperature; DQN, PQN and CrossQ take one `learning_rate` | [Algorithms](../algorithms/index.md) |
 | `EvalCallback(eval_env, eval_freq=...)` | nothing: `train` evaluates and returns the evaluations; `LoggingConfig(log_frequency=...)` sets how often | [Logging](../guide/logging.md) |
+| `model.learn(..., progress_bar=True)` | nothing: on a terminal or in a notebook, `train` draws a progress bar with the time left | [Quickstart](quickstart.md#train-an-agent) |
 | `evaluate_policy(model, env, n_eval_episodes=10)` | `agent.evaluate(state, episodes=10)`, one row of returns per seed | [Quickstart](quickstart.md#use-the-trained-policy) |
 | `tensorboard_log="runs"` | `LoggingConfig(backends=(TensorBoardBackend("runs"),))`, in a script under `if __name__ == "__main__":`; the viewer is `pip install tensorboard` | [Logging](../guide/logging.md#backends) |
 | `model.predict(obs, deterministic=True)` | `agent.predict(state, obs)`, or `agent.policy(state)` for a policy with memory | [Train, evaluate, deploy](../guide/deploy.md) |

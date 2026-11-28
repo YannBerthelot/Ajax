@@ -405,7 +405,8 @@ What `train` returns follows from the logging config:
   rebuild the evaluation environment), and `train` returns `(state, None)`.
   APG returns its per-update metrics in place of `None`.
 - **Not given:** `train` makes a `LoggingConfig` of its own: about ten
-  evaluations, no backend, and a `ProgressPrinter` as `on_evaluation`
+  evaluations, no backend, a `ProgressPrinter` as `on_evaluation` and, on a
+  terminal or in a notebook, a `ProgressBar` (tqdm) as `on_progress`
   ([`logging/progress.py`](../../src/ajax/logging/progress.py)).
 - **A `LoggingConfig`:** the run evaluates whether or not a backend records
   it, and returns `(state, evaluations)`: every logged key's values per seed
@@ -424,6 +425,28 @@ the steps a tick takes, or the agent's `Evaluation.ticks`), so evaluations
 come on the same ticks and states as in one scan. Each chunk length compiles
 once: one or two lengths, two when `log_frequency` is not a multiple of an
 iteration's steps.
+
+With `on_progress` (train's progress bar) each chunk reports from inside its
+program (`perf_utils.reporting_chunk`), about a hundred times a call. The
+chunk stays one scan of its ticks; a tick that ends a piece inside it, of one
+length per chunk (the divisor of its length nearest a hundredth of the call,
+or the whole chunk when it has none near, as a prime length), calls
+`on_progress` from a host callback under a cond, in its loop turn: in order,
+and up to a tick early, as the cond reads the tick's count alone. The chunk's
+end is reported by a small program of its own that takes a leaf of the state
+the chunk returns, so it runs once the chunk has trained. Inside the chunk
+that report would read no tick and came first, at the chunk's start, even
+behind an optimisation barrier over the state (SAC on bob's CPU, and on CI's
+aarch64 runner for chunks of two ticks). The chunks, their lengths and the
+evaluations stay those of a run without it, and on CPU so do the bits.
+Cutting the chunks finer instead would report as well, but MuJoCo Warp
+captures its CUDA graphs again each time a program runs (two of about 65 ms
+on SAC Hopper): with a hundred chunks a call, SAC on Hopper trained about 20%
+slower. Scanning the pieces one by one inside a chunk, with the callback or a
+barrier between them, changed SAC's and TD3's bits on CPU, and a barrier on
+every tick AVG's. A host callback inside the training step,
+reporting every step, cost 38-63% of the training speed on MuJoCo Warp. APG, which evaluates inside its one training program and returns every
+iteration's output, has no chunks to report: its lines keep the time left.
 
 With `LoggingConfig(evaluation_device=...)` the evaluation program keeps its
 gate and training metrics but leaves the policy's scores to an

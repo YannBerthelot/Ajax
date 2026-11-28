@@ -47,7 +47,8 @@ print(evaluations.returns)    # one row per seed, one column per evaluation
 print(agent.evaluate(state, episodes=20).mean(axis=1))  # each seed's score now
 ```
 
-`train` prints a line per evaluation, with the mean return over the seeds.
+`train` prints a line per evaluation, with the mean return over the seeds,
+and on a terminal or in a notebook a progress bar with the time left.
 The three seeds train together, in under a minute on a laptop CPU,
 compilation included.
 

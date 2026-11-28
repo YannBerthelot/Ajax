@@ -267,7 +267,7 @@ evaluations repeat none of the training's random draws.
 
 | `logging_config` | Evaluations | Printed | `out` |
 | --- | --- | --- | --- |
-| not given | about ten: every tenth of `n_timesteps`, rounded up to whole iterations | a line per evaluation: the mean return over the seeds, the lowest and highest, and from the second line the time left | the evaluations |
+| not given | about ten: every tenth of `n_timesteps`, rounded up to whole iterations | a line per evaluation: the mean return over the seeds, the lowest and highest; under them, on a terminal or in a notebook, a progress bar with the rate and the time left, else the time left at the end of each line from the second | the evaluations |
 | `None` | none, not even compiled into the program: the fastest run | nothing | `None` |
 | a `LoggingConfig` | every `log_frequency` steps, logged to its backends | one line at the start: how often it evaluates and where it logs | the evaluations |
 

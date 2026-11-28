@@ -20,13 +20,25 @@ Contract (docs/getting-started/quickstart.md, ``ActorCritic.train``,
     (their mean return and its range), once each member's has come;
   - ``agent.evaluate(state, episodes, seed)`` is the return of fresh
     episodes of each member's policy, members x episodes, the same for the
-    same seed, on a Gymnasium environment too.
+    same seed, on a Gymnasium environment too;
+  - on a terminal (or in a notebook), a default run also draws a progress
+    bar under its lines (tqdm), which moves as training goes on, between
+    the evaluations too, gives the time left, which the lines
+    then leave out, and ends at the call's steps; members trained side by
+    side move it at the slowest one's pace, members trained one after
+    another add their steps; off a terminal nothing is drawn (owner,
+    2026-11-27: "Time left now, tqdm later").
 """
+
+import io
+import re
+from functools import partial
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
+from tqdm import tqdm
 
 from ajax import PPO
 from ajax.agents.sweep import by_configuration
@@ -34,13 +46,29 @@ from ajax.evaluate import policy_returns
 from ajax.logging import LoggingConfig, TensorBoardBackend
 from ajax.logging.progress import (
     Evaluations,
+    ProgressBar,
     ProgressPrinter,
     default_log_frequency,
     describe_duration,
+    draws_bars,
     run_logging,
+    stopped,
 )
 
 RETURN = "Eval/episodic mean reward"
+
+
+class FakeTerminal(io.StringIO):
+    """Standard error as a terminal: tqdm draws its bars there."""
+
+    def isatty(self) -> bool:
+        return True
+
+
+def drawn_steps(terminal: FakeTerminal) -> list[tuple[float, float]]:
+    """The (steps, total) of each bar tqdm drew on ``terminal``."""
+    found = re.findall(r"\| ([\d.]+)/([\d.]+) \[", terminal.getvalue())
+    return [(float(steps), float(total)) for steps, total in found]
 
 
 @pytest.mark.parametrize(
@@ -386,3 +414,98 @@ def test_a_sweeps_closing_line_counts_runs():
     assert lines[-1].endswith(
         "a row per run and a column per evaluation: shape (2, 4)."
     )
+
+
+def test_a_default_run_on_a_terminal_draws_a_bar_moving_between_evaluations(
+    capsys, monkeypatch
+):
+    """Catches a bar that moves only at the evaluations (reports at the
+    chunks' ends alone), one that stops short of the call's steps, or one
+    drawn without the time left. 192 steps are 12 rollouts of 16; a tenth,
+    19.2 steps, rounds up to 2 rollouts between evaluations; a hundredth is
+    under a rollout, so a bar moving after each piece stands at odd rollouts
+    too."""
+    terminal = FakeTerminal()
+    monkeypatch.setattr("sys.stderr", terminal)
+    _, evaluations = tiny_ppo().train(seed=[0, 1], n_timesteps=192)
+    np.testing.assert_array_equal(evaluations.timesteps, np.arange(32, 193, 32))
+    steps = [drawn for drawn, total in drawn_steps(terminal) if total == 192]
+    assert steps[-1] == 192
+    assert steps == sorted(steps)
+    assert any(step % 32 for step in steps)  # between two evaluations
+    assert re.search(r"<\d\d:\d\d", terminal.getvalue())  # the time left
+    printed = capsys.readouterr().out.splitlines()
+    assert len(printed) == 8  # the first line, six evaluations, the last
+    assert printed[-1].startswith("Done in ")
+
+
+def test_a_default_run_off_a_terminal_draws_no_bar(capsys):
+    """Catches a bar drawn into a log file or CI's output, where each redraw
+    piles up on one line: there the lines are all a run prints."""
+    tiny_ppo().train(seed=0, n_timesteps=32)
+    captured = capsys.readouterr()
+    assert "%|" not in captured.err + captured.out
+    assert len(captured.out.splitlines()) == 4
+
+
+def test_a_bar_is_decided_on_on_a_terminal_only(monkeypatch):
+    """Catches a bar decided on where none shows (a log file, CI): the run
+    would report from its programs for nothing; and one never decided on."""
+    monkeypatch.setattr("sys.stderr", io.StringIO())
+    assert not draws_bars()
+    monkeypatch.setattr("sys.stderr", FakeTerminal())
+    assert draws_bars()
+
+
+def test_lines_leave_the_time_left_to_a_drawn_bar(capsys):
+    """Catches two estimates of the time left on the screen at once: the
+    bar's and the line's (without a bar, the second line ends ", about 4 s
+    left": test_a_line_after_a_runs_first_evaluation_gives_the_time_left)."""
+    terminal = FakeTerminal()
+    bar = ProgressBar("PPO", 400, 1, make=partial(tqdm, file=terminal))
+    now = [0.0]
+    printer = ProgressPrinter("PPO", ["seed 0"], 400, clock=lambda: now[0], bar=bar)
+    for step, elapsed in [(100, 5.0), (200, 7.0)]:
+        bar(step / 400, 0)  # the report on an evaluation's tick comes first
+        now[0] = elapsed
+        printer({"timestep": np.array(step), RETURN: np.array(1.0)}, 0)
+    assert capsys.readouterr().out.splitlines() == [
+        "        100 / 400 steps | return 1.0 | 5.0 s",
+        "        200 / 400 steps | return 1.0 | 7.0 s",
+    ]
+    assert drawn_steps(terminal)[-1] == (200, 400)
+
+
+def test_members_trained_together_move_the_bar_at_the_slowest_ones_pace():
+    """Catches a bar that runs ahead of a member still training (on another
+    device): it appears once both have reported, at the slower one."""
+    terminal = FakeTerminal()
+    bar = ProgressBar("SAC", 100, 2, make=partial(tqdm, file=terminal))
+    bar(0.5, 0)
+    assert drawn_steps(terminal) == []  # member 1 has trained nothing yet
+    bar(0.25, 1)
+    bar(0.75, 0)
+    bar(0.5, 1)
+    assert [drawn for drawn, _ in drawn_steps(terminal)] == [25, 50]
+
+
+def test_members_trained_one_after_another_add_their_steps_on_the_bar():
+    """Catches a bar standing at the slowest member when the members train
+    one after another (a Gymnasium environment): it would show nothing done
+    until the last one starts. Two runs of 100 steps: 200 in all."""
+    terminal = FakeTerminal()
+    bar = ProgressBar("PPO", 100, 2, together=False, make=partial(tqdm, file=terminal))
+    for done, member in [(0.5, 0), (1.0, 0), (0.5, 1)]:
+        bar(done, member)
+    assert drawn_steps(terminal) == [(50, 200), (100, 200), (150, 200)]
+
+
+def test_an_interrupted_run_closes_its_bar():
+    """Catches a bar left open by an interrupted call: the traceback that
+    follows would start on the bar's line."""
+    terminal = FakeTerminal()
+    bar = ProgressBar("PPO", 100, 1, make=partial(tqdm, file=terminal))
+    printer = ProgressPrinter("PPO", ["seed 0"], 100, bar=bar)
+    bar(0.3, 0)
+    stopped(printer)
+    assert terminal.getvalue().endswith("\n")

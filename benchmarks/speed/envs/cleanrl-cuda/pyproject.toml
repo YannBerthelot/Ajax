@@ -1,0 +1,21 @@
+# CleanRL's scripts on a GPU for the speed comparison (../../README.md):
+# ../cleanrl with torch's and JAX's CUDA builds. Its own project, so the CPU
+# records keep the lock they ran with.
+[project]
+name = "speed-cleanrl-cuda"
+version = "0"
+requires-python = "==3.12.*"
+dependencies = [
+    "gymnasium[mujoco]==0.29.1",
+    "mujoco==3.15.0",
+    "stable-baselines3==2.9.2",
+    "torch==2.15.0",
+    "jax[cuda]==0.11.2",
+    "flax==0.12.12",
+    "optax==0.2.9",
+    "tyro==1.0.17",
+    "tensorboard==2.21.0",
+]
+
+[tool.uv]
+package = false

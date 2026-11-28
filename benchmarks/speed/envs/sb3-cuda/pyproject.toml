@@ -1,0 +1,16 @@
+# Stable-Baselines3 on a GPU for the speed comparison (../../README.md):
+# ../sb3 with torch's CUDA build from PyPI. Its own project, so the CPU
+# records keep the lock they ran with.
+[project]
+name = "speed-sb3-cuda"
+version = "0"
+requires-python = "==3.12.*"
+dependencies = [
+    "stable-baselines3==2.9.2",
+    "torch==2.15.0",
+    "gymnasium[mujoco]==1.4.0",
+    "mujoco==3.15.0",
+]
+
+[tool.uv]
+package = false

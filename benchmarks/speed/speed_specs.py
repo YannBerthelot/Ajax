@@ -43,8 +43,8 @@ UNSUPPORTED = {("PPO", "CartPole-v1", "Brax")}
 #: Libraries that train every seed in one compiled program; the others run
 #: one seed per process.
 ONE_PROGRAM = ("Ajax", "PureJaxRL", "purejaxql")
-#: Libraries timed on the GPU too: Ajax and the JAX libraries.
-ON_GPU = ("Ajax", "Brax", "PureJaxRL", "purejaxql")
+#: The seed counts every cell is timed at.
+SEEDS = (1, 10, 50)
 
 #: CleanRL's script for each algorithm: its JAX version where its docs say
 #: that one is faster (TD3, DQN), else its only one.
@@ -251,7 +251,22 @@ SEGMENTS = {
 def segment(
     algorithm: str, task: str, library: str, seeds: int, device: str
 ) -> tuple[int, int]:
-    """The warm-up and the timed stretch, in steps per seed."""
+    """The warm-up and the timed stretch, in steps per seed. Fifty seeds
+    take the ten-seed stretch scaled: four cores are full at ten seeds, so a
+    fifth as many steps per seed; a GPU about triples its throughput from ten
+    to fifty, so three fifths. A process-per-seed library on the GPU (one
+    seed: its seeds would run one after another) takes the CPU's one-seed
+    stretch."""
     kind = "python" if library in PYTHON_LOOP else "compiled"
     warmup = WARMUP.get(f"{algorithm}-{task}", 2_000)
+    s = settings(algorithm, task)
+    # A whole number of rollouts, two at least, on-policy; hundreds off it.
+    unit = s["n_envs"] * s["n_steps"] if "n_steps" in s else 100
+    if device == "gpu" and kind == "python":
+        return warmup, SEGMENTS[(algorithm, task, kind, seeds, "cpu")]
+    if seeds == 50:
+        base = SEGMENTS[(algorithm, task, kind, 10, device)]
+        steps = base * (1 / 5 if device == "cpu" else 3 / 5)
+        least = 2 * unit if "n_steps" in s else unit
+        return warmup, max(least, -(-int(steps) // unit) * unit)
     return warmup, SEGMENTS[(algorithm, task, kind, seeds, device)]

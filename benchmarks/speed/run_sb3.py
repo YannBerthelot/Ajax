@@ -1,11 +1,13 @@
 """Trains one seed of a Stable-Baselines3 or SBX agent, as their docs do:
 ``Algorithm("MlpPolicy", env).learn(n)`` on Gymnasium environments in a
-DummyVecEnv, verbose off. speed_clock times the segment.
+DummyVecEnv, verbose off, on the GPU when one is visible (envs/*-cuda).
+speed_clock times the segment.
 
 usage: python run_sb3.py {SB3,SBX} ALGORITHM TASK SEED END_STEP
 """
 
 import importlib
+import os
 import sys
 
 import numpy as np
@@ -92,7 +94,7 @@ def main() -> None:
         "MlpPolicy",
         env,
         seed=int(seed),
-        device="cpu",
+        device="cuda" if os.environ.get("CUDA_VISIBLE_DEVICES") else "cpu",
         verbose=0,
         **keywords(algorithm, task, env),
     )

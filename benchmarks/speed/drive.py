@@ -49,10 +49,17 @@ SOURCES = {
 }
 
 
-def python(library: str) -> str:
+def project(library: str, gpu: bool) -> pathlib.Path:
+    """The library's uv project: its CUDA twin on a GPU for the libraries
+    whose CPU project has CPU-only builds (SB3, SBX, CleanRL)."""
     if library == "Ajax":
-        return str(ROOT / ".venv" / "bin" / "python")
-    return str(HERE / "envs" / library.lower() / ".venv" / "bin" / "python")
+        return ROOT
+    name = library.lower() + ("-cuda" if gpu and library in specs.PYTHON_LOOP else "")
+    return HERE / "envs" / name
+
+
+def python(library: str, gpu: bool = False) -> str:
+    return str(project(library, gpu) / ".venv" / "bin" / "python")
 
 
 def command(args, seed: int, record: str) -> list[str]:
@@ -166,14 +173,14 @@ def parse_cores(text: str) -> list[int]:
     return out
 
 
-def versions(library: str) -> dict:
+def versions(library: str, gpu: bool) -> dict:
     """The installed versions of the library's distributions (its project's
     dependencies, the CUDA plugin's where there is one) and its lock's hash."""
+    where = project(library, gpu)
     if library == "Ajax":
-        project, wanted = ROOT, list(AJAX_VERSIONS)
+        wanted = list(AJAX_VERSIONS)
     else:
-        project = HERE / "envs" / library.lower()
-        listed = tomllib.loads((project / "pyproject.toml").read_text())["project"]
+        listed = tomllib.loads((where / "pyproject.toml").read_text())["project"]
         wanted = [re.split(r"[=<>\[ ;]", d)[0] for d in listed["dependencies"]]
     code = (
         "import importlib.metadata as m, json, sys\n"
@@ -188,7 +195,7 @@ def versions(library: str) -> dict:
         check=True,
     )
     found = json.loads(out.stdout)
-    lock = (project / "uv.lock").read_bytes()
+    lock = (where / "uv.lock").read_bytes()
     found["lock_sha256"] = hashlib.sha256(lock).hexdigest()[:12]
     return found
 
@@ -231,17 +238,17 @@ def manifest(args) -> dict:
 
 def planned(device: str) -> list[str]:
     """Every cell of ``device`` with its seeds and stretch, as drive.py's
-    arguments; Brax's ten seeds on a GPU are its one-seed speed."""
+    arguments, most seeds first. On a GPU a process-per-seed library runs one
+    seed: ten or fifty would run one after another, at its one-seed speed."""
     out = []
-    for seeds in (10, 1):
+    for seeds in sorted(specs.SEEDS, reverse=True):
         for algorithm, task, library in specs.cells():
-            if device == "gpu" and (
-                library not in specs.ON_GPU or (library == "Brax" and seeds == 10)
-            ):
+            if device == "gpu" and library not in specs.ONE_PROGRAM and seeds > 1:
                 continue
             warmup, segment = specs.segment(algorithm, task, library, seeds, device)
             out.append(
-                f"{algorithm} {task} {library} --seeds {seeds} --warmup {warmup} --segment {segment}"
+                f"{algorithm} {task} {library} --seeds {seeds}"
+                f" --warmup {warmup} --segment {segment}"
             )
     return out
 
@@ -294,7 +301,7 @@ def main() -> int:
             "taskset",
             "-c",
             args.cores,
-            python(args.library),
+            python(args.library, args.gpu is not None),
             *command(args, seed, record),
         ]
         processes.append(
@@ -371,7 +378,7 @@ def main() -> int:
         "settings": specs.settings(args.algorithm, args.task),
         "exception": specs.EXCEPTIONS.get((args.algorithm, args.library)),
         "source": SOURCES.get(args.library),
-        "versions": versions(args.library),
+        "versions": versions(args.library, args.gpu is not None),
         "manifest": manifest(args),
     }
     args.out.parent.mkdir(parents=True, exist_ok=True)

@@ -146,7 +146,9 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("machine", choices=("cpu", "gpu"))
     parser.add_argument("label", choices=sorted(agent_suite.BENCHMARKS))
     parser.add_argument("steps", type=int, help="the segment's steps per seed")
-    parser.add_argument("--seeds", type=int, default=N_SEEDS, help="seeds trained together")
+    parser.add_argument(
+        "--seeds", type=int, default=N_SEEDS, help="seeds trained together"
+    )
     args = parser.parse_args(argv)
     record = time_agent(args.label, args.machine, args.steps, args.seeds)
     folder = "1-seed" if args.seeds == 1 else f"{args.seeds}-seeds"

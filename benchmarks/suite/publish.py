@@ -371,7 +371,9 @@ def gain_block(runs: list[Run], by_agent: dict) -> str:
     """The performance page's gains: how many times as fast one GPU trains
     each agent as four CPU cores, for each number of seeds, in the benchmark
     tables' order."""
-    counts = sorted({seeds for _, per_seeds in by_agent.values() for seeds in per_seeds})
+    counts = sorted(
+        {seeds for _, per_seeds in by_agent.values() for seeds in per_seeds}
+    )
     head = ["Agent", "Task", *(f"{n} seed{'' if n == 1 else 's'}" for n in counts)]
     lines = ["| " + " | ".join(head) + " |", "|---|---|" + "---:|" * len(counts)]
     for suite in SUITES:
@@ -677,8 +679,15 @@ def write_gain_figure(
             seeds = sorted(per_seeds)
             counts.update(seeds)
             colour, line = style[agent]
-            axis.plot(seeds, [per_seeds[n] for n in seeds], color=colour,
-                      linestyle=line, marker="o", markersize=3, label=name(agent))
+            axis.plot(
+                seeds,
+                [per_seeds[n] for n in seeds],
+                color=colour,
+                linestyle=line,
+                marker="o",
+                markersize=3,
+                label=name(agent),
+            )
             axis.set_title(task, loc="left")
         axis.axhline(1, color="grey", linewidth=0.8)
         axis.set_xscale("log")

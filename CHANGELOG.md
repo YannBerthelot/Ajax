@@ -11,6 +11,15 @@ PyPI as `ajax-rl`.
   `ExpertGains`, `OuterLoopReference`) are still refused on REINFORCE, now
   for the right reason: it takes no `expert_policy` yet (`NotWired`), not a
   capability its algorithm lacks.
+- **IQL stores its expert's actions** (`stores_expert_actions`), as the
+  other replay actor-critics do: a stateful expert, such as a PID, given as
+  its `expert_policy` now works with `ImitationLoss`, `IBRL` and
+  `LCBGatedBootstrap`, which read the actions collection stored from the
+  expert's state; IQL refused it before. With an expert, IQL's replay also
+  keeps the environment's own observations and the expert flags, so its
+  evaluations log `replay/expert_share`, and an extension calling an expert
+  of its own reads the raw observations, not the normalised ones it was
+  given under `normalize_observations=True`.
 
 ## 0.6.0
 

@@ -165,6 +165,7 @@ LOGGING_DEFAULTS: dict[str, Any] = {
     "evaluation_device": None,
     "evaluate_last_fifth_only": False,
     "on_evaluation": None,
+    "on_progress": None,
 }
 
 

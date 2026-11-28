@@ -1,7 +1,7 @@
 """EVarEst measurement / instrumentation as composable :class:`Extension`s.
 
 The measurement code of EVAREST's ``evarest/rl/``, foldable into any Ajax
-agent (SAC, DQN, REDQ, TD3 off-policy; PPO, PQN, APO, AVG on-policy):
+agent with a critic (the Compatibility page says which module runs where):
 ``extensions=[CriticDiagnostics(), BiasVoreDecomposition(...), ...]``.
 
 Coverage

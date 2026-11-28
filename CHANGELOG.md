@@ -4,6 +4,13 @@ Versions follow semantic versioning; before 1.0, a breaking change bumps
 the minor version. Each release is tagged `vX.Y.Z` on main and published to
 PyPI as `ajax-rl`.
 
+## Unreleased
+
+- The agents named in `ImitationLoss`'s, `ExpertValueMetrics`',
+  `CloningPretrain`'s, `ExpertPrefill`'s and `PriorData`'s docstrings and
+  error messages are those that run them: CrossQ, TQC, RVI-SAC, IQL, AVG
+  and DAgger were missing where they apply.
+
 ## 0.6.0
 
 What a user of 0.5.0 meets:

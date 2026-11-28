@@ -4,6 +4,18 @@ Versions follow semantic versioning; before 1.0, a breaking change bumps
 the minor version. Each release is tagged `vX.Y.Z` on main and published to
 PyPI as `ajax-rl`.
 
+## Unreleased
+
+- **IQL stores its expert's actions** (`stores_expert_actions`), as the
+  other replay actor-critics do: a stateful expert, such as a PID, given as
+  its `expert_policy` now works with `ImitationLoss`, `IBRL` and
+  `LCBGatedBootstrap`, which read the actions collection stored from the
+  expert's state; IQL refused it before. With an expert, IQL's replay also
+  keeps the environment's own observations and the expert flags, so its
+  evaluations log `replay/expert_share`, and an extension calling an expert
+  of its own reads the raw observations, not the normalised ones it was
+  given under `normalize_observations=True`.
+
 ## 0.6.0
 
 What a user of 0.5.0 meets:

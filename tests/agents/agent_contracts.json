@@ -567,6 +567,7 @@
   "per_seed_update_counts": false,
   "phase_batch_keys": {
    "actor_loss": [
+    "a_expert",
     "actions",
     "actor_params",
     "actor_state",
@@ -612,7 +613,7 @@
    "update"
   ],
   "replays_transitions": true,
-  "stores_expert_actions": false,
+  "stores_expert_actions": true,
   "supported_buffer_fields": [
    "next_action",
    "raw_next_obs",

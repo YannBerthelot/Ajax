@@ -22,13 +22,13 @@ tasks. `benchmarks/suite/publish.py` draws them from the records.
 
     ![DeepMind Control: interquartile mean and performance profile of the normalised final returns](benchmark-figures/control-scores.svg)
 
-    ![DeepMind Control: interquartile mean of the normalised returns against hours on four CPU cores](benchmark-figures/control-time.svg)
+    ![DeepMind Control: interquartile mean of the normalised returns against hours on one GPU](benchmark-figures/control-time.svg)
 
 === "MinAtar"
 
     ![MinAtar: interquartile mean and performance profile of the normalised final returns](benchmark-figures/minatar-scores.svg)
 
-    ![MinAtar: interquartile mean of the normalised returns against hours on four CPU cores](benchmark-figures/minatar-time.svg)
+    ![MinAtar: interquartile mean of the normalised returns against hours on one GPU](benchmark-figures/minatar-time.svg)
 
 In the first figure, the dot is the interquartile mean of an agent's final
 returns, the mean of the middle half of its runs, which a few outlying runs
@@ -38,7 +38,7 @@ above each score: a line that stays high further to the right did well on
 more of its runs.
 
 The second figure follows the interquartile mean through training against the
-hours four CPU cores take to reach each evaluation, at the speed the
+hours one NVIDIA L40S takes to reach each evaluation, at the speed the
 [timing pass](../guide/performance.md#cpu-or-gpu) measured rather than each
 run's own wall clock, since the runs used several machines. Its CheetahRun
 panel adds the five agents that ran that task only.

@@ -147,9 +147,9 @@ def test_evaluation_executes_the_better_of_the_mean_and_the_experts_action():
 def test_the_replay_flags_the_rows_the_experts_action_took(name: str) -> None:
     """Without an agent expert, each agent acts with IBRL's: past the
     uniform warm-up (TQC has none) some rows store its action 0.5
-    (Pendulum's torque 1), those the replay flags as the expert's where it
-    keeps flags (IQL's keeps none, as for JSRL); evaluations log both
-    shares."""
+    (Pendulum's torque 1), those the replay flags as the expert's (each
+    keeps the flags for an expert an extension holds); evaluations log
+    both shares."""
     case = CASES[name]
     ibrl = IBRL(expert_policy=torque_one, hybrid_acting=True)
     agent = case.cls(env_id="Pendulum-v1", n_envs=2, extensions=(ibrl,), **case.kwargs)
@@ -166,8 +166,7 @@ def test_the_replay_flags_the_rows_the_experts_action_took(name: str) -> None:
     stop = case.n_timesteps // 2
     took = np.isclose(np.asarray(rows["action"])[..., :stop, 0], 0.5, 0, 1e-6)
     assert took.any()
-    if "is_expert" in rows:
-        np.testing.assert_array_equal(rows["is_expert"][..., :stop, 0] > 0.5, took)
+    np.testing.assert_array_equal(rows["is_expert"][..., :stop, 0] > 0.5, took)
     warm = 0 if name == "TQC" else case.kwargs["learning_starts"] // 2
     assert not took[..., :warm].any()
 

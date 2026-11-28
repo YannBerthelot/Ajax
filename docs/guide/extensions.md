@@ -98,7 +98,8 @@ An `action` extension runs before or after the warm-up's choice, as its
 
 Running a phase is not enough: the agent must also have what the extension
 needs, as the next section explains: PPO, APO and REINFORCE run `action` but
-refuse the extensions acting there, which need an off-policy update.
+refuse the extensions acting there, which need an off-policy update; the
+refusal names the phase.
 
 ## What an agent has, and what an extension needs
 
@@ -122,7 +123,7 @@ Each agent declares what its algorithm has, in `capabilities`:
 | `distributional_critic` | its critic predicts quantiles of the return | TQC |
 | `warmup` | it acts uniformly at random for its first steps (`learning_starts`) | SAC, TD3, REDQ, CrossQ, ASAC, RVISAC, AVG, IQL, DQN, TDMPC2 |
 | `obs_networks` | its networks read the observation, not a world model's latent state | all but DreamerV3, TDMPC2, TDMPC2MultiTask |
-| `reward_learning` | it learns from the reward, not from an expert's labels alone | all but DAgger and REINFORCE |
+| `reward_learning` | it learns from the reward, not from an expert's labels alone | all but DAgger |
 
 A run adds what its configuration and its stack give:
 
@@ -144,7 +145,7 @@ policy's), continuous actions for `transform_action` and `actuate`, a warm-up
 with steps for `choose_warmup_action`, a replay for `choose_replay_action`.
 An extension needing nothing runs on every agent. When the agent is built,
 an extension needing something its run lacks is refused with
-`MissingCapability`, which names it:
+`MissingCapability`, which names it, and the phase needing it where one does:
 
 ```python
 import jax.numpy as jnp
@@ -160,7 +161,7 @@ def expert(obs):
 try:
     DQN("CartPole-v1", extensions=(ImitationLoss(expert),))
 except ValueError as error:
-    print(error)  # DQN cannot run ImitationLoss ('imitation_loss'), which needs actor (...), continuous_actions (...).
+    print(error)  # DQN cannot run ImitationLoss ('imitation_loss'), which needs actor (...) for its actor_loss phase, continuous_actions (...).
 ```
 
 When the run has everything but the agent's code does not pass it on yet,
@@ -188,16 +189,17 @@ extension (`MissingCapability` and `NotWired` are `ValueError`s):
 One table per module. "Works with" names the agents that accept the
 extension, and "details" links its explanation or its settings;
 [Compatibility](compatibility.md), generated from the code, has the full
-matrix. "The off-policy actor-critics" are SAC, TD3, REDQ, CrossQ, TQC,
-ASAC, RVISAC, AVG and IQL, and "with an expert" means the agent was given an
-`expert_policy`.
+matrix. "The off-policy actor-critics" are
+<!-- agents: off-policy-actor-critics -->SAC, TD3, REDQ, CrossQ, TQC, ASAC,
+RVISAC, AVG and IQL<!-- /agents -->, and "with an expert" means the agent was
+given an `expert_policy`.
 
 **Learning from an expert** (`ajax.extensions.expert`)
 
 | Extension | What it does | Phases | Works with |
 | --- | --- | --- | --- |
 | `OnlineBC` | Pulls the actor's mean action towards the expert's, weighted by `φ*`'s value and fading out over `critic_warmup_frac` of training ([details](../api/extensions.md#ajax.extensions.expert.OnlineBC)). | `actor_loss` | SAC with an expert and `MCPretrain` |
-| `ImitationLoss` | Adds TD3+BC's cloning term towards the expert's actions, weighted by `coef`. `q_filter=True` keeps the rows where the critic rates the expert higher; `target="replay"` clones the logged actions instead ([details](expert-guidance.md#imitation-alongside-the-reward)). | `actor_loss`, `eval_metrics` | continuous actions: the off-policy actor-critics, APO, DAgger, PPO, APG and UDRL (on IQL, PPO, APG and UDRL a stateless expert); `q_filter` needs a Q critic, `target="replay"` a replay |
+| `ImitationLoss` | Adds TD3+BC's cloning term towards the expert's actions, weighted by `coef`. `q_filter=True` keeps the rows where the critic rates the expert higher; `target="replay"` clones the logged actions instead ([details](expert-guidance.md#imitation-alongside-the-reward)). | `actor_loss`, `eval_metrics` | continuous actions: the off-policy actor-critics, APO, DAgger, PPO, APG and UDRL (on PPO, APG and UDRL a stateless expert); `q_filter` needs a Q critic, `target="replay"` a replay |
 | `ResidualPolicy` | Executes `clip(a_E + scale · a_π, −1, 1)`, so the policy learns a correction to the expert; `zero_start=True` starts it as the expert ([details](expert-guidance.md#collection)). | `pretrain`, `transform_action` | the off-policy actor-critics, PPO, APO, APG and UDRL, with an expert and continuous actions |
 | `ExpertGains` | Gain mode: the policy's action sets the expert's learnable gains, between `1 / max_factor` and `max_factor` times their anchors, and the expert acts with them ([details](expert-guidance.md#learning-a-pids-gains-gain-mode)). | `actuate` | as `ResidualPolicy`, with a stateful expert exposing `learnable_fields` |
 | `ExpertWarmup` | During the warm-up, the expert takes a share `fraction` of the steps and uniform random actions the others ([details](expert-guidance.md#warm-up)). | `choose_warmup_action` | the agents with a warm-up (<!-- agents: warmup-action -->SAC, TD3, REDQ, CrossQ, ASAC, RVI-SAC, AVG, IQL, DQN<!-- /agents -->), with an expert and `learning_starts` above 0 |
@@ -316,7 +318,7 @@ expert needs its memory in `features` (`ExpertStateInput`, or
 | --- | --- | --- | --- |
 | `CriticDiagnostics` | Logs whether the critic's features are degrading: their effective rank, dormant units and norms ([details](#measuring-a-replay-agents-critic)). | `eval_metrics` | every agent with a critic |
 | `BiasVoreDecomposition` | Splits the critic's squared one-step error into squared bias and variance ([details](#measuring-a-replay-agents-critic)). | `eval_metrics` | as `CriticDiagnostics` |
-| `BiasVorePenalty` | Adds a penalty on the variance of the critic's residual, set by `alpha` (0.5 adds nothing) ([details](../api/extensions.md#ajax.extensions.instrumentation.BiasVorePenalty)). | `critic_loss` | the off-policy actor-critics but TQC, and PPO, APO, DQN and PQN |
+| `BiasVorePenalty` | Adds a penalty on the variance of the critic's residual, set by `alpha` (0.5 adds nothing) ([details](../api/extensions.md#ajax.extensions.instrumentation.BiasVorePenalty)). | `critic_loss` | PPO, APO, DQN, PQN and the off-policy actor-critics but TQC |
 
 **Recording representations** (`ajax.extensions.representation`)
 

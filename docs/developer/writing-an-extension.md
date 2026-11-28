@@ -314,7 +314,7 @@ context it binds, its batches and replay fields;
 | `batch_keys` (class attribute) and `reads()` | per phase, the batch keys it reads beyond those every agent folding the phase passes | refuses it when the agent's `phase_batch_keys` lacks one of them (`NotWired`) |
 | `buffer_fields` (class attribute, a frozenset) | replay fields beyond the agent's own that the extension reads, such as `raw_next_obs`, the environment's own next observation | stores them only when an extension declares them; rejects the ones it cannot store (SAC, TD3, REDQ, CrossQ, TQC, ASAC, RVISAC, AVG and IQL store `raw_next_obs`) |
 | `expert_fields` (class attribute) and `experts()` | the fields holding an expert, written in env units, and the experts the extension calls itself | reads every expert in `expert_fields` in agent units (`ExtensionStack.with_experts`); keeps the raw observations and expert flags in replay for a run with an expert; refuses a stateful expert (one with `init_state`) that `experts()` would call without its state |
-| `reads_agent_expert_actions` (class attribute) | the extension reads the expert actions the agent stored, when its expert is the agent's `expert_policy` | lets a stateful expert through for it, on an agent that stores those actions (`stores_expert_actions`: SAC, TD3, REDQ, CrossQ, TQC, ASAC, RVISAC, AVG, DQN, APO, DAgger) |
+| `reads_agent_expert_actions` (class attribute) | the extension reads the expert actions the agent stored, when its expert is the agent's `expert_policy` | lets a stateful expert through for it, on an agent that stores those actions (`stores_expert_actions`: <!-- agents: expert-actions -->SAC, TD3, REDQ, CrossQ, TQC, ASAC, RVISAC, IQL, AVG, DQN, APO and DAgger<!-- /agents -->) |
 | `uses_expert_actions_as_policy_actions()` | the extension puts an expert's actions where the policy's go: as the actor's target, or as an action its critics score | refuses it under gain mode (`ExpertGains`), where the expert's actions are env actions and the policy's are gains (`NotWired`) |
 | `reads_step_in_episode` (class attribute) | the extension reads each env's step within its episode | the shared collector counts it only then (`JSRLCurriculum` reads it) |
 | `reads_last_rollout` (class attribute) | the extension reads the agent's latest rollout (`agent_state.last_rollout`) | an on-policy or incremental agent keeps it only then, or with `expose_recent_rollout` (`CriticDiagnostics` and `BiasVoreDecomposition` read it, and require `stored_steps`) |
@@ -369,7 +369,7 @@ for build in (
         build()
     except ValueError as error:
         print(error)
-# PQN cannot run ActorNudge ('actor-nudge'), which needs actor (a policy network trained by gradient).
+# PQN cannot run ActorNudge ('actor-nudge'), which needs actor (a policy network trained by gradient) for its actor_loss phase.
 # DQN has what its extensions need, but does not pass it on yet: NextObservationReader ('next-observation-reader'): DQN stores no ['raw_next_obs'] yet.
 # SAC cannot run PhiStarReader ('phi-star-reader'), which needs phi_star (add MCPretrain(expert_policy=...), which fits phi*, to the extensions).
 ```

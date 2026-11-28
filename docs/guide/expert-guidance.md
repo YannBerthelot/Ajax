@@ -90,8 +90,9 @@ Extensions that call an expert on a replay batch (`ImitationLoss`, `IBRL`,
 `LCBGatedBootstrap`, `CriticBlend`, `PhiRefresh`) call it as `expert(obs)`,
 where no expert state exists. A stateful expert is allowed there only when
 it is the agent's own `expert_policy` (the same object), on an agent that
-stores that expert's actions: SAC, TD3, REDQ, CrossQ, TQC, ASAC, RVI-SAC,
-AVG, DQN, DAgger and APO. The extension then reads the actions the agent
+stores that expert's actions: <!-- agents: expert-actions -->SAC, TD3, REDQ,
+CrossQ, TQC, ASAC, RVI-SAC, IQL, AVG, DQN, DAgger and APO<!-- /agents -->.
+The extension then reads the actions the agent
 stored at collection, computed from the expert's tracked state. Any other
 stateful expert is refused when the agent is built.
 
@@ -167,7 +168,8 @@ defaults collect about a million) and train for tens of thousands of steps.
 
 The agents in brackets accept each piece, as
 [Compatibility](compatibility.md) lists them from the code. "The off-policy
-actor-critics" are SAC, TD3, REDQ, CrossQ, TQC, ASAC, RVISAC, AVG and IQL;
+actor-critics" are
+<!-- agents: off-policy-actor-critics -->SAC, TD3, REDQ, CrossQ, TQC, ASAC, RVISAC, AVG and IQL<!-- /agents -->;
 "the replay agents" are
 <!-- agents: replay -->SAC, TD3, REDQ, CrossQ, TQC, ASAC, RVI-SAC, IQL, DQN, DAgger<!-- /agents -->.
 "Developed with Ajax" marks a feature with no external reference.
@@ -185,7 +187,7 @@ actor-critics" are SAC, TD3, REDQ, CrossQ, TQC, ASAC, RVISAC, AVG and IQL;
 | Imitate demonstrations, with no reward and no expert | `AdversarialReward` with a transition dataset (PPO, continuous actions) | GAIL (Ho and Ermon, 2016) |
 | Start the actor as a copy of the expert | `CloningPretrain` (the off-policy actor-critics, APO, DAgger) | behaviour cloning |
 | Imitate the expert, with no reward | the `DAgger` agent | DAgger (Ross, Gordon and Bagnell, 2011); `ImitationLoss` with a replay agent's own expert is its aggregation plus the RL loss |
-| Keep the actor near the expert early on | `ImitationLoss` (the off-policy actor-critics, APO, DAgger; with a stateless expert on IQL, PPO, APG, UDRL), `OnlineBC` (SAC) | TD3+BC's actor term (Fujimoto and Gu, 2021), kickstarting (Schmitt et al., 2018) with `anneal_frac`; `OnlineBC` developed with Ajax |
+| Keep the actor near the expert early on | `ImitationLoss` (the off-policy actor-critics, APO, DAgger; with a stateless expert on PPO, APG, UDRL), `OnlineBC` (SAC) | TD3+BC's actor term (Fujimoto and Gu, 2021), kickstarting (Schmitt et al., 2018) with `anneal_frac`; `OnlineBC` developed with Ajax |
 | Copy the expert only where the critic rates it higher | `ImitationLoss(q_filter=True)` (the off-policy actor-critics) | Q-filtered behaviour cloning (Nair et al., 2018) |
 | Let the expert act while the agent is poor | `JSRLCurriculum` (the off-policy actor-critics, DQN, PQN, DAgger, UDRL), `EDGEExploration` (the off-policy actor-critics, DAgger, UDRL, with continuous actions; on DAgger and UDRL, which have no critic, its fixed gate alone), `ValueBox` (SAC) | jump-start RL (Uchendu et al., 2023); EDGE and the value box developed with Ajax |
 | Blend with the expert where the critics disagree | `CHEQ` (SAC, TD3, REDQ, CrossQ, ASAC, RVISAC, IQL) | CHEQ (Cramer et al., 2024) |

@@ -161,6 +161,29 @@ def test_a_phase_needing_a_capability_the_algorithm_lacks_is_missing():
         check_extensions("DQN", [ActorNudge()], {"q_critic", "critic"}, frozenset())
 
 
+def test_a_refusal_names_the_phase_needing_a_capability_it_lacks():
+    """An action extension on PPO, which folds the phase: the refusal names
+    off_policy and the action phase that needs it, which the extension does
+    not declare; a capability it declares (requires) comes without a phase.
+    Catches a refusal leaving the reader to guess why a phase PPO folds is
+    refused."""
+
+    @dataclass(frozen=True)
+    class ActionTweak(Extension):
+        name: str = "action-tweak"
+        requires: ClassVar[frozenset[str]] = frozenset({"q_critic"})
+
+        def action(self, agent_state, ext_state, obs, rng, context):
+            return None
+
+    with pytest.raises(MissingCapability) as error:
+        check_extensions("PPO", [ActionTweak()], {"actor", "v_critic"}, LOOP_PHASES)
+    message = str(error.value)
+    assert "off_policy (its update stays correct on actions its policy did" in message
+    assert "did not choose) for its action phase, q_critic" in message
+    assert message.endswith("q_critic (a learned action value Q(s, a)).")
+
+
 def test_the_check_names_every_missing_capability_and_gap():
     """One refusal lists each extension with all it lacks; the missing
     capabilities come before what is not wired."""

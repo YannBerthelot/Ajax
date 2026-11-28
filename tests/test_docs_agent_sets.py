@@ -58,6 +58,14 @@ SETS: dict[str, Callable[[type[ActorCritic]], bool]] = {
     "raw-replay": lambda agent: agent.replays_transitions,
     "warmup-action": folds("choose_warmup_action"),
     "replay-action": folds("choose_replay_action"),
+    # The agents a stateful expert reaches extensions on, through the actions
+    # they store from its state.
+    "expert-actions": lambda agent: agent.stores_expert_actions,
+    # The guides' group: an actor and a Q critic, learning off-policy, on
+    # networks reading the observation (not a world model's latent state).
+    "off-policy-actor-critics": lambda agent: frozenset(
+        {"actor", "q_critic", "off_policy", "obs_networks"}
+    ).issubset(agent.capabilities),
 }
 
 

@@ -386,12 +386,11 @@ class IQL(
             "warmup",
         }
     )
-    phase_batch_keys = {  # noqa: RUF012
-        **update_steps.REPLAY_BATCH_KEYS,
-        "actor_loss": update_steps.ACTOR_STEP_KEYS.union(
-            {"observations", "raw_observations", "actions", "critic_state"}
-        ),
-    }
+    # Its collection stores the expert's actions from the expert's state, and
+    # its shared critic and actor steps hand them to the extensions
+    # (next_a_expert, a_expert): the replay family's batch keys, a_expert
+    # included.
+    stores_expert_actions = True
     supported_buffer_fields = ReplayAgent.supported_buffer_fields.union(
         {"raw_next_obs", "return_to_go"}
     )

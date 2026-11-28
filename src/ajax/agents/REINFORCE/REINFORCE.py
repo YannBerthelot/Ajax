@@ -232,7 +232,14 @@ class REINFORCE(
     name = "REINFORCE"
     action_space = "any"
     capabilities = frozenset(
-        {"actor", "discounted", "obs_networks", "policy_density", "v_critic"}
+        {
+            "actor",
+            "discounted",
+            "obs_networks",
+            "policy_density",
+            "v_critic",
+            "reward_learning",
+        }
     )
     supported_extension_phases = LOOP_PHASES
 

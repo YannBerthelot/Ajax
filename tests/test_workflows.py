@@ -1,4 +1,5 @@
-"""The workflows' token permissions, as GitHub checks them before a run.
+"""The workflows' token permissions, as GitHub checks them before a run, and
+the Pages deploys' artifact names.
 
 Contract (GitHub's rule for reusable workflows): a called workflow's token
 can only be given fewer permissions than its caller's, never more, so GitHub
@@ -59,3 +60,39 @@ def test_a_called_job_asks_for_no_more_than_its_call_grants(case):
         f"{caller}'s {name} grants {scope}: {given}, but {called}'s {called_job}"
         f" asks for {scope}: {asked}; GitHub would not start the run"
     )
+
+
+def pages_deploys() -> list:
+    """(workflow, job, uploaded name, deployed name) for each job that
+    deploys to GitHub Pages; both default to "github-pages"."""
+    found = []
+    for path in sorted(WORKFLOWS.glob("*.yml")):
+        for name, job in load(path.name)["jobs"].items():
+            steps = {
+                step.get("uses", "").split("@")[0]: step
+                for step in job.get("steps", [])
+            }
+            if "actions/deploy-pages" in steps:
+                upload = steps["actions/upload-pages-artifact"].get("with", {})
+                deploy = steps["actions/deploy-pages"].get("with", {})
+                found.append(
+                    (
+                        path.name,
+                        name,
+                        upload.get("name", "github-pages"),
+                        deploy.get("artifact_name", "github-pages"),
+                    )
+                )
+    return found
+
+
+@pytest.mark.parametrize(
+    "deploy", pages_deploys(), ids=lambda deploy: "-".join(deploy[:2])
+)
+def test_a_pages_deploy_takes_this_attempts_artifact(deploy):
+    """Contract (deploy-pages): it refuses a run holding two artifacts of the
+    name it deploys, so a job re-run within its run must upload and deploy a
+    name of its own attempt."""
+    workflow, job, uploaded, deployed = deploy
+    assert uploaded == deployed
+    assert "github.run_attempt" in uploaded

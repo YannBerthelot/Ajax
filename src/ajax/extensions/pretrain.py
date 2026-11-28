@@ -399,7 +399,7 @@ class CloningPretrain(Extension):
     (``cloning/first_loss``, ``cloning/last_loss``).
 
     The fields after ``reset_actor_head`` are the agent's context, filled by
-    :meth:`bind_to_agent` (SAC, REDQ, TD3 and APO do).
+    :meth:`bind_to_agent` (the off-policy actor-critics, APO and DAgger do).
     """
 
     expert_policy: Callable
@@ -471,7 +471,8 @@ class CloningPretrain(Extension):
         if self.actor_optimizer_args is None:
             raise ValueError(
                 "CloningPretrain needs the agent's env and actor optimizer; the"
-                " agent did not bind them (SAC, REDQ, TD3 and APO do)."
+                " agent did not bind them (SAC, TD3, REDQ, CrossQ, TQC, ASAC,"
+                " RVISAC, AVG, IQL, APO and DAgger do)."
             )
         env = self.env_args.env
         dataset = collect_experience_from_expert_policy(
@@ -1103,8 +1104,9 @@ class ExpertPrefill(Extension):
     on the prefill's alone.
 
     It needs an expert, a replay and an update that stays correct on actions
-    the policy did not choose: SAC, REDQ, ASAC, TQC, TD3, CrossQ and IQL take
-    it. It runs before the other pretraining, which may read its rows
+    the policy did not choose: SAC, TD3, REDQ, CrossQ, TQC, ASAC, RVI-SAC,
+    IQL and DQN take it. It runs before the other pretraining, which may
+    read its rows
     (ExtensionStack.apply_pretrain)."""
 
     n_steps: int
@@ -1189,8 +1191,8 @@ class PriorData(Extension):
     sampling. Ajax's warm-up acts uniformly: pair it with learning_starts=0.
 
     Needs the replay and update an off-policy loop hands the pretrain phase
-    (pretrain_context): SAC, TD3, REDQ, ASAC, TQC, CrossQ, IQL and DQN take
-    it, every other agent refuses it when built.
+    (pretrain_context): SAC, TD3, REDQ, CrossQ, TQC, ASAC, RVI-SAC, IQL and
+    DQN take it, every other agent refuses it when built.
     """
 
     dataset: TransitionDataset
@@ -1214,8 +1216,8 @@ class PriorData(Extension):
         if context.buffer is None or agent_update is None:
             raise ValueError(
                 "PriorData adds its rows to the agent's replay: give it to an"
-                " agent replaying transitions (SAC, TD3, REDQ, ASAC, TQC,"
-                " CrossQ, IQL, DQN)."
+                " agent replaying transitions (SAC, TD3, REDQ, CrossQ, TQC,"
+                " ASAC, RVISAC, IQL or DQN)."
             )
         agent_state = seed_replay(agent_state, self.dataset, context.env_args)
         return (

@@ -188,9 +188,10 @@ extension (`MissingCapability` and `NotWired` are `ValueError`s):
 One table per module. "Works with" names the agents that accept the
 extension, and "details" links its explanation or its settings;
 [Compatibility](compatibility.md), generated from the code, has the full
-matrix. "The off-policy actor-critics" are SAC, TD3, REDQ, CrossQ, TQC,
-ASAC, RVISAC, AVG and IQL, and "with an expert" means the agent was given an
-`expert_policy`.
+matrix. "The off-policy actor-critics" are
+<!-- agents: off-policy-actor-critics -->SAC, TD3, REDQ, CrossQ, TQC, ASAC,
+RVISAC, AVG and IQL<!-- /agents -->, and "with an expert" means the agent was
+given an `expert_policy`.
 
 **Learning from an expert** (`ajax.extensions.expert`)
 
@@ -316,7 +317,7 @@ expert needs its memory in `features` (`ExpertStateInput`, or
 | --- | --- | --- | --- |
 | `CriticDiagnostics` | Logs whether the critic's features are degrading: their effective rank, dormant units and norms ([details](#measuring-a-replay-agents-critic)). | `eval_metrics` | every agent with a critic |
 | `BiasVoreDecomposition` | Splits the critic's squared one-step error into squared bias and variance ([details](#measuring-a-replay-agents-critic)). | `eval_metrics` | as `CriticDiagnostics` |
-| `BiasVorePenalty` | Adds a penalty on the variance of the critic's residual, set by `alpha` (0.5 adds nothing) ([details](../api/extensions.md#ajax.extensions.instrumentation.BiasVorePenalty)). | `critic_loss` | the off-policy actor-critics but TQC, and PPO, APO, DQN and PQN |
+| `BiasVorePenalty` | Adds a penalty on the variance of the critic's residual, set by `alpha` (0.5 adds nothing) ([details](../api/extensions.md#ajax.extensions.instrumentation.BiasVorePenalty)). | `critic_loss` | PPO, APO, DQN, PQN and the off-policy actor-critics but TQC |
 
 **Recording representations** (`ajax.extensions.representation`)
 

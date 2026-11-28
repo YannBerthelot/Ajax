@@ -281,9 +281,7 @@ def reporting_chunk(
     65 ms on SAC Hopper): a hundred chunks a call made SAC on Hopper about
     20% slower. Pieces scanned one by one inside the chunk, with a barrier
     or a callback between them, changed SAC's and TD3's bits on CPU, and a
-    barrier on every tick AVG's; the cond does not. The reports come as the
-    ticks train, though not always in order (ProgressBar keeps each member's
-    furthest)."""
+    barrier on every tick AVG's; the cond does not."""
 
     def reported(done: Any, index: Any) -> None:
         progress(int(done) / num_updates, None if index is None else int(index))
@@ -294,23 +292,35 @@ def reporting_chunk(
     ) -> Any:
         piece = nearest_divisor(length, num_updates / PROGRESS_REPORTS)
 
-        def reporting_tick(state: Any, tick: Any) -> Tuple[Any, Any]:
+        def reporting_tick(carry: Any, tick: Any) -> Tuple[Any, Any]:
+            state, reports = carry
             state, aux = tick_fn(state, index, tick)
             trained = tick - first_tick + 1
-            jax.lax.cond(
+
+            def report(reports: Any) -> Any:
+                jax.debug.callback(reported, tick - call_first + 1, index)
+                return reports + 1
+
+            reports = jax.lax.cond(
                 (trained % piece == 0) & (trained < length),
-                lambda done: jax.debug.callback(reported, done, index),
-                lambda _: None,
-                tick - call_first + 1,
+                report,
+                lambda reports: reports,
+                reports,
             )
-            return state, aux
+            return (state, reports), aux
 
         ticks = first_tick + jnp.arange(length)
-        agent_state, aux = final_aux_scan(reporting_tick, agent_state, length, ticks)
-        # The last report reads no tick, so it could come before the chunk
-        # has run: through the barrier, its count waits for the whole state.
-        agent_state, done = jax.lax.optimization_barrier(
-            (agent_state, first_tick + length - call_first)
+        (agent_state, reports), aux = final_aux_scan(
+            reporting_tick, (agent_state, jnp.int32(0)), length, ticks
+        )
+        # The last report reads no tick, so it could come first, before the
+        # chunk has run or the reports inside it (callbacks with no data
+        # between them run in any order: on CI's aarch64 runner it did, and
+        # the bar, which keeps the furthest, stood still until it). Through
+        # the barrier its count waits for the whole state and for the count
+        # of reports, which a cond returns once its callback has run.
+        agent_state, _, done = jax.lax.optimization_barrier(
+            (agent_state, reports, first_tick + length - call_first)
         )
         jax.debug.callback(reported, done, index)
         return agent_state, aux

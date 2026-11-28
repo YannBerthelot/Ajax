@@ -433,7 +433,11 @@ chunk (the divisor of its length nearest a hundredth of the call, or the whole
 chunk when it has none near, as a prime length), calls `on_progress` from a
 host callback under a cond, and the chunk's last report comes after the scan,
 once an optimisation barrier has seen the whole state computed (it reads no
-tick, and could otherwise come before the chunk runs). The chunks, their
+tick, and could otherwise come before the chunk runs). The barrier also takes
+the count of reports made, which each cond returns once its callback has run,
+so the last report comes after the others: callbacks with no data between them
+run in any order, and on CI's aarch64 runner a chunk's last report came first,
+so the bar, which keeps the furthest, stood still until it. The chunks, their
 lengths and the evaluations stay those of a run without it, and on CPU so do
 the bits. Cutting the chunks finer instead would report as well, but MuJoCo
 Warp captures its CUDA graphs again each time a program runs (two of about

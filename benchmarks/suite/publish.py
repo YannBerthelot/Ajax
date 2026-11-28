@@ -6,10 +6,11 @@
 The tables go between markers in docs/reproduction/benchmark.md; the figures
 go to docs/reproduction/benchmark-figures/. A cell appears once every seed of
 its run reached the step budget, so a suite's tab shows up with its first
-finished run. The timing pass's records (results/timing-0.6) give the speed
-tables between markers in docs/guide/performance.md (one per number of
-seeds) and the time axis of the score-against-time figures. tests/benchmarks/test_publish.py checks the
-tables still match the records.
+finished run. The timing pass's records (results/timing-0.6, with a folder per
+number of seeds beside the 10-seed pass) give the performance page's speed
+and gain tables, the gain-by-seeds figure and the time axis of the
+score-against-time figures. tests/benchmarks/test_publish.py checks the tables
+still match the records.
 """
 
 import argparse
@@ -340,14 +341,48 @@ def timing_block(runs: list[Run], timings: dict) -> str:
     return "\n".join(lines)
 
 
-def timing_blocks(runs: list[Run], directory: pathlib.Path = TIMING) -> dict:
-    """The performance page's timing tables by marker: the 10-seed pass's
-    ("agent-timing"), then one for each pass with another number of seeds,
-    whose records are in an <n>-seeds folder ("agent-timing-<n>-seeds")."""
-    blocks = {"agent-timing": timing_block(runs, read_timings(directory))}
-    for folder in sorted(directory.glob("*-seeds")):
-        blocks[f"agent-timing-{folder.name}"] = timing_block(runs, read_timings(folder))
-    return blocks
+def seed_passes(directory: pathlib.Path = TIMING) -> dict[int, dict]:
+    """Each timing pass's records by its number of seeds: the 10-seed pass
+    beside time_agents.py, the others in folders named for their seeds."""
+    passes = {}
+    for folder in [directory, *sorted(directory.glob("*-seed*"))]:
+        timings = read_timings(folder)
+        if timings:
+            passes[next(iter(timings.values()))["n_seeds"]] = timings
+    return dict(sorted(passes.items()))
+
+
+def gains(passes: dict[int, dict]) -> dict[tuple, tuple[str, dict]]:
+    """For each (agent, suite) that both machines timed: its timing task, and
+    the GPU's gain over four CPU cores for each number of seeds."""
+    found: dict = {}
+    for seeds, timings in passes.items():
+        for (agent, suite, machine), gpu in timings.items():
+            cpu = timings.get((agent, suite, "cpu"))
+            if machine != "gpu" or cpu is None:
+                continue
+            task = suite_and_task(gpu["env"])[1]
+            by_seeds = found.setdefault((agent, suite), (task, {}))[1]
+            by_seeds[seeds] = steps_per_second(gpu) / steps_per_second(cpu)
+    return found
+
+
+def gain_block(runs: list[Run], by_agent: dict) -> str:
+    """The performance page's gains: how many times as fast one GPU trains
+    each agent as four CPU cores, for each number of seeds, in the benchmark
+    tables' order."""
+    counts = sorted({seeds for _, per_seeds in by_agent.values() for seeds in per_seeds})
+    head = ["Agent", "Task", *(f"{n} seed{'' if n == 1 else 's'}" for n in counts)]
+    lines = ["| " + " | ".join(head) + " |", "|---|---|" + "---:|" * len(counts)]
+    for suite in SUITES:
+        members = [run for run in runs if run.suite == suite]
+        for agent in [agent for group in split_agents(members) for agent in group]:
+            if (agent, suite) not in by_agent:
+                continue
+            task, per_seeds = by_agent[(agent, suite)]
+            cells = [number(per_seeds[n]) if n in per_seeds else DASH for n in counts]
+            lines.append("| " + " | ".join([name(agent), task, *cells]) + " |")
+    return "\n".join(lines)
 
 
 def replace_block(text: str, marker: str, block: str) -> str:
@@ -620,6 +655,44 @@ def write_aggregate_figures(
         draw_time(plt, style, panels, hours, label, directory / f"{short}-time.svg")
 
 
+def write_gain_figure(
+    runs: list[Run], by_agent: dict, directory: pathlib.Path = FIGURES
+) -> None:
+    """The GPU's gain over four CPU cores against the number of seeds trained
+    together, a panel per suite's timing task, a line per agent; at 1 the two
+    machines run as fast."""
+    plt = pyplot()
+    style = agent_styles(runs)
+    suites = [suite for suite in SUITES if any(key[1] == suite for key in by_agent)]
+    if not suites:
+        return
+    figure, axes = plt.subplots(
+        1, len(suites), figsize=(4.7 * len(suites), 3.9), squeeze=False
+    )
+    for axis, suite in zip(axes[0], suites, strict=True):
+        counts = set()
+        for (agent, agent_suite), (task, per_seeds) in by_agent.items():
+            if agent_suite != suite:
+                continue
+            seeds = sorted(per_seeds)
+            counts.update(seeds)
+            colour, line = style[agent]
+            axis.plot(seeds, [per_seeds[n] for n in seeds], color=colour,
+                      linestyle=line, marker="o", markersize=3, label=name(agent))
+            axis.set_title(task, loc="left")
+        axis.axhline(1, color="grey", linewidth=0.8)
+        axis.set_xscale("log")
+        axis.set_yscale("log")
+        axis.set_xticks(sorted(counts), [str(n) for n in sorted(counts)])
+        axis.set_xlabel("Seeds trained together")
+        axis.grid(alpha=0.25)
+        axis.legend(fontsize=7, frameon=False)
+    axes[0][0].set_ylabel("Times as fast on one GPU as on four CPU cores")
+    figure.tight_layout()
+    figure.savefig(directory / "gain-by-seeds.svg", metadata={"Date": None})
+    plt.close(figure)
+
+
 def main(argv: Optional[list[str]] = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--tables", action="store_true", help="skip the figures")
@@ -628,13 +701,18 @@ def main(argv: Optional[list[str]] = None) -> int:
     PAGE.write_text(
         replace_block(PAGE.read_text(), "benchmark-tables", page_block(runs))
     )
-    performance = PERFORMANCE_PAGE.read_text()
-    for marker, block in timing_blocks(runs).items():
-        performance = replace_block(performance, marker, block)
+    passes = seed_passes()
+    performance = replace_block(
+        PERFORMANCE_PAGE.read_text(), "agent-timing", timing_block(runs, timings)
+    )
+    performance = replace_block(
+        performance, "agent-gain-by-seeds", gain_block(runs, gains(passes))
+    )
     PERFORMANCE_PAGE.write_text(performance)
     if not args.tables:
         write_figures(runs)
         write_aggregate_figures(runs, timings)
+        write_gain_figure(runs, gains(passes))
     return 0
 
 

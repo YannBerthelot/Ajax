@@ -16,7 +16,7 @@ The method of results/timing-gpu and PHASE0.md:
 - no evaluations run (logging_config=None).
 Segments are picked per agent and machine so that the timed call takes one to
 three minutes. Each record goes to cpu.jsonl or gpu.jsonl beside this file;
-with another number of seeds (--seeds), to <n>-seeds/cpu.jsonl or gpu.jsonl.
+with another number of seeds (--seeds), to 1-seed/ or <n>-seeds/.
 """
 
 import argparse
@@ -149,7 +149,8 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--seeds", type=int, default=N_SEEDS, help="seeds trained together")
     args = parser.parse_args(argv)
     record = time_agent(args.label, args.machine, args.steps, args.seeds)
-    directory = HERE if args.seeds == N_SEEDS else HERE / f"{args.seeds}-seeds"
+    folder = "1-seed" if args.seeds == 1 else f"{args.seeds}-seeds"
+    directory = HERE if args.seeds == N_SEEDS else HERE / folder
     directory.mkdir(exist_ok=True)
     agent_suite.append(directory / f"{args.machine}.jsonl", record)
     print(json.dumps(record), flush=True)

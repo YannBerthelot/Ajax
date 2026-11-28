@@ -188,6 +188,15 @@ and world models (REDQ, TQC, CrossQ, DreamerV3, TD-MPC2) train about 50 to
 AVG, APO and DQN gain 4 to 6 times, and PPO on CheetahRun runs faster on the
 four CPU cores.
 
+How the gain changes with the number of seeds trained together, on the
+same tasks and machines. DreamerV3 stops at 10 seeds: at 50, its replay would
+need about 500 GB of memory.
+
+![How many times as fast one GPU trains each agent as four CPU cores, against the number of seeds trained together](../reproduction/benchmark-figures/gain-by-seeds.svg)
+
+<!-- agent-gain-by-seeds:start -->
+<!-- agent-gain-by-seeds:end -->
+
 More seeds help until the card is full. SAC's total levelled off near 8,000
 steps per second from 64 seeds, while PPO reached 42,000 at 256. Three SAC jobs
 at once on an otherwise idle card gave 1.9 times the throughput of one.

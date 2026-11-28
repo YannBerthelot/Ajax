@@ -4,6 +4,14 @@ Versions follow semantic versioning; before 1.0, a breaking change bumps
 the minor version. Each release is tagged `vX.Y.Z` on main and published to
 PyPI as `ajax-rl`.
 
+## Unreleased
+
+- **REINFORCE declares `reward_learning`**: it learns from the reward. The
+  expert modules that need it (`ExpertActionInput`, `ResidualPolicy`,
+  `ExpertGains`, `OuterLoopReference`) are still refused on REINFORCE, now
+  for the right reason: it takes no `expert_policy` yet (`NotWired`), not a
+  capability its algorithm lacks.
+
 ## 0.6.0
 
 What a user of 0.5.0 meets:

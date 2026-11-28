@@ -122,7 +122,7 @@ Each agent declares what its algorithm has, in `capabilities`:
 | `distributional_critic` | its critic predicts quantiles of the return | TQC |
 | `warmup` | it acts uniformly at random for its first steps (`learning_starts`) | SAC, TD3, REDQ, CrossQ, ASAC, RVISAC, AVG, IQL, DQN, TDMPC2 |
 | `obs_networks` | its networks read the observation, not a world model's latent state | all but DreamerV3, TDMPC2, TDMPC2MultiTask |
-| `reward_learning` | it learns from the reward, not from an expert's labels alone | all but DAgger and REINFORCE |
+| `reward_learning` | it learns from the reward, not from an expert's labels alone | all but DAgger |
 
 A run adds what its configuration and its stack give:
 

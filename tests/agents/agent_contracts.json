@@ -864,6 +864,7 @@
    "discounted",
    "obs_networks",
    "policy_density",
+   "reward_learning",
    "v_critic"
   ],
   "extension_context": [

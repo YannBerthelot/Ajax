@@ -177,11 +177,17 @@ GAPS: dict[str, dict[str, str]] = {
     },
     DEFERRED: {"memory": "AVG CrossQ UDRL UDRL/discrete"},
     WARMUP: {"ExpertWarmup": "TDMPC2"},
-    FIRST: dict.fromkeys(
-        "BiasVorePenalty BumplessTracking CloningPretrain ExpertStateInput"
-        " ImitationLoss".split(),
-        "REINFORCE REINFORCE/discrete",
-    ),
+    FIRST: {
+        **dict.fromkeys(
+            "BiasVorePenalty BumplessTracking CloningPretrain ExpertActionInput"
+            " ExpertStateInput ImitationLoss".split(),
+            "REINFORCE REINFORCE/discrete",
+        ),
+        # Their discrete row refuses them: they need continuous actions.
+        **dict.fromkeys(
+            "ExpertGains OuterLoopReference ResidualPolicy".split(), "REINFORCE"
+        ),
+    },
     ROLLOUT_REWARD: {"PreviousReward": "APG"},
     REWARD: {
         "AdversarialReward": "SAC TD3 REDQ TQC CrossQ ASAC RVISAC AVG APG APO UDRL DAgger"

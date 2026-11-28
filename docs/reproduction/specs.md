@@ -182,7 +182,7 @@ Not matched:
 
 - warm-up actions: SB3 adds the behaviour noise to its uniform warm-up actions and clips them, Ajax takes them uniform
 
-## PQN, version 3
+## PQN, version 4
 
 Ajax's PQN against purejaxql 47af6d7: vendor/purejaxql/pqn_gymnax.py.
 
@@ -191,7 +191,7 @@ Ajax's PQN against purejaxql 47af6d7: vendor/purejaxql/pqn_gymnax.py.
 - Evaluation: 128 episodes of the deterministic policy, every 24,576 steps; a seed's score is the last one's mean return.
 - AdaStop: n = 4, K = 24, alpha = 0.05.
 - Margin: ±25.
-- Spec hash: `1b1dcb8e69ef4bd0`.
+- Spec hash: `cf9bcb624ffe8fcf`.
 - Reproduce: `uv run python benchmarks/reference/refcmp_protocol.py run PQN --cache DIR`
 
 | Reference setting | Value | Ajax setting | Value |
@@ -227,19 +227,18 @@ Ajax settings without a reference counterpart: `architecture=('256', 'relu', '25
 
 Not matched:
 
-- weight initialisation (lecun_normal vs Ajax's)
 - evaluation: purejaxql scores the last episode each of its 128 test envs ends within one 500-step window, Ajax one episode per env
 
-## PQN-Asterix, version 3
+## PQN-Asterix, version 4
 
-Ajax's PQN against purejaxql 47af6d7: vendor/purejaxql/pqn_gymnax.py with config/alg/pqn_minatar.yaml but the length. That config is for pqn_minatar.py, whose CNN Ajax's CNN encoder cannot build (VALID padding, LayerNorm after the convolution); both sides use pqn_gymnax.py's MLP on the flattened image instead.
+Ajax's PQN against purejaxql 47af6d7: vendor/purejaxql/pqn_gymnax.py with config/alg/pqn_minatar.yaml but the length. That config is for pqn_minatar.py's CNN; both sides use pqn_gymnax.py's MLP on the flattened image instead, as version 1 of this comparison ran.
 
 - Environment: gymnax Asterix-MinAtar, a port of MinAtar's Asterix with a 1000-step limit and no sticky actions.
 - Budget: 1,228,800 steps per seed.
 - Evaluation: 128 episodes of the deterministic policy, every 61,440 steps; a seed's score is the last one's mean return.
 - AdaStop: n = 4, K = 24, alpha = 0.05.
 - Margin: ±5% of the reference's mean score.
-- Spec hash: `705d741cc22b3dcc`.
+- Spec hash: `68359791d5efcf29`.
 - Reproduce: `uv run python benchmarks/reference/refcmp_protocol.py run PQN-Asterix --cache DIR`
 
 | Reference setting | Value | Ajax setting | Value |
@@ -272,7 +271,6 @@ Ajax settings without a reference counterpart: `architecture=('128', 'relu', '12
 
 Not matched:
 
-- weight initialisation (lecun_normal vs Ajax's)
 - evaluation: purejaxql scores the last episode each of its 128 test envs ends within one 1000-step window, Ajax one episode per env
 
 ## APG, version 1

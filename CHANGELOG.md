@@ -4,6 +4,38 @@ Versions follow semantic versioning; before 1.0, a breaking change bumps
 the minor version. Each release is tagged `vX.Y.Z` on main and published to
 PyPI as `ajax-rl`.
 
+## Unreleased
+
+- **REINFORCE declares `reward_learning`**: it learns from the reward. The
+  expert modules that need it (`ExpertActionInput`, `ResidualPolicy`,
+  `ExpertGains`, `OuterLoopReference`) are still refused on REINFORCE, now
+  for the right reason: it takes no `expert_policy` yet (`NotWired`), not a
+  capability its algorithm lacks.
+- **IQL stores its expert's actions** (`stores_expert_actions`), as the
+  other replay actor-critics do: a stateful expert, such as a PID, given as
+  its `expert_policy` now works with `ImitationLoss`, `IBRL` and
+  `LCBGatedBootstrap`, which read the actions collection stored from the
+  expert's state; IQL refused it before. With an expert, IQL's replay also
+  keeps the environment's own observations and the expert flags, so its
+  evaluations log `replay/expert_share`, and an extension calling an expert
+  of its own reads the raw observations, not the normalised ones it was
+  given under `normalize_observations=True`.
+- **A refusal names the phase that needs the missing capability.** An
+  extension acting at `action` on PPO, APO or REINFORCE, which run the
+  phase, is refused because the phase needs an off-policy update; the
+  message now says so: `... which needs off_policy (...) for its action
+  phase`.
+- The agents named in `ImitationLoss`'s, `ExpertValueMetrics`',
+  `CloningPretrain`'s, `ExpertPrefill`'s and `PriorData`'s docstrings and
+  error messages are those that run them: CrossQ, TQC, RVI-SAC, IQL, AVG
+  and DAgger were missing where they apply.
+- **Docs: the PQN comparisons against purejaxql are version 4**, a
+  correction of their text only. The initialisation is matched (Ajax's PQN
+  has started as purejaxql's since before version 3 ran), and PQN-Asterix
+  no longer says Ajax cannot build pqn_minatar.py's network: both sides
+  keep pqn_gymnax.py's MLP, as its first version ran. Nothing was rerun;
+  the results page still reports version 3's run for PQN.
+
 ## 0.6.0
 
 What a user of 0.5.0 meets:

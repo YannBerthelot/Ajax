@@ -159,8 +159,8 @@ def warmup_rows(cls: Any, **kwargs: Any) -> dict[str, np.ndarray]:
 def test_the_expert_takes_its_share_of_every_agents_warmup(name):
     """The warm-up steps the expert took hold its action (push: 0.25 in
     agent units) in every env, the others uniform ones. The replay flags
-    them where it keeps is_expert, and no row after the warm-up; IQL keeps
-    none, so its rows are read by their action."""
+    them as the expert's (each of these agents stores its expert's actions,
+    and the flags with them), and no row after the warm-up."""
     cls, networks = WARMUP_AGENTS[name]
     warmup = (ExpertWarmup(fraction=0.5),)
     rows = warmup_rows(cls, expert_policy=push, extensions=warmup, **networks)
@@ -168,10 +168,8 @@ def test_the_expert_takes_its_share_of_every_agents_warmup(name):
     # One decision per step for every env, both outcomes within eight steps.
     np.testing.assert_array_equal(took[0], took[1])
     assert took.any() and not took.all()
-    assert ("is_expert" in rows) == (name != "IQL")
-    if "is_expert" in rows:
-        np.testing.assert_array_equal(rows["is_expert"][:, :8, 0] == 1, took)
-        assert (rows["is_expert"][:, 8:10] == 0).all()
+    np.testing.assert_array_equal(rows["is_expert"][:, :8, 0] == 1, took)
+    assert (rows["is_expert"][:, 8:10] == 0).all()
 
 
 @pytest.mark.parametrize("name", ["SAC", "TD3", "IQL"])

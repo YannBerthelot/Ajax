@@ -133,8 +133,9 @@ def box_action_override(
 
 def discounted(name: str, gamma: Any) -> Any:
     """The target's discount ``gamma``, which a bootstrap bonus scales;
-    refused on an average-reward agent (ASAC, APO: ``gamma`` None), whose
-    target has no discount and for which the bonus has no form."""
+    refused on an average-reward agent (ASAC, RVI-SAC, APO: ``gamma``
+    None), whose target has no discount and for which the bonus has no
+    form."""
     if gamma is None:
         raise ValueError(
             f"{name} adds a discounted bonus, gamma (1 - d) x [...], to a"

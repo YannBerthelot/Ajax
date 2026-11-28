@@ -19,8 +19,8 @@ Which module runs on which agent: every [extension](extensions.md) and network o
 | `CriticDiagnostics` | yes | yes | yes | yes | yes | yes | yes | yes | yes | no | yes | yes | yes | yes | yes | yes | yes | not yet | not yet | not yet | not yet | yes | yes | yes | yes | yes |
 | `EDGEExploration` | yes | yes | yes | yes | yes | yes | yes | yes | yes | no | not yet | no | no | no | no | no | no | yes | no | yes | no | not yet | no | no | no | not yet |
 | `EpsilonGreedyPresample` | yes | yes | yes | yes | yes | no | yes | yes | yes | no | not yet | no | no | no | no | no | no | yes | no | yes | no | not yet | no | no | no | not yet |
-| `ExpertActionInput` | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | not yet | yes | yes | yes | yes | no | no | yes | yes | no | no | not yet | not yet | yes | yes | not yet |
-| `ExpertGains` | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | no | yes | no | yes | no | no | no | yes | no | no | no | no | no | no | no | no |
+| `ExpertActionInput` | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | not yet | yes | yes | yes | yes | not yet | not yet | yes | yes | no | no | not yet | not yet | yes | yes | not yet |
+| `ExpertGains` | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | no | yes | no | yes | no | not yet | no | yes | no | no | no | no | no | no | no | no |
 | `ExpertPrefill` | yes | yes | yes | yes | yes | no | yes | yes | yes | no | not yet | no | no | no | no | no | no | not yet | not yet | not yet | not yet | not yet | not yet | yes | no | not yet |
 | `ExpertStateInput` | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | not yet | yes | yes | yes | yes | not yet | not yet | yes | yes | yes | yes | not yet | not yet | yes | yes | not yet |
 | `ExpertValueMetrics` | yes | yes | yes | yes | yes | no | yes | yes | yes | no | not yet | no | no | no | no | no | no | no | no | no | no | no | no | yes | no | not yet |
@@ -34,7 +34,7 @@ Which module runs on which agent: every [extension](extensions.md) and network o
 | `MCVarianceCorrection` | yes | not yet | not yet | no | no | no | not yet | no | not yet | no | not yet | no | no | no | no | no | no | no | no | no | no | no | no | no | no | not yet |
 | `MEW` | yes | no | yes | yes | yes | yes | yes | yes | no | no | no | no | no | no | no | no | no | no | no | no | no | no | no | no | no | no |
 | `OnlineBC` | yes | not yet | not yet | no | no | not yet | not yet | not yet | not yet | no | not yet | no | no | no | no | no | no | no | no | no | no | no | no | no | no | not yet |
-| `OuterLoopReference` | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | no | yes | no | yes | no | no | no | yes | no | no | no | no | no | no | no | no |
+| `OuterLoopReference` | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | no | yes | no | yes | no | not yet | no | yes | no | no | no | no | no | no | no | no |
 | `PIDTermsInput` | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | not yet |
 | `PhiRefresh` | yes | not yet | not yet | no | no | no | not yet | not yet | not yet | no | no | no | no | no | no | no | no | no | no | no | no | no | no | not yet | no | no |
 | `PreviousAction` | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | not yet |
@@ -43,7 +43,7 @@ Which module runs on which agent: every [extension](extensions.md) and network o
 | `RLPD` | yes | yes | yes | yes | yes | no | yes | yes | yes | no | not yet | no | no | no | no | no | no | not yet | not yet | not yet | not yet | not yet | not yet | yes | no | not yet |
 | `RepresentationProbe` | yes | yes | yes | yes | yes | yes | yes | yes | yes | not yet | no | yes | yes | yes | yes | yes | yes | not yet | not yet | yes | yes | no | no | yes | yes | no |
 | `ResetCost` | yes | yes | yes | no | no | no | yes | yes | no | no | no | no | no | no | no | no | no | no | no | no | no | no | no | yes | no | no |
-| `ResidualPolicy` | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | no | yes | no | yes | no | no | no | yes | no | no | no | no | no | no | no | no |
+| `ResidualPolicy` | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | no | yes | no | yes | no | not yet | no | yes | no | no | no | no | no | no | no | no |
 | `RetainedDemonstrations` | yes | yes | yes | yes | yes | no | yes | yes | yes | no | not yet | no | no | no | no | no | no | not yet | not yet | not yet | not yet | not yet | not yet | yes | no | not yet |
 | `StorePolicyAction` | yes | yes | yes | yes | yes | no | yes | yes | yes | no | not yet | no | no | no | no | no | no | yes | yes | no | no | not yet | not yet | yes | no | not yet |
 | `TargetBC` | yes | yes | yes | no | no | no | yes | yes | no | no | not yet | no | no | no | no | no | no | no | no | no | no | no | no | no | no | not yet |
@@ -120,12 +120,12 @@ Which module runs on which agent: every [extension](extensions.md) and network o
 - `EpsilonGreedyPresample` needs continuous_actions, off_policy, replay: not on PPO/discrete, APO/discrete, REINFORCE/discrete
 - `EpsilonGreedyPresample` needs off_policy, replay: not on APG, PPO, APO, REINFORCE
 - `EpsilonGreedyPresample` needs replay: not on AVG
-- `ExpertActionInput` needs reward_learning: not on REINFORCE, REINFORCE/discrete, DAgger, DAgger/discrete
-- `ExpertGains` needs continuous_actions: not on PPO/discrete, APO/discrete, UDRL/discrete, DQN, PQN
+- `ExpertActionInput` needs reward_learning: not on DAgger, DAgger/discrete
+- `ExpertGains` needs continuous_actions: not on PPO/discrete, APO/discrete, REINFORCE/discrete, UDRL/discrete, DQN, PQN
 - `ExpertGains` needs continuous_actions, obs_networks: not on DreamerV3/discrete
-- `ExpertGains` needs continuous_actions, reward_learning: not on REINFORCE/discrete, DAgger/discrete
+- `ExpertGains` needs continuous_actions, reward_learning: not on DAgger/discrete
 - `ExpertGains` needs obs_networks: not on TDMPC2, DreamerV3, TDMPC2MultiTask
-- `ExpertGains` needs reward_learning: not on REINFORCE, DAgger
+- `ExpertGains` needs reward_learning: not on DAgger
 - `ExpertPrefill` needs off_policy, replay: not on APG, PPO, PPO/discrete, APO, APO/discrete, REINFORCE, REINFORCE/discrete
 - `ExpertPrefill` needs replay: not on AVG, PQN
 - `ExpertValueMetrics` needs q_critic: not on UDRL, UDRL/discrete, DAgger, DAgger/discrete, DreamerV3, DreamerV3/discrete
@@ -182,11 +182,11 @@ Which module runs on which agent: every [extension](extensions.md) and network o
 - `OnlineBC` needs discounted: not on ASAC, RVISAC
 - `OnlineBC` needs discounted, q_critic: not on APO
 - `OnlineBC` needs q_critic: not on PPO, REINFORCE, DreamerV3
-- `OuterLoopReference` needs continuous_actions: not on PPO/discrete, APO/discrete, UDRL/discrete, DQN, PQN
+- `OuterLoopReference` needs continuous_actions: not on PPO/discrete, APO/discrete, REINFORCE/discrete, UDRL/discrete, DQN, PQN
 - `OuterLoopReference` needs continuous_actions, obs_networks: not on DreamerV3/discrete
-- `OuterLoopReference` needs continuous_actions, reward_learning: not on REINFORCE/discrete, DAgger/discrete
+- `OuterLoopReference` needs continuous_actions, reward_learning: not on DAgger/discrete
 - `OuterLoopReference` needs obs_networks: not on TDMPC2, DreamerV3, TDMPC2MultiTask
-- `OuterLoopReference` needs reward_learning: not on REINFORCE, DAgger
+- `OuterLoopReference` needs reward_learning: not on DAgger
 - `PhiRefresh` needs critic, discounted, one_step_target, q_critic: not on UDRL, UDRL/discrete, DAgger, DAgger/discrete
 - `PhiRefresh` needs critic, discounted, one_step_target, q_critic, replay: not on APG
 - `PhiRefresh` needs discounted: not on ASAC, RVISAC
@@ -211,15 +211,14 @@ Which module runs on which agent: every [extension](extensions.md) and network o
 - `ResetCost` needs one_step_target: not on TDMPC2, TDMPC2MultiTask
 - `ResetCost` needs one_step_target, replay: not on PQN
 - `ResetCost` needs replay: not on AVG
-- `ResidualPolicy` needs continuous_actions: not on PPO/discrete, APO/discrete, UDRL/discrete, DQN, PQN
+- `ResidualPolicy` needs continuous_actions: not on PPO/discrete, APO/discrete, REINFORCE/discrete, UDRL/discrete, DQN, PQN
 - `ResidualPolicy` needs continuous_actions, obs_networks: not on DreamerV3/discrete
-- `ResidualPolicy` needs continuous_actions, reward_learning: not on REINFORCE/discrete, DAgger/discrete
+- `ResidualPolicy` needs continuous_actions, reward_learning: not on DAgger/discrete
 - `ResidualPolicy` needs obs_networks: not on TDMPC2, DreamerV3, TDMPC2MultiTask
-- `ResidualPolicy` needs reward_learning: not on REINFORCE, DAgger
+- `ResidualPolicy` needs reward_learning: not on DAgger
 - `RetainedDemonstrations` needs off_policy, replay: not on APG, PPO, PPO/discrete, APO, APO/discrete, REINFORCE, REINFORCE/discrete
 - `RetainedDemonstrations` needs replay: not on AVG, PQN
-- `StorePolicyAction` needs replay: not on AVG, APG, PPO, PPO/discrete, APO, APO/discrete, PQN
-- `StorePolicyAction` needs replay, reward_learning: not on REINFORCE, REINFORCE/discrete
+- `StorePolicyAction` needs replay: not on AVG, APG, PPO, PPO/discrete, APO, APO/discrete, REINFORCE, REINFORCE/discrete, PQN
 - `StorePolicyAction` needs reward_learning: not on DAgger, DAgger/discrete
 - `TargetBC` needs actor, continuous_actions: not on DQN
 - `TargetBC` needs actor, continuous_actions, replay: not on PQN
@@ -260,7 +259,7 @@ Which module runs on which agent: every [extension](extensions.md) and network o
 - memory is not wired on this agent yet: `memory` on APO APO/discrete DQN PQN DAgger DAgger/discrete IQL REINFORCE REINFORCE/discrete
 - memory on this agent has no published form to follow yet: `memory` on AVG CrossQ UDRL UDRL/discrete
 - TD-MPC2's own collector does not run the choose_warmup_action phase in its seed phase yet, and it takes no expert_policy: `ExpertWarmup` on TDMPC2
-- REINFORCE takes no expert and folds no loss phase for extensions yet: `BiasVorePenalty` on REINFORCE REINFORCE/discrete; `BumplessTracking` on REINFORCE REINFORCE/discrete; `CloningPretrain` on REINFORCE REINFORCE/discrete; `ExpertStateInput` on REINFORCE REINFORCE/discrete; `ImitationLoss` on REINFORCE REINFORCE/discrete
+- REINFORCE takes no expert and folds no loss phase for extensions yet: `BiasVorePenalty` on REINFORCE REINFORCE/discrete; `BumplessTracking` on REINFORCE REINFORCE/discrete; `CloningPretrain` on REINFORCE REINFORCE/discrete; `ExpertActionInput` on REINFORCE REINFORCE/discrete; `ExpertStateInput` on REINFORCE REINFORCE/discrete; `ImitationLoss` on REINFORCE REINFORCE/discrete; `ExpertGains` on REINFORCE; `OuterLoopReference` on REINFORCE; `ResidualPolicy` on REINFORCE
 - APG's closed-loop rollout passes the features no reward yet: `PreviousReward` on APG
 - only PPO folds the reward phase (GAIL's AdversarialReward): `AdversarialReward` on SAC TD3 REDQ TQC CrossQ ASAC RVISAC AVG APG APO UDRL DAgger IQL DreamerV3 REINFORCE TDMPC2 TDMPC2MultiTask
 - the agent's own collector does not run choose_replay_action yet: `StorePolicyAction` on DreamerV3 DreamerV3/discrete TDMPC2 TDMPC2MultiTask

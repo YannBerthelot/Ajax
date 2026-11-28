@@ -17,6 +17,7 @@ from ajax import SAC
 from ajax.agents.APO.APO import APO
 from ajax.agents.ASAC.ASAC import ASAC
 from ajax.agents.AVG.AVG import AVG
+from ajax.agents.IQL.IQL import IQL
 from ajax.agents.REDQ.REDQ import REDQ
 from ajax.agents.TD3.TD3 import TD3
 from ajax.extensions.base import Extension
@@ -80,6 +81,7 @@ AGENTS: dict[str, tuple[type, dict]] = {
     "TD3": (TD3, REPLAY),
     "REDQ": (REDQ, {**REPLAY, "num_critic_updates": 2}),  # not its 20 a step
     "ASAC": (ASAC, REPLAY),
+    "IQL": (IQL, REPLAY),
     "AVG": (AVG, {"learning_starts": 16}),
     "APO": (
         APO,
@@ -199,7 +201,7 @@ class TargetBatchRecorder(Extension):
         return target
 
 
-@pytest.mark.parametrize("agent", ["SAC", "TD3", "REDQ", "AVG"])
+@pytest.mark.parametrize("agent", ["SAC", "TD3", "REDQ", "IQL", "AVG"])
 def test_the_target_reads_the_stored_expert_actions_at_the_next_state(
     agent: str,
 ) -> None:

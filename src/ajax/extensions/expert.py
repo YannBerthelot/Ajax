@@ -261,9 +261,10 @@ class ImitationLoss(Extension):
     the paper's ``λ1 = 1e-3`` on the RL term and ``λ2``; the policy's mean
     action and the minimum over the agent's critics (TD3's actor reads its
     first, REDQ's the mean of its ensemble), not DDPG's one critic. The
-    filter needs a Q critic, which SAC, TD3, REDQ, ASAC and AVG put in
-    their actor-loss batch (``critic_state``); a state-value critic (PPO,
-    APO) cannot rate an action. It refuses :class:`ResidualPolicy`, whose
+    filter needs a Q critic, which the off-policy actor-critics (SAC, TD3,
+    REDQ, CrossQ, TQC, ASAC, RVI-SAC, AVG and IQL) put in their actor-loss
+    batch (``critic_state``); a state-value critic (PPO, APO) cannot rate
+    an action. It refuses :class:`ResidualPolicy`, whose
     critic reads the executed action. ``imitation/q_filter_frac`` logs, at
     each evaluation, the share of a replay batch the filter keeps (every
     agent but AVG, which keeps no replay).
@@ -280,7 +281,8 @@ class ImitationLoss(Extension):
     weights population-based training tunes. ``None`` keeps the weight at 1.
 
     ``target="replay"`` clones the replayed rows' own actions (``actions``,
-    which SAC, TD3, REDQ and ASAC put in their actor-loss batch) instead of
+    which the replay actor-critics, SAC, TD3, REDQ, CrossQ, TQC, ASAC,
+    RVI-SAC and IQL, put in their actor-loss batch) instead of
     an expert's: logged data needs no expert, and ``expert_policy`` may be
     None. ``alpha`` makes the actor loss TD3+BC's (Fujimoto and Gu, 2021),
     ``λ · (the agent's own) + coef · mean((μ(s) - a)²)`` with ``λ = alpha /
@@ -294,10 +296,13 @@ class ImitationLoss(Extension):
     ``normalize_observations=True`` (the dataset's statistics, sqrt(var +
     1e-8) in place of the reference's std + 1e-3), it is TD3+BC.
 
-    TD3, REDQ, ASAC, APO, SAC and PPO put ``pi_mean`` and
-    ``raw_observations`` in their actor-loss batch, and all but PPO (which
-    takes no expert) the stored ``a_expert``; an agent whose batch has no
-    ``pi_mean`` (a discrete-action policy) raises at trace time.
+    The agents it runs on, with continuous actions (the off-policy
+    actor-critics, APO, DAgger, PPO, APG and UDRL), put ``pi_mean`` and
+    ``raw_observations`` in their actor-loss batch, and those storing their
+    expert's actions (``stores_expert_actions``) the stored ``a_expert``,
+    which the term reads when its expert is the agent's. An agent whose
+    batch has no ``pi_mean`` (a discrete-action policy) raises at trace
+    time.
     """
 
     expert_policy: Optional[Callable]
@@ -1007,7 +1012,8 @@ class ExpertValueMetrics(Extension):
     One replay batch per evaluation pays for them, not a critic pass (two
     with ``φ*``) per update for three logged numbers. ``a_E`` is the
     expert's action stored at collection. A replay agent with an
-    ``expert_policy`` (SAC, TD3, REDQ, ASAC, DQN) binds its replay buffer,
+    ``expert_policy`` (SAC, TD3, REDQ, CrossQ, TQC, ASAC, RVI-SAC, IQL and
+    DQN) binds its replay buffer,
     its expert and whether its actions are discrete: a discrete agent's
     Q-network gives every action's value, read at the stored index
     (q_network_value), one network, no ensemble to take the minimum of.
@@ -1036,7 +1042,8 @@ class ExpertValueMetrics(Extension):
             raise ValueError(
                 "ExpertValueMetrics reads, on a replay batch, the critic at the"
                 " actions the agent stored for its expert_policy: it needs a"
-                " replay agent (SAC, TD3, REDQ, ASAC, DQN) with an expert_policy."
+                " replay agent (SAC, TD3, REDQ, CrossQ, TQC, ASAC, RVISAC, IQL or"
+                " DQN) with an expert_policy."
             )
         discrete = not agent_context["env_args"].continuous
         return dataclasses.replace(

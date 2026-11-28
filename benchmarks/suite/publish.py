@@ -661,7 +661,7 @@ def write_gain_figure(
     runs: list[Run], by_agent: dict, directory: pathlib.Path = FIGURES
 ) -> None:
     """The GPU's gain over four CPU cores against the number of seeds trained
-    together, a panel per suite's timing task, a line per agent; at 1 the two
+    together, a panel per suite's timing task, a line per agent; on the grey line at 1 the two
     machines run as fast."""
     plt = pyplot()
     style = agent_styles(runs)
@@ -669,7 +669,7 @@ def write_gain_figure(
     if not suites:
         return
     figure, axes = plt.subplots(
-        1, len(suites), figsize=(4.7 * len(suites), 3.9), squeeze=False
+        1, len(suites), figsize=(5.9 * len(suites), 3.9), squeeze=False
     )
     for axis, suite in zip(axes[0], suites, strict=True):
         counts = set()
@@ -695,7 +695,9 @@ def write_gain_figure(
         axis.set_xticks(sorted(counts), [str(n) for n in sorted(counts)])
         axis.set_xlabel("Seeds trained together")
         axis.grid(alpha=0.25)
-        axis.legend(fontsize=7, frameon=False)
+        # Beside the panel: a dozen lines meet at 50 seeds, where a legend
+        # inside would cover them.
+        axis.legend(fontsize=7, frameon=False, loc="upper left", bbox_to_anchor=(1, 1))
     axes[0][0].set_ylabel("Times as fast on one GPU as on four CPU cores")
     figure.tight_layout()
     figure.savefig(directory / "gain-by-seeds.svg", metadata={"Date": None})

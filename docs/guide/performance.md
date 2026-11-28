@@ -305,7 +305,8 @@ A GPU gains most where updates take the time: many critics, wide networks
 and world models (REDQ, TQC, CrossQ, DreamerV3, TD-MPC2) train about 50 to
 110 times as fast on the L40S. It gains little on one simulator step per seed:
 AVG, APO and DQN gain 4 to 6 times, and PPO on CheetahRun runs faster on the
-four CPU cores.
+four CPU cores: with one environment per seed, the card steps only 10
+simulations at a time.
 
 How the gain changes with the number of seeds trained together, on the
 same tasks and machines. DreamerV3 stops at 10 seeds: at 50, its replay would
@@ -314,12 +315,43 @@ need about 500 GB of memory.
 ![How many times as fast one GPU trains each agent as four CPU cores, against the number of seeds trained together](../reproduction/benchmark-figures/gain-by-seeds.svg)
 
 <!-- agent-gain-by-seeds:start -->
+| Agent | Task | 1 seed | 10 seeds | 50 seeds |
+|---|---|---:|---:|---:|
+| SAC | CheetahRun | 3.2 | 15 | 44 |
+| TD3 | CheetahRun | 2.4 | 13 | 39 |
+| ASAC | CheetahRun | 4 | 18 | 49 |
+| RVI-SAC | CheetahRun | 5 | 14 | 47 |
+| AVG | CheetahRun | 1.3 | 3.9 | 19 |
+| APO | CheetahRun | 0.92 | 5.7 | 9.2 |
+| PPO | CheetahRun | 0.15 | 0.68 | 3 |
+| REDQ | CheetahRun | 30 | 80 | 46 |
+| TQC | CheetahRun | 32 | 51 | 59 |
+| CrossQ | CheetahRun | 60 | 90 | 99 |
+| DreamerV3 | CheetahRun | 75 | 110 | – |
+| TD-MPC2 | CheetahRun | 59 | 111 | 103 |
+| DQN | Breakout | 1.2 | 4.3 | 24 |
+| PQN | Breakout | 12 | 29 | 87 |
+| PPO | Breakout | 2.2 | 17 | 64 |
+| UDRL | Breakout | 6.9 | 12 | 39 |
 <!-- agent-gain-by-seeds:end -->
 
-More seeds help until the card is full. SAC's total levelled off near 8,000
-steps per second from 64 seeds, while PPO reached 42,000 at 256. Three SAC jobs
-at once on an otherwise idle card gave 1.9 times the throughput of one.
-`benchmarks/gpu_check.sh` compares four agents on CartPole and Pendulum with
+With one seed, the GPU wins by little where updates are light: 1.2 to 7
+times (PQN 12), and APO and PPO on CheetahRun run faster on the CPU. Agents
+with heavy updates gain 30 to 75 times already.
+
+Four CPU cores are full by 10 seeds: from 10 to 50, each agent's total stays
+about the same or falls a little (APO's doubles), so each seed runs about five
+times slower. The L40S still has room at 10 seeds for most agents: their total
+grows 2 to 4.6 times by 50 seeds, and their gain with it, SAC's from 15 to 44
+times and PPO's on CheetahRun from 0.68 to 3. TQC, CrossQ and TD-MPC2 fill the
+card by 10 seeds, so their total stays the same at 50. REDQ's total falls,
+from 563 to 360 steps per second, and its gain from 80 to 46 times; a second
+run gave the same speed.
+
+An earlier sweep (2026-11-06, records in `benchmarks/gpu/`) found SAC's total
+levelling off near 8,000 steps per second from 64 seeds, and PPO reaching
+42,000 at 256. Three SAC jobs at once on an otherwise idle card gave 1.9 times
+the throughput of one. `benchmarks/gpu_check.sh` compares four agents on CartPole and Pendulum with
 the same machine's CPU, in `benchmarks/gpu/report.md`.
 
 The logging worker always runs on the CPU, so it never takes GPU memory.

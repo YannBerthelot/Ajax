@@ -3439,7 +3439,7 @@ section lists every argument.</p>
 <tr>
 <td><code>expert_policy</code></td>
 <td><code>None</code></td>
-<td>an expert the run tracks online, for the observation features and <code>ResidualPolicy</code>; each evaluation logs its return next to the agent's</td>
+<td>an expert the run tracks online, its actions stored for the extensions that read them (<code>ImitationLoss</code>, <code>IBRL</code>, <code>LCBGatedBootstrap</code>), beside the observation features and <code>ResidualPolicy</code>; each evaluation logs its return next to the agent's</td>
 </tr>
 <tr>
 <td><code>extensions</code></td>

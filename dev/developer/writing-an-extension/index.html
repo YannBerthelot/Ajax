@@ -3601,7 +3601,7 @@ context it binds, its batches and replay fields;
 <tr>
 <td><code>reads_agent_expert_actions</code> (class attribute)</td>
 <td>the extension reads the expert actions the agent stored, when its expert is the agent's <code>expert_policy</code></td>
-<td>lets a stateful expert through for it, on an agent that stores those actions (<code>stores_expert_actions</code>: SAC, TD3, REDQ, CrossQ, TQC, ASAC, RVISAC, AVG, DQN, APO, DAgger)</td>
+<td>lets a stateful expert through for it, on an agent that stores those actions (<code>stores_expert_actions</code>: <!-- agents: expert-actions -->SAC, TD3, REDQ, CrossQ, TQC, ASAC, RVISAC, IQL, AVG, DQN, APO and DAgger<!-- /agents -->)</td>
 </tr>
 <tr>
 <td><code>uses_expert_actions_as_policy_actions()</code></td>
@@ -3671,7 +3671,7 @@ critic (its <code>needs()</code> depends on its <code>gate</code>).</p>
 <a id="__codelineno-3-40" name="__codelineno-3-40" href="#__codelineno-3-40"></a>        <span class="n">build</span><span class="p">()</span>
 <a id="__codelineno-3-41" name="__codelineno-3-41" href="#__codelineno-3-41"></a>    <span class="k">except</span> <span class="ne">ValueError</span> <span class="k">as</span> <span class="n">error</span><span class="p">:</span>
 <a id="__codelineno-3-42" name="__codelineno-3-42" href="#__codelineno-3-42"></a>        <span class="nb">print</span><span class="p">(</span><span class="n">error</span><span class="p">)</span>
-<a id="__codelineno-3-43" name="__codelineno-3-43" href="#__codelineno-3-43"></a><span class="c1"># PQN cannot run ActorNudge (&#39;actor-nudge&#39;), which needs actor (a policy network trained by gradient).</span>
+<a id="__codelineno-3-43" name="__codelineno-3-43" href="#__codelineno-3-43"></a><span class="c1"># PQN cannot run ActorNudge (&#39;actor-nudge&#39;), which needs actor (a policy network trained by gradient) for its actor_loss phase.</span>
 <a id="__codelineno-3-44" name="__codelineno-3-44" href="#__codelineno-3-44"></a><span class="c1"># DQN has what its extensions need, but does not pass it on yet: NextObservationReader (&#39;next-observation-reader&#39;): DQN stores no [&#39;raw_next_obs&#39;] yet.</span>
 <a id="__codelineno-3-45" name="__codelineno-3-45" href="#__codelineno-3-45"></a><span class="c1"># SAC cannot run PhiStarReader (&#39;phi-star-reader&#39;), which needs phi_star (add MCPretrain(expert_policy=...), which fits phi*, to the extensions).</span>
 </code></pre></div>

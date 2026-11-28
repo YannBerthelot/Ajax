@@ -3226,7 +3226,8 @@ others depend on what the agent's update and collection have:</p>
 <a href="../expert-guidance/#collection">Expert guidance</a> describes both).</p>
 <p>Running a phase is not enough: the agent must also have what the extension
 needs, as the next section explains: PPO, APO and REINFORCE run <code>action</code> but
-refuse the extensions acting there, which need an off-policy update.</p>
+refuse the extensions acting there, which need an off-policy update; the
+refusal names the phase.</p>
 <h2 id="what-an-agent-has-and-what-an-extension-needs">What an agent has, and what an extension needs<a class="headerlink" href="#what-an-agent-has-and-what-an-extension-needs" title="Permanent link">&para;</a></h2>
 <p>Each agent declares what its algorithm has, in <code>capabilities</code>:</p>
 <table>
@@ -3321,7 +3322,7 @@ refuse the extensions acting there, which need an off-policy update.</p>
 <tr>
 <td><code>reward_learning</code></td>
 <td>it learns from the reward, not from an expert's labels alone</td>
-<td>all but DAgger and REINFORCE</td>
+<td>all but DAgger</td>
 </tr>
 </tbody>
 </table>
@@ -3375,7 +3376,7 @@ policy's), continuous actions for <code>transform_action</code> and <code>actuat
 with steps for <code>choose_warmup_action</code>, a replay for <code>choose_replay_action</code>.
 An extension needing nothing runs on every agent. When the agent is built,
 an extension needing something its run lacks is refused with
-<code>MissingCapability</code>, which names it:</p>
+<code>MissingCapability</code>, which names it, and the phase needing it where one does:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">jax.numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">jnp</span>
 <a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>
 <a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax</span><span class="w"> </span><span class="kn">import</span> <span class="n">DQN</span>
@@ -3389,7 +3390,7 @@ an extension needing something its run lacks is refused with
 <a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="k">try</span><span class="p">:</span>
 <a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a>    <span class="n">DQN</span><span class="p">(</span><span class="s2">&quot;CartPole-v1&quot;</span><span class="p">,</span> <span class="n">extensions</span><span class="o">=</span><span class="p">(</span><span class="n">ImitationLoss</span><span class="p">(</span><span class="n">expert</span><span class="p">),))</span>
 <a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a><span class="k">except</span> <span class="ne">ValueError</span> <span class="k">as</span> <span class="n">error</span><span class="p">:</span>
-<a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a>    <span class="nb">print</span><span class="p">(</span><span class="n">error</span><span class="p">)</span>  <span class="c1"># DQN cannot run ImitationLoss (&#39;imitation_loss&#39;), which needs actor (...), continuous_actions (...).</span>
+<a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a>    <span class="nb">print</span><span class="p">(</span><span class="n">error</span><span class="p">)</span>  <span class="c1"># DQN cannot run ImitationLoss (&#39;imitation_loss&#39;), which needs actor (...) for its actor_loss phase, continuous_actions (...).</span>
 </code></pre></div>
 <p>When the run has everything but the agent's code does not pass it on yet,
 the refusal is <code>NotWired</code>, which says what is missing.
@@ -3437,9 +3438,11 @@ extension (<code>MissingCapability</code> and <code>NotWired</code> are <code>Va
 <p>One table per module. "Works with" names the agents that accept the
 extension, and "details" links its explanation or its settings;
 <a href="../compatibility/">Compatibility</a>, generated from the code, has the full
-matrix. "The off-policy actor-critics" are SAC, TD3, REDQ, CrossQ, TQC,
-ASAC, RVISAC, AVG and IQL, and "with an expert" means the agent was given an
-<code>expert_policy</code>.</p>
+matrix. "The off-policy actor-critics" are</p>
+<!-- agents: off-policy-actor-critics -->
+<p>SAC, TD3, REDQ, CrossQ, TQC, ASAC,
+RVISAC, AVG and IQL<!-- /agents -->, and "with an expert" means the agent was
+given an <code>expert_policy</code>.</p>
 <p><strong>Learning from an expert</strong> (<code>ajax.extensions.expert</code>)</p>
 <table>
 <thead>
@@ -3461,7 +3464,7 @@ ASAC, RVISAC, AVG and IQL, and "with an expert" means the agent was given an
 <td><code>ImitationLoss</code></td>
 <td>Adds TD3+BC's cloning term towards the expert's actions, weighted by <code>coef</code>. <code>q_filter=True</code> keeps the rows where the critic rates the expert higher; <code>target="replay"</code> clones the logged actions instead (<a href="../expert-guidance/#imitation-alongside-the-reward">details</a>).</td>
 <td><code>actor_loss</code>, <code>eval_metrics</code></td>
-<td>continuous actions: the off-policy actor-critics, APO, DAgger, PPO, APG and UDRL (on IQL, PPO, APG and UDRL a stateless expert); <code>q_filter</code> needs a Q critic, <code>target="replay"</code> a replay</td>
+<td>continuous actions: the off-policy actor-critics, APO, DAgger, PPO, APG and UDRL (on PPO, APG and UDRL a stateless expert); <code>q_filter</code> needs a Q critic, <code>target="replay"</code> a replay</td>
 </tr>
 <tr>
 <td><code>ResidualPolicy</code></td>
@@ -3895,7 +3898,7 @@ expert needs its memory in <code>features</code> (<code>ExpertStateInput</code>,
 <td><code>BiasVorePenalty</code></td>
 <td>Adds a penalty on the variance of the critic's residual, set by <code>alpha</code> (0.5 adds nothing) (<a href="../../api/extensions/#ajax.extensions.instrumentation.BiasVorePenalty">details</a>).</td>
 <td><code>critic_loss</code></td>
-<td>the off-policy actor-critics but TQC, and PPO, APO, DQN and PQN</td>
+<td>PPO, APO, DQN, PQN and the off-policy actor-critics but TQC</td>
 </tr>
 </tbody>
 </table>

@@ -3367,8 +3367,8 @@
 <td>yes</td>
 <td>yes</td>
 <td>yes</td>
-<td>no</td>
-<td>no</td>
+<td>not yet</td>
+<td>not yet</td>
 <td>yes</td>
 <td>yes</td>
 <td>no</td>
@@ -3396,7 +3396,7 @@
 <td>no</td>
 <td>yes</td>
 <td>no</td>
-<td>no</td>
+<td>not yet</td>
 <td>no</td>
 <td>yes</td>
 <td>no</td>
@@ -3802,7 +3802,7 @@
 <td>no</td>
 <td>yes</td>
 <td>no</td>
-<td>no</td>
+<td>not yet</td>
 <td>no</td>
 <td>yes</td>
 <td>no</td>
@@ -4063,7 +4063,7 @@
 <td>no</td>
 <td>yes</td>
 <td>no</td>
-<td>no</td>
+<td>not yet</td>
 <td>no</td>
 <td>yes</td>
 <td>no</td>
@@ -4432,12 +4432,12 @@
 <li><code>EpsilonGreedyPresample</code> needs continuous_actions, off_policy, replay: not on PPO/discrete, APO/discrete, REINFORCE/discrete</li>
 <li><code>EpsilonGreedyPresample</code> needs off_policy, replay: not on APG, PPO, APO, REINFORCE</li>
 <li><code>EpsilonGreedyPresample</code> needs replay: not on AVG</li>
-<li><code>ExpertActionInput</code> needs reward_learning: not on REINFORCE, REINFORCE/discrete, DAgger, DAgger/discrete</li>
-<li><code>ExpertGains</code> needs continuous_actions: not on PPO/discrete, APO/discrete, UDRL/discrete, DQN, PQN</li>
+<li><code>ExpertActionInput</code> needs reward_learning: not on DAgger, DAgger/discrete</li>
+<li><code>ExpertGains</code> needs continuous_actions: not on PPO/discrete, APO/discrete, REINFORCE/discrete, UDRL/discrete, DQN, PQN</li>
 <li><code>ExpertGains</code> needs continuous_actions, obs_networks: not on DreamerV3/discrete</li>
-<li><code>ExpertGains</code> needs continuous_actions, reward_learning: not on REINFORCE/discrete, DAgger/discrete</li>
+<li><code>ExpertGains</code> needs continuous_actions, reward_learning: not on DAgger/discrete</li>
 <li><code>ExpertGains</code> needs obs_networks: not on TDMPC2, DreamerV3, TDMPC2MultiTask</li>
-<li><code>ExpertGains</code> needs reward_learning: not on REINFORCE, DAgger</li>
+<li><code>ExpertGains</code> needs reward_learning: not on DAgger</li>
 <li><code>ExpertPrefill</code> needs off_policy, replay: not on APG, PPO, PPO/discrete, APO, APO/discrete, REINFORCE, REINFORCE/discrete</li>
 <li><code>ExpertPrefill</code> needs replay: not on AVG, PQN</li>
 <li><code>ExpertValueMetrics</code> needs q_critic: not on UDRL, UDRL/discrete, DAgger, DAgger/discrete, DreamerV3, DreamerV3/discrete</li>
@@ -4494,11 +4494,11 @@
 <li><code>OnlineBC</code> needs discounted: not on ASAC, RVISAC</li>
 <li><code>OnlineBC</code> needs discounted, q_critic: not on APO</li>
 <li><code>OnlineBC</code> needs q_critic: not on PPO, REINFORCE, DreamerV3</li>
-<li><code>OuterLoopReference</code> needs continuous_actions: not on PPO/discrete, APO/discrete, UDRL/discrete, DQN, PQN</li>
+<li><code>OuterLoopReference</code> needs continuous_actions: not on PPO/discrete, APO/discrete, REINFORCE/discrete, UDRL/discrete, DQN, PQN</li>
 <li><code>OuterLoopReference</code> needs continuous_actions, obs_networks: not on DreamerV3/discrete</li>
-<li><code>OuterLoopReference</code> needs continuous_actions, reward_learning: not on REINFORCE/discrete, DAgger/discrete</li>
+<li><code>OuterLoopReference</code> needs continuous_actions, reward_learning: not on DAgger/discrete</li>
 <li><code>OuterLoopReference</code> needs obs_networks: not on TDMPC2, DreamerV3, TDMPC2MultiTask</li>
-<li><code>OuterLoopReference</code> needs reward_learning: not on REINFORCE, DAgger</li>
+<li><code>OuterLoopReference</code> needs reward_learning: not on DAgger</li>
 <li><code>PhiRefresh</code> needs critic, discounted, one_step_target, q_critic: not on UDRL, UDRL/discrete, DAgger, DAgger/discrete</li>
 <li><code>PhiRefresh</code> needs critic, discounted, one_step_target, q_critic, replay: not on APG</li>
 <li><code>PhiRefresh</code> needs discounted: not on ASAC, RVISAC</li>
@@ -4523,15 +4523,14 @@
 <li><code>ResetCost</code> needs one_step_target: not on TDMPC2, TDMPC2MultiTask</li>
 <li><code>ResetCost</code> needs one_step_target, replay: not on PQN</li>
 <li><code>ResetCost</code> needs replay: not on AVG</li>
-<li><code>ResidualPolicy</code> needs continuous_actions: not on PPO/discrete, APO/discrete, UDRL/discrete, DQN, PQN</li>
+<li><code>ResidualPolicy</code> needs continuous_actions: not on PPO/discrete, APO/discrete, REINFORCE/discrete, UDRL/discrete, DQN, PQN</li>
 <li><code>ResidualPolicy</code> needs continuous_actions, obs_networks: not on DreamerV3/discrete</li>
-<li><code>ResidualPolicy</code> needs continuous_actions, reward_learning: not on REINFORCE/discrete, DAgger/discrete</li>
+<li><code>ResidualPolicy</code> needs continuous_actions, reward_learning: not on DAgger/discrete</li>
 <li><code>ResidualPolicy</code> needs obs_networks: not on TDMPC2, DreamerV3, TDMPC2MultiTask</li>
-<li><code>ResidualPolicy</code> needs reward_learning: not on REINFORCE, DAgger</li>
+<li><code>ResidualPolicy</code> needs reward_learning: not on DAgger</li>
 <li><code>RetainedDemonstrations</code> needs off_policy, replay: not on APG, PPO, PPO/discrete, APO, APO/discrete, REINFORCE, REINFORCE/discrete</li>
 <li><code>RetainedDemonstrations</code> needs replay: not on AVG, PQN</li>
-<li><code>StorePolicyAction</code> needs replay: not on AVG, APG, PPO, PPO/discrete, APO, APO/discrete, PQN</li>
-<li><code>StorePolicyAction</code> needs replay, reward_learning: not on REINFORCE, REINFORCE/discrete</li>
+<li><code>StorePolicyAction</code> needs replay: not on AVG, APG, PPO, PPO/discrete, APO, APO/discrete, REINFORCE, REINFORCE/discrete, PQN</li>
 <li><code>StorePolicyAction</code> needs reward_learning: not on DAgger, DAgger/discrete</li>
 <li><code>TargetBC</code> needs actor, continuous_actions: not on DQN</li>
 <li><code>TargetBC</code> needs actor, continuous_actions, replay: not on PQN</li>
@@ -4572,7 +4571,7 @@
 <li>memory is not wired on this agent yet: <code>memory</code> on APO APO/discrete DQN PQN DAgger DAgger/discrete IQL REINFORCE REINFORCE/discrete</li>
 <li>memory on this agent has no published form to follow yet: <code>memory</code> on AVG CrossQ UDRL UDRL/discrete</li>
 <li>TD-MPC2's own collector does not run the choose_warmup_action phase in its seed phase yet, and it takes no expert_policy: <code>ExpertWarmup</code> on TDMPC2</li>
-<li>REINFORCE takes no expert and folds no loss phase for extensions yet: <code>BiasVorePenalty</code> on REINFORCE REINFORCE/discrete; <code>BumplessTracking</code> on REINFORCE REINFORCE/discrete; <code>CloningPretrain</code> on REINFORCE REINFORCE/discrete; <code>ExpertStateInput</code> on REINFORCE REINFORCE/discrete; <code>ImitationLoss</code> on REINFORCE REINFORCE/discrete</li>
+<li>REINFORCE takes no expert and folds no loss phase for extensions yet: <code>BiasVorePenalty</code> on REINFORCE REINFORCE/discrete; <code>BumplessTracking</code> on REINFORCE REINFORCE/discrete; <code>CloningPretrain</code> on REINFORCE REINFORCE/discrete; <code>ExpertActionInput</code> on REINFORCE REINFORCE/discrete; <code>ExpertStateInput</code> on REINFORCE REINFORCE/discrete; <code>ImitationLoss</code> on REINFORCE REINFORCE/discrete; <code>ExpertGains</code> on REINFORCE; <code>OuterLoopReference</code> on REINFORCE; <code>ResidualPolicy</code> on REINFORCE</li>
 <li>APG's closed-loop rollout passes the features no reward yet: <code>PreviousReward</code> on APG</li>
 <li>only PPO folds the reward phase (GAIL's AdversarialReward): <code>AdversarialReward</code> on SAC TD3 REDQ TQC CrossQ ASAC RVISAC AVG APG APO UDRL DAgger IQL DreamerV3 REINFORCE TDMPC2 TDMPC2MultiTask</li>
 <li>the agent's own collector does not run choose_replay_action yet: <code>StorePolicyAction</code> on DreamerV3 DreamerV3/discrete TDMPC2 TDMPC2MultiTask</li>

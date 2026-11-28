@@ -3364,8 +3364,9 @@ the agents that run it.</p>
 <code>LCBGatedBootstrap</code>, <code>CriticBlend</code>, <code>PhiRefresh</code>) call it as <code>expert(obs)</code>,
 where no expert state exists. A stateful expert is allowed there only when
 it is the agent's own <code>expert_policy</code> (the same object), on an agent that
-stores that expert's actions: SAC, TD3, REDQ, CrossQ, TQC, ASAC, RVI-SAC,
-AVG, DQN, DAgger and APO. The extension then reads the actions the agent
+stores that expert's actions: <!-- agents: expert-actions -->SAC, TD3, REDQ,
+CrossQ, TQC, ASAC, RVI-SAC, IQL, AVG, DQN, DAgger and APO<!-- /agents -->.
+The extension then reads the actions the agent
 stored at collection, computed from the expert's tracked state. Any other
 stateful expert is refused when the agent is built.</p>
 <h2 id="which-agents-take-an-expert">Which agents take an expert<a class="headerlink" href="#which-agents-take-an-expert" title="Permanent link">&para;</a></h2>
@@ -3432,7 +3433,9 @@ defaults collect about a million) and train for tens of thousands of steps.</p>
 <h2 id="choosing-the-pieces">Choosing the pieces<a class="headerlink" href="#choosing-the-pieces" title="Permanent link">&para;</a></h2>
 <p>The agents in brackets accept each piece, as
 <a href="../compatibility/">Compatibility</a> lists them from the code. "The off-policy
-actor-critics" are SAC, TD3, REDQ, CrossQ, TQC, ASAC, RVISAC, AVG and IQL;
+actor-critics" are</p>
+<!-- agents: off-policy-actor-critics -->
+<p>SAC, TD3, REDQ, CrossQ, TQC, ASAC, RVISAC, AVG and IQL;
 "the replay agents" are</p>
 <!-- agents: replay -->
 <p>SAC, TD3, REDQ, CrossQ, TQC, ASAC, RVI-SAC, IQL, DQN, DAgger.
@@ -3503,7 +3506,7 @@ actor-critics" are SAC, TD3, REDQ, CrossQ, TQC, ASAC, RVISAC, AVG and IQL;
 </tr>
 <tr>
 <td>Keep the actor near the expert early on</td>
-<td><code>ImitationLoss</code> (the off-policy actor-critics, APO, DAgger; with a stateless expert on IQL, PPO, APG, UDRL), <code>OnlineBC</code> (SAC)</td>
+<td><code>ImitationLoss</code> (the off-policy actor-critics, APO, DAgger; with a stateless expert on PPO, APG, UDRL), <code>OnlineBC</code> (SAC)</td>
 <td>TD3+BC's actor term (Fujimoto and Gu, 2021), kickstarting (Schmitt et al., 2018) with <code>anneal_frac</code>; <code>OnlineBC</code> developed with Ajax</td>
 </tr>
 <tr>
@@ -3958,7 +3961,7 @@ registers. For the others, <code>ExpertLaw</code> builds them from the law:</p>
   these extensions against SAC alone, with a swing-up controller as the
   expert.</li>
 </ul>
-<!-- /agents -->
+<!-- /agents --><!-- /agents -->
 
 
 

@@ -2799,6 +2799,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#unreleased" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Unreleased
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#060" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3008,6 +3019,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#unreleased" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Unreleased
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#060" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3175,6 +3197,38 @@
 <p>Versions follow semantic versioning; before 1.0, a breaking change bumps
 the minor version. Each release is tagged <code>vX.Y.Z</code> on main and published to
 PyPI as <code>ajax-rl</code>.</p>
+<h2 id="unreleased">Unreleased<a class="headerlink" href="#unreleased" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>REINFORCE declares <code>reward_learning</code></strong>: it learns from the reward. The
+  expert modules that need it (<code>ExpertActionInput</code>, <code>ResidualPolicy</code>,
+  <code>ExpertGains</code>, <code>OuterLoopReference</code>) are still refused on REINFORCE, now
+  for the right reason: it takes no <code>expert_policy</code> yet (<code>NotWired</code>), not a
+  capability its algorithm lacks.</li>
+<li><strong>IQL stores its expert's actions</strong> (<code>stores_expert_actions</code>), as the
+  other replay actor-critics do: a stateful expert, such as a PID, given as
+  its <code>expert_policy</code> now works with <code>ImitationLoss</code>, <code>IBRL</code> and
+  <code>LCBGatedBootstrap</code>, which read the actions collection stored from the
+  expert's state; IQL refused it before. With an expert, IQL's replay also
+  keeps the environment's own observations and the expert flags, so its
+  evaluations log <code>replay/expert_share</code>, and an extension calling an expert
+  of its own reads the raw observations, not the normalised ones it was
+  given under <code>normalize_observations=True</code>.</li>
+<li><strong>A refusal names the phase that needs the missing capability.</strong> An
+  extension acting at <code>action</code> on PPO, APO or REINFORCE, which run the
+  phase, is refused because the phase needs an off-policy update; the
+  message now says so: <code>... which needs off_policy (...) for its action
+  phase</code>.</li>
+<li>The agents named in <code>ImitationLoss</code>'s, <code>ExpertValueMetrics</code>',
+  <code>CloningPretrain</code>'s, <code>ExpertPrefill</code>'s and <code>PriorData</code>'s docstrings and
+  error messages are those that run them: CrossQ, TQC, RVI-SAC, IQL, AVG
+  and DAgger were missing where they apply.</li>
+<li><strong>Docs: the PQN comparisons against purejaxql are version 4</strong>, a
+  correction of their text only. The initialisation is matched (Ajax's PQN
+  has started as purejaxql's since before version 3 ran), and PQN-Asterix
+  no longer says Ajax cannot build pqn_minatar.py's network: both sides
+  keep pqn_gymnax.py's MLP, as its first version ran. Nothing was rerun;
+  the results page still reports version 3's run for PQN.</li>
+</ul>
 <h2 id="060">0.6.0<a class="headerlink" href="#060" title="Permanent link">&para;</a></h2>
 <p>What a user of 0.5.0 meets:</p>
 <ul>

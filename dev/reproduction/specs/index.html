@@ -1881,10 +1881,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#pqn-version-3" class="md-nav__link">
+  <a href="#pqn-version-4" class="md-nav__link">
     <span class="md-ellipsis">
       
-        PQN, version 3
+        PQN, version 4
       
     </span>
   </a>
@@ -1892,10 +1892,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#pqn-asterix-version-3" class="md-nav__link">
+  <a href="#pqn-asterix-version-4" class="md-nav__link">
     <span class="md-ellipsis">
       
-        PQN-Asterix, version 3
+        PQN-Asterix, version 4
       
     </span>
   </a>
@@ -3056,10 +3056,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#pqn-version-3" class="md-nav__link">
+  <a href="#pqn-version-4" class="md-nav__link">
     <span class="md-ellipsis">
       
-        PQN, version 3
+        PQN, version 4
       
     </span>
   </a>
@@ -3067,10 +3067,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#pqn-asterix-version-3" class="md-nav__link">
+  <a href="#pqn-asterix-version-4" class="md-nav__link">
     <span class="md-ellipsis">
       
-        PQN-Asterix, version 3
+        PQN-Asterix, version 4
       
     </span>
   </a>
@@ -3704,7 +3704,7 @@ version (see the <a href="../protocol/">protocol</a>).</p>
 <ul>
 <li>warm-up actions: SB3 adds the behaviour noise to its uniform warm-up actions and clips them, Ajax takes them uniform</li>
 </ul>
-<h2 id="pqn-version-3">PQN, version 3<a class="headerlink" href="#pqn-version-3" title="Permanent link">&para;</a></h2>
+<h2 id="pqn-version-4">PQN, version 4<a class="headerlink" href="#pqn-version-4" title="Permanent link">&para;</a></h2>
 <p>Ajax's PQN against purejaxql 47af6d7: vendor/purejaxql/pqn_gymnax.py.</p>
 <ul>
 <li>Environment: gymnax CartPole-v1, a port of Gymnasium's CartPole-v1.</li>
@@ -3712,7 +3712,7 @@ version (see the <a href="../protocol/">protocol</a>).</p>
 <li>Evaluation: 128 episodes of the deterministic policy, every 24,576 steps; a seed's score is the last one's mean return.</li>
 <li>AdaStop: n = 4, K = 24, alpha = 0.05.</li>
 <li>Margin: ±25.</li>
-<li>Spec hash: <code>1b1dcb8e69ef4bd0</code>.</li>
+<li>Spec hash: <code>cf9bcb624ffe8fcf</code>.</li>
 <li>Reproduce: <code>uv run python benchmarks/reference/refcmp_protocol.py run PQN --cache DIR</code></li>
 </ul>
 <table>
@@ -3886,18 +3886,17 @@ version (see the <a href="../protocol/">protocol</a>).</p>
 <p>Ajax settings without a reference counterpart: <code>architecture=('256', 'relu', '256', 'relu')</code>, <code>lr_decay=('linear', 1e-20, 15360)</code>, <code>td_loss='half_squared'</code>.</p>
 <p>Not matched:</p>
 <ul>
-<li>weight initialisation (lecun_normal vs Ajax's)</li>
 <li>evaluation: purejaxql scores the last episode each of its 128 test envs ends within one 500-step window, Ajax one episode per env</li>
 </ul>
-<h2 id="pqn-asterix-version-3">PQN-Asterix, version 3<a class="headerlink" href="#pqn-asterix-version-3" title="Permanent link">&para;</a></h2>
-<p>Ajax's PQN against purejaxql 47af6d7: vendor/purejaxql/pqn_gymnax.py with config/alg/pqn_minatar.yaml but the length. That config is for pqn_minatar.py, whose CNN Ajax's CNN encoder cannot build (VALID padding, LayerNorm after the convolution); both sides use pqn_gymnax.py's MLP on the flattened image instead.</p>
+<h2 id="pqn-asterix-version-4">PQN-Asterix, version 4<a class="headerlink" href="#pqn-asterix-version-4" title="Permanent link">&para;</a></h2>
+<p>Ajax's PQN against purejaxql 47af6d7: vendor/purejaxql/pqn_gymnax.py with config/alg/pqn_minatar.yaml but the length. That config is for pqn_minatar.py's CNN; both sides use pqn_gymnax.py's MLP on the flattened image instead, as version 1 of this comparison ran.</p>
 <ul>
 <li>Environment: gymnax Asterix-MinAtar, a port of MinAtar's Asterix with a 1000-step limit and no sticky actions.</li>
 <li>Budget: 1,228,800 steps per seed.</li>
 <li>Evaluation: 128 episodes of the deterministic policy, every 61,440 steps; a seed's score is the last one's mean return.</li>
 <li>AdaStop: n = 4, K = 24, alpha = 0.05.</li>
 <li>Margin: ±5% of the reference's mean score.</li>
-<li>Spec hash: <code>705d741cc22b3dcc</code>.</li>
+<li>Spec hash: <code>68359791d5efcf29</code>.</li>
 <li>Reproduce: <code>uv run python benchmarks/reference/refcmp_protocol.py run PQN-Asterix --cache DIR</code></li>
 </ul>
 <table>
@@ -4053,7 +4052,6 @@ version (see the <a href="../protocol/">protocol</a>).</p>
 <p>Ajax settings without a reference counterpart: <code>architecture=('128', 'relu', '128', 'relu')</code>, <code>lr_decay=('linear', 1e-20, 19200)</code>, <code>td_loss='half_squared'</code>.</p>
 <p>Not matched:</p>
 <ul>
-<li>weight initialisation (lecun_normal vs Ajax's)</li>
 <li>evaluation: purejaxql scores the last episode each of its 128 test envs ends within one 1000-step window, Ajax one episode per env</li>
 </ul>
 <h2 id="apg-version-1">APG, version 1<a class="headerlink" href="#apg-version-1" title="Permanent link">&para;</a></h2>

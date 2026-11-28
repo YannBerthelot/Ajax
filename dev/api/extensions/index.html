@@ -11284,9 +11284,10 @@ replay's expert flags would restore it); <code>coef</code> on the BC term, not
 the paper's <code>λ1 = 1e-3</code> on the RL term and <code>λ2</code>; the policy's mean
 action and the minimum over the agent's critics (TD3's actor reads its
 first, REDQ's the mean of its ensemble), not DDPG's one critic. The
-filter needs a Q critic, which SAC, TD3, REDQ, ASAC and AVG put in
-their actor-loss batch (<code>critic_state</code>); a state-value critic (PPO,
-APO) cannot rate an action. It refuses :class:<code>ResidualPolicy</code>, whose
+filter needs a Q critic, which the off-policy actor-critics (SAC, TD3,
+REDQ, CrossQ, TQC, ASAC, RVI-SAC, AVG and IQL) put in their actor-loss
+batch (<code>critic_state</code>); a state-value critic (PPO, APO) cannot rate
+an action. It refuses :class:<code>ResidualPolicy</code>, whose
 critic reads the executed action. <code>imitation/q_filter_frac</code> logs, at
 each evaluation, the share of a replay batch the filter keeps (every
 agent but AVG, which keeps no replay).</p>
@@ -11301,7 +11302,8 @@ policies (the expert is deterministic: it gives an action, not a
 distribution); a linear schedule set by <code>anneal_frac</code> instead of the
 weights population-based training tunes. <code>None</code> keeps the weight at 1.</p>
 <p><code>target="replay"</code> clones the replayed rows' own actions (<code>actions</code>,
-which SAC, TD3, REDQ and ASAC put in their actor-loss batch) instead of
+which the replay actor-critics, SAC, TD3, REDQ, CrossQ, TQC, ASAC,
+RVI-SAC and IQL, put in their actor-loss batch) instead of
 an expert's: logged data needs no expert, and <code>expert_policy</code> may be
 None. <code>alpha</code> makes the actor loss TD3+BC's (Fujimoto and Gu, 2021),
 <code>λ · (the agent's own) + coef · mean((μ(s) - a)²)</code> with <code>λ = alpha /
@@ -11314,10 +11316,13 @@ on the cloning part only. With both, on TD3, a transition
 dataset trained offline (<code>train_offline</code>) and
 <code>normalize_observations=True</code> (the dataset's statistics, sqrt(var +
 1e-8) in place of the reference's std + 1e-3), it is TD3+BC.</p>
-<p>TD3, REDQ, ASAC, APO, SAC and PPO put <code>pi_mean</code> and
-<code>raw_observations</code> in their actor-loss batch, and all but PPO (which
-takes no expert) the stored <code>a_expert</code>; an agent whose batch has no
-<code>pi_mean</code> (a discrete-action policy) raises at trace time.</p>
+<p>The agents it runs on, with continuous actions (the off-policy
+actor-critics, APO, DAgger, PPO, APG and UDRL), put <code>pi_mean</code> and
+<code>raw_observations</code> in their actor-loss batch, and those storing their
+expert's actions (<code>stores_expert_actions</code>) the stored <code>a_expert</code>,
+which the term reads when its expert is the agent's. An agent whose
+batch has no <code>pi_mean</code> (a discrete-action policy) raises at trace
+time.</p>
 
 
 
@@ -12147,7 +12152,8 @@ Q(s, a_E)|</code>.</p>
 <p>One replay batch per evaluation pays for them, not a critic pass (two
 with <code>φ*</code>) per update for three logged numbers. <code>a_E</code> is the
 expert's action stored at collection. A replay agent with an
-<code>expert_policy</code> (SAC, TD3, REDQ, ASAC, DQN) binds its replay buffer,
+<code>expert_policy</code> (SAC, TD3, REDQ, CrossQ, TQC, ASAC, RVI-SAC, IQL and
+DQN) binds its replay buffer,
 its expert and whether its actions are discrete: a discrete agent's
 Q-network gives every action's value, read at the stored index
 (q_network_value), one network, no ensemble to take the minimum of.</p>
@@ -12707,7 +12713,7 @@ its output head (the mean layer, or a PID actor's gains). Evaluations
 log the mean loss of cloning's first and last epoch
 (<code>cloning/first_loss</code>, <code>cloning/last_loss</code>).</p>
 <p>The fields after <code>reset_actor_head</code> are the agent's context, filled by
-:meth:<code>bind_to_agent</code> (SAC, REDQ, TD3 and APO do).</p>
+:meth:<code>bind_to_agent</code> (the off-policy actor-critics, APO and DAgger do).</p>
 
 
 
@@ -13191,8 +13197,9 @@ reads the agent's observation features, which a dataset does not hold.</p>
 an agent's expert_policy is called on every step collected, and this one
 on the prefill's alone.</p>
 <p>It needs an expert, a replay and an update that stays correct on actions
-the policy did not choose: SAC, REDQ, ASAC, TQC, TD3, CrossQ and IQL take
-it. It runs before the other pretraining, which may read its rows
+the policy did not choose: SAC, TD3, REDQ, CrossQ, TQC, ASAC, RVI-SAC,
+IQL and DQN take it. It runs before the other pretraining, which may
+read its rows
 (ExtensionStack.apply_pretrain).</p>
 
 
@@ -13279,8 +13286,8 @@ still count the env steps collected online. offline_updates=0 is RLPD's
 prior data in the replay (Ball et al. 2023) without its symmetric
 sampling. Ajax's warm-up acts uniformly: pair it with learning_starts=0.</p>
 <p>Needs the replay and update an off-policy loop hands the pretrain phase
-(pretrain_context): SAC, TD3, REDQ, ASAC, TQC, CrossQ, IQL and DQN take
-it, every other agent refuses it when built.</p>
+(pretrain_context): SAC, TD3, REDQ, CrossQ, TQC, ASAC, RVI-SAC, IQL and
+DQN take it, every other agent refuses it when built.</p>
 
 
 
@@ -14417,8 +14424,9 @@ linearly to its <code>v_max</code> over the run.</p>
     <div class="doc doc-contents ">
 
         <p>The target's discount <code>gamma</code>, which a bootstrap bonus scales;
-refused on an average-reward agent (ASAC, APO: <code>gamma</code> None), whose
-target has no discount and for which the bonus has no form.</p>
+refused on an average-reward agent (ASAC, RVI-SAC, APO: <code>gamma</code>
+None), whose target has no discount and for which the bonus has no
+form.</p>
 
 
     </div>
@@ -18063,7 +18071,7 @@ continuous ones).</p>
 
         <p>EVarEst measurement / instrumentation as composable :class:<code>Extension</code>s.</p>
 <p>The measurement code of EVAREST's <code>evarest/rl/</code>, foldable into any Ajax
-agent (SAC, DQN, REDQ, TD3 off-policy; PPO, PQN, APO, AVG on-policy):
+agent with a critic (the Compatibility page says which module runs where):
 <code>extensions=[CriticDiagnostics(), BiasVoreDecomposition(...), ...]</code>.</p>
 <h4 id="ajax.extensions.instrumentation--coverage">Coverage<a class="headerlink" href="#ajax.extensions.instrumentation--coverage" title="Permanent link">&para;</a></h4>
 <ul>

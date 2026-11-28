@@ -155,13 +155,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ inputs.version }}
         run: |
-          # The lines between "## X.Y.Z" and the next "## " heading.
-          awk -v heading="## $VERSION" '
-            $0 == heading { inside = 1; next }
-            inside && /^## / { exit }
-            inside { print }
-          ' CHANGELOG.md > "$RUNNER_TEMP/notes.md"
-          [ -s "$RUNNER_TEMP/notes.md" ] || { echo "CHANGELOG.md's '## $VERSION' entry is empty"; exit 1; }
+          # The "## X.Y.Z" entry, each paragraph and list item on one line.
+          python3 .github/scripts/release_notes.py "$VERSION" > "$RUNNER_TEMP/notes.md"
           gh release create "v$VERSION" dist/* --repo "${{ github.repository }}" \
             --verify-tag --latest --title "Ajax $VERSION" --notes-file "$RUNNER_TEMP/notes.md"
 

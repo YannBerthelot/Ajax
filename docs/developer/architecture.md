@@ -427,17 +427,19 @@ once: one or two lengths, two when `log_frequency` is not a multiple of an
 iteration's steps.
 
 With `on_progress` (train's progress bar) each chunk reports from inside its
-program (`perf_utils.reporting_chunk`), about a hundred times a call: it scans
-its ticks in pieces of one length, the divisor of its length nearest a
-hundredth of the call (the chunk whole when it has none near, as a prime
-length), and a host callback after each piece calls `on_progress`, once an
-optimisation barrier has seen the whole state computed. The chunks, their
-lengths and the evaluations stay those of a run without it. Cutting the
-chunks finer instead would report as well, but MuJoCo Warp captures its CUDA
-graphs again each time a program runs (two of about 65 ms on SAC Hopper):
-with a hundred chunks a call, SAC on Hopper trained about 20% slower. A host
-callback inside the training step, reporting every step, cost 38-63% of the
-training speed on MuJoCo Warp. APG, which evaluates inside its one training program and returns every
+program (`perf_utils.reporting_chunk`), about a hundred times a call. The
+chunk stays one scan of its ticks; a tick that ends a piece, of one length per
+chunk (the divisor of its length nearest a hundredth of the call, or the whole
+chunk when it has none near, as a prime length), calls `on_progress` from a
+host callback under a cond, once an optimisation barrier has seen its state
+computed. The chunks, their lengths and the evaluations stay those of a run
+without it, and on CPU so do the bits. Cutting the chunks finer instead would
+report as well, but MuJoCo Warp captures its CUDA graphs again each time a
+program runs (two of about 65 ms on SAC Hopper): with a hundred chunks a call,
+SAC on Hopper trained about 20% slower. Scanning the pieces one by one inside
+a chunk, with the callback or the barrier between them, changed SAC's and
+TD3's bits on CPU. A host callback inside the training step, reporting every
+step, cost 38-63% of the training speed on MuJoCo Warp. APG, which evaluates inside its one training program and returns every
 iteration's output, has no chunks to report: its lines keep the time left.
 
 With `LoggingConfig(evaluation_device=...)` the evaluation program keeps its

@@ -274,10 +274,13 @@ def reporting_chunk(
     call; a chunk with no divisor near (a prime length) reports at its end.
     Under the seed vmap it calls ``progress`` once per member.
 
-    The pieces are scanned inside the chunk's program rather than run as
-    more, shorter chunks: MuJoCo Warp captures its CUDA graphs anew each
-    time a program runs (two of about 65 ms on SAC Hopper), and a hundred
-    chunks a call made SAC on Hopper about 20% slower."""
+    The chunk is one scan of its ticks, as without reports, each tick
+    reporting under a cond when it ends a piece. More, shorter chunks would
+    report as well, but MuJoCo Warp captures its CUDA graphs anew each time
+    a program runs (two of about 65 ms on SAC Hopper): a hundred chunks a
+    call made SAC on Hopper about 20% slower. Pieces scanned one by one
+    inside the chunk, with a barrier or a callback between them, changed
+    SAC's and TD3's bits on CPU; the tick's cond does not."""
 
     def reported(done: Any, index: Any) -> None:
         progress(int(done) / num_updates, None if index is None else int(index))
@@ -288,25 +291,21 @@ def reporting_chunk(
     ) -> Any:
         piece = nearest_divisor(length, num_updates / PROGRESS_REPORTS)
 
-        def trained_piece(state: Any, ticks: Any) -> Tuple[Any, Any]:
-            state, aux = final_aux_scan(
-                lambda state, tick: tick_fn(state, index, tick), state, piece, ticks
-            )
+        def reporting_tick(state: Any, tick: Any) -> Tuple[Any, Any]:
+            state, aux = tick_fn(state, index, tick)
             # Through the barrier, the count waits for every leaf of the
-            # state, so the report waits for the piece's training, which a
-            # leaf the piece leaves as it was would not.
-            state, done = jax.lax.optimization_barrier(
-                (state, ticks[-1] - call_first + 1)
+            # tick's state, so a report waits for the training before it.
+            state, done = jax.lax.optimization_barrier((state, tick - call_first + 1))
+            jax.lax.cond(
+                (tick - first_tick + 1) % piece == 0,
+                lambda done: jax.debug.callback(reported, done, index),
+                lambda _: None,
+                done,
             )
-            jax.debug.callback(reported, done, index)
             return state, aux
 
-        # Every piece keeps its last tick's aux and the chunk returns the last
-        # piece's, rather than run the last piece apart, which would put the
-        # ticks in the program twice (each copy of a Warp step its own graphs).
-        ticks = (first_tick + jnp.arange(length)).reshape(-1, piece)
-        agent_state, aux = jax.lax.scan(trained_piece, agent_state, ticks)
-        return agent_state, jax.tree.map(lambda leaf: leaf[-1], aux)
+        ticks = first_tick + jnp.arange(length)
+        return final_aux_scan(reporting_tick, agent_state, length, ticks)
 
     return chunk
 

@@ -355,10 +355,9 @@ def test_chunks_evaluate_after_each_due_tick_on_that_ticks_state():
 
 
 def test_a_run_reporting_progress_runs_and_evaluates_as_one_without_it():
-    """Catches pieces that skip or repeat a tick, an evaluation moved off its
-    tick, or the aux of a chunk's first piece logged for its last: the rows
-    and sums would differ from the run without progress
-    (test_chunks_evaluate_after_each_due_tick_...)."""
+    """Catches reporting ticks that skip or repeat a tick, or an evaluation
+    moved off its tick: the rows and sums would differ from the run without
+    progress (test_chunks_evaluate_after_each_due_tick_...)."""
     reports = []
     train = make_chunked_toy(8, progress=lambda *report: reports.append(report))
     state, (rows, count) = jax.vmap(train)(
@@ -410,8 +409,9 @@ def test_a_resumed_run_reports_the_fraction_of_its_own_call():
 def test_a_chunk_reports_after_each_piece_of_its_ticks(num_updates, every, done):
     """Catches reports at the chunks' ends only (the bar would wait for each
     evaluation), pieces of a tick in a chunk with no divisor near a hundredth
-    of the call (a report per tick), and a piece that skips or repeats a tick
-    (the sum would differ)."""
+    of the call (a report per tick), reports at the pieces' first ticks
+    instead of their last, and a tick skipped or repeated (the sum would
+    differ)."""
     reports = []
     train = make_chunked_toy(num_updates, every, lambda *r: reports.append(r))
     state, _ = train(jax.random.PRNGKey(0))

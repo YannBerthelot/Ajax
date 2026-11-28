@@ -7,8 +7,8 @@ The tables go between markers in docs/reproduction/benchmark.md; the figures
 go to docs/reproduction/benchmark-figures/. A cell appears once every seed of
 its run reached the step budget, so a suite's tab shows up with its first
 finished run. The timing pass's records (results/timing-0.6) give the speed
-table between markers in docs/guide/performance.md and the time axis of the
-score-against-time figures. tests/benchmarks/test_publish.py checks the
+tables between markers in docs/guide/performance.md (one per number of
+seeds) and the time axis of the score-against-time figures. tests/benchmarks/test_publish.py checks the
 tables still match the records.
 """
 
@@ -340,6 +340,16 @@ def timing_block(runs: list[Run], timings: dict) -> str:
     return "\n".join(lines)
 
 
+def timing_blocks(runs: list[Run], directory: pathlib.Path = TIMING) -> dict:
+    """The performance page's timing tables by marker: the 10-seed pass's
+    ("agent-timing"), then one for each pass with another number of seeds,
+    whose records are in an <n>-seeds folder ("agent-timing-<n>-seeds")."""
+    blocks = {"agent-timing": timing_block(runs, read_timings(directory))}
+    for folder in sorted(directory.glob("*-seeds")):
+        blocks[f"agent-timing-{folder.name}"] = timing_block(runs, read_timings(folder))
+    return blocks
+
+
 def replace_block(text: str, marker: str, block: str) -> str:
     pattern = re.compile(
         rf"(<!-- {marker}:start -->\n).*?(<!-- {marker}:end -->)", re.DOTALL
@@ -618,11 +628,10 @@ def main(argv: Optional[list[str]] = None) -> int:
     PAGE.write_text(
         replace_block(PAGE.read_text(), "benchmark-tables", page_block(runs))
     )
-    PERFORMANCE_PAGE.write_text(
-        replace_block(
-            PERFORMANCE_PAGE.read_text(), "agent-timing", timing_block(runs, timings)
-        )
-    )
+    performance = PERFORMANCE_PAGE.read_text()
+    for marker, block in timing_blocks(runs).items():
+        performance = replace_block(performance, marker, block)
+    PERFORMANCE_PAGE.write_text(performance)
     if not args.tables:
         write_figures(runs)
         write_aggregate_figures(runs, timings)

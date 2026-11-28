@@ -47,8 +47,10 @@ def test_published_tables_match_the_records():
         == page
     )
     performance = publish.PERFORMANCE_PAGE.read_text()
-    timing = publish.timing_block(runs, publish.read_timings())
-    assert publish.replace_block(performance, "agent-timing", timing) == performance
+    rebuilt = performance
+    for marker, block in publish.timing_blocks(runs).items():
+        rebuilt = publish.replace_block(rebuilt, marker, block)
+    assert rebuilt == performance
 
 
 def test_score_uses_the_latest_attempt_and_gathers_seeds_run_in_parts(tmp_path):
@@ -162,10 +164,10 @@ def test_profile_counts_the_runs_strictly_above_each_threshold():
     np.testing.assert_allclose(fractions, [1.0, 1 / 3, 0.0])
 
 
-def timing_record(machine, timed_steps, exec_s, compile_s, agent="SAC"):
+def timing_record(machine, timed_steps, exec_s, compile_s, agent="SAC", n_seeds=10):
     manifest = {"commit": "abcdef0", "machine": {"cpu": "A CPU"}, "device": "B"}
     record = {"agent": agent, "env": "CheetahRun", "machine": machine}
-    record.update({"n_seeds": 10, "timed_steps": timed_steps, "exec_s": exec_s})
+    record.update({"n_seeds": n_seeds, "timed_steps": timed_steps, "exec_s": exec_s})
     record.update({"compile_s": compile_s, "manifest": manifest})
     return record
 
@@ -192,6 +194,22 @@ def test_timing_table_writes_a_gain_of_a_hundred_or_more_in_full(tmp_path):
     table = publish.timing_block(runs, publish.read_timings(tmp_path))
 
     assert "| SAC | CheetahRun | 1 | 110 | 110 times | 19 / 63 |" in table.splitlines()
+
+
+def test_a_pass_with_other_seeds_gets_a_table_of_its_own(tmp_path):
+    """Catches a 50-seed record read into the 10-seed table, or its table
+    missing; the footnote gives each table's number of seeds."""
+    write(tmp_path / "cpu.jsonl", [timing_record("cpu", 4000, 100.0, 19.0)])
+    fifty = timing_record("cpu", 400, 50.0, 25.0, n_seeds=50)  # 8 per second
+    write(tmp_path / "50-seeds" / "cpu.jsonl", [fifty])
+    runs = [final_run("SAC", "CheetahRun", "DeepMind Control", [1.0])]
+
+    blocks = publish.timing_blocks(runs, tmp_path)
+
+    assert list(blocks) == ["agent-timing", "agent-timing-50-seeds"]
+    assert "| SAC | CheetahRun | 40 | 19 |" in blocks["agent-timing"].splitlines()
+    assert "| SAC | CheetahRun | 8 | 25 |" in blocks["agent-timing-50-seeds"].splitlines()
+    assert "with 50 seeds trained together" in blocks["agent-timing-50-seeds"]
 
 
 def test_timing_table_shows_a_dash_where_the_gpu_has_not_timed_an_agent(tmp_path):

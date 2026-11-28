@@ -95,6 +95,10 @@ them instead.
 
 The environment, the agent and every seed compile into one program, so many seeds train at once on one device. With 10 seeds, one NVIDIA L40S ran SAC 15 times as fast as four CPU cores, and CrossQ, REDQ, DreamerV3 and TD-MPC2 about 80 to 110 times ([speeds](https://yannberthelot.github.io/Ajax/latest/guide/performance/#cpu-or-gpu)).
 
+<!-- speed-by-family:start -->
+With 10 seeds on four CPU cores, against the fastest other library, Ajax trained SAC and TD3 at 0.8 to 1.0 times, PPO at 0.2 to 0.8 times, DQN and PQN at 0.9 to 1.1 times its speed. On one NVIDIA L40S, against the JAX libraries, Ajax trained SAC at 5.6 to 7.8 times, PPO at 0.8 to 1.3 times, DQN and PQN at 0.8 to 0.9 times its speed. On HalfCheetah, Ajax, Brax and PureJaxRL step MJX, the others C MuJoCo ([figure and settings](https://yannberthelot.github.io/Ajax/latest/guide/performance/#against-other-libraries)).
+<!-- speed-by-family:end -->
+
 ## Research in a few lines
 
 Several seeds and several values of a hyperparameter train in one compiled program: here 30 runs, 10 seeds for each of 3 learning rates.

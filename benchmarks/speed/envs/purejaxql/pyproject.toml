@@ -1,0 +1,22 @@
+# purejaxql's PQN (../../../reference/vendor/purejaxql) for the speed
+# comparison (../../README.md), at the versions of Ajax's uv.lock.
+[project]
+name = "speed-purejaxql"
+version = "0"
+requires-python = "==3.12.*"
+dependencies = [
+    "jax==0.11.2",
+    "flax==0.12.12",
+    "optax==0.2.9",
+    "chex==0.1.92",
+    "gymnax==1.0.1",
+    # gymnax imports it (gymnax/utils/load_mnist.py) without declaring it.
+    "six",
+]
+
+[tool.uv]
+package = false
+
+[project.optional-dependencies]
+# The GPU runs: `uv sync --extra cuda`.
+cuda = ["jax[cuda]==0.11.2"]

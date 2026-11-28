@@ -3,7 +3,9 @@
 `purejaxrl/ppo_rnn.py` and the `wrappers.py` it imports are copied unchanged
 from [luchris429/purejaxrl](https://github.com/luchris429/purejaxrl) at commit
 `31756b1` (2024-09-09), the reference code of Ajax's recurrent PPO. Apache
-License 2.0, see `LICENSE`.
+License 2.0, see `LICENSE`. `ppo.py`, `ppo_continuous_action.py` and `dqn.py`,
+from the same commit and also unchanged, are the PureJaxRL agents
+`benchmarks/speed` times.
 
 `tests/conformance/test_purejaxrl_rnn.py` checks Ajax's recurrent networks
 against `ActorCriticRNN` (`ppo_rnn.py:46-79`) parameter for parameter. The file

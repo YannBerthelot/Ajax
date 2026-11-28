@@ -9,6 +9,125 @@ measurement is described in full. They belong to the machine they were
 measured on: use them for orders of magnitude, not as promises. They are
 CPU measurements unless a line says otherwise.
 
+## Against other libraries
+
+The same algorithms, with the same settings, in Ajax and in
+[Stable-Baselines3](https://github.com/DLR-RM/stable-baselines3),
+[SBX](https://github.com/araffin/sbx), [CleanRL](https://github.com/vwxyzjn/cleanrl),
+[PureJaxRL](https://github.com/luchris429/purejaxrl),
+[Brax](https://github.com/google/brax) and
+[purejaxql](https://github.com/mttga/purejaxql), each run its own documented
+way: every library on the same four CPU cores, and Ajax and the JAX libraries
+on one NVIDIA L40S.
+
+![Environment steps per second of each library, by algorithm family, on four CPU cores and on one L40S](performance-figures/speed-by-family.svg)
+
+<!-- speed-by-family:start -->
+With 10 seeds on four CPU cores, against the fastest other library on each task, Ajax trains at:
+
+- **SAC and TD3**: 0.8 times CleanRL's speed (TD3, HalfCheetah-v5) to 1.0 times CleanRL's speed (TD3, Pendulum-v1)
+- **PPO**: 0.2 times SB3's speed (PPO, HalfCheetah-v5) to 0.8 times PureJaxRL's speed (PPO, CartPole-v1)
+- **DQN and PQN**: 0.9 times purejaxql's speed (PQN, CartPole-v1) to 1.1 times PureJaxRL's speed (DQN, CartPole-v1)
+
+With 10 seeds on one NVIDIA L40S, against the fastest JAX library on each task, Ajax trains at:
+
+- **SAC**: 5.6 times Brax's speed (SAC, HalfCheetah-v5) to 7.8 times Brax's speed (SAC, Pendulum-v1)
+- **PPO**: 0.8 times PureJaxRL's speed (PPO, CartPole-v1) to 1.3 times PureJaxRL's speed (PPO, HalfCheetah-v5)
+- **DQN and PQN**: 0.8 times PureJaxRL's speed (DQN, CartPole-v1) to 0.9 times purejaxql's speed (PQN, CartPole-v1)
+
+| Algorithm | Task | Seeds | Device | Ajax | Fastest other | Ajax's factor |
+|---|---|---:|---|---:|---|---:|
+| SAC | Pendulum-v1 | 1 | CPU | 358 | Brax, 355 | 1.01 |
+| SAC | Pendulum-v1 | 10 | CPU | 414 | Brax, 493 | 0.84 |
+| SAC | HalfCheetah-v5 | 1 | CPU | 245 | Brax, 289 | 0.85 |
+| SAC | HalfCheetah-v5 | 10 | CPU | 339 | SBX, 374 | 0.91 |
+| TD3 | Pendulum-v1 | 1 | CPU | 513 | SBX, 434 | 1.18 |
+| TD3 | Pendulum-v1 | 10 | CPU | 573 | CleanRL, 552 | 1.04 |
+| TD3 | HalfCheetah-v5 | 1 | CPU | 308 | CleanRL, 371 | 0.83 |
+| TD3 | HalfCheetah-v5 | 10 | CPU | 423 | CleanRL, 517 | 0.82 |
+| PPO | CartPole-v1 | 1 | CPU | 159,822 | PureJaxRL, 167,985 | 0.95 |
+| PPO | CartPole-v1 | 10 | CPU | 288,583 | PureJaxRL, 352,323 | 0.82 |
+| PPO | HalfCheetah-v5 | 1 | CPU | 1,502 | SB3, 1,767 | 0.85 |
+| PPO | HalfCheetah-v5 | 10 | CPU | 1,509 | SB3, 6,521 | 0.23 |
+| DQN | CartPole-v1 | 1 | CPU | 13,510 | PureJaxRL, 21,506 | 0.63 |
+| DQN | CartPole-v1 | 10 | CPU | 89,198 | PureJaxRL, 84,333 | 1.06 |
+| PQN | CartPole-v1 | 1 | CPU | 28,091 | purejaxql, 24,910 | 1.13 |
+| PQN | CartPole-v1 | 10 | CPU | 80,609 | purejaxql, 86,759 | 0.93 |
+| SAC | Pendulum-v1 | 1 | GPU | 5,246 | Brax, 4,101 | 1.28 |
+| SAC | Pendulum-v1 | 10 | GPU | 32,167 | Brax, 4,101 (one after another) | 7.84 |
+| SAC | HalfCheetah-v5 | 1 | GPU | 194 | Brax, 153 | 1.27 |
+| SAC | HalfCheetah-v5 | 10 | GPU | 848 | Brax, 153 (one after another) | 5.55 |
+| PPO | CartPole-v1 | 1 | GPU | 84,879 | PureJaxRL, 94,485 | 0.90 |
+| PPO | CartPole-v1 | 10 | GPU | 727,466 | PureJaxRL, 911,309 | 0.80 |
+| PPO | HalfCheetah-v5 | 1 | GPU | 255 | PureJaxRL, 231 | 1.10 |
+| PPO | HalfCheetah-v5 | 10 | GPU | 792 | PureJaxRL, 630 | 1.26 |
+| DQN | CartPole-v1 | 1 | GPU | 13,560 | PureJaxRL, 18,256 | 0.74 |
+| DQN | CartPole-v1 | 10 | GPU | 159,158 | PureJaxRL, 210,896 | 0.75 |
+| PQN | CartPole-v1 | 1 | GPU | 250,928 | purejaxql, 258,614 | 0.97 |
+| PQN | CartPole-v1 | 10 | GPU | 2,034,588 | purejaxql, 2,162,308 | 0.94 |
+
+Environment steps per second over every seed together, from a stretch of training once the updates run on four cores of an AMD EPYC 9454 48-Core Processor and one NVIDIA L40S ([records](https://github.com/YannBerthelot/Ajax/blob/main/benchmarks/speed/results/speed.jsonl)).
+<!-- speed-by-family:end -->
+
+- **Ten seeds**: Ajax, PureJaxRL and purejaxql train them in one program.
+  SB3, SBX, CleanRL and Brax train one seed per process: ten processes at once
+  on the four cores, or one after another where that is faster (the table says
+  so), which runs at their one-seed speed. On the GPU, Brax's ten seeds would
+  run one after another, so its one-seed speed stands for them.
+- **HalfCheetah**: Ajax, Brax and PureJaxRL step gymnasium-mjx's
+  HalfCheetah-v5 on MJX, MuJoCo in JAX. SB3, SBX and CleanRL step C MuJoCo
+  through Gymnasium; CleanRL's scripts need Gymnasium 0.29, so they step
+  HalfCheetah-v4, the same model.
+- **What is timed**: environment steps per second over every seed, during a
+  stretch of training once the updates run. Compilation, start-up and
+  evaluations are left out. The machine is shared: each record notes how busy
+  its cores were, and the same cell timed twice can differ by a tenth or more.
+
+The settings, the same in every library where it takes them; they are
+CleanRL's and PureJaxRL's defaults for PPO on CartPole and DQN, the defaults
+SB3 and CleanRL share for SAC, TD3 and PPO on HalfCheetah, and purejaxql's for
+PQN:
+
+??? note "Settings"
+
+    <!-- speed-settings:start -->
+    | Setting | SAC | TD3 | PPO, CartPole-v1 | PPO, HalfCheetah-v5 | DQN | PQN |
+    |---|---|---|---|---|---|---|
+    | Environments per seed | 1 | 1 | 4 | 1 | 1 | 32 |
+    | Rollout steps per environment |  |  | 128 | 2,048 |  | 64 |
+    | Epochs per rollout |  |  | 4 | 10 |  | 4 |
+    | Minibatches per epoch |  |  | 4 | 32 |  | 16 |
+    | Batch size | 256 | 256 |  |  | 128 |  |
+    | Replay buffer | 1,000,000 | 1,000,000 |  |  | 10,000 |  |
+    | Updates per environment step | 1 | 1 |  |  |  |  |
+    | Environment steps per update |  |  |  |  | 10 |  |
+    | Environment steps per target copy |  |  |  |  | 500 |  |
+    | Updates start after | 1,000 | 1,000 |  |  | 1,000 |  |
+    | Hidden layers | 256-256 | 256-256 | 64-64 | 64-64 | 120-84 | 256-256 |
+    | Activation | relu | relu | tanh | tanh | relu | relu |
+    | Layer norm |  |  |  |  |  | yes |
+    | Learning rate | 0.0003 | 0.0003 | 0.00025 | 0.0003 | 0.00025 | 0.0001 |
+    | Discount | 0.99 | 0.99 | 0.99 | 0.99 | 0.99 | 0.99 |
+    | Target smoothing | 0.005 | 0.005 |  |  |  |  |
+    | Policy delay |  | 2 |  |  |  |  |
+    | Target noise (clip) |  | 0.2 (0.5) |  |  |  |  |
+    | Exploration noise |  | 0.1 |  |  |  |  |
+    | Epsilon (final, decay share) |  |  |  |  | 1 to 0.05 (50%) | 1 to 0.2 (20%) |
+    | GAE lambda |  |  | 0.95 | 0.95 |  |  |
+    | Q(lambda) |  |  |  |  |  | 0.95 |
+    | Clip range |  |  | 0.2 | 0.2 |  |  |
+    | Entropy coefficient |  |  | 0.01 | 0 |  |  |
+    | Gradient norm clip |  |  | 0.5 | 0.5 |  | 10 |
+    | Observation and reward normalisation |  |  | no | yes |  |  |
+
+    - CleanRL's PQN: 120-84 layers with layer norm (fixed in pqn.py).
+    - PureJaxRL's PPO: 256-256 layers on HalfCheetah (fixed in ppo_continuous_action.py).
+    - Brax's PPO: minibatches of whole 64-step unrolls, GAE within each, observations normalised but not rewards (Brax has no reward normaliser).
+    <!-- speed-settings:end -->
+
+[benchmarks/speed](https://github.com/YannBerthelot/Ajax/tree/main/benchmarks/speed)
+has the method, each library's versions, the scripts and the records.
+
 ## The compile cache
 
 `train` compiles the whole run, environment included. With logging, the

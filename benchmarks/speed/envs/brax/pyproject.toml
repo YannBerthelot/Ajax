@@ -1,0 +1,28 @@
+# Brax's trainers (SAC, PPO) for the speed comparison (../../README.md):
+# Brax, MuJoCo, MJX and gymnasium-mjx's HalfCheetah-v5 (through MuJoCo
+# Playground's Brax wrapper, the task Ajax trains on) at the versions of
+# Ajax's uv.lock; gymnax serves Pendulum-v1. JAX is 0.9.2, the newest Brax's
+# trainers run on: they call jax.device_put_replicated, which JAX 0.10
+# removed.
+[project]
+name = "speed-brax"
+version = "0"
+requires-python = "==3.12.*"
+dependencies = [
+    "brax==0.14.2",
+    "jax==0.9.2",
+    "mujoco==3.15.0",
+    "mujoco-mjx==3.15.0",
+    "playground==0.2.0",
+    "gymnasium-mjx[playground]==0.3.0",
+    "gymnax==1.0.1",
+    # gymnax imports it (gymnax/utils/load_mnist.py) without declaring it.
+    "six",
+]
+
+[tool.uv]
+package = false
+
+[project.optional-dependencies]
+# The GPU runs: `uv sync --extra cuda`.
+cuda = ["jax[cuda]==0.9.2"]

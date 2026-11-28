@@ -227,6 +227,22 @@ SEGMENTS = {
     ("PQN", "CartPole-v1", "python", 10, "cpu"): 311_296,
     ("PQN", "CartPole-v1", "compiled", 1, "cpu"): 1_249_280,
     ("PQN", "CartPole-v1", "compiled", 10, "cpu"): 428_032,
+    ("SAC", "Pendulum-v1", "compiled", 1, "gpu"): 93_000,
+    ("SAC", "Pendulum-v1", "compiled", 10, "gpu"): 68_000,
+    ("SAC", "HalfCheetah-v5", "compiled", 1, "gpu"): 5_000,
+    ("SAC", "HalfCheetah-v5", "compiled", 10, "gpu"): 3_000,
+    ("TD3", "Pendulum-v1", "compiled", 1, "gpu"): 109_000,
+    ("TD3", "Pendulum-v1", "compiled", 10, "gpu"): 82_000,
+    ("TD3", "HalfCheetah-v5", "compiled", 1, "gpu"): 5_000,
+    ("TD3", "HalfCheetah-v5", "compiled", 10, "gpu"): 3_000,
+    ("PPO", "CartPole-v1", "compiled", 1, "gpu"): 2_278_400,
+    ("PPO", "CartPole-v1", "compiled", 10, "gpu"): 1_980_928,
+    ("PPO", "HalfCheetah-v5", "compiled", 1, "gpu"): 6_144,
+    ("PPO", "HalfCheetah-v5", "compiled", 10, "gpu"): 2_048,
+    ("DQN", "CartPole-v1", "compiled", 1, "gpu"): 400_000,
+    ("DQN", "CartPole-v1", "compiled", 10, "gpu"): 471_000,
+    ("PQN", "CartPole-v1", "compiled", 1, "gpu"): 6_449_152,
+    ("PQN", "CartPole-v1", "compiled", 10, "gpu"): 5_588_992,
 }
 
 

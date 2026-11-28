@@ -1,0 +1,26 @@
+# SBX for the speed comparison (../../README.md): its latest release, on
+# Gymnasium's own environments, with JAX at Ajax's version. Stable-Baselines3
+# and torch, whose rollout and replay buffers SBX uses, are those of ../sb3.
+[project]
+name = "speed-sbx"
+version = "0"
+requires-python = "==3.12.*"
+dependencies = [
+    "sbx-rl==0.28.0",
+    "stable-baselines3==2.9.2",
+    "torch==2.15.0",
+    "jax==0.11.2",
+    "gymnasium[mujoco]==1.4.0",
+    "mujoco==3.15.0",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true

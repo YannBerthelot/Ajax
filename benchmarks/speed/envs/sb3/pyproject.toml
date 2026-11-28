@@ -1,0 +1,24 @@
+# Stable-Baselines3 for the speed comparison (../../README.md): its latest
+# release, on Gymnasium's own environments (C MuJoCo for HalfCheetah-v5), with
+# the CPU build of torch, the version every torch library here runs.
+[project]
+name = "speed-sb3"
+version = "0"
+requires-python = "==3.12.*"
+dependencies = [
+    "stable-baselines3==2.9.2",
+    "torch==2.15.0",
+    "gymnasium[mujoco]==1.4.0",
+    "mujoco==3.15.0",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true

@@ -271,6 +271,12 @@ def page_block(runs: list[Run]) -> str:
     return "\n\n".join(tabs)
 
 
+def number(value: float) -> str:
+    """A speed or a gain as the table shows it: whole from 10 up, else two
+    significant digits (0.064, 3.9), never in scientific notation."""
+    return f"{value:,.0f}" if value >= 10 else f"{value:.2g}"
+
+
 def timed_machines(timings: dict) -> list[str]:
     """The machines the timing pass has records from, the CPU first."""
     timed = {machine for _, _, machine in timings}
@@ -305,14 +311,14 @@ def timing_block(runs: list[Run], timings: dict) -> str:
             speeds, compiles = [DASH] * len(timed), [DASH] * len(timed)
             for column, record in enumerate(timed):
                 if record is not None:
-                    speed = steps_per_second(record)
-                    speeds[column] = f"{speed:,.0f}" if speed >= 10 else f"{speed:.2g}"
+                    speeds[column] = number(steps_per_second(record))
                     compiles[column] = f"{record['compile_s']:.0f}"
             if len(machines) == 2:
                 cpu, gpu = timed
                 gain = DASH
                 if cpu is not None and gpu is not None:
-                    gain = f"{steps_per_second(gpu) / steps_per_second(cpu):.2g} times"
+                    ratio = steps_per_second(gpu) / steps_per_second(cpu)
+                    gain = f"{number(ratio)} times"
                 speeds.append(gain)
             task = suite_and_task(found[0]["env"])[1]
             cells = [name(agent), task, *speeds, " / ".join(compiles)]

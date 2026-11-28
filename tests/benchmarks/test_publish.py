@@ -182,6 +182,18 @@ def test_timing_table_gives_each_machine_and_the_gpu_gain(tmp_path):
     assert "| SAC | CheetahRun | 40 | 240 | 6 times | 19 / 63 |" in table.splitlines()
 
 
+def test_timing_table_writes_a_gain_of_a_hundred_or_more_in_full(tmp_path):
+    """Catches scientific notation ("1.1e+02 times") for a large gain."""
+    # 100 steps in 100 s on the CPU, 11,000 on the GPU: 1 and 110 per second.
+    write(tmp_path / "cpu.jsonl", [timing_record("cpu", 100, 100.0, 19.0)])
+    write(tmp_path / "gpu.jsonl", [timing_record("gpu", 11000, 100.0, 63.0)])
+    runs = [final_run("SAC", "CheetahRun", "DeepMind Control", [1.0])]
+
+    table = publish.timing_block(runs, publish.read_timings(tmp_path))
+
+    assert "| SAC | CheetahRun | 1 | 110 | 110 times | 19 / 63 |" in table.splitlines()
+
+
 def test_timing_table_shows_a_dash_where_the_gpu_has_not_timed_an_agent(tmp_path):
     """Catches a missing GPU record read as a speed, or the row dropped."""
     cpu = [timing_record("cpu", 4000, 100.0, 19.0, agent) for agent in ("SAC", "TD3")]

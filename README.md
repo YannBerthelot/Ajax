@@ -93,7 +93,7 @@ them instead.
 
 ## Speed
 
-The environment, the agent and every seed compile into one program, so many seeds train at once on one device. With 10 seeds, one NVIDIA L40S ran SAC about 7 times as fast as four CPU cores, and CrossQ and REDQ over 50 times ([speeds](https://yannberthelot.github.io/Ajax/latest/guide/performance/#cpu-or-gpu)).
+The environment, the agent and every seed compile into one program, so many seeds train at once on one device. With 10 seeds, one NVIDIA L40S ran SAC 15 times as fast as four CPU cores, and CrossQ, REDQ, DreamerV3 and TD-MPC2 80 to 110 times ([speeds](https://yannberthelot.github.io/Ajax/latest/guide/performance/#cpu-or-gpu)).
 
 ## Research in a few lines
 

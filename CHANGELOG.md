@@ -6,6 +6,11 @@ PyPI as `ajax-rl`.
 
 ## Unreleased
 
+- **Docs: speeds on one GPU.** The performance page's timing table adds one
+  NVIDIA L40S beside the four CPU cores, with each agent's gain, and replaces
+  the dated comparison of 2026-11-06. The benchmark's score-against-time
+  figures count hours on that GPU, and the README's speed line gives the new
+  gains.
 - **REINFORCE declares `reward_learning`**: it learns from the reward. The
   expert modules that need it (`ExpertActionInput`, `ResidualPolicy`,
   `ExpertGains`, `OuterLoopReference`) are still refused on REINFORCE, now

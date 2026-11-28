@@ -274,14 +274,19 @@ def reporting_chunk(
     call; a chunk with no divisor near (a prime length) reports at its end.
     Under the seed vmap it calls ``progress`` once per member.
 
-    The chunk is one scan of its ticks, as without reports: a tick that ends
-    a piece reports under a cond, and the chunk's last report comes after
-    the scan. More, shorter chunks would report as well, but MuJoCo Warp
-    captures its CUDA graphs anew each time a program runs (two of about
-    65 ms on SAC Hopper): a hundred chunks a call made SAC on Hopper about
-    20% slower. Pieces scanned one by one inside the chunk, with a barrier
-    or a callback between them, changed SAC's and TD3's bits on CPU, and a
-    barrier on every tick AVG's; the cond does not."""
+    The chunk is one scan of its ticks, as without reports, and a tick that
+    ends a piece inside it reports under a cond: in a loop's turn, so in
+    order, and up to a tick early (the cond reads the tick's count alone).
+    The chunk's end is reported by a program of its own that takes a leaf of
+    the state the chunk returns, so it runs once the chunk has trained: inside
+    the chunk that report would read no tick, and came first, at the chunk's
+    start, even behind an optimisation barrier over the state. More, shorter
+    chunks would report as well, but MuJoCo Warp captures its CUDA graphs
+    anew each time a program runs (two of about 65 ms on SAC Hopper): a
+    hundred chunks a call made SAC on Hopper about 20% slower. Pieces scanned
+    one by one inside the chunk, with a barrier or a callback between them,
+    changed SAC's and TD3's bits on CPU, and a barrier on every tick AVG's;
+    the cond does not."""
 
     def reported(done: Any, index: Any) -> None:
         progress(int(done) / num_updates, None if index is None else int(index))
@@ -292,40 +297,34 @@ def reporting_chunk(
     ) -> Any:
         piece = nearest_divisor(length, num_updates / PROGRESS_REPORTS)
 
-        def reporting_tick(carry: Any, tick: Any) -> Tuple[Any, Any]:
-            state, reports = carry
+        def reporting_tick(state: Any, tick: Any) -> Tuple[Any, Any]:
             state, aux = tick_fn(state, index, tick)
             trained = tick - first_tick + 1
-
-            def report(reports: Any) -> Any:
-                jax.debug.callback(reported, tick - call_first + 1, index)
-                return reports + 1
-
-            reports = jax.lax.cond(
+            jax.lax.cond(
                 (trained % piece == 0) & (trained < length),
-                report,
-                lambda reports: reports,
-                reports,
+                lambda done: jax.debug.callback(reported, done, index),
+                lambda _: None,
+                tick - call_first + 1,
             )
-            return (state, reports), aux
+            return state, aux
 
         ticks = first_tick + jnp.arange(length)
-        (agent_state, reports), aux = final_aux_scan(
-            reporting_tick, (agent_state, jnp.int32(0)), length, ticks
-        )
-        # The last report reads no tick, so it could come first, before the
-        # chunk has run or the reports inside it (callbacks with no data
-        # between them run in any order: on CI's aarch64 runner it did, and
-        # the bar, which keeps the furthest, stood still until it). Through
-        # the barrier its count waits for the whole state and for the count
-        # of reports, which a cond returns once its callback has run.
-        agent_state, _, done = jax.lax.optimization_barrier(
-            (agent_state, reports, first_tick + length - call_first)
-        )
+        return final_aux_scan(reporting_tick, agent_state, length, ticks)
+
+    @partial(jax.jit, keep_unused=True)
+    def report_end(after: Any, done: Any, index: Any) -> None:
+        del after  # an input only: the program waits for it
         jax.debug.callback(reported, done, index)
+
+    def reporting(
+        agent_state: Any, index: Any, first_tick: int, length: int, call_first: int
+    ) -> Any:
+        agent_state, aux = chunk(agent_state, index, first_tick, length, call_first)
+        smallest = min(jax.tree.leaves(agent_state), key=np.size)
+        report_end(smallest, first_tick + length - call_first, index)
         return agent_state, aux
 
-    return chunk
+    return reporting
 
 
 def nearest_divisor(n: int, target: float) -> int:

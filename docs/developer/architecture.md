@@ -428,23 +428,23 @@ iteration's steps.
 
 With `on_progress` (train's progress bar) each chunk reports from inside its
 program (`perf_utils.reporting_chunk`), about a hundred times a call. The
-chunk stays one scan of its ticks; a tick that ends a piece, of one length per
-chunk (the divisor of its length nearest a hundredth of the call, or the whole
-chunk when it has none near, as a prime length), calls `on_progress` from a
-host callback under a cond, and the chunk's last report comes after the scan,
-once an optimisation barrier has seen the whole state computed (it reads no
-tick, and could otherwise come before the chunk runs). The barrier also takes
-the count of reports made, which each cond returns once its callback has run,
-so the last report comes after the others: callbacks with no data between them
-run in any order, and on CI's aarch64 runner a chunk's last report came first,
-so the bar, which keeps the furthest, stood still until it. The chunks, their
-lengths and the evaluations stay those of a run without it, and on CPU so do
-the bits. Cutting the chunks finer instead would report as well, but MuJoCo
-Warp captures its CUDA graphs again each time a program runs (two of about
-65 ms on SAC Hopper): with a hundred chunks a call, SAC on Hopper trained
-about 20% slower. Scanning the pieces one by one inside a chunk, with the
-callback or the barrier between them, changed SAC's and TD3's bits on CPU, and
-a barrier on every tick AVG's. A host callback inside the training step,
+chunk stays one scan of its ticks; a tick that ends a piece inside it, of one
+length per chunk (the divisor of its length nearest a hundredth of the call,
+or the whole chunk when it has none near, as a prime length), calls
+`on_progress` from a host callback under a cond, in its loop turn: in order,
+and up to a tick early, as the cond reads the tick's count alone. The chunk's
+end is reported by a small program of its own that takes a leaf of the state
+the chunk returns, so it runs once the chunk has trained. Inside the chunk
+that report would read no tick and came first, at the chunk's start, even
+behind an optimisation barrier over the state (SAC on bob's CPU, and on CI's
+aarch64 runner for chunks of two ticks). The chunks, their lengths and the
+evaluations stay those of a run without it, and on CPU so do the bits.
+Cutting the chunks finer instead would report as well, but MuJoCo Warp
+captures its CUDA graphs again each time a program runs (two of about 65 ms
+on SAC Hopper): with a hundred chunks a call, SAC on Hopper trained about 20%
+slower. Scanning the pieces one by one inside a chunk, with the callback or a
+barrier between them, changed SAC's and TD3's bits on CPU, and a barrier on
+every tick AVG's. A host callback inside the training step,
 reporting every step, cost 38-63% of the training speed on MuJoCo Warp. APG, which evaluates inside its one training program and returns every
 iteration's output, has no chunks to report: its lines keep the time left.
 

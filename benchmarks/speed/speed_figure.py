@@ -31,14 +31,22 @@ PAGE_URL = "https://yannberthelot.github.io/Ajax/latest/guide/performance/#again
 #: row names its library, so colour only singles Ajax out (seven hues cannot
 #: all be told apart, side by side, by colour-blind readers).
 AJAX, OTHER, MUTED = "#2a78d6", "#5f5e5a", "#8a8984"
-DEVICES = {"cpu": "Four CPU cores", "gpu": "One NVIDIA L40S"}
+DEVICES = {
+    "cpu": "Four CPU cores",
+    "gpu": "One NVIDIA L40S: Ajax and the JAX libraries",
+}
+
+
+def records(path: pathlib.Path) -> list[dict]:
+    if not path.exists():
+        return []
+    return [json.loads(line) for line in path.read_text().splitlines() if line]
 
 
 def read(path: pathlib.Path = RECORDS) -> dict:
     """(algorithm, task, seeds, device) -> library -> (steps per second, how)."""
     latest = {}
-    for line in path.read_text().splitlines() if path.exists() else []:
-        r = json.loads(line)
+    for r in records(path):
         latest[(r["algorithm"], r["task"], r["library"], r["seeds"], r["device"])] = r
     speeds: dict = {}
     for (algorithm, task, library, seeds, device), r in latest.items():
@@ -80,15 +88,17 @@ def number(x: float) -> str:
 
 
 def extremes(speeds: dict, device: str) -> dict:
-    """Family -> its lowest and highest ten-seed (factor, library, algorithm,
-    task)."""
-    out: dict = {}
+    """The family's algorithms with a ten-seed factor on ``device`` (its
+    label) -> their lowest and highest (factor, library, algorithm, task)."""
+    found: dict = {}
     for family, algorithm, task, seeds in rows():
         ratio, best = factor(speeds.get((algorithm, task, seeds, device), {}))
         if seeds == 10 and ratio is not None:
-            cell = (ratio, best, algorithm, task)
-            low, high = out.get(family, (cell, cell))
-            out[family] = (min(low, cell), max(high, cell))
+            found.setdefault(family, []).append((ratio, best, algorithm, task))
+    out = {}
+    for cells in found.values():
+        label = " and ".join(dict.fromkeys(cell[2] for cell in cells))
+        out[label] = (min(cells), max(cells))
     return out
 
 
@@ -103,11 +113,13 @@ def span(low: float, high: float) -> str:
     return f"{low:.1f} to {high:.1f}"
 
 
-def table(speeds: dict) -> str:
+def table(speeds: dict, path: pathlib.Path = RECORDS) -> str:
     lines = []
     intro = {
-        "cpu": "With 10 seeds on four CPU cores, Ajax trains at",
-        "gpu": "With 10 seeds on one NVIDIA L40S, against the JAX libraries, at",
+        "cpu": "With 10 seeds on four CPU cores, against the fastest other"
+        " library on each task, Ajax trains at:",
+        "gpu": "With 10 seeds on one NVIDIA L40S, against the fastest JAX"
+        " library on each task, Ajax trains at:",
     }
     for device in DEVICES:
         found = extremes(speeds, device)
@@ -139,9 +151,18 @@ def table(speeds: dict) -> str:
                 f"| {algorithm} | {task} | {seeds} | {device.upper()} | "
                 f"{number(row['Ajax'][0])} | {other} | {ratio:.2f} |"
             )
+    machines = {
+        (r["manifest"]["machine"]["cpu"], r["manifest"]["machine"]["gpu"])
+        for r in records(path)
+    }
+    cpus = sorted({cpu for cpu, _ in machines})
+    gpus = sorted({gpu for _, gpu in machines if gpu})
+    where = f" on four cores of an {' and '.join(cpus)}" if cpus else ""
+    where += f" and one {' and '.join(gpus)}" if gpus else ""
     lines.append(
         "\nEnvironment steps per second over every seed together, from a"
-        f" stretch of training once the updates run ([records]({RECORDS_URL}))."
+        f" stretch of training once the updates run{where}"
+        f" ([records]({RECORDS_URL}))."
     )
     return "\n".join(lines)
 
@@ -236,7 +257,12 @@ def sentence(speeds: dict) -> str:
             )
     if not parts:
         return ""
-    return "With 10 seeds " + " ".join(parts) + f" ([Figure and settings]({PAGE_URL}).)"
+    return (
+        "With 10 seeds "
+        + " ".join(parts)
+        + " On HalfCheetah, Ajax, Brax and PureJaxRL step MJX, the others C MuJoCo"
+        f" ([figure and settings]({PAGE_URL}))."
+    )
 
 
 def draw(speeds: dict, path: pathlib.Path = FIGURE) -> None:
@@ -268,73 +294,48 @@ def draw(speeds: dict, path: pathlib.Path = FIGURE) -> None:
         2,
         figsize=(10, 0.6 + 0.165 * sum(heights)),
         gridspec_kw={"height_ratios": heights},
-        sharex="col",
+        sharex=True,  # one scale for both devices
     )
+    dot = {"marker": "o", "markersize": 5.5, "linestyle": ""}
+    hollow = {**dot, "markerfacecolor": "white", "markeredgewidth": 1.3}
+    filled = {**dot, "markeredgecolor": "white", "markeredgewidth": 0.6}
     for column, device in enumerate(DEVICES):
         for (family, group), axis in zip(groups.items(), axes[:, column], strict=True):
             labels, y = [], 0  # (text, colour, weight) per row
             for algorithm, task in group:
                 labels.append((f"{algorithm}, {task}", "#0b0b0b", "bold"))
                 y += 1
+                ten_row = speeds.get((algorithm, task, 10, device), {})
                 for library in specs.LIBRARIES[algorithm]:
                     if (algorithm, task, library) in specs.UNSUPPORTED:
                         continue
                     one = speeds.get((algorithm, task, 1, device), {}).get(library)
-                    ten = speeds.get((algorithm, task, 10, device), {}).get(library)
+                    ten = ten_row.get(library)
                     colour = AJAX if library == "Ajax" else OTHER
                     if one and ten:
-                        axis.plot(
-                            [one[0], ten[0]],
-                            [y, y],
-                            color=colour,
-                            linewidth=1,
-                            alpha=0.6,
-                        )
+                        axis.plot([one[0], ten[0]], [y, y], color=colour, alpha=0.6)
                     if one:
-                        axis.plot(
-                            one[0],
-                            y,
-                            "o",
-                            markersize=5.5,
-                            markerfacecolor="white",
-                            markeredgecolor=colour,
-                            markeredgewidth=1.3,
-                        )
+                        axis.plot(one[0], y, markeredgecolor=colour, **hollow)
                     if ten:
-                        axis.plot(
-                            ten[0],
-                            y,
-                            "o",
-                            markersize=5.5,
-                            color=colour,
-                            markeredgecolor="white",
-                            markeredgewidth=0.6,
-                        )
-                    ratio, _ = factor(speeds.get((algorithm, task, 10, device), {}))
+                        axis.plot(ten[0], y, color=colour, **filled)
+                    ratio, _ = factor(ten_row)
                     if library == "Ajax" and ratio is not None:
                         axis.annotate(
                             f"{ratio:.1f}x",
                             (1.0, y),
                             xycoords=("axes fraction", "data"),
-                            xytext=(3, 0),
+                            xytext=(4, 0),
                             textcoords="offset points",
                             va="center",
-                            fontsize=8,
                             color=AJAX,
                         )
                     physics = specs.physics(task, library)
-                    labels.append(
-                        (
-                            library + (f" ({physics})" if physics else ""),
-                            colour,
-                            "normal",
-                        )
-                    )
+                    name = library + (f" ({physics})" if physics else "")
+                    labels.append((name, colour, "normal"))
                     y += 1
             axis.set_xscale("log")
-            axis.set_yticks(
-                range(len(labels)), [x[0] if column == 0 else "" for x in labels]
-            )
+            names = [x[0] if column == 0 else "" for x in labels]
+            axis.set_yticks(range(len(labels)), names)
             for tick, (_, colour, weight) in zip(
                 axis.get_yticklabels(), labels, strict=True
             ):
@@ -346,46 +347,20 @@ def draw(speeds: dict, path: pathlib.Path = FIGURE) -> None:
             axis.set_axisbelow(True)
             if family == next(iter(groups)):
                 axis.set_title(DEVICES[device], fontsize=9, loc="left", color="#0b0b0b")
-        axes[-1, column].set_xlabel(
-            "Environment steps per second, every seed together (log scale)"
-        )
+        label = "Environment steps per second, every seed together (log scale)"
+        axes[-1, column].set_xlabel(label)
     keys = [
+        plt.Line2D([], [], markeredgecolor=OTHER, label="1 seed", **hollow),
+        plt.Line2D([], [], color=OTHER, label="10 seeds", **filled),
         plt.Line2D(
-            [],
-            [],
-            marker="o",
-            linestyle="",
-            markersize=5.5,
-            markerfacecolor="white",
-            markeredgecolor=OTHER,
-            label="1 seed",
-        ),
-        plt.Line2D(
-            [],
-            [],
-            marker="o",
-            linestyle="",
-            markersize=5.5,
-            color=OTHER,
-            label="10 seeds",
-        ),
-        plt.Line2D(
-            [],
-            [],
-            linestyle="",
-            label="2.0x: Ajax over the fastest other library, 10 seeds",
+            [], [], linestyle="", label="2.0x: Ajax over the fastest other, 10 seeds"
         ),
     ]
     figure.legend(
-        handles=keys,
-        loc="upper right",
-        ncol=3,
-        frameon=False,
-        fontsize=8,
-        handletextpad=0.3,
-        labelcolor=MUTED,
+        handles=keys, loc="upper right", ncol=3, frameon=False, labelcolor=MUTED
     )
-    figure.tight_layout(rect=(0, 0, 0.97, 0.975))
+    figure.tight_layout(rect=(0, 0, 0.965, 0.975))
+    figure.subplots_adjust(wspace=0.1)
     path.parent.mkdir(parents=True, exist_ok=True)
     figure.savefig(path, metadata={"Date": None})
 

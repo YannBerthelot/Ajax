@@ -141,6 +141,8 @@ SETTINGS = {
 #: (algorithm, library) -> what the library keeps of its own.
 EXCEPTIONS = {
     ("PQN", "CleanRL"): "120-84 layers with layer norm (fixed in pqn.py)",
+    ("PPO", "PureJaxRL"): "256-256 layers on HalfCheetah (fixed in"
+    " ppo_continuous_action.py)",
     ("PPO", "Brax"): "minibatches of whole 64-step unrolls, GAE within each,"
     " observations normalised but not rewards (Brax has no reward normaliser)",
 }

@@ -300,7 +300,10 @@ AGENTS = {
     "SAC-norm": ("SAC", {**_SAC, "normalize_observations": True}, 64),
     "TD3": ("TD3", _REPLAY, 64),
     "REDQ": ("REDQ", {**_REPLAY, "num_critic_updates": 2}, 64),
+    "TQC": ("TQC", _REPLAY, 64),
     "ASAC": ("ASAC", _REPLAY, 64),
+    "RVISAC": ("RVISAC", _REPLAY, 64),
+    "IQL": ("IQL", _REPLAY, 64),
     "AVG": ("AVG", {}, 64),
     "PPO": ("PPO", _ROLLOUT, 64),
     "PPO-norm": ("PPO", {**_ROLLOUT, "normalize_observations": True}, 64),
@@ -370,13 +373,13 @@ def test_the_gains_are_normalised_on_a_wider_box():
 
 
 @pytest.mark.parametrize(
-    "name", ["SAC", "REDQ", "AVG", "ASAC", "TQC", "PPO", "APO", "IQL"]
+    "name", ["SAC", "REDQ", "AVG", "ASAC", "TQC", "RVISAC", "PPO", "APO", "IQL"]
 )
 def test_an_agents_gaussian_head_settings_leave_its_pid_actor_alone(name):
     """Every agent with a Gaussian actor sets its head's log-std start, often
-    its reference code's (0 for SAC, REDQ, AVG, PPO, APO and IQL, drawn by the
-    layer for ASAC and TQC); a PID policy in that actor's place keeps the PID
-    actor's own start, PID_LOG_STD_INIT."""
+    its reference code's (0 for SAC, REDQ, AVG, RVI-SAC, PPO, APO and IQL,
+    drawn by the layer for ASAC and TQC); a PID policy in that actor's place
+    keeps the PID actor's own start, PID_LOG_STD_INIT."""
     import ajax
 
     env, params = setpoint_env.make()

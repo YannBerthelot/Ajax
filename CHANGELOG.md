@@ -4,6 +4,15 @@ Versions follow semantic versioning; before 1.0, a breaking change bumps
 the minor version. Each release is tagged `vX.Y.Z` on main and published to
 PyPI as `ajax-rl`.
 
+## Unreleased
+
+- **Docs: the PQN comparisons against purejaxql are version 4**, a
+  correction of their text only. The initialisation is matched (Ajax's PQN
+  has started as purejaxql's since before version 3 ran), and PQN-Asterix
+  no longer says Ajax cannot build pqn_minatar.py's network: both sides
+  keep pqn_gymnax.py's MLP, as its first version ran. Nothing was rerun;
+  the results page still reports version 3's run for PQN.
+
 ## 0.6.0
 
 What a user of 0.5.0 meets:

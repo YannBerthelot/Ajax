@@ -115,8 +115,7 @@ PENDULUM_SBX = (
     " episodes); SBX steps it through refcmp_sb3.gymnax_vec_env"
 )
 
-# purejaxql's PQN against Ajax's: its settings' Ajax names, and what no Ajax
-# option matches.
+# purejaxql's PQN against Ajax's: its settings' Ajax names.
 PUREJAXQL_RENAMES = {
     "NUM_ENVS": "n_envs",
     "NUM_STEPS": "n_steps",
@@ -131,7 +130,6 @@ PUREJAXQL_RENAMES = {
     "REW_SCALE": "reward_scale",
     "MAX_GRAD_NORM": "max_grad_norm",
 }
-PUREJAXQL_UNMATCHED = ("weight initialisation (lecun_normal vs Ajax's)",)
 
 _AVG_CHECKS = "tests/conformance/test_avg_original.py::"
 #: gauthamvasan/avg (6b6822c) against Ajax's AVG, from the conformance check (no outcome comparison).
@@ -541,8 +539,11 @@ COMPARISONS = {
         # time limit ending an episode, the Q(lambda) off-by-one), so time
         # limits leave the unmatched list. Version 3, before any run of
         # version 2: Ajax's PQN now steps purejaxql's optimiser, RAdam with
-        # eps 1e-8, so the optimiser leaves it too.
-        version=3,
+        # eps 1e-8, so the optimiser leaves it too. Version 4, text only:
+        # Ajax's PQN has started as purejaxql's (flax's lecun_normal) since
+        # b9ccae4a, before version 3 ran, so the initialisation leaves it
+        # as well; version 3's records ran with it matched.
+        version=4,
         renames=PUREJAXQL_RENAMES,
         agent="PQN",
         env_id="CartPole-v1",
@@ -607,13 +608,16 @@ COMPARISONS = {
             "td_loss": "half_squared",
         },
         unmatched=(
-            *PUREJAXQL_UNMATCHED,
             "evaluation: purejaxql scores the last episode each of its 128 test"
             " envs ends within one 500-step window, Ajax one episode per env",
         ),
     ),
     "PQN-Asterix": Comparison(
-        version=3,  # as PQN's
+        # Version 4, text only, as PQN's: the initialisation is matched, and
+        # Ajax's CNN encoder has built pqn_minatar.py's network (VALID
+        # padding, LayerNorm after the convolution) since f5673f79; both
+        # sides keep pqn_gymnax.py's MLP, as version 1 ran.
+        version=4,
         renames=PUREJAXQL_RENAMES,
         agent="PQN",
         env_id="Asterix-MinAtar",
@@ -625,9 +629,8 @@ COMPARISONS = {
         reference="purejaxql",
         source="purejaxql 47af6d7: vendor/purejaxql/pqn_gymnax.py with"
         " config/alg/pqn_minatar.yaml but the length. That config is for"
-        " pqn_minatar.py, whose CNN Ajax's CNN encoder cannot build (VALID"
-        " padding, LayerNorm after the convolution); both sides use"
-        " pqn_gymnax.py's MLP on the flattened image instead",
+        " pqn_minatar.py's CNN; both sides use pqn_gymnax.py's MLP on the"
+        " flattened image instead, as version 1 of this comparison ran",
         environment="gymnax Asterix-MinAtar, a port of MinAtar's Asterix with"
         " a 1000-step limit and no sticky actions",
         n_eval_episodes=128,
@@ -675,7 +678,6 @@ COMPARISONS = {
             "td_loss": "half_squared",
         },
         unmatched=(
-            *PUREJAXQL_UNMATCHED,
             "evaluation: purejaxql scores the last episode each of its 128 test"
             " envs ends within one 1000-step window, Ajax one episode per env",
         ),

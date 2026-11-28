@@ -22,8 +22,8 @@ Contract (docs/getting-started/quickstart.md, ``ActorCritic.train``,
     episodes of each member's policy, members x episodes, the same for the
     same seed, on a Gymnasium environment too;
   - on a terminal (or in a notebook), a default run also draws a progress
-    bar under its lines (tqdm), which moves each time a chunk of training
-    ends, between the evaluations too, gives the time left, which the lines
+    bar under its lines (tqdm), which moves as training goes on, between
+    the evaluations too, gives the time left, which the lines
     then leave out, and ends at the call's steps; members trained side by
     side move it at the slowest one's pace, members trained one after
     another add their steps; off a terminal nothing is drawn (owner,
@@ -419,11 +419,12 @@ def test_a_sweeps_closing_line_counts_runs():
 def test_a_default_run_on_a_terminal_draws_a_bar_moving_between_evaluations(
     capsys, monkeypatch
 ):
-    """Catches a bar that moves only at the evaluations (chunks ending there
-    alone), one that stops short of the call's steps, or one drawn without
-    the time left. 192 steps are 12 rollouts of 16; a tenth, 19.2 steps,
-    rounds up to 2 rollouts: a bar moving at each chunk's end stands at odd
-    rollouts too."""
+    """Catches a bar that moves only at the evaluations (reports at the
+    chunks' ends alone), one that stops short of the call's steps, or one
+    drawn without the time left. 192 steps are 12 rollouts of 16; a tenth,
+    19.2 steps, rounds up to 2 rollouts between evaluations; a hundredth is
+    under a rollout, so a bar moving after each piece stands at odd rollouts
+    too."""
     terminal = FakeTerminal()
     monkeypatch.setattr("sys.stderr", terminal)
     _, evaluations = tiny_ppo().train(seed=[0, 1], n_timesteps=192)
@@ -449,7 +450,7 @@ def test_a_default_run_off_a_terminal_draws_no_bar(capsys):
 
 def test_a_bar_is_decided_on_on_a_terminal_only(monkeypatch):
     """Catches a bar decided on where none shows (a log file, CI): the run
-    would train in finer chunks for nothing; and one never decided on."""
+    would report from its programs for nothing; and one never decided on."""
     monkeypatch.setattr("sys.stderr", io.StringIO())
     assert not draws_bars()
     monkeypatch.setattr("sys.stderr", FakeTerminal())
@@ -465,7 +466,7 @@ def test_lines_leave_the_time_left_to_a_drawn_bar(capsys):
     now = [0.0]
     printer = ProgressPrinter("PPO", ["seed 0"], 400, clock=lambda: now[0], bar=bar)
     for step, elapsed in [(100, 5.0), (200, 7.0)]:
-        bar(step / 400, 0)  # the chunk an evaluation ends reports first
+        bar(step / 400, 0)  # the report on an evaluation's tick comes first
         now[0] = elapsed
         printer({"timestep": np.array(step), RETURN: np.array(1.0)}, 0)
     assert capsys.readouterr().out.splitlines() == [
@@ -477,7 +478,7 @@ def test_lines_leave_the_time_left_to_a_drawn_bar(capsys):
 
 def test_members_trained_together_move_the_bar_at_the_slowest_ones_pace():
     """Catches a bar that runs ahead of a member still training (on another
-    device): it appears once both have trained a chunk, at the slower one."""
+    device): it appears once both have reported, at the slower one."""
     terminal = FakeTerminal()
     bar = ProgressBar("SAC", 100, 2, make=partial(tqdm, file=terminal))
     bar(0.5, 0)

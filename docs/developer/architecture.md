@@ -426,15 +426,18 @@ come on the same ticks and states as in one scan. Each chunk length compiles
 once: one or two lengths, two when `log_frequency` is not a multiple of an
 iteration's steps.
 
-With `on_progress` (train's progress bar) the chunks end about a hundred
-times a call (`perf_utils.progress_ends`): the spans between evaluations are
-cut into pieces of a divisor of the commonest span, the other spans keeping
-a remainder, so no more lengths compile; a prime span stays whole. After
-each chunk a small program of its own calls `on_progress`: it takes a leaf
-of the state the chunk returns, so it runs once the chunk has trained, while
-the Python loop dispatches every chunk ahead. A host callback inside the
-training step, reporting every step, cost 38-63% of the training speed on
-MuJoCo Warp. APG, which evaluates inside its one training program and returns every
+With `on_progress` (train's progress bar) each chunk reports from inside its
+program (`perf_utils.reporting_chunk`), about a hundred times a call: it scans
+its ticks in pieces of one length, the divisor of its length nearest a
+hundredth of the call (the chunk whole when it has none near, as a prime
+length), and a host callback after each piece calls `on_progress`, once an
+optimisation barrier has seen the whole state computed. The chunks, their
+lengths and the evaluations stay those of a run without it. Cutting the
+chunks finer instead would report as well, but MuJoCo Warp captures its CUDA
+graphs again each time a program runs (two of about 65 ms on SAC Hopper):
+with a hundred chunks a call, SAC on Hopper trained about 20% slower. A host
+callback inside the training step, reporting every step, cost 38-63% of the
+training speed on MuJoCo Warp. APG, which evaluates inside its one training program and returns every
 iteration's output, has no chunks to report: its lines keep the time left.
 
 With `LoggingConfig(evaluation_device=...)` the evaluation program keeps its

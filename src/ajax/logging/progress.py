@@ -129,12 +129,12 @@ def draws_bars() -> bool:
 
 class ProgressBar:
     """A train call's progress bar (tqdm): the steps trained, their rate and
-    the time left. It moves each time a chunk of training has trained
+    the time left. It moves as training goes on
     (``LoggingConfig.on_progress``: called with each member's fraction done)
-    and appears once every member has trained its first chunk, so the
-    compilation is not in its rate. ``together``: the members train side by
-    side and the bar stands at the slowest one; else one after another, and
-    it counts all their steps. ``make`` builds the tqdm bar."""
+    and appears once every member has reported once, so the compilation is
+    not in its rate. ``together``: the members train side by side and the bar
+    stands at the slowest one; else one after another, and it counts all
+    their steps. ``make`` builds the tqdm bar."""
 
     def __init__(
         self,
@@ -385,7 +385,7 @@ def run_logging(
         )
     if n_timesteps < 1:
         return None, None
-    # Off a terminal, no bar: the chunks stay one per evaluation.
+    # Off a terminal, no bar: the training programs make no reports.
     bar = None
     if draws_bars():
         bar = ProgressBar(agent_name, n_timesteps, len(seeds), together)
@@ -415,7 +415,7 @@ def finished(result: Any, printer: Any) -> Any:
     if isinstance(out, dict) and not isinstance(out, Evaluations):
         out = Evaluations(out)
     if printer is not None:
-        # The last chunk's report runs after the state it reads is ready.
+        # The last report runs on the device's timeline, after the training.
         jax.effects_barrier()
         printer.close(out)
     return state, out

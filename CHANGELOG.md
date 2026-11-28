@@ -37,9 +37,9 @@ PyPI as `ajax-rl`.
   the results page still reports version 3's run for PQN.
 - **A progress bar.** On a terminal or in a notebook, `train` with no
   `logging_config` draws a progress bar (tqdm) under its lines, with the
-  rate and the time left, which the lines then leave out. It moves each
-  time a chunk of training has trained, about a hundred times a call; in a
-  log file or CI nothing is drawn and the lines are as before. APG's lines
+  rate and the time left, which the lines then leave out. It moves about a
+  hundred times a call, as training goes on; in a log file or CI nothing is
+  drawn and the lines are as before. APG's lines
   keep the time left: it trains in one program, with no chunks to report.
 - **`LoggingConfig(on_progress=...)`**, the bar's hook: a function called
   with each seed's fraction done as training goes on.

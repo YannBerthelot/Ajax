@@ -29,7 +29,7 @@ and compiling (:func:`compile_spans`). ``--compare`` judges
 run; steps/s then count every seed's steps. ``--logging default`` times
 train's default run, ten evaluations between chunks of training, as off a
 terminal; ``--logging bar`` the same with the progress bar's reports, as on
-a terminal (LoggingConfig.on_progress, which ends chunks more often).
+a terminal (LoggingConfig.on_progress: reports from inside each chunk).
 """
 
 from __future__ import annotations

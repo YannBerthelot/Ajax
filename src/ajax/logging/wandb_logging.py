@@ -64,10 +64,10 @@ class LoggingConfig:
         such as printing (ajax.logging.progress.ProgressPrinter).
     on_progress: a function called in the training process as training goes
         on, on_progress(done, index): the fraction of the call's training
-        that member index has done, 1.0 at its end, each time a chunk of it
-        has trained. Given, a call trains in about a hundred chunks, not only
-        one per evaluation (ajax.perf_utils.build_chunked_train); train's own
-        bar uses it (ajax.logging.progress.ProgressBar).
+        that member index has done, 1.0 at its end, about a hundred times a
+        call, from inside the training programs
+        (ajax.perf_utils.build_chunked_train); train's own bar uses it
+        (ajax.logging.progress.ProgressBar).
     """
 
     config: dict = struct.field(default_factory=dict)

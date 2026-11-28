@@ -382,8 +382,8 @@ class TrainLoop:
     #: (LoggingConfig.evaluation_device); None: each evaluation runs between
     #: chunks of training.
     evaluator: Optional[AsyncEvaluator] = None
-    #: Called as each chunk of training ends (LoggingConfig.on_progress),
-    #: which then ends about a hundred times a call (build_chunked_train).
+    #: Called as training goes on, about a hundred times a call
+    #: (LoggingConfig.on_progress, build_chunked_train).
     progress: Optional[Callable[[float, Any], None]] = None
 
     @classmethod

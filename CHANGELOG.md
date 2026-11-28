@@ -29,6 +29,12 @@ PyPI as `ajax-rl`.
   `CloningPretrain`'s, `ExpertPrefill`'s and `PriorData`'s docstrings and
   error messages are those that run them: CrossQ, TQC, RVI-SAC, IQL, AVG
   and DAgger were missing where they apply.
+- **Docs: the PQN comparisons against purejaxql are version 4**, a
+  correction of their text only. The initialisation is matched (Ajax's PQN
+  has started as purejaxql's since before version 3 ran), and PQN-Asterix
+  no longer says Ajax cannot build pqn_minatar.py's network: both sides
+  keep pqn_gymnax.py's MLP, as its first version ran. Nothing was rerun;
+  the results page still reports version 3's run for PQN.
 
 ## 0.6.0
 

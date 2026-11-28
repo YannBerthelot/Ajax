@@ -68,15 +68,27 @@ def pages_deploys() -> list:
     found = []
     for path in sorted(WORKFLOWS.glob("*.yml")):
         for name, job in load(path.name)["jobs"].items():
-            steps = {step.get("uses", "").split("@")[0]: step for step in job.get("steps", [])}
+            steps = {
+                step.get("uses", "").split("@")[0]: step
+                for step in job.get("steps", [])
+            }
             if "actions/deploy-pages" in steps:
                 upload = steps["actions/upload-pages-artifact"].get("with", {})
                 deploy = steps["actions/deploy-pages"].get("with", {})
-                found.append((path.name, name, upload.get("name", "github-pages"), deploy.get("artifact_name", "github-pages")))
+                found.append(
+                    (
+                        path.name,
+                        name,
+                        upload.get("name", "github-pages"),
+                        deploy.get("artifact_name", "github-pages"),
+                    )
+                )
     return found
 
 
-@pytest.mark.parametrize("deploy", pages_deploys(), ids=lambda deploy: "-".join(deploy[:2]))
+@pytest.mark.parametrize(
+    "deploy", pages_deploys(), ids=lambda deploy: "-".join(deploy[:2])
+)
 def test_a_pages_deploy_takes_this_attempts_artifact(deploy):
     """Contract (deploy-pages): it refuses a run holding two artifacts of the
     name it deploys, so a job re-run within its run must upload and deploy a
